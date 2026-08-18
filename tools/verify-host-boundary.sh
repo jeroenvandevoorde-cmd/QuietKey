@@ -71,6 +71,7 @@ LC_ALL=C sort "$tmpdir/hostfiles.raw" > "$tmpdir/actual" \
 cat > "$tmpdir/expected" <<'EOF'
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
+docs/f3/WALLET-TRUST-SPINE-DRAFT.md
 docs/f4/README.md
 docs/f4/TRANSACTION-AUTHORITY-POLICY.md
 host/.gitignore
@@ -592,8 +593,8 @@ forbid "$DRAFT still uses the loose authenticated-prevout mismatch class" \
   -F 'reject: authenticated prevout/P2WSH commitment mismatch' "$DRAFT"
 grep -F '| D-00 |' "$DRAFT" >/dev/null \
   || err "$DRAFT missing decision-packet item D-00"
-# F3.1a/F3.1b source-register rows: fail-closed COMPLETE-LITERAL-FULL-ROW
-# checks plus resource uniqueness. For each of the 19 rows the helper
+# F3.1a/F3.1b/F3.2a source-register rows: fail-closed COMPLETE-LITERAL-FULL-ROW
+# checks plus resource uniqueness. For each of the 26 rows the helper
 # requires (1) the resource selector — the backticked filename/path
 # token ONLY, deliberately independent of the mutable leading
 # source-label cell, spacing, or table formatting — to occur exactly
@@ -673,6 +674,27 @@ exact_row 'mempool-replacements.md' \
 exact_row 'BIP 143' \
   '`bip-0143.mediawiki`' \
   '| bitcoin/bips — `bip-0143.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | PD (per the pinned BIP preamble; Status Deployed, Type Specification, Layer Consensus (soft fork)) | F3.1b Revision 2 citation-only reference for SegWit-v0 signature-digest semantics: the digest commits to the 8-byte value of the output spent by the input; for native P2WSH, scriptCode is the witnessScript serialized as a script inside CTxOut when it contains no OP_CODESEPARATOR, otherwise it is the witnessScript suffix after and excluding the last executed OP_CODESEPARATOR before the signature-checking opcode, serialized the same way. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 32' \
+  '`bip-0032.mediawiki`' \
+  '| bitcoin/bips — `bip-0032.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.2a citation-only reference for HD extended keys, fingerprints and child derivation. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 48' \
+  '`bip-0048.mediawiki`' \
+  '| bitcoin/bips — `bip-0048.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | MIT (per the pinned BIP preamble) | F3.2a citation-only reference for the m/48h/0h/0h/2h multi-sig hierarchy, receive/change branches and the native P2WSH script type. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 67' \
+  '`bip-0067.mediawiki`' \
+  '| bitcoin/bips — `bip-0067.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | PD (per the pinned BIP preamble) | F3.2a citation-only reference for deterministic compressed-public-key lexicographic ordering rationale. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 380' \
+  '`bip-0380.mediawiki`' \
+  '| bitcoin/bips — `bip-0380.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.2a citation-only reference for descriptor syntax, key-origin expressions and the descriptor checksum. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 382' \
+  '`bip-0382.mediawiki`' \
+  '| bitcoin/bips — `bip-0382.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.2a citation-only reference for wsh()/P2WSH descriptor semantics. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 383' \
+  '`bip-0383.mediawiki`' \
+  '| bitcoin/bips — `bip-0383.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.2a citation-only reference for multi()/sortedmulti() semantics and sorting of derived public keys. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 39' \
+  '`bip-0039.mediawiki`' \
+  '| bitcoin/bips — `bip-0039.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | MIT (per the pinned BIP preamble) | F3.2a citation-only reference limited to mnemonic-to-seed mechanics used by the inherited 24-word English/empty-passphrase profile; QuietKey'\''s 24-word English/empty-passphrase selection remains controlled by local QK-REQ-CUS-005. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
 for fb in 'BSD-2-Clause (per the BIP 68 preamble' \
   'BSD-2-Clause (per the BIP 113 preamble' \
   'BSD-2-Clause (per the BIP 125 preamble' \
@@ -868,6 +890,371 @@ grep -F 'the checked formula weight_min/max = 4 × stripped_size + 2 (SegWit mar
   || err "$DRAFT PLAN-088 row missing its scoped weight-equation statement"
 grep -F 'EXCLUDES the marker/flag' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the witness_min/max marker/flag exclusion definition"
+
+# 5d. F3.2a Wallet Trust Spine DRAFT: static supporting checks only.
+# Heuristic lexical evidence, never proof, never acceptance. Every
+# grep is separately rc-checked; no pipelines.
+WTS=docs/f3/WALLET-TRUST-SPINE-DRAFT.md
+[ -f "$WTS" ] || err "$WTS missing"
+grep -F '# QK-F3.2a — Wallet Trust Spine DRAFT' "$WTS" >/dev/null \
+  || err "$WTS missing the exact title"
+grep -F 'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' "$WTS" >/dev/null \
+  || err "$WTS missing the no-funds warning"
+grep -F 'STATUS: AUTHORIZED — F3.2a HOST-ONLY WALLET TRUST-SPINE DRAFT — PROPOSED/NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED OR FROZEN — NO TEST VECTORS GENERATED OR RUN — NO IMPLEMENTATION — NO TARGET EVIDENCE.' "$WTS" >/dev/null \
+  || err "$WTS missing the exact mandatory status banner"
+grep -F 'AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY; QK-AUTH-F3.2A-001 authorizes preparation of this draft only. Every rule remains PROPOSED/NON-NORMATIVE until separate explicit profile acceptance.' "$WTS" >/dev/null \
+  || err "$WTS missing the exact authorization line"
+grep -F 'QK-AUTH-F3.2A-001 — F3.2a Wallet Trust Spine drafting authorization' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the QK-AUTH-F3.2A-001 record"
+grep -F '“Agreed, please continue”' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the exact F3.2a owner words"
+# Closed-world WTS clause set: extract the ENTIRE row-leading clause
+# heading ID token (the maximal alphanumeric/hyphen run after the
+# exact heading prefix, not merely a numeric prefix) and compare
+# against the exact expected 001-015 list. Duplicates, omissions,
+# numeric extras (016, 100, 999, ...) and malformed suffix tokens
+# (100A, ABC, 001-extra, missing/extra zeroes) all yield a token that
+# differs from the expected set and fail. The count of row-leading
+# heading-prefix lines must equal the count of extracted tokens, so a
+# malformed heading line cannot become invisible by omitting an
+# expected delimiter. Every stage rc-checked; no pipelines.
+# Every clause-prefix line must satisfy the complete anchored heading
+# grammar; IDs are derived ONLY from fully valid heading lines, so a
+# malformed heading (001X, ABC, altered marker) can never contribute a
+# backtracked ID and can never hide: prefix-line count must equal
+# valid-complete-heading count.
+wclines=$(grep -c '^\*\*QK-F3-WTS' "$WTS")
+wcrc=$?
+[ "$wcrc" -le 1 ] || err "WTS clause heading-prefix line count failed (grep exit $wcrc)"
+wcvalid=$(grep -cE '^\*\*QK-F3-WTS-[0-9][0-9][0-9] \(PROPOSED/NON-NORMATIVE\)\.\*\*' "$WTS")
+wcrc=$?
+[ "$wcrc" -le 1 ] || err "WTS valid clause heading count failed (grep exit $wcrc)"
+[ "$wclines" = "$wcvalid" ] || err "$WTS has $wclines clause heading-prefix lines but only $wcvalid satisfy the complete anchored heading grammar '**QK-F3-WTS-NNN (PROPOSED/NON-NORMATIVE).**': malformed clause heading grammar"
+sed -n 's/^\*\*\(QK-F3-WTS-[0-9][0-9][0-9]\) (PROPOSED\/NON-NORMATIVE)\.\*\*.*/\1/p' "$WTS" > "$tmpdir/wts.clauses.actual"
+wcrc=$?
+[ "$wcrc" -eq 0 ] || err "WTS clause heading extraction failed (sed exit $wcrc)"
+[ -s "$tmpdir/wts.clauses.actual" ] || err "$WTS contains no valid WTS clause headings (fail-closed)"
+: > "$tmpdir/wts.clauses.expected" || err "WTS clause expected-list init failed"
+i=1
+while [ "$i" -le 15 ]; do
+  printf 'QK-F3-WTS-%03d\n' "$i" >> "$tmpdir/wts.clauses.expected" \
+    || err "WTS clause expected-list generation failed at $i"
+  i=$((i + 1))
+done
+[ -s "$tmpdir/wts.clauses.expected" ] || err "WTS clause expected list empty (fail-closed)"
+LC_ALL=C sort "$tmpdir/wts.clauses.actual" > "$tmpdir/wts.clauses.sorted" \
+  || err "WTS clause sort failed (fail-closed)"
+cmp -s "$tmpdir/wts.clauses.expected" "$tmpdir/wts.clauses.sorted"
+wcmp=$?
+[ "$wcmp" -eq 0 ] || err "$WTS clause heading set is not exactly QK-F3-WTS-001..015 (cmp exit $wcmp): $(diff "$tmpdir/wts.clauses.expected" "$tmpdir/wts.clauses.sorted" 2>/dev/null | head -n 6)"
+# Each heading must carry the PROPOSED/NON-NORMATIVE marker exactly once.
+i=1
+while [ "$i" -le 15 ]; do
+  id=$(printf 'QK-F3-WTS-%03d' "$i") || err "WTS clause id formatting failed"
+  ccount=$(grep -cE "^\\*\\*$id \\(PROPOSED/NON-NORMATIVE\\)\\.\\*\\*" "$WTS")
+  crc=$?
+  [ "$crc" -le 1 ] || err "WTS clause scan failed for $id (grep exit $crc)"
+  [ "$ccount" = "1" ] || err "$WTS clause $id must occur exactly once as a line-anchored PROPOSED/NON-NORMATIVE heading (found $ccount)"
+  i=$((i + 1))
+done
+# Closed-world WTS plan set: extract the ENTIRE row-leading plan-table
+# ID token (the maximal alphanumeric/hyphen run after the exact table
+# prefix, not merely a numeric prefix) and compare against the exact
+# expected 001-020 list. Malformed suffix tokens (100A, ABC,
+# 001-extra), missing/extra zeroes, duplicates, omissions and numeric
+# extras all differ from the expected set and fail. The count of
+# row-leading plan-prefix lines must equal the count of extracted
+# tokens, so a malformed row cannot hide by dropping a delimiter.
+# Every plan-prefix row must satisfy the exact anchored first-cell
+# grammar; IDs are derived ONLY from valid anchored rows, so malformed
+# first cells (100A, ABC, EXTRA suffixes, dropped delimiters) can
+# never contribute a backtracked ID and can never hide.
+wplines=$(grep -cE '^\|[ ]*QK-F3-WTS-PLAN' "$WTS")
+wprc=$?
+[ "$wprc" -le 1 ] || err "WTS plan row-prefix line count failed (grep exit $wprc)"
+wpvalid=$(grep -cE '^\| QK-F3-WTS-PLAN-[0-9][0-9][0-9] \|' "$WTS")
+wprc=$?
+[ "$wprc" -le 1 ] || err "WTS valid plan first-cell count failed (grep exit $wprc)"
+[ "$wplines" = "$wpvalid" ] || err "$WTS has $wplines plan-prefix rows but only $wpvalid satisfy the exact anchored first-cell grammar '| QK-F3-WTS-PLAN-NNN |': malformed plan row grammar"
+sed -n 's/^| \(QK-F3-WTS-PLAN-[0-9][0-9][0-9]\) |.*/\1/p' "$WTS" > "$tmpdir/wts.plans.actual"
+wprc=$?
+[ "$wprc" -eq 0 ] || err "WTS plan ID extraction failed (sed exit $wprc)"
+[ -s "$tmpdir/wts.plans.actual" ] || err "$WTS contains no valid WTS plan rows (fail-closed)"
+: > "$tmpdir/wts.plans.expected" || err "WTS plan expected-list init failed"
+i=1
+while [ "$i" -le 20 ]; do
+  printf 'QK-F3-WTS-PLAN-%03d\n' "$i" >> "$tmpdir/wts.plans.expected" \
+    || err "WTS plan expected-list generation failed at $i"
+  i=$((i + 1))
+done
+[ -s "$tmpdir/wts.plans.expected" ] || err "WTS plan expected list empty (fail-closed)"
+LC_ALL=C sort "$tmpdir/wts.plans.actual" > "$tmpdir/wts.plans.sorted" \
+  || err "WTS plan sort failed (fail-closed)"
+cmp -s "$tmpdir/wts.plans.expected" "$tmpdir/wts.plans.sorted"
+wpcmp=$?
+[ "$wpcmp" -eq 0 ] || err "$WTS plan row set is not exactly QK-F3-WTS-PLAN-001..020 (cmp exit $wpcmp): $(diff "$tmpdir/wts.plans.expected" "$tmpdir/wts.plans.sorted" 2>/dev/null | head -n 6)"
+# Each plan row must END with the exact final Markdown status cell.
+# Result language such as "/ PASSED", GENERATED, RUN, PASSED or FAILED
+# after the status makes the line no longer end with the cell and fails.
+i=1
+while [ "$i" -le 20 ]; do
+  pid=$(printf 'QK-F3-WTS-PLAN-%03d' "$i") || err "WTS plan id formatting failed"
+  grep -E "^\\| $pid \\|" "$WTS" > "$tmpdir/wtsplan.$pid"
+  prc=$?
+  [ "$prc" -le 1 ] || err "WTS plan row extraction failed for $pid (grep exit $prc)"
+  [ -s "$tmpdir/wtsplan.$pid" ] || err "$WTS plan $pid row missing as a line-anchored table row (fail-closed)"
+  pcount=$(awk 'END { print NR }' "$tmpdir/wtsplan.$pid") \
+    || err "WTS plan row count failed for $pid (awk fail-closed)"
+  [ "$pcount" = "1" ] || err "$WTS plan $pid must occur on exactly one line-anchored table row (found $pcount)"
+  grep -E '\| PLANNED — NOT GENERATED — NOT RUN \|$' "$tmpdir/wtsplan.$pid" >/dev/null \
+    || err "$WTS plan $pid row does not END with the exact final status cell '| PLANNED — NOT GENERATED — NOT RUN |'"
+  i=$((i + 1))
+done
+# Semantic positives with paired stale/contradiction forbids.
+grep -F 'a signer and A2 is not a signer role' "$WTS" >/dev/null \
+  || err "$WTS missing the A1-not-a-signer/A2-not-a-role distinction"
+grep -F "authenticated A1 is combined with the same wallet's card-held A2" "$WTS" >/dev/null \
+  || err "$WTS missing the role-A A1+A2 combination rule"
+grep -F 'No single custody object alone satisfies the threshold' "$WTS" >/dev/null \
+  || err "$WTS missing the no-single-object-threshold rule"
+forbid "$WTS still carries the retired no-role-split wording" \
+  -F 'no role is ever split across' "$WTS"
+grep -F 'not factors, not authentication, and not proof' "$WTS" >/dev/null \
+  || err "$WTS missing the metadata-not-authority rule"
+grep -F 'A fingerprint alone is NEVER identity' "$WTS" >/dev/null \
+  || err "$WTS missing the fingerprint-not-identity rule"
+forbid "$WTS treats a fingerprint as sufficient identity" \
+  -iE 'fingerprint (alone )?(is|as) (sufficient|identity proof|proof of identity)' "$WTS"
+grep -F 'NO persistent wallet registration and NO' "$WTS" >/dev/null \
+  || err "$WTS missing the no-registration/no-pairing rule"
+grep -F 'MUST NOT be silently replaced by a single or multipath descriptor' "$WTS" >/dev/null \
+  || err "$WTS missing the no-single/multipath-replacement rule"
+forbid "$WTS still names the unpinned BIP389" \
+  -F 'BIP389' "$WTS"
+grep -F 'no whitespace, newline, or NUL' "$WTS" >/dev/null \
+  || err "$WTS missing the descriptor byte-hygiene constraints"
+grep -F 'eight lowercase hex characters' "$WTS" >/dev/null \
+  || err "$WTS missing the eight-lowercase-hex fingerprint format"
+grep -F 'canonical hardened marker is `h`' "$WTS" >/dev/null \
+  || err "$WTS missing the canonical hardened-marker rule"
+grep -F 'never ypub/zpub and' "$WTS" >/dev/null \
+  || err "$WTS missing the xpub-only serialization rule"
+grep -F 'wsh(sortedmulti(2,...))' "$WTS" >/dev/null \
+  || err "$WTS missing the wsh(sortedmulti(2,...)) template rule"
+grep -F 'canonical descriptor bytes' "$WTS" >/dev/null \
+  || err "$WTS missing the canonical-descriptor-bytes statement"
+grep -F 'wallet_id = SHA256(canonical_receive_descriptor_ASCII || 0x00 || canonical_change_descriptor_ASCII)' "$WTS" >/dev/null \
+  || err "$WTS missing the exact preserved wallet_id formula"
+grep -F 'Receive first, then exactly one raw zero byte, then change' "$WTS" >/dev/null \
+  || err "$WTS missing the wallet_id byte-order rule"
+grep -F 'A QuietKey domain prefix MUST NOT be added' "$WTS" >/dev/null \
+  || err "$WTS missing the no-domain-prefix rule"
+forbid "$WTS adds a wallet_id domain tag/prefix" \
+  -iE 'wallet_id[^.]*(with|includes|prepend(s|ed)?)[^.]*(domain (tag|prefix)|"QuietKey" prefix)' "$WTS"
+grep -F 'PERMANENT SEMANTIC ROLE ORDER A,B,C' "$WTS" >/dev/null \
+  || err "$WTS missing the permanent textual role-order rule"
+grep -F 'NEVER redefines the semantic roles A/B/C' "$WTS" >/dev/null \
+  || err "$WTS missing the slot-never-redefines-role rule"
+forbid "$WTS claims witnessScript slot order defines roles" \
+  -iE 'slot (order )?(defines|determines) (the )?role' "$WTS"
+grep -F 'never script slot and never fingerprint alone' "$WTS" >/dev/null \
+  || err "$WTS missing the full-material identity-comparison rule"
+grep -F 'REJECTS fail-closed' "$WTS" >/dev/null \
+  || err "$WTS missing the duplicate-material rejection rule"
+grep -F 'D itself is not an authenticator' "$WTS" >/dev/null \
+  || err "$WTS missing the D-not-an-authenticator rule"
+grep -F 'ONLY as card-independent semantic states and invariants' "$WTS" >/dev/null \
+  || err "$WTS missing the card-independent provisioning scope"
+grep -F 'one wallet-level FINAL ACCEPTANCE point' "$WTS" >/dev/null \
+  || err "$WTS missing the single FINAL ACCEPTANCE point"
+grep -F 'atomically committed as one physical transaction' "$WTS" >/dev/null \
+  || err "$WTS missing the no-atomic-provisioning statement"
+grep -F 'deliberately does NOT invent' "$WTS" >/dev/null \
+  || err "$WTS missing the no-invented-retirement-procedure statement"
+grep -F 'zeroizes terminal-held secret state' "$WTS" >/dev/null \
+  || err "$WTS missing the zeroization intent"
+grep -F 'the exact role-C analogue' "$WTS" >/dev/null \
+  || err "$WTS missing the A1+C recovery analogue"
+grep -F 'REQUIRES byte-identical canonical D on both cards' "$WTS" >/dev/null \
+  || err "$WTS missing the B+C byte-identical-D requirement"
+grep -F "independently recomputed from each card's D" "$WTS" >/dev/null \
+  || err "$WTS missing the recomputed-not-stored wallet_id rule"
+grep -F 'wallet_id is never stored on the cards' "$WTS" >/dev/null \
+  || err "$WTS missing the wallet_id-never-stored rule"
+grep -F 'stores D and A2, not a persistent wallet_id' "$WTS" >/dev/null \
+  || err "$WTS missing the canonical card payload statement"
+forbid "$WTS claims wallet_id is stored on the cards" \
+  -iE 'wallet_id (is )?(stored|held|kept) on (both|the) cards' "$WTS"
+grep -F 'MUST match its OWN assigned role entry' "$WTS" >/dev/null \
+  || err "$WTS missing the per-role public-material agreement rule"
+grep -F "authenticate A1 with the B-held" "$WTS" >/dev/null \
+  || err "$WTS missing the A1+B B-held-A2 authentication rule"
+grep -F 'derived A to match role A' "$WTS" >/dev/null \
+  || err "$WTS missing the derived-A-matches-role-A rule"
+grep -F 'stateless replacement terminal with no prior wallet registration' "$WTS" >/dev/null \
+  || err "$WTS missing the stateless-replacement-terminal statement"
+grep -F 'contain the same A2 value' "$WTS" >/dev/null \
+  || err "$WTS missing the same-A2 canonical invariant"
+grep -F 'is OD-02/APDU-blocked and is NOT selected here' "$WTS" >/dev/null \
+  || err "$WTS missing the same-A2 mechanism-blocked qualifier"
+grep -F 'cannot be reached without establishing this same-A2 invariant' "$WTS" >/dev/null \
+  || err "$WTS missing the FINAL-ACCEPTANCE same-A2 precondition"
+grep -F 'rotate-and-sweep' "$WTS" >/dev/null \
+  || err "$WTS missing the preserved rotate-and-sweep obligation"
+grep -F 'BOUND BEFORE REVIEW' "$WTS" >/dev/null \
+  || err "$WTS missing the pair-bound-before-review invariant"
+grep -F 'no third or out-of-pair signer' "$WTS" >/dev/null \
+  || err "$WTS missing the no-out-of-pair-signer rule"
+grep -F 'MUST NOT choose the construction' "$WTS" >/dev/null \
+  || err "$WTS missing the D-09-construction-open boundary"
+grep -F 'INSIDE the authorization trust boundary' "$WTS" >/dev/null \
+  || err "$WTS missing the malicious-terminal limitation"
+grep -F 'independent-device review security' "$WTS" >/dev/null \
+  || err "$WTS missing the independent-device disclaimer"
+grep -F 'the requirements currently CONFLICT' "$WTS" >/dev/null \
+  || err "$WTS missing the BND-003/D-03 conflict statement"
+grep -F 'single-interface B+C choreography is BLOCKED' "$WTS" >/dev/null \
+  || err "$WTS missing the B+C BLOCKED marker"
+forbid "$WTS invents a B+C sequencing solution" \
+  -iE '(preauthorization token|persistent card session) (is|are) (selected|adopted|introduced)' "$WTS"
+grep -F 'QK-REQ-BND-003' "$WTS" >/dev/null \
+  || err "$WTS missing the QK-REQ-BND-003 trace"
+grep -F 'ONLY as unselected analysis' "$WTS" >/dev/null \
+  || err "$WTS missing the unselected-analysis qualifier"
+grep -F 'stateless terminal boundary' "$WTS" >/dev/null \
+  || err "$WTS missing the card-independent contract column entries"
+grep -F 'power-cut behavior' "$WTS" >/dev/null \
+  || err "$WTS missing the blocked-column card unknowns"
+grep -F 'Coverage listing NEVER proves correctness' "$WTS" >/dev/null \
+  || err "$WTS missing the coverage-not-correctness caveat"
+grep -F 'traceability is NOT DONE' "$WTS" >/dev/null \
+  || err "$WTS missing the honest traceability-NOT-DONE boundary"
+grep -F 'canonical QK-TST ID' "$WTS" >/dev/null \
+  || err "$WTS missing the no-plan-to-QK-TST-mapping statement"
+grep -F 'an explicit profile-acceptance prerequisite and remains NOT' "$WTS" >/dev/null \
+  || err "$WTS missing the traceability acceptance-prerequisite statement"
+grep -F 'proves nothing, runs nothing, and creates no' "$WTS" >/dev/null \
+  || err "$WTS missing the future-mapping-proves-nothing statement"
+forbid "$WTS still claims completed traceability to existing QK-TST IDs" \
+  -F 'traces only to existing' "$WTS"
+grep -F 'nothing here accepts the PSBT profile' "$WTS" >/dev/null \
+  || err "$WTS missing the PSBT-profile-not-accepted statement"
+# Corrected plan-link coverage cells (row-scoped).
+grep -F 'QK-F3-WTS-001, QK-F3-WTS-007, QK-F3-WTS-008, QK-F3-WTS-011, QK-F3-WTS-012, QK-F3-WTS-013' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-017" >/dev/null \
+  || err "$WTS PLAN-017 row does not cover WTS-001/007/008/011/012/013"
+grep -F 'duplicate role/signer material' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-017" >/dev/null \
+  || err "$WTS PLAN-017 row missing the duplicate role/signer material wording"
+forbid "$WTS PLAN-017 row still says duplicate-card" \
+  -F 'duplicate-card' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-017"
+grep -F 'post-approval invalidation included' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-017" >/dev/null \
+  || err "$WTS PLAN-017 row missing the post-approval invalidation coverage"
+grep -F 'QK-F3-WTS-010, QK-F3-WTS-013, QK-F3-WTS-014' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-018" >/dev/null \
+  || err "$WTS PLAN-018 row does not cover WTS-010/013/014"
+grep -F 'failure/interruption behavior' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-018" >/dev/null \
+  || err "$WTS PLAN-018 row missing failure/interruption behavior"
+forbid "$WTS PLAN-018 row still references an undefined timeout" \
+  -F 'timeout' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-018"
+grep -F 'same-A2 invariant (mechanism OD-02/APDU-blocked, not selected)' "$tmpdir/wtsplan.QK-F3-WTS-PLAN-011" >/dev/null \
+  || err "$WTS PLAN-011 row missing the same-A2 invariant coverage"
+grep -F 'END OF DRAFT — PROPOSED/NON-NORMATIVE — NO PROFILE ACCEPTED — NO VECTORS — NO IMPLEMENTATION — NO TARGET EVIDENCE.' "$WTS" >/dev/null \
+  || err "$WTS missing the exact end-of-draft status line"
+# Broad material guards on all F3.2a B paths: real extended keys, WIF,
+# addresses, DER signatures, long secret-like hex runs (>= 64 hex),
+# arbitrary exact-40-hex commit-like tokens not on the approved pin
+# allowlist, and base64/PSBT/raw fixture payload patterns. Placeholder
+# tokens (XPUB_A etc.), eight-hex fingerprint placeholders and prose
+# are not flagged. No mnemonic-phrase detector is claimed or present:
+# detecting arbitrary 24-word English prose lexically would be
+# dishonest, so mnemonic material is covered only by review plus the
+# no-secret rules, not by a fake pattern here.
+for bpath in "$WTS" docs/SOURCE-REGISTER.md docs/f3/README.md; do
+  forbid "$bpath contains what looks like a real extended key" \
+    -E '[xyz](pub|prv)[1-9A-HJ-NP-Za-km-z]{20,}' "$bpath"
+  forbid "$bpath contains what looks like a WIF private key" \
+    -E '(^|[^1-9A-HJ-NP-Za-km-z])[KL5][1-9A-HJ-NP-Za-km-z]{50,51}([^1-9A-HJ-NP-Za-km-z]|$)' "$bpath"
+  forbid "$bpath contains what looks like a mainnet address" \
+    -E '(^|[^0-9A-Za-z])(bc1[qp][0-9a-z]{20,}|[13][1-9A-HJ-NP-Za-km-z]{25,34})([^0-9A-Za-z]|$)' "$bpath"
+  forbid "$bpath contains what looks like a DER signature blob" \
+    -E '30[0-9a-fA-F]{2}02[0-9a-fA-F]{2}[0-9a-fA-F]{60,}' "$bpath"
+  forbid "$bpath contains a long secret-like hex run (>= 64 hex chars)" \
+    -E '[0-9a-fA-F]{64}' "$bpath"
+  forbid "$bpath contains what looks like a base64 payload blob" \
+    -E '[A-Za-z0-9+/]{44,}={0,2}([^A-Za-z0-9+/=]|$)' "$bpath"
+  forbid "$bpath contains what looks like raw PSBT material" \
+    -E '([c]HNidP|[7]0736274ff)' "$bpath"
+done
+# Exact-40-hex tokens in the WTS draft are classified by the
+# established closed 40-hex pin classifier below (the WTS draft is a
+# scanned content path there); no separate allowlist is kept here.
+# Exactly one STATUS: line, and it must equal the mandatory banner as
+# a FULL line — a standalone affirmative STATUS line anywhere fails.
+stlines=$(grep -c '^STATUS:' "$WTS")
+strc=$?
+[ "$strc" -le 1 ] || err "WTS STATUS-line count failed (grep exit $strc)"
+[ "$stlines" = "1" ] || err "$WTS must contain exactly one line beginning 'STATUS:' (found $stlines)"
+grep '^STATUS:' "$WTS" > "$tmpdir/wts.status"
+strc=$?
+[ "$strc" -le 1 ] || err "WTS STATUS-line extraction failed (grep exit $strc)"
+printf '%s\n' 'STATUS: AUTHORIZED — F3.2a HOST-ONLY WALLET TRUST-SPINE DRAFT — PROPOSED/NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED OR FROZEN — NO TEST VECTORS GENERATED OR RUN — NO IMPLEMENTATION — NO TARGET EVIDENCE.' > "$tmpdir/wts.status.expected" \
+  || err "WTS expected-status generation failed (fail-closed)"
+cmp -s "$tmpdir/wts.status.expected" "$tmpdir/wts.status"
+stcmp=$?
+[ "$stcmp" -eq 0 ] || err "$WTS STATUS line is not exactly the mandatory banner (cmp exit $stcmp)"
+# Affirmative-status guards: any mutation of the WTS draft toward an
+# accepted/implemented/production status must fail while the exact
+# negative/non-normative banner remains allowed. The tokens APPROVED,
+# IMPLEMENTED, VALIDATED, CONFORMANT and COMPLETE are globally
+# rejected in the WTS draft (none are legitimate there); matching is
+# letter-boundary aware so INCOMPLETE never trips COMPLETE.
+forbid "$WTS carries an affirmative APPROVED token" \
+  -E '(^|[^A-Za-z])APPROVED([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative IMPLEMENTED token" \
+  -E '(^|[^A-Za-z])IMPLEMENTED([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative VALIDATED token" \
+  -E '(^|[^A-Za-z])VALIDATED([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative CONFORMANT token" \
+  -E '(^|[^A-Za-z])CONFORMANT([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative COMPLETE token" \
+  -E '(^|[^A-Za-z])COMPLETE([^A-Za-z]|$)' "$WTS"
+forbid "$WTS claims production readiness" \
+  -iE 'production[- ]ready' "$WTS"
+forbid "$WTS claims a closed gate" \
+  -iE 'Gate [A-E][^.]*CLOSED' "$WTS"
+forbid "$WTS claims an ACCEPTED profile" \
+  -E '(is|are|now|been) +ACCEPTED' "$WTS"
+forbid "$WTS claims vectors were generated or run" \
+  -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
+# Exact bounded append content (not prefix-only), via checked stages.
+# docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
+git --no-optional-locks show 19979a5ec3d141125e7f4471d14846bba44e0e1a:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
+cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
+dlrc=$?
+[ "$dlrc" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed A commit (cmp exit $dlrc): extra or altered governance text"
+# docs/SOURCE-REGISTER.md must equal the exact published-base bytes
+# plus exactly the seven authorized F3.2a rows in declared order.
+git --no-optional-locks show a9d1f205cfa879a6f54b8838256d36e469cfed97:docs/SOURCE-REGISTER.md > "$tmpdir/sreg.base" 2>/dev/null \
+  || err "cannot read docs/SOURCE-REGISTER.md from the published base"
+cat "$tmpdir/sreg.base" > "$tmpdir/sreg.expected" \
+  || err "source-register expected reconstruction failed (fail-closed)"
+for bipres in bip-0032 bip-0048 bip-0067 bip-0380 bip-0382 bip-0383 bip-0039; do
+  grep -F "| bitcoin/bips — \`$bipres.mediawiki\` |" docs/SOURCE-REGISTER.md > "$tmpdir/sreg.row.$bipres"
+  srrc=$?
+  [ "$srrc" -le 1 ] || err "source-register row extraction failed for $bipres (grep exit $srrc)"
+  [ -s "$tmpdir/sreg.row.$bipres" ] || err "docs/SOURCE-REGISTER.md missing the authorized $bipres row"
+  cat "$tmpdir/sreg.row.$bipres" >> "$tmpdir/sreg.expected" \
+    || err "source-register expected append failed for $bipres (fail-closed)"
+done
+cmp -s "$tmpdir/sreg.expected" docs/SOURCE-REGISTER.md
+srcmp=$?
+[ "$srcmp" -eq 0 ] || err "docs/SOURCE-REGISTER.md is not exactly the published base plus the seven authorized F3.2a rows in declared order (cmp exit $srcmp)"
+# README inventory must list the new draft with exact status language.
+grep -F '[WALLET-TRUST-SPINE-DRAFT.md](WALLET-TRUST-SPINE-DRAFT.md)' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md inventory missing the F3.2a draft entry"
+grep -F 'clauses QK-F3-WTS-001–015, plans QK-F3-WTS-PLAN-001–020' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md missing the F3.2a clause/plan set statement"
+grep -F 'single-interface B+C choreography BLOCKED pending QK-REQ-BND-003 versus D-03 reconciliation plus OD-02 evidence' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md missing the F3.2a B+C BLOCKED summary"
 # F3.1b Revision 2 plan-disposition rule: PLAN-056/085/086/087 must
 # each carry the owner-directed D-12 disposition IN THEIR OWN exact
 # row, with the retired OPEN-phase/Alternative language gone.
@@ -964,7 +1351,7 @@ grep -F 'not-fully-consumed INNER unsigned-transaction value' "$DRAFT" >/dev/nul
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -984,20 +1371,24 @@ done
 #   55f93844b56e3637468321e1c68638a8138a3a2b  pinned COLDCARD firmware commit (SOURCE-REGISTER row)
 #   1e9dfb9518bd90d4531180d9a3258dd21e54dee3  retired QuietKey laboratory pin (SOURCE-REGISTER row)
 #   8f3154d0e7845ed5a4c69b73b9479821fdf06765  governance manifest-ancestry constant required by this authorized script
+#   19979a5ec3d141125e7f4471d14846bba44e0e1a  reviewed F3.2a authorization commit A (Decision-Log byte-identity anchor in this script)
+#   a9d1f205cfa879a6f54b8838256d36e469cfed97  published base commit (Source-Register bounded-append anchor in this script)
 {
   printf '%s\n' \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
+    19979a5ec3d141125e7f4471d14846bba44e0e1a \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
+    a9d1f205cfa879a6f54b8838256d36e469cfed97 \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
