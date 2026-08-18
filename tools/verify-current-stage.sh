@@ -1,22 +1,30 @@
 #!/bin/sh
-# QuietKey current-stage verifier (host-bootstrap stage).
+# QuietKey current-stage consistency checker (host-bootstrap stage).
 #
-# Authoritative verifier for the CURRENT stage. POSIX, offline,
+# Designated current-stage consistency checker; its PASS is SUPPORTING
+# EVIDENCE ONLY, never authoritative proof. POSIX, offline,
 # verify-only, non-mutating, strict-clean-worktree, fail-closed.
-# It reasserts every still-applicable foundation control directly and
-# proves canonical-file immutability against the published base, while
-# permitting only the documented later-stage additions.
+# It checks declared still-applicable foundation invariants directly
+# and checks canonical-file consistency against the published base,
+# while permitting only the documented later-stage additions.
 #
 # LIMITS:
 #   * The grep-based checks are heuristic, not complete semantic proof.
+#   * HEAD includes changes to this script itself; a PASS does not
+#     authenticate the script and is meaningful only after independent
+#     review of the exact commit and bytes. A script cannot
+#     authenticate itself. Any digest kept in-repo is an audit locator,
+#     not a trust anchor.
 #   * No repository-resident script can inspect the Replit Secrets
-#     inventory or any other hosting-platform fact. This script only
-#     proves that no tracked code or configuration USES SESSION_SECRET
-#     or any environment secret.
+#     inventory or any other hosting-platform fact. Secret and
+#     environment checks below are LEXICAL pattern checks only over
+#     tracked content; they never prove semantic secret absence.
 #   * tools/verify-foundation.sh (F0) and tools/verify-f2-preparation.sh
 #     (F2 preparation) are immutable historical snapshot verifiers,
-#     required to pass only at their documented anchors. This script
-#     verifies their bytes are unchanged; it does not run them at HEAD.
+#     byte-pinned, required to pass only at their documented anchors,
+#     and NOT run at HEAD; their known fail-open limitations are not
+#     repaired. This checker independently reasserts the enduring
+#     controls instead and verifies their bytes are unchanged.
 
 set -u
 
@@ -44,6 +52,9 @@ C3=8f3154d0e7845ed5a4c69b73b9479821fdf06765     # chore: establish current-stage
 C4=20dea88b8501e07edb93fd7b8f1aaa4e1ecd2ca1     # feat(host): add transaction authority policy model
 C5=5f186d051a1430b4f4a5d43dbfd0efab4661c648     # chore: advance current-stage verification (PUBLISHED BASE)
 C6=11991ff6fb0559fd7512d1c0be300300072c0669     # docs(f3): draft PSBT v0 review profile
+C7=145f960e659334be55afc11a1e0427c23c0f3b5e     # chore: advance current-stage verification (PUBLISHED BASE)
+C8=b4668047aef673eaf67992e00d3a953167547a66     # docs: record F3.1a correction-only authorization
+C9=757d41063749603a5fdb13aa73809ddbad098a82     # docs(f3.1a): remediate PSBT review-profile draft
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -63,17 +74,23 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> C2 -> C3 -> C4 -> C5 -> C6 -> HEAD,
-# no merges. C5 is the PUBLISHED base of the current unpublished work.
+# Exact linear ancestry BASE -> C1 -> ... -> C6 -> C7 -> C8 -> C9 -> HEAD,
+# no merges. C7 is the PUBLISHED base of the current unpublished work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c9=$($GIT rev-parse "$C9^" 2>/dev/null) || err "C9 has no parent"
+p_c8=$($GIT rev-parse "$C8^" 2>/dev/null) || err "C8 has no parent"
+p_c7=$($GIT rev-parse "$C7^" 2>/dev/null) || err "C7 has no parent"
 p_c6=$($GIT rev-parse "$C6^" 2>/dev/null) || err "C6 has no parent"
 p_c5=$($GIT rev-parse "$C5^" 2>/dev/null) || err "C5 has no parent"
 p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C6" ] || err "HEAD parent is $p_head, expected $C6"
+[ "$p_head" = "$C9" ] || err "HEAD parent is $p_head, expected $C9"
+[ "$p_c9" = "$C8" ] || err "C9 parent is $p_c9, expected $C8"
+[ "$p_c8" = "$C7" ] || err "C8 parent is $p_c8, expected $C7"
+[ "$p_c7" = "$C6" ] || err "C7 parent is $p_c7, expected $C6"
 [ "$p_c6" = "$C5" ] || err "C6 parent is $p_c6, expected $C5"
 [ "$p_c5" = "$C4" ] || err "C5 parent is $p_c5, expected $C4"
 [ "$p_c4" = "$C3" ] || err "C4 parent is $p_c4, expected $C3"
@@ -81,10 +98,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "7" ] || err "expected exactly 7 commits after base, found $count"
+[ "$count" = "10" ] || err "expected exactly 10 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -169,9 +186,94 @@ docs/f3/README.md
 tools/verify-host-boundary.sh
 EOF
 
+check_paths "$C7" "commit7" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C8" "commit8" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C9" "commit9" <<'EOF'
+docs/SOURCE-REGISTER.md
+docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
+docs/f3/README.md
+replit.md
+tools/verify-host-boundary.sh
+EOF
+
 check_paths "$head" "verifier-advance-commit" <<'EOF'
 tools/verify-current-stage.sh
 EOF
+
+# ---------------- F3.1a authorization record and revision markers/sets
+# Supporting lexical checks only. The exact plan/decision/clause SETS
+# (001..034, 001..090, D-00..D-12) are enforced by the strict
+# host-boundary run in section g below.
+grep -F 'QK-AUTH-F3.1A-001' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the F3.1a authorization record QK-AUTH-F3.1A-001"
+grep -F 'Please continue, full authorization sustained.' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the exact F3.1a owner authorization words"
+grep -F 'REVISION: F3.1a — CORRECTION-ONLY REVIEW DRAFT — NO OWNER ITEM DECIDED.' docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md >/dev/null \
+  || err "PSBT draft missing the exact F3.1a revision marker"
+grep -F 'REVIEW DRAFT CORRECTED (F3.1a) — NOT ACCEPTED' docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md >/dev/null \
+  || err "PSBT draft missing the corrected not-accepted end status"
+# Static regression: the host checker must itself carry the corrected
+# B-final semantics checks (supporting lexical evidence only): the
+# COMPLETE-LITERAL-FULL-ROW source helper (POSIX grep -Fxc, exactly
+# one whole-line match) plus its resource-uniqueness check, all 13
+# invocations, the transaction.h correction, the four row-scoped PLAN
+# assertions, and the PLAN-056 phase assertions with the contradiction
+# forbid. Old substring (grep -cF) helper behavior is NOT accepted.
+grep -F "forbid \"\$DRAFT still allows an ESTIMATE fee-rate status\"" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the ESTIMATE fee-rate negative check"
+grep -F 'locktime enforcement for that input' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the per-input locktime-disable negative check"
+grep -F 'exact_row() {' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the complete-literal-full-row source helper"
+grep -F 'rowcount=$(grep -Fxc "$3" docs/SOURCE-REGISTER.md)' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker helper does not perform the exact grep -Fxc complete-full-row check"
+grep -F 'selcount=$(grep -cF "$2" docs/SOURCE-REGISTER.md)' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker helper does not perform the resource-uniqueness check"
+grep -F 'does not occur on exactly one source-table row' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker helper missing the resource-uniqueness failure branch"
+# All 13 exact_row calls must use filename/path-only selectors (a
+# backticked token as the entire $2 argument), never selectors bound
+# to the mutable leading source-label cell. Fail-closed count check.
+fsel=$(grep -c "^  '\`[^\`]*\`' \\\\\$" tools/verify-host-boundary.sh)
+fsel_rc=$?
+[ "$fsel_rc" -le 1 ] || err "host checker filename-only selector count failed (grep exit $fsel_rc)"
+[ "$fsel" = "13" ] || err "host checker does not use filename/path-only selectors for all 13 exact_row calls (found $fsel)"
+forbid "host checker still carries a source-label-bound resource selector argument" \
+  -F "\` |' \\" tools/verify-host-boundary.sh
+grep -F 'does not match the complete literal expected row exactly once' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker helper missing the complete-literal-row failure branch"
+forbid "host checker still carries the old substring grep -cF row helper behavior" \
+  -F 'ercount=$(grep -cF' tools/verify-host-boundary.sh
+srcnt=$(grep -c '^exact_row ' tools/verify-host-boundary.sh)
+src_rc=$?
+[ "$src_rc" -le 1 ] || err "host checker exact_row invocation count failed (grep exit $src_rc)"
+[ "$srcnt" = "13" ] || err "host checker does not carry exactly 13 complete-full-row source checks (found $srcnt)"
+grep -F "exact_row 'primitives/transaction.h'" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the primitives/transaction.h full-row assertion"
+grep -F "F3.1a citation-only reference for LOCKTIME_THRESHOLD 500,000,000 only." tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the narrowed script.h purpose assertion"
+grep -F 'LOCKTIME_THRESHOLD 500,000,000 and nSequence constant' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the false script.h nSequence-wording negative check"
+grep -F 'for pid in QK-F3-PLAN-056 QK-F3-PLAN-085 QK-F3-PLAN-086 QK-F3-PLAN-087; do' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the four exact row-scoped PLAN D-12 disposition checks"
+grep -F 'while D-12 remains OPEN, no transaction disposition and no accept path exists' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the PLAN-056 OPEN-phase no-accept-path assertion"
+grep -F 'label is retired unconditionally for that phase' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the PLAN-056 unconditional label-retirement assertion"
+grep -F 'actual/network replaceability remains UNKNOWN and is never guaranteed' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the PLAN-056 replaceability-UNKNOWN assertion"
+grep -F 'still carries a label-retention exception for an approved policy' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the PLAN-056 label-retention-exception forbid"
+grep -F '(including direct BIP125 signaling)' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the Alternative-B direct-BIP125 row assertion"
+grep -F 'PD (per the pinned BIP preamble)' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the corrected BIP license classification checks"
 
 # --------------------------------- e. Historical verifiers byte-identical
 for v in tools/verify-foundation.sh tools/verify-f2-preparation.sh; do
