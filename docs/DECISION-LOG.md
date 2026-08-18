@@ -80,3 +80,14 @@ QK-DEC-001…014 are owner-approved as part of baseline H0 by the existing recor
 - **Authorized next commits:** Commit B changing exactly `README.md`, `SECURITY.md`, `docs/BUILD-ROADMAP.md`, `docs/HOST-WORK-AUTHORIZATION.md`, `docs/REQUIREMENTS.md` (append-only), and `tools/verify-host-boundary.sh`; then Commit C changing exactly the current-stage consistency-checker path `tools/verify-current-stage.sh`.
 - **Explicit exclusions:** no architecture/profile/D-item acceptance; no vectors, fixtures, corpora, parser, crypto, seed, signing, QR/SD/card/target code; no gate, OD, QK-LIM, QK-TST status, evidence, toolchain, dependency, license, hardware, Flux, procurement, or fabrication change.
 - **Effect:** wording accuracy and one append-only requirements erratum only; every substantive status remains exactly as previously recorded.
+
+### QK-AUTH-F3.1B-R2-001 — F3.1b Revision 2 policy-direction authorization
+
+- **ID:** QK-AUTH-F3.1B-R2-001
+- **Date:** 2026-08-18
+- **Approver:** Project owner
+- **Owner words exactly:** “Agreed, I approve this direction.”
+- **Context:** given immediately after the consolidated Revision 2 direction. It approves RECORDING owner-selected policy directions for D-01 (prevout), D-03 (ceremony-pair signatures), D-08 (review/fee-rate), and D-12 (transaction version/temporal policy), a future-only D-05 recipient-P2TR direction, and bounded citation-only source additions. It is direction approval only — NOT retroactive approval, NOT profile acceptance, NOT implementation authorization, NOT evidence, and NOT a trust anchor.
+- **Published parent:** `d9277cd2fcd8d699448a1667624123a3347118d6`.
+- **Authorized next commits:** Commit B changing exactly `docs/SOURCE-REGISTER.md`, `docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md`, `docs/f3/README.md`, and `tools/verify-host-boundary.sh`; then Commit C changing exactly the current-stage consistency-checker path `tools/verify-current-stage.sh`.
+- **Explicit limits and exclusions:** does NOT accept the PSBT profile or any clause as normative; does NOT amend canonical architecture; resolves NO OD; chooses NO numeric QK-LIM value; generates/runs NO vector; changes NO QK-TST or evidence status; closes NO gate; authorizes NO parser/crypto/signing/QR/SD/card/target code; approves NO procurement/fabrication; makes NO production/security/funds claim. All clauses remain PROPOSED/NON-NORMATIVE until separate profile acceptance. Gates A–E remain OPEN; OD-01..08 and every QK-LIM remain OPEN; QK-TST remains PLANNED — NOT RUN; F2 remains physically blocked/incomplete; F3/F4 remain host-only/incomplete; F5–F12 remain unauthorized.
