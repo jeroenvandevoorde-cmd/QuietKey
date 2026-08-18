@@ -1,0 +1,38 @@
+# Local secrets / environment files (never commit)
+.env
+.env.*
+*.pem
+*.key
+
+# Uploaded local prompts/assets — keep local and untracked
+/attached_assets/
+
+# Replit caches and platform-local state
+.cache/
+.local/
+.agents/
+.upm/
+.config/
+
+# Logs
+*.log
+logs/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Generic local build outputs
+build/
+dist/
+out/
+target/
+*.o
+*.tmp
+
+# NOTE: Do not ignore .replit, replit.nix, future lockfiles, fixtures,
+# SBOMs, evidence, or release hashes.

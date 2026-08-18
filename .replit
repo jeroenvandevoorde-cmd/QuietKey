@@ -1,5 +1,12 @@
+run = "bash tools/verify-foundation.sh"
+
 [nix]
 channel = "stable-25_05"
 
 [agent]
 expertMode = true
+
+[packager.features]
+guessImports = false
+packageSearch = false
+enabledForHosting = false
