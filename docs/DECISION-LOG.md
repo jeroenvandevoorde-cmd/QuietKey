@@ -91,3 +91,16 @@ QK-DEC-001…014 are owner-approved as part of baseline H0 by the existing recor
 - **Published parent:** `d9277cd2fcd8d699448a1667624123a3347118d6`.
 - **Authorized next commits:** Commit B changing exactly `docs/SOURCE-REGISTER.md`, `docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md`, `docs/f3/README.md`, and `tools/verify-host-boundary.sh`; then Commit C changing exactly the current-stage consistency-checker path `tools/verify-current-stage.sh`.
 - **Explicit limits and exclusions:** does NOT accept the PSBT profile or any clause as normative; does NOT amend canonical architecture; resolves NO OD; chooses NO numeric QK-LIM value; generates/runs NO vector; changes NO QK-TST or evidence status; closes NO gate; authorizes NO parser/crypto/signing/QR/SD/card/target code; approves NO procurement/fabrication; makes NO production/security/funds claim. All clauses remain PROPOSED/NON-NORMATIVE until separate profile acceptance. Gates A–E remain OPEN; OD-01..08 and every QK-LIM remain OPEN; QK-TST remains PLANNED — NOT RUN; F2 remains physically blocked/incomplete; F3/F4 remain host-only/incomplete; F5–F12 remain unauthorized.
+
+### QK-AUTH-F3.2A-001 — F3.2a Wallet Trust Spine drafting authorization
+
+- **ID:** QK-AUTH-F3.2A-001
+- **Date:** 2026-08-19
+- **Approver:** Project owner
+- **Owner words exactly:** “Agreed, please continue”
+- **Context:** given immediately after the explicit recommendation for a docs-only Wallet Trust Spine candidate and exercised under QK-AUTH-F3F4-001. These words authorize preparation of a proposed/non-normative F3.2a draft only; they do not accept a clause/profile, resolve an OD, select a limit, authorize implementation, or change canonical architecture/requirements.
+- **Published parent:** `a9d1f205cfa879a6f54b8838256d36e469cfed97`.
+- **Authorizes only:** proposed canonical receive/change descriptor and wallet_id byte candidates already bounded by QK-DEC-003; A/B/C role-to-key mapping; provisioning/recovery trust-establishment invariants; A1+B, A1+C and B+C card-independent ceremony requirements; analysis of sequential-card/single-interface prerequisites and conflicts; explicit card-independent versus OD-02/APDU-blocked boundaries.
+- **Authorized next commits:** Commit B changing exactly `docs/SOURCE-REGISTER.md`, `docs/f3/WALLET-TRUST-SPINE-DRAFT.md` (new), `docs/f3/README.md`, and `tools/verify-host-boundary.sh`; then Commit C changing exactly the current-stage consistency-checker path `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** no architecture/requirements/open-decision amendment; no owner-decision resolution; no QK-LIM/QK-TST/evidence/gate transition; no vectors, fixtures, corpus or payload; no parser, crypto, signing, seed, QR, SD, card or target code; no real keys/descriptors/addresses/funds; no APDU, nonce, anti-exfil, attestation, terminal-pairing or exact-target mechanism; no license/governance/hardware/Flux/procurement/fabrication transition; F5–F12 remain unauthorized.
+- **Effect:** F3 remains host-only drafting, incomplete, with no profile accepted and no target evidence. OD-08 and Flux intake are separate future checkpoints outside this chain.
