@@ -68,3 +68,15 @@ Entries in this section are immutable once checkpointed; corrections require a s
 ### Effective-status clarification (append-only; alters no prior row or record)
 
 QK-DEC-001…014 are owner-approved as part of baseline H0 by the existing record QK-APR-2026-08-18-001; implementation remains unvalidated and all Gates remain OPEN. The original table cells above remain the historical status-at-creation and are intentionally unedited. No in-repo digest is a trust anchor.
+
+### QK-AUTH-F3.1B-001 — Status-accuracy erratum authorization
+
+- **ID:** QK-AUTH-F3.1B-001
+- **Date:** 2026-08-18
+- **Approver:** Project owner
+- **Owner words exactly:** “Agreed”
+- **Context:** the owner approved the immediately preceding explicit two-stage proposal to (1) correct stale present-state wording and the CARD-006 Evidence-family omission, then (2) prepare a separate non-binding PSBT owner-decision evidence packet. This record authorizes ONLY stage (1), the status-accuracy erratum chain below; the later owner-decision evidence packet remains a separate checkpoint and is not begun by this authorization.
+- **Published parent:** `9ffea22a75946a53b7aa4d358cf25844bb3e323a`.
+- **Authorized next commits:** Commit B changing exactly `README.md`, `SECURITY.md`, `docs/BUILD-ROADMAP.md`, `docs/HOST-WORK-AUTHORIZATION.md`, `docs/REQUIREMENTS.md` (append-only), and `tools/verify-host-boundary.sh`; then Commit C changing exactly the current-stage consistency-checker path `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** no architecture/profile/D-item acceptance; no vectors, fixtures, corpora, parser, crypto, seed, signing, QR/SD/card/target code; no gate, OD, QK-LIM, QK-TST status, evidence, toolchain, dependency, license, hardware, Flux, procurement, or fabrication change.
+- **Effect:** wording accuracy and one append-only requirements erratum only; every substantive status remains exactly as previously recorded.
