@@ -6,6 +6,10 @@ STATUS: AUTHORIZED — HOST-ONLY PROFILE AND PUBLIC TEST-VECTOR PREPARATION — 
 
 Authorization: QK-AUTH-F3F4-001 (docs/HOST-WORK-AUTHORIZATION.md), 2026-08-18.
 
+## Inventory
+
+- [PSBT-V0-REVIEW-PROFILE-DRAFT.md](PSBT-V0-REVIEW-PROFILE-DRAFT.md) — F3.1 PSBT v0 review-profile DRAFT: NOT ACCEPTED, NO VECTORS generated or run, NO IMPLEMENTATION authorized.
+
 ## Drafting boundary (the only authorized F3 activity)
 
 - This directory may hold host-only **drafting** work toward future normative profiles and public test-vector preparation.
