@@ -122,6 +122,7 @@ This document records **verification plans only**. No test exists, no fixture ex
 | QK-TST-REH-002 | Recovery on a replacement terminal. |
 | QK-TST-REH-003 | Complete lost-factor rotation: one-time surviving-pair use, fresh A′/B′/C′/A2′/D′ wallet, full sweep; confirmation that no reissue path exists. |
 | QK-TST-REH-004 | Rescue with commodity reader and open rescue tool; independent transaction finalization outside QuietKey tooling; acceptance by Bitcoin Core. |
+| QK-TST-REH-005 | Quantum-threat migration rehearsal: review the versioned sweep/migration plan and rehearse it end-to-end with rehearsal wallets holding no real funds, verifying trigger criteria, ownership, plan versioning, sweep completeness, and that no post-quantum security or proprietary post-quantum script claim is made. |
 
 ### Independent audit
 
@@ -132,6 +133,7 @@ This document records **verification plans only**. No test exists, no fixture ex
 | QK-TST-AUD-003 | Exact-card applet lifecycle and extraction-resistance characterization (Gate B evidence input). |
 | QK-TST-AUD-004 | Entropy source review: independence, conditioner specification and vectors, proof the release binary reaches intended sources, per-source failure testing. |
 | QK-TST-AUD-005 | Evidence-record schema completeness audit: verify every recorded evidence item contains all schema fields (evidence ID, claim, level, source commit, spec version, planned test ID, environment, exact target identity where applicable — including the audit judging whether the "where applicable" condition was correctly applied — toolchain/dependency identity, procedure, raw-artifact location and cryptographic hashes, result, reviewer, date, limitations, affected gate, gate-decision reference), and that no gate status changed without an owner decision consuming the record. |
+| QK-TST-AUD-006 | Camouflage presentation audit: verify A1 presents as an ordinary webpage printout, that no project component, tool, or documented procedure resolves, contacts, registers, or follows the apparent source URL, that cards present as ordinary bus-pass-style cards, that the terminal outside wallet mode presents only calculator behavior, and that no project material treats camouflage as authentication or a cryptographic guarantee. |
 
 ## Adversarial coverage checklist (all planned above)
 

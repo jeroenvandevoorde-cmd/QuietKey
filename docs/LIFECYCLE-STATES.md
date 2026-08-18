@@ -38,6 +38,7 @@ Global rules: every failure, cancellation, timeout, or power-loss postcondition 
 | A1+C recovery | B unavailable | Same guards as A1+B with card C; role checked (C is not B) | qk-core | A2, Seed A; card session C | signed output only | Spend/recovery completed; rotation mandated | Fail closed; zeroize | QK-REQ-REC-001/002, QK-REQ-CARD-003; QK-TST-REH-001, QK-TST-UNIT-008 |
 | B+C recovery | A1 unavailable | Both cards present; A bypassed entirely | qk-core | card sessions B and C | signed output only | Spend/recovery completed; rotation mandated | Fail closed; zeroize | QK-REQ-REC-001/002; QK-TST-REH-001 |
 | Lost-factor rotation | Any loss or suspected compromise | One-time use of a surviving pair only | qk-core | per path used | fresh A1′ + cards B′/C′ | Completely fresh A′/B′/C′/A2′/D′ wallet provisioned; all funds swept; old wallet abandoned | Rotation ceremony fails closed like provisioning; no reissue into old descriptor | QK-REQ-REC-002/003; QK-TST-REH-003 |
+| Quantum-threat migration | Owner determines a material change in Bitcoin's quantum threat model has occurred | Versioned, owner-reviewed sweep/migration plan in force (QK-REQ-ASR-010); no post-quantum security claim made | owner + qk-core (sweep executes as ordinary signing/rotation) | per path used | per rotation row | Funds swept per the plan's current version; destination policy is the plan's owner-approved choice, not a proprietary post-quantum script | Fails closed like rotation; plan remains in force; partial sweeps re-attempted per plan | QK-REQ-ASR-010, QK-REQ-ASR-006, QK-REQ-REC-002; QK-TST-REH-005 |
 | Terminal replacement | Terminal lost/failed | Replacement terminal has no prior wallet state; any valid pair | qk-core (new terminal) | per path used | none beyond signed output | Recovery completes on replacement terminal | Fail closed; zeroize | QK-REQ-REC-004, QK-REQ-PLT-001; QK-TST-REH-002 |
 
 ## Exceptional transitions
@@ -68,5 +69,61 @@ Global rules: every failure, cancellation, timeout, or power-loss postcondition 
 
 - **Responsibilities:** calculator behavior only.
 - **Forbidden:** any wallet capability, secret access, card access, or presence after wallet mode takes exclusive control (terminated first).
+
+### Kernel and booted image
+
+- **Intended trust:** trusted computing base in wallet mode (QK-DEC-010); process separation is not claimed to defend against its compromise.
+- **Permitted data:** all process memory by definition of a kernel; scheduling and device mediation.
+- **Forbidden access/capabilities:** persistence of wallet secrets or metadata beyond the lifecycle model; any network capability (air-gapped device).
+- **Compromise consequence:** total — secrets and approvals in that session cannot be protected; no requirement claims otherwise.
+- **Evidence needed:** boot/update integrity evidence per OD-06 (OPEN); reproducible-build and supply-chain evidence (QK-REQ-ASR-002/007).
+
+### Physical display/keypad path
+
+- **Intended trust:** trusted in wallet mode as the exclusive review/approval channel of qk-core (QK-REQ-TUI-001).
+- **Permitted data:** review content constructed by qk-core; keypad input.
+- **Forbidden access/capabilities:** access by qk-io or qk-decoy in wallet mode; retention of displayed secrets (framebuffer remanence — QK-THR-018).
+- **Compromise consequence:** review and approval can be forged for that session (within QK-REQ-TUI-004's stated non-claim).
+- **Evidence needed:** exclusive-ownership verification (QK-TST-UNIT-007); remanence checks (QK-TST-SAN-001/003).
+
+### Cards B and C
+
+- **Intended trust:** bearer signing elements; trusted to hold the least-authority payload and perform role-fixed signing (QK-REQ-CARD-001/003).
+- **Permitted data:** BIP48 account xprv, chain code, origin data, role, A2, D — nothing else.
+- **Forbidden access/capabilities:** PIN/pairing/online dependencies (QK-REQ-CARD-002); exporting secrets except via the defined rescue path; any state change that survives interruption inconsistently (QK-REQ-CARD-005).
+- **Compromise consequence:** per QK-THR-003/008 — one signer plus A2 and D exposed; threshold only with another factor; rotation and sweep mandatory.
+- **Evidence needed:** exact-card feasibility and extraction-resistance evidence (Gate B; OD-02 OPEN); QK-TST-BENCH-002, QK-TST-AUD-003.
+
+### Print computer and printer (A1 production)
+
+- **Intended trust:** untrusted beyond the single A1 production ceremony; sees ciphertext only.
+- **Permitted data:** A1 ciphertext, cloak page content, apparent URL text — never plaintext seed material, A2, or D.
+- **Forbidden access/capabilities:** receiving any plaintext secret; retaining spooler/cache copies per the ceremony's disposal procedure; network transmission of the capsule.
+- **Compromise consequence:** attacker gains authenticated ciphertext only (QK-THR-002); capture of A1 becomes dangerous only combined with A2 (QK-THR-004).
+- **Evidence needed:** ceremony procedure audit (QK-TST-AUD-006, QK-TST-HF-001); documented spooler/cache handling before Gate A closes.
+
+### Online coordinator (watch-only)
+
+- **Intended trust:** untrusted; composes PSBTs and broadcasts; holds descriptors (privacy-sensitive) but no spend authority.
+- **Permitted data:** descriptor pair D, `wallet_id`, unsigned/signed PSBTs.
+- **Forbidden access/capabilities:** any key material, A2, or approval capability; its bytes are always hostile input (QK-DEC-009).
+- **Compromise consequence:** privacy loss (deanonymization) and malicious PSBT supply (QK-THR-006/017); funds safe if the trusted core's review holds.
+- **Evidence needed:** hostile-input coverage of everything it produces (QK-TST-FUZZ-001/002/003, QK-TST-CORP-001/002/003).
+
+### Commodity-reader rescue environment
+
+- **Intended trust:** untrusted general-purpose computer used only when the terminal is lost (QK-REQ-CARD-006); the user accepts exposure knowingly during rescue.
+- **Permitted data:** card contents surfaced by the open rescue tool during a rescue the owner initiated.
+- **Forbidden access/capabilities:** no role in normal operation; never a signing environment endorsed as safe; rescue documentation must state the exposure.
+- **Compromise consequence:** secrets read during rescue are exposed to that machine; rotation and sweep are mandatory after rescue (QK-REQ-REC-002).
+- **Evidence needed:** rescue rehearsal on a clean machine (QK-TST-REH-004); documented post-rescue rotation requirement.
+
+### Replit / build and development environment
+
+- **Intended trust:** outside the production trust boundary entirely. Nothing produced here is trusted for production; it hosts DRAFT documents and, later, source whose production trust derives only from reproducible builds on controlled builders (QK-REQ-ASR-002).
+- **Permitted data:** public repository content only — never key material, secrets, or real-fund artifacts.
+- **Forbidden access/capabilities:** producing release binaries; holding secrets; closing gates; any claim that CI/verifier passage constitutes security evidence.
+- **Compromise consequence:** supply-chain threat (QK-THR-009) — addressed only by the reproducible-build, review, and provenance requirements (QK-REQ-ASR-002/004/007), all unvalidated.
+- **Evidence needed:** reproducible-build and provenance evidence at release time (QK-TST-AUD-002).
 
 The kernel, booted image, and physical display/keypad path remain trusted (QK-DEC-010); process separation is not claimed to defend against a compromised kernel, and a malicious terminal within an authorized two-factor session remains inside the authorization trust boundary (QK-DEC-006, QK-REQ-TUI-004).

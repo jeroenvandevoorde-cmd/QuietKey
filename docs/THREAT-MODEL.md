@@ -69,6 +69,17 @@ Each threat below carries a stable identifier `QK-THR-NNN` for traceability (ide
 - **QK-THR-013 — Future quantum risk** — 24 words are not quantum-proof. Posture is exposure reduction and a reviewed sweep/migration plan, with no post-quantum security claim before Bitcoin consensus support (QK-DEC-012).
 - **QK-THR-014 — Camouflage vs. cryptographic security** — the cloak (benign-looking document, bus-pass cards, calculator terminal) counters discovery and casual search only. All confidentiality and spend-authority guarantees rest on the cryptography and the 2-of-3 threshold, which must hold after full cloak recognition.
 
+### Precision refinements (append-only, added in the F1 audit-correction pass)
+
+QK-THR-015…020 are precision refinements of the broad F0 threats above (chiefly QK-THR-001, 006, 009, 011, 012). They restate existing threat surface at requirement granularity for traceability; they introduce no new claims and no new controls, and remain DRAFT and unvalidated like everything else in this document.
+
+- **QK-THR-015 — Entropy failure** — entropy-source failure, correlation between supposedly independent values, source substitution, or dice-transcript reuse (refines QK-THR-009/012 for generation ceremonies).
+- **QK-THR-016 — Parser and resource abuse** — parser ambiguity, oversized or pathological inputs, resource exhaustion, or denial of service on any hostile-input path (refines QK-THR-006).
+- **QK-THR-017 — Substitution and binding failure** — substitution of descriptors, documents, card roles, wallets, or transactions, or failure of the bindings (AAD, `wallet_id`, roles, review fidelity) meant to prevent it (refines QK-THR-006).
+- **QK-THR-018 — Secret remanence and leakage** — secret material remaining or leaking through memory, framebuffer, camera/DMA paths, IPC, logs, swap, or crash data (refines QK-THR-006/008).
+- **QK-THR-019 — Interruption inconsistency** — interruption causing partial persistent state, stale approval or session reuse, media inconsistency, or input overwrite (refines QK-THR-001/011).
+- **QK-THR-020 — Recovery-knowledge loss** — loss of D or descriptor metadata, or heirs/owner misunderstanding the recovery procedure (refines QK-THR-001/012).
+
 ## Non-goals
 
 - Protecting against theft of a valid pair, or against a compromised kernel/booted image.
