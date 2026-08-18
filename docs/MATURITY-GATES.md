@@ -79,9 +79,9 @@ Required evidence, performed by representative users on production kit contents,
 
 ## Release blockers (in addition to Gates A–E)
 
-All **OPEN**:
+- Architecture-owner approval of `ARCHITECTURE.md` — **SATISFIED** at baseline H0 `c618407a3900657d8ce4c479c4056f859f86bec6` (QK-APR-2026-08-18-001 in `docs/DECISION-LOG.md`). This is the only satisfied blocker.
 
-- Architecture-owner approval of `ARCHITECTURE.md` (currently DRAFT).
+All other blockers remain **OPEN**:
 - P0/RV3 hardware conclusions.
 - Reproducible releases from controlled builders with traceable binaries.
 - Configured private vulnerability reporting with designated ownership.

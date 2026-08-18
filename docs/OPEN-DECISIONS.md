@@ -2,7 +2,7 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This file records only genuinely open decisions. The fixed profiles are **not** reopened here: custody topology, Bitcoin/mainnet profile, derivation, 24-word mnemonic model, PSBT v0, BBQr type `P` QR format, and binary `.psbt` SD encoding are settled in `ARCHITECTURE.md` (pending owner approval as a whole).
+This file records only genuinely open decisions. The fixed profiles are **not** reopened here: custody topology, Bitcoin/mainnet profile, derivation, 24-word mnemonic model, PSBT v0, BBQr type `P` QR format, and binary `.psbt` SD encoding are settled in `ARCHITECTURE.md` (owner-approved at baseline H0 `c618407a3900657d8ce4c479c4056f859f86bec6`, QK-APR-2026-08-18-001 in `docs/DECISION-LOG.md`). Every decision below remains unresolved; CANDIDATE labels remain hypotheses.
 
 Recommendations below are labeled `CANDIDATE`. A CANDIDATE is a hypothesis: never implemented, never validated. Only explicit owner approval plus a `docs/DECISION-LOG.md` entry resolves an open decision.
 

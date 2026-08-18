@@ -134,16 +134,16 @@ else
   err ".replit differs from the authorized content (auto-added modules line or other drift?)"
 fi
 
-# 7b. F1 documents: present and visibly DRAFT / non-authoritative.
-F1_BANNER='DRAFT — PENDING PROJECT-OWNER APPROVAL — NON-AUTHORITATIVE UNTIL CORRECTED F0 ARCHITECTURE IS APPROVED'
+# 7b. F1 documents: present and carrying the exact owner-approved F1 baseline banner.
+F1_BANNER='OWNER-APPROVED F1 BASELINE — IMPLEMENTATION EVIDENCE NONE — ALL GATES OPEN'
 for f in docs/REQUIREMENTS.md docs/TRACEABILITY.md docs/LIFECYCLE-STATES.md \
          docs/RESOURCE-BUDGETS.md docs/TEST-ARCHITECTURE.md; do
   if [ -f "$f" ]; then
     ok "required F1 file exists: $f"
     if grep -q "$F1_BANNER" "$f" 2>/dev/null; then
-      ok "F1 DRAFT banner present: $f"
+      ok "F1 status banner present: $f"
     else
-      err "F1 DRAFT banner missing: $f"
+      err "F1 status banner missing: $f"
     fi
   else
     err "missing required F1 file: $f"
@@ -388,18 +388,41 @@ for g in A B C D E; do
     err "Gate $g has $n status headings in docs/MATURITY-GATES.md (must be exactly 1)"
   fi
 done
-n=$(grep -c 'DRAFT — PENDING PROJECT-OWNER APPROVAL' ARCHITECTURE.md 2>/dev/null)
+ARCH_STATUS='OWNER-APPROVED SPECIFICATION BASELINE — IMPLEMENTATION UNVALIDATED — ALL GATES OPEN'
+n=$(grep -c "$ARCH_STATUS" ARCHITECTURE.md 2>/dev/null)
 if [ "$n" = "1" ]; then
-  ok "exactly one authoritative DRAFT status line in ARCHITECTURE.md"
+  ok "exactly one authoritative owner-approved status line in ARCHITECTURE.md"
 else
-  err "ARCHITECTURE.md has $n DRAFT status lines (must be exactly 1)"
+  err "ARCHITECTURE.md has $n owner-approved status lines (must be exactly 1)"
+fi
+if grep 'DRAFT — PENDING PROJECT-OWNER APPROVAL' ARCHITECTURE.md >/dev/null 2>&1; then
+  err "ARCHITECTURE.md still carries the superseded DRAFT status"
+else
+  ok "superseded DRAFT status absent from ARCHITECTURE.md"
 fi
 
-# ARCHITECTURE remains pending owner approval.
-if grep 'DRAFT — PENDING PROJECT-OWNER APPROVAL' ARCHITECTURE.md >/dev/null 2>&1; then
-  ok "ARCHITECTURE.md remains DRAFT pending owner approval"
+# Approval record QK-APR-2026-08-18-001 at baseline H0 must be present and referenced.
+H0='c618407a3900657d8ce4c479c4056f859f86bec6'
+APR='QK-APR-2026-08-18-001'
+if grep "$APR" docs/DECISION-LOG.md >/dev/null 2>&1 && grep "$H0" docs/DECISION-LOG.md >/dev/null 2>&1; then
+  ok "owner approval record $APR with baseline H0 present in docs/DECISION-LOG.md"
 else
-  err "ARCHITECTURE.md no longer marked DRAFT pending owner approval"
+  err "owner approval record $APR / baseline H0 missing from docs/DECISION-LOG.md"
+fi
+if grep "$H0" README.md >/dev/null 2>&1 && grep "$APR" README.md >/dev/null 2>&1; then
+  ok "README identifies baseline H0 and approval ID"
+else
+  err "README missing baseline H0 or approval ID"
+fi
+if grep 'OWNER-APPROVED THREAT-MODEL BASELINE — CONTROLS UNVALIDATED — ALL GATES OPEN' docs/THREAT-MODEL.md >/dev/null 2>&1; then
+  ok "THREAT-MODEL carries the owner-approved baseline status"
+else
+  err "THREAT-MODEL owner-approved baseline status missing"
+fi
+if grep 'STOP-SHIP' README.md >/dev/null 2>&1; then
+  ok "README retains STOP-SHIP"
+else
+  err "README no longer says STOP-SHIP"
 fi
 
 # 8. No functional wallet or cryptographic implementation exists.

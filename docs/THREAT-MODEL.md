@@ -2,7 +2,7 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-Status: DRAFT — architecture foundation only. This document defines the threat landscape for the selected architecture (`ARCHITECTURE.md`). It invents no new controls; controls referenced here are exactly those already selected in QK-DEC-001…014, all unvalidated.
+Status: OWNER-APPROVED THREAT-MODEL BASELINE — CONTROLS UNVALIDATED — ALL GATES OPEN. This document defines the threat landscape for the selected architecture (`ARCHITECTURE.md`). It invents no new controls; controls referenced here are exactly those already selected in QK-DEC-001…014, all unvalidated.
 
 ## Assets
 

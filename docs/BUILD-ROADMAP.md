@@ -4,6 +4,8 @@ EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
 This roadmap summarizes milestones F0–F12 without executing any of them. Each milestone lists purpose, deliverables, exclusions, exit evidence, and affected gate(s). Replit and host simulation cannot close physical gates (A, B, D, E and the physical parts of C); only exact-target evidence can. Nothing here closes a gate.
 
+Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a3900657d8ce4c479c4056f859f86bec6` (QK-APR-2026-08-18-001). F2 feasibility work is authorized and **NOT STARTED**. No other milestone is authorized.
+
 ## F0 — Foundation and governance
 
 - **Purpose:** One clean, reviewable source of truth before any code exists.

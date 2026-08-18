@@ -2,7 +2,7 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-All entries below are `DRAFT — PENDING OWNER APPROVAL`. No approvers, evidence, or audit results exist. Only an explicit owner-approval entry added here may change any decision's status.
+Design entries below were recorded as `DRAFT — PENDING OWNER APPROVAL` at creation. The explicit owner approval covering QK-DEC-001…014 as part of baseline H0 is recorded under Owner approval records below (QK-APR-2026-08-18-001). No implementation evidence or audit results exist. Only an explicit owner-approval entry added here may change any decision's status.
 
 | Date | ID | Title | Status | Rationale | Architecture link |
 |---|---|---|---|---|---|
@@ -26,3 +26,19 @@ All entries below are `DRAFT — PENDING OWNER APPROVAL`. No approvers, evidence
 | Date | Entry | Status | Notes |
 |---|---|---|---|
 | 2026-08-18 | Root MIT LICENSE removed by explicit owner authorization; repository license is now an OPEN owner decision (see docs/OPEN-DECISIONS.md OD-08). No replacement selected. | RECORDED | Sole authorized deletion during F0. |
+
+
+## Owner approval records
+
+Entries in this section are immutable once checkpointed; corrections require a superseding approval record. Never edit an existing record.
+
+### QK-APR-2026-08-18-001 — Corrected F0/F1 baseline approval
+
+- **ID:** QK-APR-2026-08-18-001
+- **Date:** 2026-08-18
+- **Approver:** Project owner
+- **Approved substantive baseline H0:** `c618407a3900657d8ce4c479c4056f859f86bec6`
+- **Scope:** the corrected F0/F1 documents at H0, including QK-DEC-001…014 and the corrected requirements, threat, traceability, lifecycle, resource-budget, and planned-test baselines.
+- **Authorized next scope:** F2 feasibility only.
+- **Not approved:** implementation or use with funds; Bitcoin/wallet/cryptographic code; production language/toolchain/dependency selection; card/hardware selection; the entropy conditioner; A1 codec parameters; PSBT authorization choices; numeric limits; boot/update design; human-factors thresholds; kit wording; license or governance appointments; closure of any gate; F3 and beyond.
+- **Effect:** the architecture-owner-approval release blocker is satisfied; Gates A–E remain OPEN; implementation evidence remains none; OD-01…08 remain unresolved.

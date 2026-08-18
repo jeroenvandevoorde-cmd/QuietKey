@@ -12,7 +12,7 @@ QuietKey is an in-design Bitcoin cold-custody system built around stealth, simpl
 - No real seed words, A2 values, private keys, xprvs, production card secrets, funded PSBTs, recovery documents, manufacturer keys, or release-signing keys may ever enter Replit, Replit Secrets, Agent chat, logs, previews, screenshots, databases, or fixtures.
 - Documentation cannot close a technical or physical gate.
 - Nothing is secure, production-ready, validated, audited, fool-proof, or quantum-proof merely because this foundation exists.
-- `ARCHITECTURE.md` is `DRAFT — PENDING PROJECT-OWNER APPROVAL`. Every technical gate is OPEN. QuietKey is STOP-SHIP.
+- `ARCHITECTURE.md` is `OWNER-APPROVED SPECIFICATION BASELINE — IMPLEMENTATION UNVALIDATED — ALL GATES OPEN` — owner approval QK-APR-2026-08-18-001 at baseline H0 `c618407a3900657d8ce4c479c4056f859f86bec6`. This repository is a development specification only; no implementation evidence exists. Every technical gate is OPEN. QuietKey is STOP-SHIP.
 
 ## Governance documents
 
