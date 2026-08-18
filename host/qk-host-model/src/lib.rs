@@ -4,9 +4,13 @@
 //! HOST policy model only.
 //!
 //! This crate defines opaque, payload-free workflow states, deterministic
-//! public events, structured transition errors, and a total fail-closed
-//! transition function whose outcome type always exposes the security
-//! result. It contains no secret bytes, wallet data, cryptography,
+//! public events, structured transition errors, and a total transition
+//! function whose outcome type always exposes the security result and
+//! which is fail-closed over the currently declared state/event
+//! semantics only, assuming successful host execution: allocation
+//! failure, panic or abort, process termination, persistence, boot
+//! recovery, and target behavior are out of scope.
+//! It contains no secret bytes, wallet data, cryptography,
 //! parsing, file or device access, clocks, randomness, logging, network,
 //! environment access, threads, processes, FFI, persistence, or hardware
 //! code.
@@ -14,10 +18,13 @@
 //! `Restart`, `PowerLoss`, and `MediaRemoved` are SYMBOLIC HOST policy
 //! events only. They model the policy decision "any such interruption
 //! must terminate the workflow locked". They provide NO evidence about
-//! runtime behavior, persistence, boot recovery, removable-media
-//! handling, target hardware, or real power loss.
+//! target runtime or target-runtime integration, persistence, boot
+//! recovery, removable-media handling, target hardware, or real power
+//! loss.
 
 #![forbid(unsafe_code)]
+
+pub mod transaction_policy;
 
 /// Opaque, payload-free workflow states. `Locked` is the safe state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +43,9 @@ pub enum State {
     Approved,
 }
 
-/// All states, for exhaustive host tests.
+/// All states — the current explicit 5-state constant enumeration
+/// only; host tests iterating it are exhaustive over this declared
+/// list, with no future-enum completeness claim.
 pub const ALL_STATES: [State; 5] = [
     State::Locked,
     State::Ready,
@@ -82,7 +91,9 @@ pub enum Event {
     PowerLoss,
 }
 
-/// All events, for exhaustive host tests.
+/// All events — the current explicit 11-event constant enumeration
+/// only; host tests iterating it are exhaustive over this declared
+/// list, with no future-enum completeness claim.
 pub const ALL_EVENTS: [Event; 11] = [
     Event::Wake,
     Event::Begin,
@@ -159,7 +170,11 @@ impl TransitionOutcome {
     }
 }
 
-/// Total, deterministic, fail-closed transition function.
+/// Total, deterministic transition function, fail-closed over the
+/// currently declared state/event semantics only, assuming successful
+/// host execution (allocation failure, panic or abort, process
+/// termination, persistence, boot recovery, and target behavior are
+/// out of scope).
 ///
 /// The only continuing transitions are the exact successful workflow:
 /// `Locked+Wake→Ready`, `Ready+Begin→Working`,
