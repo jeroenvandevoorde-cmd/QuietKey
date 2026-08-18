@@ -179,3 +179,7 @@ Conventions:
 - QK-THR-005 (theft of a valid pair) is an accepted design boundary; its only planned controls are the storage-separation custody instructions (QK-REQ-CUS-008/009). QK-THR-010 (coercion) remains an explicit exclusion per `docs/THREAT-MODEL.md` Non-goals; the traceability matrix records it as such.
 - QK-THR-015…020 are append-only precision refinements of QK-THR-001…014; QK-THR-021 (A2 disclosure independent of card theft) was appended in the F1 semantic audit-correction pass. None introduces a mitigation claim.
 - Every requirement above is DRAFT and unimplemented; no verification has been run and no evidence exists.
+
+## QK-ERR-REQ-2026-08-18-001 — Effective erratum: QK-REQ-CARD-006 Evidence family (append-only)
+
+The effective Evidence cell for QK-REQ-CARD-006 is "recovery-rehearsal, target-bench"; its Tst cell remains "QK-TST-REH-004, QK-TST-BENCH-005". The requirement text, Src, Thr, Lim, Gate, and all test statuses remain unchanged. This erratum only corrects the omitted Evidence method family: the historical row above lists two planned tests (QK-TST-REH-004 rehearsal; QK-TST-BENCH-005 bench) but named only the recovery-rehearsal evidence family, omitting target-bench. The historical QK-REQ-CARD-006 row is intentionally unedited. QK-TST-BENCH-005 remains conditional on OD-02 and no non-exportable-signer direction is selected.

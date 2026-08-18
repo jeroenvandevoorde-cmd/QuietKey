@@ -2,7 +2,7 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This roadmap summarizes milestones F0–F12 without executing any of them. Each milestone lists purpose, deliverables, exclusions, exit evidence, and affected gate(s). Replit and host simulation cannot close physical gates (A, B, D, E and the physical parts of C); only exact-target evidence can. Nothing here closes a gate.
+This roadmap summarizes milestones F0–F12; the baseline status block below records which preparation work has been completed or authorized to date. Each milestone lists purpose, deliverables, exclusions, exit evidence, and affected gate(s). Replit and host simulation cannot close physical gates (A, B, D, E and the physical parts of C); only exact-target evidence can. Nothing here closes a gate.
 
 Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a3900657d8ce4c479c4056f859f86bec6` (QK-APR-2026-08-18-001). F2 remains AUTHORIZED — PREPARATION COMPLETE — PHYSICAL/EXACT-TARGET WORK BLOCKED — OVERALL INCOMPLETE. Under QK-AUTH-F3F4-001 (2026-08-18, docs/HOST-WORK-AUTHORIZATION.md): F3 is AUTHORIZED — HOST-ONLY PROFILE AND PUBLIC TEST-VECTOR PREPARATION — INCOMPLETE — NO PROFILE ACCEPTED — NO TARGET EVIDENCE; F4 is AUTHORIZED — HOST-ONLY INTERFACE AND STATE-MACHINE SCAFFOLD — INCOMPLETE — NO TARGET CLAIM; functional F4 modules remain contingent on accepted corresponding F3 profiles. F5–F12 remain NOT AUTHORIZED. Gates A–E remain OPEN; OD-01…08 remain unresolved; host work is HOST evidence only and never TARGET evidence.
 

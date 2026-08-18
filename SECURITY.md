@@ -2,7 +2,7 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This repository is **pre-production** and **unsafe for funds**. It contains an architecture foundation only. Do not use anything here to store, receive, or move real bitcoin.
+This repository is **pre-production** and **unsafe for funds**. It contains the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, and a non-normative PSBT review-profile draft — no wallet product, no PSBT parser/serializer, no cryptographic or signing implementation, no seed generation, no QR/SD/card integration, no target UI/runtime, and no production evidence. Do not use anything here to store, receive, or move real bitcoin.
 
 ## Never submit real secrets
 

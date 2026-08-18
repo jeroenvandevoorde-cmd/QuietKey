@@ -855,6 +855,48 @@ forbid "$DRAFT contains an affirmative acceptance/production claim" \
 forbid "$DRAFT authorizes a numeric QK-LIM value" \
   -E 'QK-LIM[-A-Z0-9]*[[:space:]]*(=|:)[[:space:]]*[0-9]' "$DRAFT"
 
+# F3.1b status-accuracy erratum (QK-AUTH-F3.1B-001): fail-closed POSIX
+# checks that the corrected present-state wording and the append-only
+# CARD-006 evidence-family erratum are present, and that the identified
+# stale claims are gone. Lexical, heuristic supporting evidence only —
+# never proof of any status.
+grep -F 'the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, and a non-normative PSBT review-profile draft' README.md >/dev/null \
+  || err "README.md missing the truthful current-state statement"
+grep -F 'no wallet product, no PSBT parser/serializer, no cryptographic or signing implementation, no seed generation, no QR/SD/card integration, no target UI/runtime, no production evidence, and no fitness for funds' README.md >/dev/null \
+  || err "README.md missing the truthful exclusion statement"
+grep -F 'historical status-at-creation rows preserved unedited; effective status is set by the appended owner-approval records' README.md >/dev/null \
+  || err "README.md missing the historical-vs-effective decision-record wording"
+forbid "README.md still carries the stale architecture-foundation-only claim" \
+  -F 'contains an architecture foundation only' README.md
+forbid "README.md still describes the decision record as all DRAFT" \
+  -F 'decision record (all DRAFT)' README.md
+grep -F 'QuietKey remains an unvalidated development specification; the tracked Rust is HOST-only non-product scaffold, and no product or target implementation evidence exists.' README.md >/dev/null \
+  || err "README.md missing the corrected unvalidated-specification sentence"
+forbid "README.md still carries the stale development-specification-only sentence" \
+  -F 'This repository is a development specification only; no implementation evidence exists.' README.md
+grep -F 'the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, and a non-normative PSBT review-profile draft' SECURITY.md >/dev/null \
+  || err "SECURITY.md missing the truthful current-state classification"
+grep -F 'unsafe for funds' SECURITY.md >/dev/null \
+  || err "SECURITY.md missing the unsafe-for-funds statement"
+forbid "SECURITY.md still carries the stale architecture-foundation-only claim" \
+  -F 'It contains an architecture foundation only.' SECURITY.md
+grep -F 'the baseline status block below records which preparation work has been completed or authorized to date' docs/BUILD-ROADMAP.md >/dev/null \
+  || err "BUILD-ROADMAP.md missing the truthful roadmap-summary wording"
+forbid "BUILD-ROADMAP.md still claims no milestone was executed" \
+  -F 'without executing any of them' docs/BUILD-ROADMAP.md
+grep -F 'STATUS: F2 PHYSICAL/EXACT-TARGET WORK BLOCKED — OVERALL INCOMPLETE; F3 HOST-ONLY DRAFTING AUTHORIZED — INCOMPLETE — NO PROFILE ACCEPTED — NO TARGET EVIDENCE; F4 HOST-ONLY SCAFFOLD AUTHORIZED — INCOMPLETE — NO TARGET CLAIM — NOT PRODUCT CODE — OD-01 OPEN — NO GATE CLOSED.' docs/HOST-WORK-AUTHORIZATION.md >/dev/null \
+  || err "HOST-WORK-AUTHORIZATION.md missing the truthful current status banner"
+forbid "HOST-WORK-AUTHORIZATION.md still carries the stale F2-only status banner" \
+  -F 'STATUS: F2 SOFTWARE PREPARATION — HOST PROBE ONLY — CANDIDATE TOOLCHAIN' docs/HOST-WORK-AUTHORIZATION.md
+grep -F 'QK-ERR-REQ-2026-08-18-001 — Effective erratum: QK-REQ-CARD-006 Evidence family (append-only)' docs/REQUIREMENTS.md >/dev/null \
+  || err "REQUIREMENTS.md missing the CARD-006 evidence-family erratum heading"
+grep -F 'The effective Evidence cell for QK-REQ-CARD-006 is "recovery-rehearsal, target-bench"; its Tst cell remains "QK-TST-REH-004, QK-TST-BENCH-005".' docs/REQUIREMENTS.md >/dev/null \
+  || err "REQUIREMENTS.md erratum missing the exact effective Evidence/Tst statement"
+grep -F 'QK-TST-BENCH-005 remains conditional on OD-02 and no non-exportable-signer direction is selected.' docs/REQUIREMENTS.md >/dev/null \
+  || err "REQUIREMENTS.md erratum missing the OD-02 conditionality statement"
+grep -F '| QK-REQ-CARD-006 | Card content rescue SHALL be possible with a commodity reader and the open rescue tool. | QK-DEC-006 | QK-THR-001 | NONE (availability property; implementation OPEN per OD-02) | QK-TST-REH-004, QK-TST-BENCH-005 | recovery-rehearsal | Gate B |' docs/REQUIREMENTS.md >/dev/null \
+  || err "REQUIREMENTS.md historical QK-REQ-CARD-006 row is missing or was edited"
+
 # 6. Unchanged gate and open-decision language.
 for g in A B C D E; do
   grep -E "Gate $g.*OPEN|OPEN.*Gate $g" docs/MATURITY-GATES.md >/dev/null 2>&1 \
