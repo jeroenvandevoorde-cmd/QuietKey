@@ -288,12 +288,16 @@ grep -F 'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the no-funds warning"
 grep -F 'STATUS: AUTHORIZED — F3.1 HOST-ONLY PSBT v0 REVIEW-PROFILE DRAFT — NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED — NO TEST VECTORS GENERATED — NO TARGET EVIDENCE.' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the mandatory draft status banner"
-grep -F 'AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY; F3.1a remediation recorded as QK-AUTH-F3.1A-001.' "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the drafting-only authorization line"
-grep -F 'REVISION: F3.1a — CORRECTION-ONLY REVIEW DRAFT — NO OWNER ITEM DECIDED.' "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the exact F3.1a revision marker"
-grep -F 'REVIEW DRAFT CORRECTED (F3.1a) — NOT ACCEPTED' "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the mandatory end status"
+grep -F 'AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY; F3.1a remediation recorded as QK-AUTH-F3.1A-001; F3.1b Revision 2 owner policy directions recorded as QK-AUTH-F3.1B-R2-001.' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the drafting-only authorization line with the Revision 2 recording"
+grep -F 'REVISION: F3.1b REVISION 2 — OWNER DIRECTIONS RECORDED — PROFILE NOT ACCEPTED.' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the exact F3.1b Revision 2 revision marker"
+grep -F 'REVIEW DRAFT — F3.1b REVISION 2 OWNER DIRECTIONS RECORDED — NOT ACCEPTED' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the mandatory Revision 2 end status"
+grep -F 'QK-AUTH-F3.1B-R2-001' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the QK-AUTH-F3.1B-R2-001 authorization entry"
+forbid "$DRAFT still carries the superseded F3.1a revision marker" \
+  -F 'REVISION: F3.1a — CORRECTION-ONLY REVIEW DRAFT' "$DRAFT"
 # Required primary-source citations: commit-pinned links only (H).
 grep -F 'https://github.com/bitcoin/bips/blob/857a7debc6625a3dadbaecee1ee7b2ed5e8ada75/bip-0174.mediawiki' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the pinned BIP 174 link"
@@ -421,10 +425,17 @@ grep -F 'malformed 0xFC is never called valid' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the malformed-0xFC statement"
 forbid "$DRAFT still uses a PRESERVE-OPAQUE disposition (v1 candidate must reject)" \
   -F 'PROPOSED PRESERVE-OPAQUE' "$DRAFT"
-# C: robust prevout recommendation with exact validation wording; the
-# false 'matches witness_utxo exactly' phrase is forbidden.
-grep -F 'require BOTH `witness_utxo` AND `non_witness_utxo`' "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the both-UTXO recommended candidate"
+# C: owner-directed D-01 prevout policy with exact validation wording;
+# the false 'matches witness_utxo exactly' phrase is forbidden and the
+# superseded both-UTXO requirement must be gone.
+grep -F "output's amount and scriptPubKey as the EFFECTIVE PREVOUT" "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-01 effective-prevout derivation wording"
+grep -F '`witness_utxo` is OPTIONAL-VALIDATE: its ABSENCE' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-01 witness_utxo OPTIONAL-VALIDATE/absence-not-rejection wording"
+forbid "$DRAFT still requires BOTH witness_utxo AND non_witness_utxo" \
+  -F 'require BOTH `witness_utxo` AND `non_witness_utxo`' "$DRAFT"
+forbid "$DRAFT still frames prevout policy as the both-UTXO candidate" \
+  -F 'both-UTXO' "$DRAFT"
 grep -F 'repeated-signing fee' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the repeated-signing fee attack rationale"
 grep -F 'double-SHA256' "$DRAFT" >/dev/null \
@@ -435,8 +446,8 @@ grep -F 'non-witness (stripped) serialization' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the stripped-serialization txid basis"
 grep -F 'bounds-check the' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the vout bounds-check wording"
-grep -F "indexed output's amount and scriptPubKey" "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the indexed-output comparison wording"
+grep -F 'validated indexed output of the supplied full' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the validated-indexed-output derivation wording"
 forbid "$DRAFT claims a full previous transaction matches witness_utxo exactly" \
   -iE 'match(es)? witness_utxo exactly' "$DRAFT"
 forbid "$DRAFT calls a pre-signature fee rate exact" \
@@ -453,8 +464,8 @@ for bnd in QK-REQ-BND-001 QK-REQ-BND-002 QK-REQ-BND-003; do
 done
 grep -F 'allowed-delta rule' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the signer allowed-delta rule"
-grep -F 'adds NO replacement or duplicate record' "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the same-signer no-delta rule"
+grep -F 'MUST accept only the exact two newly created signature records per' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-03 output-reparse exact-two-records rule"
 grep -F 'computed BEFORE any parsing re-encoding, map reordering, CompactSize normalization, or serialization' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the original-bytes-before-reencoding digest definition"
 grep -F 'not the imported-bytes digest' "$DRAFT" >/dev/null \
@@ -482,10 +493,13 @@ grep -F 'A stable mismatch is still fatal' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the stable-mismatch-is-fatal wording"
 grep -F 'QK-F3-PLAN-066' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the factor-agreement mismatch plan row QK-F3-PLAN-066"
-# F: raw-only nSequence handling while D-12 is OPEN — exact literal
-# status required; stale implication/show-signaling phrasing forbidden.
-grep -F 'replacement policy not evaluated' "$DRAFT" >/dev/null \
-  || err "$DRAFT missing the literal 'replacement policy not evaluated' status"
+# F: owner-directed D-12 sequence display — PRESENT/ABSENT encoding
+# facts required; the retired OPEN-phase literal and stale
+# implication/show-signaling phrasing forbidden.
+grep -F 'strictly as PRESENT or ABSENT and MUST NOT be presented as' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-12 PRESENT/ABSENT BIP125 encoding display rule"
+forbid "$DRAFT still carries the retired 'replacement policy not evaluated' literal" \
+  -F 'replacement policy not evaluated' "$DRAFT"
 forbid "$DRAFT still derives a replacement-signaling implication" \
   -F 'with its replacement-signaling implication' "$DRAFT"
 forbid "$DRAFT still shows replacement signaling while OPEN" \
@@ -528,8 +542,8 @@ for phrase in \
   'full chain D → all three derived keys at one common' \
   'derivation records alone NEVER' \
   'descriptor branch/index coordinate and match D at that' \
-  'strict-DER ECDSA signature per BIP 66 followed by exactly one' \
-  'low-S is a Bitcoin Core standardness/relay policy, not a' \
+  'MUST be a strict-DER ECDSA signature per' \
+  'Bitcoin Core standardness/relay policy alignment, not a consensus' \
   'during bounded map framing/key parsing' \
   'P2PKH, P2SH, P2WPKH, and P2WSH; every other recipient script class' \
   'prevout committed by the supplied full transaction and' \
@@ -553,16 +567,16 @@ for phrase in \
   'transaction-level absolute lock' \
   'blocks vs 512-second units' \
   'below 0xfffffffe; this is mempool policy, never consensus' \
-  'consensus temporal semantics plus separately identified mempool-policy signaling' \
+  'INTERPRET-AND-DISPLAY the exact encoded facts with BIP125 encoding PRESENT/ABSENT only' \
   '0x00 0x20 <32-byte SHA256(witnessScript)>' \
   'one-byte direct-push opcode' \
-  'is UNAVAILABLE while D-08 remains open' \
-  'owner-selected and every bound is proven, the status is RANGE' \
+  'outcome is CANNOT VERIFY FEE RATE and the PSBT is REJECTED before' \
+  'an unproven fee rate is never an approvable outcome and' \
   'common branch/index mismatch' \
   'produced-signature-record' \
   '9–73 bytes; strict low-S reduces the MAXIMUM to' \
   'Readiness/Status' \
-  'No owner item' \
+  'OWNER DIRECTION RECORDED — CLAUSE REMAINS PROPOSED — PROFILE NOT ACCEPTED' \
   ; do
   grep -F "$phrase" "$DRAFT" >/dev/null \
     || err "$DRAFT missing required F3.1a correction phrase: $phrase"
@@ -578,8 +592,8 @@ forbid "$DRAFT still uses the loose authenticated-prevout mismatch class" \
   -F 'reject: authenticated prevout/P2WSH commitment mismatch' "$DRAFT"
 grep -F '| D-00 |' "$DRAFT" >/dev/null \
   || err "$DRAFT missing decision-packet item D-00"
-# F3.1a source-register rows: fail-closed COMPLETE-LITERAL-FULL-ROW
-# checks plus resource uniqueness. For each of the 13 rows the helper
+# F3.1a/F3.1b source-register rows: fail-closed COMPLETE-LITERAL-FULL-ROW
+# checks plus resource uniqueness. For each of the 19 rows the helper
 # requires (1) the resource selector — the backticked filename/path
 # token ONLY, deliberately independent of the mutable leading
 # source-label cell, spacing, or table formatting — to occur exactly
@@ -641,6 +655,24 @@ exact_row 'primitives/transaction.h' \
 exact_row 'solver.cpp' \
   '`src/script/solver.cpp`' \
   '| bitcoin/bitcoin — `src/script/solver.cpp` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference for canonical standard script template classification (P2PKH/P2SH/P2WPKH/P2WSH) relevant to the proposed D-05 allowlist. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 341' \
+  '`bip-0341.mediawiki`' \
+  '| bitcoin/bips — `bip-0341.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-3-Clause (per the pinned BIP preamble) | F3.1b Revision 2 citation-only rationale for the FUTURE recipient-only P2TR direction (D-05). No Taproot signing, no Taproot capability, no text/code/vectors imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 350' \
+  '`bip-0350.mediawiki`' \
+  '| bitcoin/bips — `bip-0350.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.1b Revision 2 citation-only rationale for FUTURE Bech32m v1–v16 witness-address rendering/vector work only. Nothing imported; no runtime capability. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 431' \
+  '`bip-0431.mediawiki`' \
+  '| bitcoin/bips — `bip-0431.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-3-Clause (per the pinned BIP preamble; Status Draft, Type Informational — never cited as consensus) | F3.1b Revision 2 citation-only rationale for v3/TRUC transaction rejection in the v1 profile and for a separately reviewed future v3 extension profile. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'release-notes-28.0.md' \
+  '`doc/release-notes/release-notes-28.0.md`' \
+  '| bitcoin/bitcoin — `doc/release-notes/release-notes-28.0.md` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1b Revision 2 citation-only context for the Bitcoin Core v28 deployment of v3/TRUC transaction policy. No code imported; never a network guarantee. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'mempool-replacements.md' \
+  '`doc/policy/mempool-replacements.md`' \
+  '| bitcoin/bitcoin — `doc/policy/mempool-replacements.md` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1b Revision 2 citation-only context for current replacement-policy/full-RBF behavior as node policy only — never a network replaceability guarantee. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 143' \
+  '`bip-0143.mediawiki`' \
+  '| bitcoin/bips — `bip-0143.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | PD (per the pinned BIP preamble; Status Deployed, Type Specification, Layer Consensus (soft fork)) | F3.1b Revision 2 citation-only reference for SegWit-v0 signature-digest semantics: the digest commits to the 8-byte value of the output spent by the input; for native P2WSH, scriptCode is the witnessScript serialized as a script inside CTxOut when it contains no OP_CODESEPARATOR, otherwise it is the witnessScript suffix after and excluding the last executed OP_CODESEPARATOR before the signature-checking opcode, serialized the same way. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
 for fb in 'BSD-2-Clause (per the BIP 68 preamble' \
   'BSD-2-Clause (per the BIP 113 preamble' \
   'BSD-2-Clause (per the BIP 125 preamble' \
@@ -652,10 +684,194 @@ forbid "SOURCE-REGISTER still overclaims general transaction admissibility for t
   -F 'reference for transaction admissibility' docs/SOURCE-REGISTER.md
 forbid "SOURCE-REGISTER script.h row still falsely claims nSequence constant definitions" \
   -F 'LOCKTIME_THRESHOLD 500,000,000 and nSequence constant' docs/SOURCE-REGISTER.md
-# F3.1a plan-disposition rule: PLAN-056/085/086/087 must each carry the
-# conditional D-12 disposition IN THEIR OWN exact row, with no
-# unconditional acceptance, and Alternative B must cover direct BIP125
-# signaling. Row-scoped, fail-closed; not a generic occurrence count.
+# F3.1b Revision 2 owner-directed policy checks (heuristic supporting
+# evidence, never proof and never acceptance).
+# D-01: effective-prevout policy; witness_utxo-absence never a
+# rejection reason; corrected BIP143 provenance: amount from the
+# effective prevout, scriptCode the descriptor-derived witnessScript
+# serialized inside CTxOut (no OP_CODESEPARATOR in the fixed
+# template), never both "from the effective prevout".
+grep -F 'ABSENCE' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-01 absence-is-not-rejection emphasis"
+grep -F 'the 8-byte amount digest field comes from the EFFECTIVE' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the corrected BIP143 amount-provenance wording"
+grep -F 'exact descriptor-derived and validated witnessScript serialized as a' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the corrected BIP143 scriptCode-provenance wording"
+grep -F 'OP_CODESEPARATOR' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the fixed-template no-OP_CODESEPARATOR statement"
+grep -F 'effective-prevout P2WSH scriptPubKey' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the witnessScript-SHA256-commitment wording"
+forbid "$DRAFT still claims amount and scriptCode both come from the effective prevout" \
+  -F 'digest inputs (amount and scriptCode) come from' "$DRAFT"
+forbid "$DRAFT still rejects for a missing witness_utxo" \
+  -F 'input missing witness_utxo' "$DRAFT"
+# D-03: import-stage rejection before card access; exact pair; exactly
+# two produced signatures; single SIGN pass; no partial export.
+grep -F 'REJECTS at import, BEFORE any' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-03 import-stage pre-card rejection rule"
+grep -F 'exactly two signatures are created per' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-03 exactly-two-signatures rule"
+grep -F 'at most one SIGN invocation is permitted per' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-03 single-SIGN-pass rule"
+grep -F 'NO one-signature/intermediate signed PSBT or other incomplete' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-03 no-incomplete-artifact rule"
+forbid "$DRAFT still uses the contradictory 'NO partial PSBT' phrasing" \
+  -F 'NO partial PSBT' "$DRAFT"
+grep -F 'no third or out-of-pair' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the selected-pair no-third-signature rule"
+grep -F 'reject missing, foreign, third,' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the output-exact-pair rejection enumeration"
+forbid "$DRAFT still validates-and-counts incoming partial signatures" \
+  -F 'Existing partial signatures are allowed' "$DRAFT"
+forbid "$DRAFT still leaves the already-threshold-signed policy open" \
+  -F 'already threshold-signed PSBT is D-03 OPEN' "$DRAFT"
+# D-08: four exact review totals, checked identity, proven range only.
+grep -F 'proven descriptor-owned outputs = not-proven-owned outputs + fee' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-08 conservative-wallet-debit checked identity"
+grep -F 'the exact not-proven-owned output total' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the not-proven-owned output total review fact"
+grep -F 'debit is an upper bound on the actual economic' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the conservative-wallet-debit upper-bound statement"
+forbid "$DRAFT still overclaims an exact external-recipient total" \
+  -F 'exact external-recipient total' "$DRAFT"
+forbid "$DRAFT still overclaims an exact net outflow" \
+  -F 'exact net outflow' "$DRAFT"
+forbid "$DRAFT still carries the stale external+fee identity" \
+  -F 'external-recipient total + fee' "$DRAFT"
+grep -F 'CANNOT VERIFY FEE RATE' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-08 CANNOT VERIFY FEE RATE rejection"
+forbid "$DRAFT still allows an approvable UNAVAILABLE fee-rate status" \
+  -F 'RANGE versus UNAVAILABLE' "$DRAFT"
+forbid "$DRAFT still frames D-08 as RANGE-or-UNAVAILABLE" \
+  -F 'RANGE or UNAVAILABLE' "$DRAFT"
+# D-12: version eligibility and PRESENT/ABSENT-only presentation.
+grep -F 'UNSUPPORTED TRANSACTION POLICY' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-12 unsupported-version rejection reason"
+grep -F 'nVersion exactly 1 or exactly 2 is eligible' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the D-12 version-eligibility rule"
+forbid "$DRAFT still presents replaceability as a yes/no fact" \
+  -F 'replaceable: yes' "$DRAFT"
+forbid "$DRAFT still accepts transaction version 3" \
+  -F 'version 3 is eligible' "$DRAFT"
+# F3.1b Revision 2 CORRECTION pass (reconstructed B'): section-6 truth,
+# derivation-boundary honesty, output-ownership classes, complete
+# fee-range weight accounting, D-03/D-10 stage boundary, route
+# availability, record-level delta, qualified taxonomy, plan-class
+# honesty, D-00 readiness, and P2TR/nonce boundaries. All supporting
+# lexical evidence only, never proof and never acceptance.
+grep -F 'remains PROPOSED/NON-NORMATIVE and the' "$DRAFT" >/dev/null \
+  || err "$DRAFT section 6 missing the corrected proposed/non-normative preamble"
+forbid "$DRAFT section 6 still claims nothing was owner-decided" \
+  -F 'has been owner-decided' "$DRAFT"
+grep -F 'a PROPOSED, open descriptor/QK-LIM' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the corrected derivation-boundary dependency wording"
+forbid "$DRAFT still misattributes the derivation boundary to a D-08 family" \
+  -F 'D-08 boundary family' "$DRAFT"
+grep -F 'not-proven-owned / treated as' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the not-proven-owned ownership class"
+grep -F 'NOT a claim' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the not-economically-external clarification"
+grep -F 'exclusive and exhaustive' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the mutually-exclusive ownership classification rule"
+grep -F 'marker 0x00 and flag 0x01 exactly' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the SegWit marker/flag exactly-once weight rule"
+grep -F 'they contribute 2 WU and must never be omitted' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the marker/flag 2-WU never-omitted statement"
+grep -F 'item count and every CompactSize/item byte' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the witness-vector CompactSize/item accounting rule"
+grep -F 'zero-length dummy' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the four-stack-item witness template enumeration"
+grep -F 'ARTIFACT required by QK-REQ-TRN-007' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the QK-REQ-TRN-007 unfinalized-artifact definition"
+grep -F 'D-10/OD-05 OPEN and is wholly unspecified here' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the open D-10 finalization boundary statement"
+grep -F 'MUST be AVAILABLE over both' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the route-availability (not simultaneous-emission) rule"
+grep -F 'if both routes are selected, the exported bytes MUST' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the identical-bytes rule for dual-route export"
+forbid "$DRAFT still mandates export over each authorized route" \
+  -F 'over each authorized route' "$DRAFT"
+grep -F 'POSITION/ORDER of the new records is NOT a security predicate' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the insertion-order non-predicate statement"
+grep -F 'record encoding remains byte-identical in its original map and' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the record-level byte-preservation predicate"
+grep -F 'produced-signature malformed/non-strict-DER' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the qualified produced-signature DER taxonomy entry"
+grep -F 'produced-signature high-S policy failure' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the qualified produced-signature high-S taxonomy entry"
+grep -F 'by PRESENCE and never parses' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the import presence-only (no DER/S parsing) statement"
+forbid "$DRAFT still carries the unqualified DER-encoding taxonomy literal" \
+  -F 'malformed/non-strict DER signature encoding;' "$DRAFT"
+forbid "$DRAFT still carries the unqualified high-S taxonomy literal" \
+  -F 'high-S proposed-policy rejection' "$DRAFT"
+grep -F 'The Class vocabulary is finite and' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the finite closed plan-class vocabulary"
+for mpid in QK-F3-PLAN-034 QK-F3-PLAN-084 QK-F3-PLAN-085 QK-F3-PLAN-088; do
+  grep -F "| $mpid " "$DRAFT" > "$tmpdir/mixrow.$mpid"
+  mrc=$?
+  [ "$mrc" -le 1 ] || err "mixed-class row extraction failed for $mpid (grep exit $mrc)"
+  grep -F '| mixed/table-driven boundary (positive + adversarial) |' "$tmpdir/mixrow.$mpid" >/dev/null \
+    || err "$DRAFT $mpid row is not classed mixed/table-driven boundary"
+done
+grep -F 'not rejected solely by QK-F3-PSBT-031 arithmetic/range' "$tmpdir/mixrow.QK-F3-PLAN-084" >/dev/null \
+  || err "$DRAFT PLAN-084 row lacks the not-rejected-solely-by-031 qualification"
+grep -F 'unprovable/checked-arithmetic-failure case' "$tmpdir/mixrow.QK-F3-PLAN-088" >/dev/null \
+  || err "$DRAFT PLAN-088 row lacks the unprovable CANNOT VERIFY FEE RATE case"
+grep -F 'BLOCKED — MUST NOT ACCEPT' "$DRAFT" >/dev/null \
+  || err "$DRAFT D-00 row missing the BLOCKED / MUST NOT ACCEPT readiness status"
+grep -F 'D-09 exact commitment construction; D-10 output/finalization choice' "$DRAFT" >/dev/null \
+  || err "$DRAFT D-00 row missing the explicit prerequisite list"
+grep -F '| D-00 | Base clause bundle acceptance' "$DRAFT" > "$tmpdir/d00row"
+d0rc=$?
+[ "$d0rc" -le 1 ] || err "D-00 row extraction failed (grep exit $d0rc)"
+forbid "$DRAFT D-00 row still carries the misleading finite-proposed-candidate readiness" \
+  -F 'finite proposed candidate' "$tmpdir/d00row"
+grep -F 'neither RFC6979 nor any card nonce or anti-exfil' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the nonce/anti-exfil non-selection boundary"
+grep -F 'no anti-exfil claim is made' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the explicit no-anti-exfil-claim statement"
+grep -F 'requires a separate explicit architecture-owner amendment' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the P2TR separate-amendment activation boundary"
+grep -F 'still rejects P2TR everywhere' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the present P2TR rejection statement"
+grep -F 'Bech32m runtime capability' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the no-Bech32m-runtime-capability statement"
+# Final audit wording fixes: exhaustive README decision-status
+# summary, byte-exact honesty, route-availability summaries, and the
+# exact BIP141 weight equation in three scopes. Supporting lexical
+# evidence only, never proof and never acceptance.
+grep -F "D-00, D-02, D-04, D-06, D-07, D-09, D-10, and D-11 remain owner-open/structurally open as classified in the decision table; D-05's present-profile allowlist remains owner-open while only its FUTURE recipient-only P2TR direction is recorded" docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md missing the exhaustive open-decision status summary"
+forbid "docs/f3/README.md still carries the incomplete open-decision summary" \
+  -F 'D-00, D-09 and D-11 remain open' docs/f3/README.md
+grep -F 'No proposed byte-level rule is normative or frozen; no byte-exact vector or implementation artifact exists.' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md missing the corrected byte-exact honesty sentence"
+forbid "docs/f3/README.md still carries the stale byte-exact sentence" \
+  -F 'Nothing here is byte-exact or frozen.' docs/f3/README.md
+grep -F 'signed-PSBT artifact availability over both approved capabilities' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the route-availability summary phrasing"
+forbid "$DRAFT still summarizes export over both routes" \
+  -F 'signed-PSBT export over both routes' "$DRAFT"
+fwcnt=$(grep -cF 'weight_min/max = 4 × stripped_size + 2 (SegWit marker+flag) +' "$DRAFT")
+fw_rc=$?
+[ "$fw_rc" -le 1 ] || err "weight-equation occurrence count failed (grep exit $fw_rc)"
+[ "$fwcnt" = "3" ] || err "$DRAFT must state the BIP141 weight equation exactly three times (QK-022, section-12 D-08 method, PLAN-088); found $fwcnt"
+grep -F 'in the checked formula' "$DRAFT" >/dev/null \
+  || err "$DRAFT QK-F3-PSBT-022 missing its scoped weight-equation statement"
+grep -F 'apply the checked formula' "$DRAFT" >/dev/null \
+  || err "$DRAFT section-12 D-08 method missing its scoped weight-equation statement"
+grep -F '| QK-F3-PLAN-088 ' "$DRAFT" > "$tmpdir/wrow.plan088"
+wr_rc=$?
+[ "$wr_rc" -le 1 ] || err "PLAN-088 weight-equation row extraction failed (grep exit $wr_rc)"
+grep -F 'the checked formula weight_min/max = 4 × stripped_size + 2 (SegWit marker+flag) + witness_min/max' "$tmpdir/wrow.plan088" >/dev/null \
+  || err "$DRAFT PLAN-088 row missing its scoped weight-equation statement"
+grep -F 'EXCLUDES the marker/flag' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the witness_min/max marker/flag exclusion definition"
+# F3.1b Revision 2 plan-disposition rule: PLAN-056/085/086/087 must
+# each carry the owner-directed D-12 disposition IN THEIR OWN exact
+# row, with the retired OPEN-phase/Alternative language gone.
+# Row-scoped, fail-closed; not a generic occurrence count.
 for pid in QK-F3-PLAN-056 QK-F3-PLAN-085 QK-F3-PLAN-086 QK-F3-PLAN-087; do
   grep -F "| $pid " "$DRAFT" > "$tmpdir/planrow.$pid"
   prc=$?
@@ -664,33 +880,27 @@ for pid in QK-F3-PLAN-056 QK-F3-PLAN-085 QK-F3-PLAN-086 QK-F3-PLAN-087; do
   prc=$?
   [ "$prc" -le 1 ] || err "plan-row count failed for $pid (grep exit $prc)"
   [ "$prcount" = "1" ] || err "$DRAFT does not contain exactly one row for $pid (found $prcount)"
-  grep -F 'disposition follows unresolved D-12' "$tmpdir/planrow.$pid" >/dev/null \
-    || err "$DRAFT $pid row lacks the conditional D-12 disposition"
-  grep -F '(including direct BIP125 signaling)' "$tmpdir/planrow.$pid" >/dev/null \
-    || err "$DRAFT $pid row Alternative B branch does not cover direct BIP125 signaling"
+  grep -F 'owner-directed D-12' "$tmpdir/planrow.$pid" >/dev/null \
+    || err "$DRAFT $pid row lacks the owner-directed D-12 disposition"
+  forbid "$DRAFT $pid row still carries the retired unresolved-D-12 disposition" \
+    -F 'disposition follows unresolved D-12' "$tmpdir/planrow.$pid"
+  forbid "$DRAFT $pid row still carries retired Alternative A/B phasing" \
+    -F 'Alternative' "$tmpdir/planrow.$pid"
   forbid "$DRAFT $pid row still contains an unconditional accept disposition" \
     -F '| accept;' "$tmpdir/planrow.$pid"
 done
-# F3.1a PLAN-056 phase-correct disposition: the row must state that
-# while D-12 remains OPEN no disposition/accept path exists, must carry
-# phase-correct Alternative A/B clauses, and must NOT tie an accepted
-# Alternative A to a still-unapproved policy label.
-grep -F 'while D-12 remains OPEN, no transaction disposition and no accept path exists' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
-  || err "$DRAFT PLAN-056 row lacks the explicit OPEN-phase no-disposition/no-accept-path clause"
-grep -F 'if Alternative A is later owner-accepted and every other rule passes' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
-  || err "$DRAFT PLAN-056 row lacks the phase-correct Alternative A clause"
-grep -F 'label is retired unconditionally for that phase' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
-  || err "$DRAFT PLAN-056 row lacks the unconditional label-retirement clause for the accepted-A phase"
-grep -F 'actual/network replaceability remains UNKNOWN and is never guaranteed' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+# Revision 2 PLAN-056 owner-directed display facts.
+grep -F 'BIP125 opt-in encoding strictly PRESENT/ABSENT' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the PRESENT/ABSENT encoding-display clause"
+grep -F 'actual/network replaceability UNKNOWN and never guaranteed' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
   || err "$DRAFT PLAN-056 row lacks the replaceability-UNKNOWN clause"
-forbid "$DRAFT PLAN-056 row still carries a label-retention exception for an approved policy" \
-  -F 'unless the approved policy explicitly requires it' "$tmpdir/planrow.QK-F3-PLAN-056"
-grep -F 'if Alternative B is later accepted, reject the owner-selected active temporal/policy patterns (including direct BIP125 signaling)' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
-  || err "$DRAFT PLAN-056 row lacks the phase-correct Alternative B clause"
-forbid "$DRAFT PLAN-056 row still ties an accepted Alternative A to an unapproved-policy label" \
-  -F '"replacement policy not evaluated" while policy remains unapproved' "$tmpdir/planrow.QK-F3-PLAN-056"
-grep -F 'OR any direct BIP125 signal (nSequence below 0xfffffffe)' "$DRAFT" >/dev/null \
-  || err "$DRAFT D-12 Alternative B does not enumerate absolute-lock, BIP68, and direct BIP125 rejection"
+grep -F 'raw-value fidelity always required' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the raw-value fidelity clause"
+# Revision 2 version-eligibility coverage in PLAN-085.
+grep -F 'UNSUPPORTED TRANSACTION POLICY VERSION' "$tmpdir/planrow.QK-F3-PLAN-085" >/dev/null \
+  || err "$DRAFT PLAN-085 row lacks the UNSUPPORTED TRANSACTION POLICY VERSION rejection"
+grep -F '(nSequence below 0xfffffffe) distinguished' "$DRAFT" >/dev/null \
+  || err "$DRAFT PLAN-087 does not distinguish direct BIP125 encoding from actual replaceability"
 # G: exact decision-set verification — row-leading decision-table IDs
 # must be exactly D-00..D-12, each exactly once, no gap/extra/dup.
 grep -E '^\| D-[0-9]{2} \|' "$DRAFT" > "$tmpdir/decrows"
@@ -726,7 +936,7 @@ rc=$?
 for row in 'GLOBAL: PSBT_GLOBAL_UNSIGNED_TX 0x00' \
   'GLOBAL: PSBT_GLOBAL_XPUB 0x01' 'GLOBAL: version field 0xFB' \
   'INPUT: PSBT_IN_NON_WITNESS_UTXO 0x00' 'INPUT: PSBT_IN_WITNESS_UTXO 0x01' \
-  'INPUT: PSBT_IN_PARTIAL_SIG 0x02' 'INPUT: PSBT_IN_SIGHASH_TYPE 0x03' \
+  'INPUT: PSBT_IN_SIGHASH_TYPE 0x03' \
   'INPUT: PSBT_IN_WITNESS_SCRIPT 0x05' 'INPUT: PSBT_IN_BIP32_DERIVATION 0x06' \
   'OUTPUT: PSBT_OUT_WITNESS_SCRIPT 0x01' 'OUTPUT: PSBT_OUT_BIP32_DERIVATION 0x02'; do
   grep -F "| $row" "$DRAFT" >/dev/null \
@@ -826,8 +1036,10 @@ done
 # link with draft-only language.
 grep -F 'PSBT-V0-REVIEW-PROFILE-DRAFT.md' docs/f3/README.md >/dev/null \
   || err "docs/f3/README.md does not link the F3.1 draft"
-grep -F 'corrected, not accepted; 34 clauses' docs/f3/README.md >/dev/null \
-  || err "docs/f3/README.md inventory line missing the F3.1a corrected-not-accepted language"
+grep -F 'OWNER DIRECTIONS RECORDED — PROFILE NOT ACCEPTED, per QK-AUTH-F3.1B-R2-001' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md inventory line missing the Revision 2 directions-recorded-not-accepted language"
+grep -F 'every clause remains PROPOSED/NON-NORMATIVE until separate profile acceptance' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md inventory line missing the clauses-remain-proposed language"
 grep -F 'zero vectors generated or run, NO IMPLEMENTATION authorized' docs/f3/README.md >/dev/null \
   || err "docs/f3/README.md inventory line missing NO VECTORS/NO IMPLEMENTATION language"
 # Forbidden repository content: no new fixture/vector/payload sources.
