@@ -173,9 +173,31 @@ while IFS= read -r f; do
     forbid "$f contains a from_state arbitrary-start helper in exported source" \
         -nE 'from_state' "$f"
 done < "$tmpdir/rslib"
+# u8 payload detector pattern (POSIX ERE; ']' first inside the bracket
+# class so it is literal): catches both '[u8]' and '[u8; N]' forms.
+# Heuristic supporting check, not semantic proof.
+u8pat='(^|[^_[:alnum:]])(String|str|Vec *< *u8 *>|\[ *u8 *[];])([^_[:alnum:]]|$)'
+# Fail-closed synthetic regression for the detector itself: two
+# positive controls MUST match (grep rc 0) and one negative control
+# MUST NOT match (grep rc 1); any other rc is a scan error. No
+# pipelines; every rc checked; a broken detector can never pass.
+printf 'let a: [u8] = b;\n' > "$tmpdir/u8pos1" \
+  || err "u8 regression fixture write failed (fail-closed)"
+printf 'let a: [u8; 32] = b;\n' > "$tmpdir/u8pos2" \
+  || err "u8 regression fixture write failed (fail-closed)"
+printf 'let a = 9u8; let b = a + a;\n' > "$tmpdir/u8neg" \
+  || err "u8 regression fixture write failed (fail-closed)"
+for pf in "$tmpdir/u8pos1" "$tmpdir/u8pos2"; do
+  grep -E "$u8pat" "$pf" >/dev/null 2>&1
+  urc=$?
+  [ "$urc" -eq 0 ] || err "u8 detector regression: positive control $pf not detected (grep exit $urc)"
+done
+grep -E "$u8pat" "$tmpdir/u8neg" >/dev/null 2>&1
+urc=$?
+[ "$urc" -eq 1 ] || err "u8 detector regression: negative control matched or scan error (grep exit $urc)"
 while IFS= read -r f; do
   forbid "$f contains a textual/byte payload type (String, &str, Vec<u8>, or u8 buffer)" \
-    -nE '(^|[^_[:alnum:]])(String|str|Vec *< *u8 *>|\[ *u8 *(;|\])])([^_[:alnum:]]|$)' "$f"
+    -nE "$u8pat" "$f"
   forbid "$f contains wallet-data vocabulary" \
     -niE '(^|[^_[:alnum:]])(psbt|txid|satoshi|address|script|descriptor|mainnet|testnet|seed|entropy|mnemonic|xprv|xpub|apdu)([^_[:alnum:]]|$)' "$f"
   forbid "$f references a prohibited serialization/crypto/randomness/clock capability" \
@@ -266,9 +288,11 @@ grep -F 'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the no-funds warning"
 grep -F 'STATUS: AUTHORIZED — F3.1 HOST-ONLY PSBT v0 REVIEW-PROFILE DRAFT — NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED — NO TEST VECTORS GENERATED — NO TARGET EVIDENCE.' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the mandatory draft status banner"
-grep -F 'AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY.' "$DRAFT" >/dev/null \
+grep -F 'AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY; F3.1a remediation recorded as QK-AUTH-F3.1A-001.' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the drafting-only authorization line"
-grep -F 'REVIEW DRAFT COMPLETE — NOT ACCEPTED' "$DRAFT" >/dev/null \
+grep -F 'REVISION: F3.1a — CORRECTION-ONLY REVIEW DRAFT — NO OWNER ITEM DECIDED.' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing the exact F3.1a revision marker"
+grep -F 'REVIEW DRAFT CORRECTED (F3.1a) — NOT ACCEPTED' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the mandatory end status"
 # Required primary-source citations: commit-pinned links only (H).
 grep -F 'https://github.com/bitcoin/bips/blob/857a7debc6625a3dadbaecee1ee7b2ed5e8ada75/bip-0174.mediawiki' "$DRAFT" >/dev/null \
@@ -317,7 +341,7 @@ done
 cmp -s "$tmpdir/clauseexp" "$tmpdir/clauseids"
 rc=$?
 [ "$rc" -eq 0 ] || err "clause-ID set is not exactly QK-F3-PSBT-001..034 contiguous (cmp exit $rc)"
-# Exact contiguous plan-ID set QK-F3-PLAN-001..074, same method. Only
+# Exact contiguous plan-ID set QK-F3-PLAN-001..090, same method. Only
 # the row-leading plan ID defines a row; oracle-column cross-references
 # are not definitions.
 grep -E '^\| QK-F3-PLAN-[0-9]{3} ' "$DRAFT" > "$tmpdir/planrows"
@@ -340,14 +364,14 @@ LC_ALL=C sort "$tmpdir/planids.raw" > "$tmpdir/planids" \
   || err "plan-ID sort failed (fail-closed)"
 : > "$tmpdir/planexp"
 i=1
-while [ "$i" -le 74 ]; do
+while [ "$i" -le 90 ]; do
   printf 'QK-F3-PLAN-%03d\n' "$i" >> "$tmpdir/planexp" \
     || err "plan expected-list generation failed (fail-closed)"
   i=$((i+1))
 done
 cmp -s "$tmpdir/planexp" "$tmpdir/planids"
 rc=$?
-[ "$rc" -eq 0 ] || err "plan-ID set is not exactly QK-F3-PLAN-001..074 contiguous (cmp exit $rc)"
+[ "$rc" -eq 0 ] || err "plan-ID set is not exactly QK-F3-PLAN-001..090 contiguous (cmp exit $rc)"
 forbid "plan row without the exact PLANNED — NOT GENERATED — NOT RUN status" \
   -v 'PLANNED — NOT GENERATED — NOT RUN |$' "$tmpdir/planrows"
 forbid "generated/run/pass/fail status form present in plan rows" \
@@ -496,8 +520,179 @@ for p in QK-F3-PLAN-071 QK-F3-PLAN-072 QK-F3-PLAN-073 QK-F3-PLAN-074; do
   grep -F "$p" "$DRAFT" >/dev/null \
     || err "$DRAFT missing typed-field/inner-transaction plan row $p"
 done
+# F3.1a correction checks (heuristic supporting evidence, never proof
+# and never acceptance): every phrase below must exist verbatim on one
+# line of the corrected draft.
+for phrase in \
+  'MUST be exactly native P2WSH: the 34-byte' \
+  'full chain D → all three derived keys at one common' \
+  'derivation records alone NEVER' \
+  'descriptor branch/index coordinate and match D at that' \
+  'strict-DER ECDSA signature per BIP 66 followed by exactly one' \
+  'low-S is a Bitcoin Core standardness/relay policy, not a' \
+  'during bounded map framing/key parsing' \
+  'P2PKH, P2SH, P2WPKH, and P2WSH; every other recipient script class' \
+  'prevout committed by the supplied full transaction and' \
+  'the masked low 16 bits of nSequence' \
+  'nLockTime finality' \
+  'INTERPRET-AND-DISPLAY' \
+  'retained exact imported byte' \
+  'MUST NOT reread QR, SD,' \
+  'MUST preserve every pre-existing accepted byte' \
+  '2,100,000,000,000,000 satoshis inclusive' \
+  'The profile MUST NOT be accepted until' \
+  'QK-TST IDs through separately authorized canonical edits' \
+  'Mapping' \
+  'full-prevtx-committed' \
+  'is a TRANSACTION-LEVEL field, never per-input' \
+  'nLockTime=0 means no' \
+  'height-class and values at or above 500,000,000 are time-class' \
+  'strict less-than comparison' \
+  'the prior-block median time past' \
+  'ignored ONLY when EVERY input has nSequence=0xffffffff' \
+  'transaction-level absolute lock' \
+  'blocks vs 512-second units' \
+  'below 0xfffffffe; this is mempool policy, never consensus' \
+  'consensus temporal semantics plus separately identified mempool-policy signaling' \
+  '0x00 0x20 <32-byte SHA256(witnessScript)>' \
+  'one-byte direct-push opcode' \
+  'is UNAVAILABLE while D-08 remains open' \
+  'owner-selected and every bound is proven, the status is RANGE' \
+  'common branch/index mismatch' \
+  'produced-signature-record' \
+  '9–73 bytes; strict low-S reduces the MAXIMUM to' \
+  'Readiness/Status' \
+  'No owner item' \
+  ; do
+  grep -F "$phrase" "$DRAFT" >/dev/null \
+    || err "$DRAFT missing required F3.1a correction phrase: $phrase"
+done
+forbid "$DRAFT still claims the whole candidate bundle is the default recommendation" \
+  -F 'default recommendation is the candidate bundle' "$DRAFT"
+# F3.1a semantics negative checks: stale/incorrect wording must be gone.
+forbid "$DRAFT still contains the incorrect per-input locktime-disable claim" \
+  -F 'locktime enforcement for that input' "$DRAFT"
+forbid "$DRAFT still allows an ESTIMATE fee-rate status" \
+  -F 'ESTIMATE' "$DRAFT"
+forbid "$DRAFT still uses the loose authenticated-prevout mismatch class" \
+  -F 'reject: authenticated prevout/P2WSH commitment mismatch' "$DRAFT"
+grep -F '| D-00 |' "$DRAFT" >/dev/null \
+  || err "$DRAFT missing decision-packet item D-00"
+# F3.1a source-register rows: fail-closed COMPLETE-LITERAL-FULL-ROW
+# checks plus resource uniqueness. For each of the 13 rows the helper
+# requires (1) the resource selector — the backticked filename/path
+# token ONLY, deliberately independent of the mutable leading
+# source-label cell, spacing, or table formatting — to occur exactly
+# ONCE in SOURCE-REGISTER, so a second conflicting row for the same
+# file fails regardless of how its source label is written, and (2) the COMPLETE
+# literal Markdown row — from its initial pipe through its final
+# closing pipe, including leading source cell, filename, exact 40-hex
+# pin, exact license, complete purpose, and complete status — to match
+# exactly one whole line via POSIX grep -Fxc. No substring, regex, or
+# phrase-count shortcut. rc 0/1/>1 are distinguished explicitly.
+# Supporting lexical/shape evidence only, never semantic proof.
+exact_row() {
+  # $1 = label, $2 = filename/path-only resource selector, $3 = complete literal row
+  selcount=$(grep -cF "$2" docs/SOURCE-REGISTER.md)
+  selrc=$?
+  [ "$selrc" -le 1 ] || err "SOURCE-REGISTER resource scan failed for $1 (grep exit $selrc)"
+  [ "$selcount" = "1" ] || err "SOURCE-REGISTER resource $1 does not occur on exactly one source-table row (found $selcount)"
+  rowcount=$(grep -Fxc "$3" docs/SOURCE-REGISTER.md)
+  rowrc=$?
+  [ "$rowrc" -le 1 ] || err "SOURCE-REGISTER full-row scan failed for $1 (grep exit $rowrc)"
+  [ "$rowcount" = "1" ] || err "SOURCE-REGISTER row for $1 does not match the complete literal expected row exactly once (found $rowcount)"
+}
+exact_row 'bip-0174/type-registry' \
+  '`bip-0174/type-registry.mediawiki`' \
+  '| bitcoin/bips — `bip-0174/type-registry.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | No per-file license declaration at this commit; citation-only; no text/code imported; no license inferred | F3.1 citation-only reference for PSBT field/type identifiers (including v2-only input types 0x0e–0x12 and proprietary type 0xFC). Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 66' \
+  '`bip-0066.mediawiki`' \
+  '| bitcoin/bips — `bip-0066.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the BIP 66 preamble at this commit) | F3.1a citation-only reference for strict DER signature encoding rules. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 68' \
+  '`bip-0068.mediawiki`' \
+  '| bitcoin/bips — `bip-0068.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | No per-file license declaration at this commit; citation-only; no text/code imported; no license inferred | F3.1a citation-only reference for relative lock-time encoding (version threshold, disable bit 31, type bit 22, masked value). Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 113' \
+  '`bip-0113.mediawiki`' \
+  '| bitcoin/bips — `bip-0113.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | PD (per the pinned BIP preamble) | F3.1a citation-only reference for median-time-past locktime context in the time/lock semantics family. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 125' \
+  '`bip-0125.mediawiki`' \
+  '| bitcoin/bips — `bip-0125.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | PD (per the pinned BIP preamble) | F3.1a citation-only reference for opt-in replacement signaling as mempool signaling only, never a network replaceability guarantee. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'BIP 141' \
+  '`bip-0141.mediawiki`' \
+  '| bitcoin/bips — `bip-0141.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | PD (per the pinned BIP preamble) | F3.1a citation-only reference for the native P2WSH witness program form (OP_0 plus 32-byte SHA256 program) and weight/vsize definitions. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'amount.h' \
+  '`src/consensus/amount.h`' \
+  '| bitcoin/bitcoin — `src/consensus/amount.h` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference for the MoneyRange bound of 0..2,100,000,000,000,000 satoshis inclusive. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'policy.h' \
+  '`src/policy/policy.h`' \
+  '| bitcoin/bitcoin — `src/policy/policy.h` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference distinguishing standardness/relay policy (including low-S) from consensus. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'tx_verify.cpp' \
+  '`src/consensus/tx_verify.cpp`' \
+  '| bitcoin/bitcoin — `src/consensus/tx_verify.cpp` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference narrowly for IsFinalTx nLockTime finality, BIP68 sequence-lock evaluation, and CheckTxInputs value/fee checks. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'tx_check.cpp' \
+  '`src/consensus/tx_check.cpp`' \
+  '| bitcoin/bitcoin — `src/consensus/tx_check.cpp` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference for context-free structural checks: empty vin/vout, null/coinbase-form outpoint, and duplicate-input detection. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'script.h' \
+  '`src/script/script.h`' \
+  '| bitcoin/bitcoin — `src/script/script.h` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference for LOCKTIME_THRESHOLD 500,000,000 only. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'primitives/transaction.h' \
+  '`src/primitives/transaction.h`' \
+  '| bitcoin/bitcoin — `src/primitives/transaction.h` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference limited to SEQUENCE_FINAL, MAX_SEQUENCE_NONFINAL, SEQUENCE_LOCKTIME_DISABLE_FLAG, SEQUENCE_LOCKTIME_TYPE_FLAG, SEQUENCE_LOCKTIME_MASK, and the sequence granularity/constants used by the time/lock draft. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+exact_row 'solver.cpp' \
+  '`src/script/solver.cpp`' \
+  '| bitcoin/bitcoin — `src/script/solver.cpp` | `15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d` | MIT (repository COPYING at this commit) | F3.1a citation-only reference for canonical standard script template classification (P2PKH/P2SH/P2WPKH/P2WSH) relevant to the proposed D-05 allowlist. No code imported. | Citation-only remote review at the pinned commit; nothing imported. |'
+for fb in 'BSD-2-Clause (per the BIP 68 preamble' \
+  'BSD-2-Clause (per the BIP 113 preamble' \
+  'BSD-2-Clause (per the BIP 125 preamble' \
+  'BSD-2-Clause (per the BIP 141 preamble'; do
+  forbid "SOURCE-REGISTER still carries a false BSD classification: $fb" \
+    -F "$fb" docs/SOURCE-REGISTER.md
+done
+forbid "SOURCE-REGISTER still overclaims general transaction admissibility for tx_verify.cpp" \
+  -F 'reference for transaction admissibility' docs/SOURCE-REGISTER.md
+forbid "SOURCE-REGISTER script.h row still falsely claims nSequence constant definitions" \
+  -F 'LOCKTIME_THRESHOLD 500,000,000 and nSequence constant' docs/SOURCE-REGISTER.md
+# F3.1a plan-disposition rule: PLAN-056/085/086/087 must each carry the
+# conditional D-12 disposition IN THEIR OWN exact row, with no
+# unconditional acceptance, and Alternative B must cover direct BIP125
+# signaling. Row-scoped, fail-closed; not a generic occurrence count.
+for pid in QK-F3-PLAN-056 QK-F3-PLAN-085 QK-F3-PLAN-086 QK-F3-PLAN-087; do
+  grep -F "| $pid " "$DRAFT" > "$tmpdir/planrow.$pid"
+  prc=$?
+  [ "$prc" -le 1 ] || err "plan-row extraction failed for $pid (grep exit $prc)"
+  prcount=$(grep -cF "| $pid " "$tmpdir/planrow.$pid")
+  prc=$?
+  [ "$prc" -le 1 ] || err "plan-row count failed for $pid (grep exit $prc)"
+  [ "$prcount" = "1" ] || err "$DRAFT does not contain exactly one row for $pid (found $prcount)"
+  grep -F 'disposition follows unresolved D-12' "$tmpdir/planrow.$pid" >/dev/null \
+    || err "$DRAFT $pid row lacks the conditional D-12 disposition"
+  grep -F '(including direct BIP125 signaling)' "$tmpdir/planrow.$pid" >/dev/null \
+    || err "$DRAFT $pid row Alternative B branch does not cover direct BIP125 signaling"
+  forbid "$DRAFT $pid row still contains an unconditional accept disposition" \
+    -F '| accept;' "$tmpdir/planrow.$pid"
+done
+# F3.1a PLAN-056 phase-correct disposition: the row must state that
+# while D-12 remains OPEN no disposition/accept path exists, must carry
+# phase-correct Alternative A/B clauses, and must NOT tie an accepted
+# Alternative A to a still-unapproved policy label.
+grep -F 'while D-12 remains OPEN, no transaction disposition and no accept path exists' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the explicit OPEN-phase no-disposition/no-accept-path clause"
+grep -F 'if Alternative A is later owner-accepted and every other rule passes' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the phase-correct Alternative A clause"
+grep -F 'label is retired unconditionally for that phase' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the unconditional label-retirement clause for the accepted-A phase"
+grep -F 'actual/network replaceability remains UNKNOWN and is never guaranteed' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the replaceability-UNKNOWN clause"
+forbid "$DRAFT PLAN-056 row still carries a label-retention exception for an approved policy" \
+  -F 'unless the approved policy explicitly requires it' "$tmpdir/planrow.QK-F3-PLAN-056"
+grep -F 'if Alternative B is later accepted, reject the owner-selected active temporal/policy patterns (including direct BIP125 signaling)' "$tmpdir/planrow.QK-F3-PLAN-056" >/dev/null \
+  || err "$DRAFT PLAN-056 row lacks the phase-correct Alternative B clause"
+forbid "$DRAFT PLAN-056 row still ties an accepted Alternative A to an unapproved-policy label" \
+  -F '"replacement policy not evaluated" while policy remains unapproved' "$tmpdir/planrow.QK-F3-PLAN-056"
+grep -F 'OR any direct BIP125 signal (nSequence below 0xfffffffe)' "$DRAFT" >/dev/null \
+  || err "$DRAFT D-12 Alternative B does not enumerate absolute-lock, BIP68, and direct BIP125 rejection"
 # G: exact decision-set verification — row-leading decision-table IDs
-# must be exactly D-01..D-12, each exactly once, no gap/extra/dup.
+# must be exactly D-00..D-12, each exactly once, no gap/extra/dup.
 grep -E '^\| D-[0-9]{2} \|' "$DRAFT" > "$tmpdir/decrows"
 rc=$?
 [ "$rc" -eq 0 ] || err "decision-row scan failed or found nothing (grep exit $rc)"
@@ -517,7 +712,7 @@ rc=$?
 LC_ALL=C sort "$tmpdir/decids.raw" > "$tmpdir/decids" \
   || err "decision-ID sort failed (fail-closed)"
 : > "$tmpdir/decexp"
-i=1
+i=0
 while [ "$i" -le 12 ]; do
   printf 'D-%02d\n' "$i" >> "$tmpdir/decexp" \
     || err "decision expected-list generation failed (fail-closed)"
@@ -525,7 +720,7 @@ while [ "$i" -le 12 ]; do
 done
 cmp -s "$tmpdir/decexp" "$tmpdir/decids"
 rc=$?
-[ "$rc" -eq 0 ] || err "decision-ID set is not exactly D-01..D-12, each exactly once (cmp exit $rc)"
+[ "$rc" -eq 0 ] || err "decision-ID set is not exactly D-00..D-12, each exactly once (cmp exit $rc)"
 # G: allowed-field schema matrix — every allowed row must be present,
 # and the exhaustive/sweep planning language must be explicit.
 for row in 'GLOBAL: PSBT_GLOBAL_UNSIGNED_TX 0x00' \
@@ -552,8 +747,11 @@ grep -F 'exhaustive sweep of EVERY matrix-enumerated registered Silent Payments 
   || err "$DRAFT PLAN-062 is not an exhaustive Silent Payments sweep"
 grep -F 'not-fully-consumed INNER unsigned-transaction value' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the dedicated inner-transaction malformation plan wording"
-# G: full changed-content material scan across all four content-commit
-# paths. Supporting evidence only, never proof of absence. Patterns are
+# G: full changed-content material scan across the four named
+# protocol/provenance/checker files below; replit.md is separately
+# bounded elsewhere and is NOT scanned here (this loop does not cover
+# all five content-commit paths). Supporting evidence only, never
+# proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
 for cf in "$DRAFT" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
@@ -628,8 +826,10 @@ done
 # link with draft-only language.
 grep -F 'PSBT-V0-REVIEW-PROFILE-DRAFT.md' docs/f3/README.md >/dev/null \
   || err "docs/f3/README.md does not link the F3.1 draft"
-grep -F 'NOT ACCEPTED, NO VECTORS generated or run, NO IMPLEMENTATION authorized' docs/f3/README.md >/dev/null \
-  || err "docs/f3/README.md inventory line missing DRAFT/NOT ACCEPTED/NO VECTORS/NO IMPLEMENTATION language"
+grep -F 'corrected, not accepted; 34 clauses' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md inventory line missing the F3.1a corrected-not-accepted language"
+grep -F 'zero vectors generated or run, NO IMPLEMENTATION authorized' docs/f3/README.md >/dev/null \
+  || err "docs/f3/README.md inventory line missing NO VECTORS/NO IMPLEMENTATION language"
 # Forbidden repository content: no new fixture/vector/payload sources.
 forbid "fixture/vector/payload-like file tracked (.psbt/.bin/.hex/.b64/vector)" \
   -iE '\.(psbt|bin|hex|b64|base64)$|(^|/)(fixtures?|vectors?)(/|$)' "$tmpdir/allfiles"
@@ -674,11 +874,11 @@ fi
 
 # 8. Tests, locked and offline.
 cargo test --manifest-path host/Cargo.toml --locked --offline > "$tmpdir/test" 2>&1 \
-  || err "cargo test --locked --offline failed: $(tail -20 "$tmpdir/test")"
+  || err "cargo test --locked --offline failed: $(tail -n 20 "$tmpdir/test")"
 
 # 9. Exactly two local packages in metadata.
 cargo metadata --manifest-path host/Cargo.toml --locked --offline --no-deps --format-version 1 > "$tmpdir/meta" 2>&1 \
-  || err "cargo metadata failed: $(tail -5 "$tmpdir/meta")"
+  || err "cargo metadata failed: $(tail -n 5 "$tmpdir/meta")"
 # Step-by-step temp-file implementation only (the former redundant
 # tr-to-grep pipeline pre-check has been deleted): tr rc-checked, grep
 # 0/1/>1 handled, nonempty and exact package count enforced explicitly.
@@ -693,7 +893,7 @@ mrc=$?
 [ "$mrc" -le 1 ] || err "cargo metadata manifest count failed (grep exit $mrc)"
 [ "$pkgcount" = "2" ] || err "cargo metadata does not report exactly two local packages (found $pkgcount)"
 forbid "cargo metadata reports a package outside the authorized workspace" \
-  -v 'host/qk-host-\(model\|sim\)/Cargo.toml' "$tmpdir/manifpaths"
+  -Ev 'host/qk-host-(model|sim)/Cargo.toml' "$tmpdir/manifpaths"
 
 if [ "$fail" -eq 0 ]; then
   if [ "$mode" = "publication" ]; then

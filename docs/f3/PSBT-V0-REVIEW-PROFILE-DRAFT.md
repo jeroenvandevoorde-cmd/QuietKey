@@ -4,7 +4,9 @@ EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
 STATUS: AUTHORIZED — F3.1 HOST-ONLY PSBT v0 REVIEW-PROFILE DRAFT — NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED — NO TEST VECTORS GENERATED — NO TARGET EVIDENCE.
 
-AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY.
+REVISION: F3.1a — CORRECTION-ONLY REVIEW DRAFT — NO OWNER ITEM DECIDED.
+
+AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY; F3.1a remediation recorded as QK-AUTH-F3.1A-001. No profile clause becomes accepted merely because it was corrected.
 
 Any RFC 2119/RFC 8174 terms in this document describe PROPOSED
 requirements only and have no normative force until separately
@@ -14,8 +16,9 @@ accepts no profile, closes no gate, resolves no open decision (OD) or
 QK-LIM, changes no QK-TST or evidence status, and authorizes no F9
 implementation. Every clause below carries a stable proposed-clause ID
 (QK-F3-PSBT-001 through QK-F3-PSBT-034, contiguous; 031–034 were
-appended without renumbering 001–030); an ID is a stable reference
-handle and never implies acceptance. This document contains no parser,
+appended without renumbering 001–030; F3.1a corrects clause text
+without adding, removing, renumbering, or accepting any clause); an ID
+is a stable reference handle and never implies acceptance. This document contains no parser,
 no serializer, no cryptography, no fixtures, and no byte-level test
 data of any kind.
 
@@ -98,16 +101,28 @@ evidence.
 **QK-F3-PSBT-005** — Proposed order, each step depending only on
 earlier steps: bounded intake → magic/version/map framing, minimal
 CompactSize, full consumption → unique full keys and map counts →
-unsigned-transaction structural rules → input prevout authentication →
-wallet/descriptor/origin/derivation/witness-script ownership →
-existing-signature and per-input sighash checks → output/change/
+unsigned-transaction structural rules → input prevout validation
+(full-prevtx txid/vout commitment; QK-F3-PSBT-011) →
+wallet/descriptor/origin/derivation/witness-script ownership,
+concluding with the final authenticated-prevout-to-derived-script
+binding (the supplied-prevtx-committed scriptPubKey MUST equal the
+descriptor-derived P2WSH program; QK-F3-PSBT-012) →
+existing-signature encoding/policy checks (strict DER per BIP 66,
+trailing sighash byte, proposed low-S policy; QK-F3-PSBT-015) and
+per-input sighash checks → output/change/
 self-transfer/recipient classification → checked amounts, sums, and
 fee (QK-F3-PSBT-031) → locktime and raw sequences (replacement policy
 not evaluated; QK-F3-PSBT-033) → factor/card agreement precondition
 (QK-F3-PSBT-032) → canonical review facts → review commitment (its serialization remains
 OPEN) → physical approval bound per QK-F3-PSBT-032 → immediate full
-reparse and equality to the approved commitment → future signature
-production → produced-signature verification → output reparse. F4.1
+reparse — of the trusted core's retained exact imported byte
+sequence, never a reread of QR, SD, or any other mutable transport
+source — and equality to the approved commitment → future signature
+production → produced-signature verification → output reparse and
+exact-delta proof (QK-F3-PSBT-025, -033). Between the equality proof
+and signature production no new untrusted transaction/media input and
+no review-relevant mutation is permitted; the already-bound active
+signer/card APDU exchange is explicitly allowed. F4.1
 models the SYMBOLIC order of the tail of this pipeline only; this
 document does not implement any step.
 
@@ -125,9 +140,12 @@ named below (exact names and type values from the pinned type
 registry) can be registered/valid PSBT generally; they are
 profile-ineligible under this profile, not malformed in the standard.
 In the v1 RECOMMENDED CANDIDATE, fields not explicitly allowed and
-proprietary fields are policy-rejected at bounded intake in every
-scope (QK-F3-PSBT-018), so QuietKey never accepts and then silently
-drops or strips a field.
+proprietary fields are policy-rejected during bounded map framing/key
+parsing, before semantic, ownership, fee, review, or signing
+processing, in every scope (QK-F3-PSBT-018), so QuietKey never accepts
+and then silently drops or strips a field. The four categories stay
+distinct: registered-but-profile-ineligible; unregistered/unrecognized;
+structurally valid proprietary; malformed proprietary.
 
 **QK-F3-PSBT-006** — Global map:
 
@@ -245,7 +263,15 @@ any witness-inclusive serialization — and compare it to
 the unsigned transaction input's prevout txid; bounds-check the
 prevout vout index against that transaction's output count; then
 compare that indexed output's amount and scriptPubKey with
-`witness_utxo`. D-01 stays NOT ACCEPTED. If the owner later chooses a
+`witness_utxo`. Explicit limitation on the word "authenticated"
+anywhere in this draft: full-prevtx txid/vout validation proves only
+that the supplied value and scriptPubKey are committed by the supplied
+full transaction and referenced txid. It does NOT prove that the
+transaction exists in the best chain, is confirmed, that the outpoint
+is unspent, or any other online chain-state fact; an offline signer
+has no chain state. Where this draft says "authenticated prevout" it
+means exactly "prevout committed by the supplied full transaction and
+referenced txid" and nothing more. D-01 stays NOT ACCEPTED. If the owner later chooses a
 witness-only policy, the accepted profile MUST explicitly downgrade
 its prevout and fee provenance claims and explicitly address the
 repeated-signing attack; this draft never calls witness-only values
@@ -253,11 +279,26 @@ independently authenticated.
 
 **QK-F3-PSBT-012** — `witness_script` REQUIRED for every input and
 MUST equal the script independently derived from D. `redeem_script` on
-any input: reject.
+any input: reject. The prevtx-committed (per QK-F3-PSBT-011)
+`witness_utxo` scriptPubKey MUST be exactly native P2WSH: the 34-byte
+script `0x00 0x20 <32-byte SHA256(witnessScript)>`, where `0x00` is
+the `OP_0` version opcode, `0x20` is the one-byte direct-push opcode
+pushing exactly 32 bytes, and the pushed 32-byte witness program
+equals the SHA256 of the exact `witness_script` independently
+derived from the trusted descriptor D. Ownership is established ONLY
+by the full chain D → all three derived keys at one common
+branch/index coordinate → exact `sortedmulti(2,A,B,C)` witness_script
+→ SHA256 → prevtx-committed prevout scriptPubKey. A supplied
+`witness_script` and supplied BIP32 derivation records alone NEVER
+establish ownership.
 
 **QK-F3-PSBT-013** — BIP32 derivations REQUIRED for the three relevant
 script keys of every input and MUST match the exact master
 fingerprints, account origins, branches, and indexes computed from D.
+All three A/B/C input derivation entries MUST share one common
+descriptor branch/index coordinate and match D at that coordinate;
+supplied paths merely PROPOSE the coordinate — the derivation and
+comparison against D decide it.
 A global xpub, if present and if D-02 accepts it, is an untrusted hint
 that MUST exactly agree with D and confers no authority.
 
@@ -271,7 +312,15 @@ reject.
 and PER PUBKEY. Existing partial signatures are allowed only for
 expected script keys and only after future cryptographic verification
 against that input's exact effective sighash, including the trailing
-sighash byte. Multiple partial signatures under distinct expected full
+sighash byte. Encoding rule: every partial-signature value MUST be a
+strict-DER ECDSA signature per BIP 66 followed by exactly one trailing
+sighash byte; non-DER, padded, or otherwise non-strict encodings:
+reject. High-S handling is a PROPOSED v1 relay-policy alignment
+choice: low-S is a Bitcoin Core standardness/relay policy, not a
+consensus rule, and BIP 146 is never cited here as a deployed
+consensus rule; the proposed v1 candidate rejects high-S existing
+signatures as a policy choice, subject to the same owner decision
+family as D-03. Multiple partial signatures under distinct expected full
 keys on one input are structurally valid; a duplicate full key is
 invalid (QK-F3-PSBT-009). Invalid, foreign, or conflicting signatures:
 reject. A PSBT is never rejected merely because the expected other
@@ -291,8 +340,10 @@ Taproot fields: reject.
 key-value pairs, v1 RECOMMENDED CANDIDATE: every key type not
 explicitly allowed by this profile, whether registered/known or
 unrecognized, is PROPOSED REJECT in every scope (global, input,
-output), as a policy rejection at bounded intake, so QuietKey never
-accepts a field it would then drop, strip, or pass through unreviewed.
+output), as a policy rejection during bounded map framing/key parsing,
+before semantic, ownership, fee, review, or signing processing, so
+QuietKey never accepts a field it would then drop, strip, or pass
+through unreviewed.
 Registered-but-unsupported fields (the named registry rows in
 section 5) can be registered/valid PSBT generally; they are
 profile-ineligible here, not malformed in the standard.
@@ -319,32 +370,43 @@ are permitted only within future OPEN limits. No one-recipient
 assumption anywhere. The architecture's v1 non-goal "No Taproot"
 controls: P2TR recipient outputs are EXCLUDED in this v1 draft.
 D-05 may decide the remaining non-Taproot recipient allowlist only;
-enabling P2TR recipients requires a separate architecture-owner
-amendment, and OD-05 cannot silently reopen it. No silent unsupported
-output — every unsupported output script is an explicit reject.
+the PROPOSED (NOT ACCEPTED) D-05 recipient script allowlist is exactly
+P2PKH, P2SH, P2WPKH, and P2WSH; every other recipient script class is
+an explicit reject. Enabling P2TR recipients requires a separate
+architecture-owner amendment, and OD-05 cannot silently reopen it. No
+silent unsupported output — every unsupported output script is an
+explicit reject.
 
 **QK-F3-PSBT-021** — Mainnet rendering only. Scripts themselves do not
 encode a network; address and network rendering derives from the
 canonical mainnet context, never from coordinator metadata.
 
 **QK-F3-PSBT-022** — Absolute fee is exact ONLY when computed from
-fully authenticated full-previous-transaction values
-(QK-F3-PSBT-011) as verified input sums minus output sums, using
+full-previous-transaction values committed by the supplied full
+transactions and referenced txids (QK-F3-PSBT-011; this proves
+commitment, never chain existence, confirmation, or unspentness)
+as verified input sums minus output sums, using
 checked arithmetic (QK-F3-PSBT-031). Fee-rate before final signatures
-is an ESTIMATE, RANGE, or UNAVAILABLE status until D-08 selects a
-vsize/weight method; it is never called exact, and it MUST never rely
+is UNAVAILABLE while D-08 remains open; if the D-08 candidate is later
+owner-selected and every bound is proven, the status is RANGE,
+otherwise it stays UNAVAILABLE. It is never an estimate,
+it is never called exact, and it MUST never rely
 on a coordinator-supplied fee or fee rate. Warning and hard thresholds
 remain OD-05/QK-LIM OPEN.
 
 **QK-F3-PSBT-023** — The review display MUST show: all recipient,
 self-transfer, and change outputs; per-output amounts; total input and
 total output sums; the exact absolute fee (per QK-F3-PSBT-022);
-the fee-rate status and method state; locktime; every RAW nSequence
+the fee-rate status and method state; the raw transaction version and
+raw nLockTime, displayed exactly; every RAW nSequence
 value per input, displayed exactly and accompanied by the literal
 status "replacement policy not evaluated" while no pinned
 owner-approved replacement policy exists (QK-F3-PSBT-033, D-12 OPEN),
 with no opt-in signaling implication and no replaceability inference
-derived or shown; input count; output count; per-input
+derived or shown. Version, nLockTime, and nSequence are treated
+together as one time/lock semantics family (QK-F3-PSBT-023, -026,
+-033) under one combined owner decision, D-12 under OD-05; input
+count; output count; per-input
 effective sighash; wallet_id; and all policy warnings. Exact
 pagination, layout, and timeouts remain OPEN (QK-LIM-TUI families).
 
@@ -352,7 +414,11 @@ pagination, layout, and timeouts remain OPEN (QK-LIM-TUI families).
 (section 8). Its byte serialization, hash choice, and domain
 separation remain OPEN (D-09). Revalidation MUST prove exact equality
 to the approved future commitment and MUST forbid substituting
-T1-review facts for T2-sign facts in either direction.
+T1-review facts for T2-sign facts in either direction. Revalidation
+operates on the trusted core's retained exact imported byte sequence
+only; it MUST NOT reread QR, SD, or any other mutable media or
+transport source, because a media reread would reintroduce the
+substitution window the commitment exists to close.
 
 **QK-F3-PSBT-025** — Future signer output, exact allowed-delta rule:
 the signer MAY add only missing partial-signature key/value records
@@ -363,10 +429,25 @@ when an accepted valid partial signature for an active signer pubkey
 is already present, QuietKey adds NO replacement or duplicate record
 for that full key; it may sign only genuinely missing authorized-role
 records. Distinct expected cosigner signatures remain normal
-(QK-F3-PSBT-015). It MUST verify every
-signature it produces, MUST independently reparse the exact exported
-object, and MUST export a newly named signed PSBT over each authorized
-route. Exact naming and atomic-write policy remain OD-05/OD-06 OPEN.
+(QK-F3-PSBT-015). Every signature record the signer inserts MUST
+itself satisfy the strict-DER-plus-one-trailing-sighash-byte encoding
+rule of QK-F3-PSBT-015, and produced signatures MUST be emitted low-S
+under the same proposed v1 relay/interoperability policy. The
+independent reparse MUST additionally prove that the
+produced-signature record bytes in the reparsed export are exactly the
+records already verified (or verify them directly from the reparsed
+output); a produced-signature-record mismatch is its own fatal class. Byte-preservation rule for export: the
+exported object MUST preserve every pre-existing accepted byte and the
+original map/record order exactly, with the ONLY permitted difference
+being the insertion of the authorized new partial-signature records;
+no re-serialization, reordering, CompactSize re-encoding, or
+normalization of pre-existing content is permitted. It MUST verify
+every signature it produces, MUST independently reparse the exact
+exported object and prove the exact allowed delta, and MUST export a
+newly named signed PSBT over each authorized route.
+Produced-signature verification failure, output-reparse failure, and
+export-delta violation are separate, independently fatal failure
+classes. Exact naming and atomic-write policy remain OD-05/OD-06 OPEN.
 
 ## 7. Appended clauses (031–034; appended without renumbering)
 
@@ -375,7 +456,10 @@ arithmetic over sizes, counts, lengths, depths, indices, values, sums,
 fees, weights, and derived resource products MUST be checked, failing
 closed on overflow or underflow, at every computation and comparison.
 ALL monetary amounts MUST be enforced within the valid Bitcoin
-monetary range at every computation and comparison. This clause maps
+monetary range at every computation and comparison. The valid Bitcoin
+monetary range (Bitcoin Core MoneyRange) is exactly 0 to
+2,100,000,000,000,000 satoshis inclusive, applied to every individual
+amount and every intermediate and final sum. This clause maps
 QK-REQ-PSBT-007 and QK-REQ-PSBT-008 into this profile.
 
 **QK-F3-PSBT-032** — Approval binding and invalidation. Physical
@@ -412,9 +496,42 @@ raw nSequence value exactly, MUST display the literal status
 opt-in signaling implication or any replaceability inference. Only
 after a separate pinned owner-approved policy exists MAY a derived
 signal be shown, and it MUST never be presented as a guarantee of
-network replaceability. Produced-signature
+network replaceability. Encoded relative-lock (BIP 68) meaning, stated
+for D-12 exactly: relative lock-time is consensus-active only when the
+transaction version is 2 or greater AND the per-input disable bit
+(bit 31) is clear; when active, the masked low 16 bits of nSequence
+encode the relative lock value, interpreted as blocks when the
+type flag (bit 22) is 0 and as 512-second units when bit 22 is 1.
+This is the encoded meaning only — an offline signer evaluates no
+chain state and reports chain-state satisfaction as UNKNOWN.
+Absolute-lock (nLockTime) meaning, stated for D-12 exactly: nLockTime
+is a TRANSACTION-LEVEL field, never per-input. nLockTime=0 means no
+absolute lock. For nonzero nLockTime, values below 500,000,000 are
+height-class and values at or above 500,000,000 are time-class;
+finality uses a strict less-than comparison of nLockTime against the
+applicable chain context, and per BIP 113 the time-class context is
+the prior-block median time past. An otherwise-unsatisfied nonzero
+nLockTime is ignored ONLY when EVERY input has nSequence=0xffffffff;
+with any non-final input present, the transaction-level absolute lock
+remains active until satisfied. The offline signer has no trustworthy
+current height, median time past, mempool, or chain-state fact, so
+lock satisfaction is always reported UNKNOWN. BIP 68 relative-lock
+interpretation applies ONLY when the transaction version is 2 or
+greater and disable bit 31 is clear, as stated above — encoded
+semantics only, satisfaction UNKNOWN. BIP 125 DIRECT opt-in signaling
+is interpreted separately: an input signals when its nSequence is
+below 0xfffffffe; this is mempool policy, never consensus, and
+inherited signaling, ancestry, full-RBF/peer policy, and actual
+replaceability are unavailable/UNKNOWN — network replaceability is
+never promised. The same
+raw nSequence value MUST be evaluated separately for each of its three
+distinct roles — transaction-level nLockTime finality (via the
+all-inputs-final exception above), BIP 68 relative lock encoding,
+and BIP 125 replacement signaling — which overlap in encoding but are
+never interchangeable. Produced-signature
 verification failure and output-reparse failure are distinct failure
-classes, each independently fatal.
+classes, each independently fatal (see also QK-F3-PSBT-025's
+export-delta violation class).
 
 **QK-F3-PSBT-034** — Accepted typed-field encoding validation. Before
 any semantic use, every explicitly allowed BIP174 typed field — in the
@@ -442,7 +559,7 @@ the pinned primary source; no third-party prose or bytes are copied):
 | GLOBAL: version field 0xFB | keydata FORBIDDEN (no key data) | 32-bit little-endian unsigned integer; exactly zero if present | exact fixed width | QK-F3-PSBT-006 | QK-F3-PLAN-071 (with -008, -035, -036) |
 | INPUT: PSBT_IN_NON_WITNESS_UTXO 0x00 | keydata FORBIDDEN (no key data) | full previous transaction in network serialization | exact full consumption | QK-F3-PSBT-011 | QK-F3-PLAN-072 |
 | INPUT: PSBT_IN_WITNESS_UTXO 0x01 | keydata FORBIDDEN (no key data) | 64-bit little-endian amount, CompactSize scriptPubKey length, scriptPubKey bytes | full value consumption; minimal CompactSize | QK-F3-PSBT-011 | QK-F3-PLAN-072 |
-| INPUT: PSBT_IN_PARTIAL_SIG 0x02 | keydata REQUIRED: the corresponding public key | signature bytes as they would be pushed to the stack, including the trailing sighash byte | full value consumption | QK-F3-PSBT-015, -025 | QK-F3-PLAN-072 |
+| INPUT: PSBT_IN_PARTIAL_SIG 0x02 | keydata REQUIRED: the corresponding public key | signature bytes as they would be pushed to the stack: strict-DER ECDSA per BIP 66 plus exactly one trailing sighash byte (proposed low-S policy per QK-F3-PSBT-015) | full value consumption | QK-F3-PSBT-015, -025 | QK-F3-PLAN-072, -078, -079 |
 | INPUT: PSBT_IN_SIGHASH_TYPE 0x03 | keydata FORBIDDEN (no key data) | 32-bit little-endian unsigned integer | exact fixed width | QK-F3-PSBT-014 | QK-F3-PLAN-072 |
 | INPUT: PSBT_IN_WITNESS_SCRIPT 0x05 | keydata FORBIDDEN (no key data) | witnessScript bytes | full value consumption | QK-F3-PSBT-012 | QK-F3-PLAN-072 |
 | INPUT: PSBT_IN_BIP32_DERIVATION 0x06 | keydata REQUIRED: the public key | 4-byte fingerprint then 32-bit little-endian path elements (value length an exact multiple of 4 bytes after the fingerprint) | full value consumption | QK-F3-PSBT-013 | QK-F3-PLAN-072 |
@@ -467,9 +584,10 @@ outside this commitment.
 | active signer-role set | future qk-core session policy |
 | media/session identity | future qk-core transport session state |
 | network | canonical mainnet context in future qk-core |
-| unsigned tx version and locktime | future qk-core parse |
+| unsigned tx version and raw nLockTime, plus whether absolute locktime is active or disabled by all-final sequences, and the height-versus-time locktime class | future qk-core parse (encoded meaning only; chain-state satisfaction never claimed) |
+| per-input deterministic BIP 68 interpretation where applicable (version threshold, disable bit 31, type bit 22, masked relative value; blocks vs 512-second units), chain-state status UNKNOWN; BIP 125 signaling as mempool signaling only, presentation per D-12 | future qk-core parse and encoding interpretation (QK-F3-PSBT-033, D-12) |
 | explicit positions: global scope plus each input map index and each output map index, binding every input's and output's index alongside its facts (explicit, not merely implied by original order; encoding remains D-09 OPEN) | future qk-core parse (order- and index-preserving) |
-| per-input outpoint, authenticated prevout value and script | future qk-core parse + full-prevtx authentication (QK-F3-PSBT-011) |
+| per-input outpoint, full-prevtx-committed prevout value and script (commitment only; no chain-state claim) | future qk-core parse + full-prevtx commitment validation (QK-F3-PSBT-011) |
 | per-input ownership evidence | future qk-core descriptor/derivation computation |
 | per-input raw sequence, displayed exactly with the literal status "replacement policy not evaluated" while D-12 remains OPEN | future qk-core parse |
 | per-input effective sighash | future qk-core parse and policy check (QK-F3-PSBT-014) |
@@ -509,9 +627,24 @@ transaction (zero inputs; zero outputs; null or coinbase-form
 outpoint; duplicate input outpoint); malformed accepted-type field
 (QK-F3-PSBT-034); factor/card agreement precondition failure
 (QK-F3-PSBT-032); commitment/revalidation
-mismatch; approval-binding invalidation; produced-signature
+mismatch; approval-binding invalidation; full-prevtx-committed
+prevout/P2WSH commitment mismatch (QK-F3-PSBT-012), meaning the
+prevout committed by the supplied full transaction and referenced
+txid, never chain existence, confirmation, or unspentness; common
+branch/index mismatch
+(QK-F3-PSBT-013); malformed/non-strict DER signature encoding;
+high-S proposed-policy rejection (QK-F3-PSBT-015);
+registered-but-profile-ineligible field; forbidden output
+mutation/removal/reorder (QK-F3-PSBT-025); produced-signature-record
+mismatch; produced-signature
 verification failure; output-reparse failure. This taxonomy is
 proposed only and carries no numeric codes yet.
+
+Acceptance-time obligation: The profile MUST NOT be accepted until
+every QK-F3-PLAN-001..090 maps to one or more approved canonical
+QK-TST IDs through separately authorized canonical edits. Mapping
+alone neither runs tests nor creates evidence; no canonical register
+is edited now.
 
 ## 10. Traceability matrix
 
@@ -562,7 +695,8 @@ modified here.
 hex, base64, binary, address, mnemonic, xpub, fingerprint, real or
 funded data, generated vector, or run result exists anywhere in this
 repository for this plan. Plan IDs are contiguous QK-F3-PLAN-001
-through QK-F3-PLAN-074. Every status is exactly
+through QK-F3-PLAN-090 (075–090 appended by F3.1a without
+renumbering). Every status is exactly
 PLANNED — NOT GENERATED — NOT RUN. Bitcoin Core `decodepsbt` appears
 below strictly as a limited decode/interoperability oracle only —
 never an ownership, descriptor, authorization, review, or
@@ -625,7 +759,7 @@ QuietKey-policy oracle.
 | QK-F3-PLAN-053 | QK-F3-PSBT-032 | adversarial | factor, card, media, session, or state change after approval | approval invalidated; full reparse/review forced | F4.1 symbolic model plus future commitment oracle | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-054 | QK-F3-PSBT-032 | adversarial | descriptor, wallet_id, profile, or policy-context change after approval | approval invalidated; full reparse/review forced | F4.1 symbolic model plus future commitment oracle | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-055 | QK-F3-PSBT-031 | adversarial | symbolic checked-arithmetic and Bitcoin monetary-range boundary constructions (value above maximum money; negative; sum overflow) | reject: amount range/overflow/underflow | future checked-arithmetic oracle | PLANNED — NOT GENERATED — NOT RUN |
-| QK-F3-PLAN-056 | QK-F3-PSBT-033 | positive | inputs with varying raw nSequence values | accept; each raw nSequence displayed exactly with the literal status "replacement policy not evaluated"; no signaling implication or replaceability inference derived or shown (D-12 OPEN) | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-056 | QK-F3-PSBT-033 | positive | inputs with varying raw nSequence values | disposition follows unresolved D-12 in explicit phases: while D-12 remains OPEN, no transaction disposition and no accept path exists, each raw nSequence is represented exactly with the literal status "replacement policy not evaluated", and no derived replacement inference is made; if Alternative A is later owner-accepted and every other rule passes, review/display each raw nSequence exactly plus only the approved derived temporal/policy facts authorized by the accepted D-12 policy, the "replacement policy not evaluated" label is retired unconditionally for that phase, and actual/network replaceability remains UNKNOWN and is never guaranteed; if Alternative B is later accepted, reject the owner-selected active temporal/policy patterns (including direct BIP125 signaling); currently no outcome is selected; raw-value fidelity always required | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-057 | QK-F3-PSBT-033 | adversarial | symbolic output-reparse failure of the exact exported object | reject: output-reparse failure | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-058 | QK-F3-PSBT-018 | adversarial | registered-but-unsupported global field PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE 0x09 present (registered/valid generally; profile-ineligible) | reject: field not explicitly allowed by this profile | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-059 | QK-F3-PSBT-018 | adversarial | registered-but-unsupported input field PSBT_IN_POR_COMMITMENT 0x09 present (registered/valid generally; profile-ineligible) | reject: field not explicitly allowed by this profile | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
@@ -644,34 +778,76 @@ QuietKey-policy oracle.
 | QK-F3-PLAN-072 | QK-F3-PSBT-034 | adversarial | table-driven exhaustive plan over the QK-F3-PSBT-034 allowed-field schema, INPUT scope: for EVERY allowed input field row (non_witness_utxo; witness_utxo; partial signature; sighash type; witness script; BIP32 derivation) future vector construction MUST include at least one malformed-keydata case and every applicable malformed-value, malformed-length, and incomplete-consumption case — not merely representatives | reject: malformed accepted-type field, before ownership/fee/review/signing logic | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-073 | QK-F3-PSBT-034 | adversarial | table-driven exhaustive plan over the QK-F3-PSBT-034 allowed-field schema, OUTPUT scope: for EVERY allowed output field row (witness script; BIP32 derivation) future vector construction MUST include at least one malformed-keydata case and every applicable malformed-value, malformed-length, and incomplete-consumption case — not merely representatives | reject: malformed accepted-type field, before ownership/fee/review/signing logic | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
 | QK-F3-PLAN-074 | QK-F3-PSBT-009 | adversarial | malformed, truncated, or not-fully-consumed INNER unsigned-transaction value, distinct from outer PSBT truncation or trailing bytes | reject: inadmissible unsigned transaction (inner-transaction malformation), before map-count, ownership, fee, review, or signing logic | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-075 | QK-F3-PSBT-012 | adversarial | full-prevtx-committed prevout P2WSH witness program vs supplied/derived witnessScript hash mismatch (commitment by the supplied full transaction and referenced txid only; chain existence, confirmation, and unspentness never implied) | reject: full-prevtx-committed prevout/P2WSH commitment mismatch | future descriptor-derivation oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-076 | QK-F3-PSBT-012 | adversarial | full-prevtx-committed prevout commits to a different D branch/index than the supplied derivations propose (commitment wording as in PLAN-075; no chain-state claim) | reject: full-prevtx-committed prevout/P2WSH commitment mismatch | future descriptor-derivation oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-077 | QK-F3-PSBT-013 | adversarial | A/B/C input derivation entries lacking one common descriptor branch/index coordinate | reject: common branch/index mismatch | future descriptor-derivation oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-078 | QK-F3-PSBT-015 | adversarial | BER/non-strict-DER existing partial signature | reject: malformed/non-strict DER signature encoding | future signature verification oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-079 | QK-F3-PSBT-015 | adversarial | strict-DER but high-S existing partial signature | reject: high-S proposed-policy rejection (proposed low-S policy; not consensus) | future signature verification oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-080 | QK-F3-PSBT-025 | adversarial | produced signature non-DER, high-S, or with wrong trailing sighash byte | fatal: produced-signature verification failure; no export | future signature verification oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-081 | QK-F3-PSBT-025 | adversarial | export mutates, removes, or reorders a pre-existing accepted record outside the allowed delta | fatal: forbidden output mutation/removal/reorder, proven by output reparse | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-082 | QK-F3-PSBT-025 | adversarial | reparsed produced-signature record bytes differing from the already verified records | fatal: produced-signature-record mismatch | future independent parser + signature verification oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-083 | QK-F3-PSBT-024 | adversarial | attempted post-approval mutable-media reread/substitution instead of the retained exact imported bytes | reject: approval-binding invalidation / commitment revalidation failure | F4.1 symbolic model plus future commitment oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-084 | QK-F3-PSBT-031 | adversarial | monetary matrix: 0, MAX_MONEY, MAX_MONEY+1, negative amount, running-sum overflow or sum above MAX_MONEY, and negative fee | accept only in-range constructions; reject: amount range/overflow/underflow or fee inconsistency | future checked-arithmetic oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-085 | QK-F3-PSBT-033 | positive | transaction version/nLockTime activation matrix: zero/nonzero nLockTime, height-class vs time-class (500,000,000 threshold), mixed final/non-final input sequences, and the all-inputs-final transaction-level exception | disposition follows unresolved D-12: if Alternative A is later accepted and all other rules pass, interpret/display the exact encoded facts; if Alternative B is later accepted, reject the selected active temporal/policy patterns (including direct BIP125 signaling); currently no outcome is selected; chain-state satisfaction never claimed | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-086 | QK-F3-PSBT-033 | positive | BIP68 matrix: version below/at least 2 threshold, disable bit 31 set/clear, type bit 22 both values (blocks vs 512-second units), masked low-16-bit relative value | disposition follows unresolved D-12: if Alternative A is later accepted and all other rules pass, interpret/display the exact encoded facts; if Alternative B is later accepted, reject the selected active temporal/policy patterns (including direct BIP125 signaling); currently no outcome is selected; never claim chain-state satisfaction | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-087 | QK-F3-PSBT-033 | positive | BIP125 direct opt-in signal (nSequence below 0xfffffffe) distinguished from unavailable inherited-signaling/full-RBF/actual-replaceability state | disposition follows unresolved D-12: if Alternative A is later accepted and all other rules pass, interpret/display the exact encoded facts as mempool signaling only, never a network guarantee; if Alternative B is later accepted, reject the selected active temporal/policy patterns (including direct BIP125 signaling); currently no outcome is selected | future independent parser + threat-model review | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-088 | QK-F3-PSBT-022 | positive | D-08 range: known existing signature lengths plus each missing signature at 9 and 72 bytes including sighash; exact checked min/max weight and vsize | fee-rate reported as RANGE or UNAVAILABLE, never exact before final witnesses | future checked-arithmetic oracle | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-089 | QK-F3-PSBT-020 | positive | one symbolic positive case for each proposed D-05 recipient class: P2PKH, P2SH, P2WPKH, P2WSH | profile-eligible only if D-05 is later accepted and every other check passes; no acceptance implied now | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
+| QK-F3-PLAN-090 | QK-F3-PSBT-020 | adversarial | P2TR, OP_RETURN, bare/nonstandard, unknown witness version, or other unsupported recipient output | reject: unsupported output (explicit) | future independent parser | PLANNED — NOT GENERATED — NOT RUN |
 
 ## 12. Owner decision packet
+
+### D-08 correction (F3.1a)
+
+The BIP 66 serialized ECDSA signature vector INCLUDING the trailing
+sighash byte is 9–73 bytes; strict low-S reduces the MAXIMUM to
+72 bytes — it does not change the minimum. RECOMMENDED but NOT
+ACCEPTED RANGE candidate for pre-final fee rate: start from the exact
+base transaction bytes and the exact descriptor-derived native-P2WSH
+final-witness template; use actual accepted existing-signature lengths
+and the interval [9, 72] bytes (including sighash) for each missing
+eventual low-S signature; if more than threshold valid signatures
+exist, range over every valid two-signature finalizer selection;
+compute checked min/max weight, vsize = ceil(weight/4), and the exact
+rational fee-rate interval [fee/max_vsize, fee/min_vsize]; any decimal
+display rounds the lower bound down and the upper bound up at a
+separately selected precision; if any bound cannot be proven, the
+status is UNAVAILABLE. D-08 asks the owner to select or revise RANGE
+versus UNAVAILABLE and remains NOT ACCEPTED. Fee rate is never called
+exact before final witnesses.
+
+### Decision table
 
 **QK-F3-PSBT-030** — Finite decision packet. Inherited decisions
 (mainnet-only, PSBT v0, P2WSH sortedmulti 2-of-3, SD/BBQr transports,
 signed-PSBT export over both routes; QK-DEC-002/003/009/010,
 QK-REQ-TRN-007) are cited, not reopened. Every item below is
-unresolved: the default recommendation is the candidate bundle in
-sections 6–7, but every item stays NOT ACCEPTED and, where noted,
-OD-05 or OD-06 OPEN until an explicit owner decision.
+unresolved and stays NOT ACCEPTED and, where noted, OD-05 or OD-06
+OPEN until an explicit owner decision. No claim is made that the
+candidate bundle as a whole is already the default recommendation;
+each item is decided individually. Until D-12 is selected, the profile
+cannot be accepted and there is no runtime accept path. No owner item
+is selected here.
 
-| Item | Decision required (accept or revise) | Default recommendation |
-|---|---|---|
-| D-01 | Prevout policy: both-UTXO (recommended) vs witness_utxo-only with explicit provenance downgrade | QK-F3-PSBT-011 |
-| D-02 | Global xpub handling (untrusted hint, exact agreement with D) | QK-F3-PSBT-013 |
-| D-03 | Partial-signature, absent-sighash default, and already-threshold-signed policy | QK-F3-PSBT-014, -015 |
-| D-04 | Unknown/proprietary policy: v1 rejection (recommended) vs future bounded preservation with structural validation and full commitment | QK-F3-PSBT-018 |
-| D-05 | Non-Taproot recipient output script allowlist only; P2TR recipients stay excluded absent a separate architecture-owner amendment | QK-F3-PSBT-020 |
-| D-06 | Change/self-transfer proof requirements | QK-F3-PSBT-019 |
-| D-07 | Multiple-output policy and limits (QK-LIM, OPEN) | QK-F3-PSBT-020 |
-| D-08 | Fee-rate computation method before final signatures (estimate/range/unavailable until decided) | QK-F3-PSBT-022 |
-| D-09 | Review commitment serialization, hash, domain separation | QK-F3-PSBT-024, -026 |
-| D-10 | Finalization/export boundary (signed PSBT only vs any finalization) under OD-05 | QK-F3-PSBT-016, -025 |
-| D-11 | Output filenames and atomic write lifecycle (OD-05/OD-06, OPEN) | QK-F3-PSBT-025, -033 |
-| D-12 | Replacement/nSequence interpretation: remain raw-only (raw display, literal status "replacement policy not evaluated") vs adopt a specifically pinned owner-approved interpretation; OPEN — resolves no canonical OD | QK-F3-PSBT-023, -033 |
+| Item | Decision required (accept or revise) | Candidate reference | Readiness/Status |
+|---|---|---|---|
+| D-00 | Base clause bundle acceptance: accept or revise every clause obligation not otherwise covered by D-01..D-12 | sections 1–11 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-01 | Prevout policy: both-UTXO (recommended) vs witness_utxo-only with explicit provenance downgrade | QK-F3-PSBT-011 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-02 | Global xpub handling (untrusted hint, exact agreement with D). If D-02 is not selected and no replacement exists, GLOBAL_XPUB rejects under the closed-world default; no prevalence claim is made | QK-F3-PSBT-013 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-03 | Partial-signature, absent-sighash default, high-S policy family, and already-threshold-signed policy | QK-F3-PSBT-014, -015 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-04 | Unknown/proprietary policy: v1 rejection (recommended) vs future bounded preservation with structural validation and full commitment. v1 rejection rejects the WHOLE PSBT, an explicit interoperability cost; selection requires representative coordinator-corpus review | QK-F3-PSBT-018 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-05 | Recipient script allowlist: proposed exactly P2PKH, P2SH, P2WPKH, P2WSH; P2TR recipients stay excluded absent a separate architecture-owner amendment | QK-F3-PSBT-020 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-06 | Change/self-transfer proof requirements | QK-F3-PSBT-019 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-07 | Multiple-output policy and limits (QK-LIM, OPEN) | QK-F3-PSBT-020 | structurally/evidence-open (limits are OPEN QK-LIM values) |
+| D-08 | Fee-rate method before final signatures: RANGE candidate (per the D-08 correction above) vs UNAVAILABLE; never exact | QK-F3-PSBT-022 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-09 | Review commitment serialization, hash, domain separation | QK-F3-PSBT-024, -026 | structurally/evidence-open (construction undefined) |
+| D-10 | Finalization/export boundary (signed PSBT only vs any finalization) under OD-05 | QK-F3-PSBT-016, -025 | finite proposed candidate; owner-open; NOT ACCEPTED |
+| D-11 | Output filenames, media, and atomic write lifecycle (OD-05/OD-06, OPEN) | QK-F3-PSBT-025, -033 | structurally/evidence-open (media/write design undefined) |
+| D-12 | Combined version/nLockTime/nSequence/BIP68/BIP125 interpretation under existing OD-05. Alternative A, recommended but NOT ACCEPTED: INTERPRET-AND-DISPLAY the consensus temporal semantics plus separately identified mempool-policy signaling, plus raw values, with literal chain-state/network status UNKNOWN. Alternative B, restrictive candidate, NOT ACCEPTED: reject any active absolute-lock (nLockTime) pattern, any active BIP68 relative-lock pattern, OR any direct BIP125 signal (nSequence below 0xfffffffe), only after owner selection and representative coordinator-corpus review. Resolves no canonical OD; no D-13 and no new OD is added | QK-F3-PSBT-023, -026, -033 | finite proposed candidates; owner-open; NOT ACCEPTED |
 
-REVIEW DRAFT COMPLETE — NOT ACCEPTED
+REVIEW DRAFT CORRECTED (F3.1a) — NOT ACCEPTED
 No profile accepted. No vectors generated or run. No implementation
 authorized. Gates A–E remain OPEN; OD-01..08 and every QK-LIM remain
-unresolved/open; QK-TST/evidence unchanged; F2 incomplete; F3/F4
-authorized-incomplete; F5-F12 unauthorized.
+unresolved/open; D-00..D-12 remain owner-open; QK-TST/evidence
+unchanged; F2 incomplete; F3/F4 authorized-incomplete; F5-F12
+unauthorized.

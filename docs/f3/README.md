@@ -8,7 +8,7 @@ Authorization: QK-AUTH-F3F4-001 (docs/HOST-WORK-AUTHORIZATION.md), 2026-08-18.
 
 ## Inventory
 
-- [PSBT-V0-REVIEW-PROFILE-DRAFT.md](PSBT-V0-REVIEW-PROFILE-DRAFT.md) — F3.1 PSBT v0 review-profile DRAFT: NOT ACCEPTED, NO VECTORS generated or run, NO IMPLEMENTATION authorized.
+- [PSBT-V0-REVIEW-PROFILE-DRAFT.md](PSBT-V0-REVIEW-PROFILE-DRAFT.md) — F3.1 PSBT v0 review-profile DRAFT, revised by F3.1a (CORRECTION-ONLY): corrected, not accepted; 34 clauses (QK-F3-PSBT-001–034), plans QK-F3-PLAN-001–090, decisions D-00–D-12 all owner-open, zero vectors generated or run, NO IMPLEMENTATION authorized.
 
 ## Drafting boundary (the only authorized F3 activity)
 
