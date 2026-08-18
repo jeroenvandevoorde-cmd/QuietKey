@@ -42,6 +42,8 @@ C1=c622c19832c82b849737b895f41be7657fa8cc54     # docs: authorize host-only F3/F
 C2=f236f4097b87fce8f0ab781ec36d97c9b52cdc79     # build: add dependency-free Rust host state model
 C3=8f3154d0e7845ed5a4c69b73b9479821fdf06765     # chore: establish current-stage verification
 C4=20dea88b8501e07edb93fd7b8f1aaa4e1ecd2ca1     # feat(host): add transaction authority policy model
+C5=5f186d051a1430b4f4a5d43dbfd0efab4661c648     # chore: advance current-stage verification (PUBLISHED BASE)
+C6=11991ff6fb0559fd7512d1c0be300300072c0669     # docs(f3): draft PSBT v0 review profile
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -61,30 +63,42 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> C2 -> C3 -> C4 -> HEAD, no merges.
+# Exact linear ancestry BASE -> C1 -> C2 -> C3 -> C4 -> C5 -> C6 -> HEAD,
+# no merges. C5 is the PUBLISHED base of the current unpublished work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c6=$($GIT rev-parse "$C6^" 2>/dev/null) || err "C6 has no parent"
+p_c5=$($GIT rev-parse "$C5^" 2>/dev/null) || err "C5 has no parent"
 p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C4" ] || err "HEAD parent is $p_head, expected $C4"
+[ "$p_head" = "$C6" ] || err "HEAD parent is $p_head, expected $C6"
+[ "$p_c6" = "$C5" ] || err "C6 parent is $p_c6, expected $C5"
+[ "$p_c5" = "$C4" ] || err "C5 parent is $p_c5, expected $C4"
 [ "$p_c4" = "$C3" ] || err "C4 parent is $p_c4, expected $C3"
 [ "$p_c3" = "$C2" ] || err "C3 parent is $p_c3, expected $C2"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "5" ] || err "expected exactly 5 commits after base, found $count"
+[ "$count" = "7" ] || err "expected exactly 7 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
   # platforms; strip all whitespace, require a nonempty digit string,
-  # and compare numerically. (Verifier portability only; no
-  # platform-independent reproducibility is claimed.)
-  np=$(wc -w < "$tmpdir/parents" | tr -d '[:space:]')
+  # and compare numerically. Two rc-checked temp-file stages — no
+  # pipeline, so a wc failure cannot be masked by tr succeeding.
+  # (Verifier portability only; no platform-independent reproducibility
+  # is claimed.)
+  wc -w < "$tmpdir/parents" > "$tmpdir/np.raw" \
+    || err "parent count wc failed for $c (fail-closed)"
+  tr -d '[:space:]' < "$tmpdir/np.raw" > "$tmpdir/np.txt" \
+    || err "parent count whitespace strip failed for $c (fail-closed)"
+  np=$(cat "$tmpdir/np.txt") \
+    || err "parent count read-back failed for $c (fail-closed)"
   case "$np" in
     ''|*[!0-9]*) err "parent count for $c is not numeric: '$np' (fail-closed)" ;;
     *) [ "$np" -eq 2 ] || err "commit $c does not have exactly one parent (fields=$np)" ;;
@@ -94,11 +108,13 @@ done
 # ------------------------------------------- b/c/d. Per-commit path sets
 check_paths() {
   # $1 = commit, $2 = label, remaining lines on stdin = expected paths
-  LC_ALL=C sort > "$tmpdir/exp.$2"
+  LC_ALL=C sort > "$tmpdir/exp.$2" \
+    || err "expected path-set sort failed for $2 (fail-closed)"
   $GIT diff-tree --no-commit-id --name-only -r "$1" > "$tmpdir/raw.$2" \
     || err "git diff-tree failed for $2 (enumeration fail-closed)"
   [ -s "$tmpdir/raw.$2" ] || err "git diff-tree returned no paths for $2 (enumeration fail-closed)"
-  LC_ALL=C sort "$tmpdir/raw.$2" > "$tmpdir/act.$2"
+  LC_ALL=C sort "$tmpdir/raw.$2" > "$tmpdir/act.$2" \
+    || err "actual path-set sort failed for $2 (fail-closed)"
   diff "$tmpdir/exp.$2" "$tmpdir/act.$2" > "$tmpdir/d.$2" 2>&1 \
     || err "$2 changes wrong path set: $(cat "$tmpdir/d.$2")"
 }
@@ -142,6 +158,17 @@ host/qk-host-sim/tests/transaction_policy.rs
 tools/verify-host-boundary.sh
 EOF
 
+check_paths "$C5" "commit5" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C6" "commit6" <<'EOF'
+docs/SOURCE-REGISTER.md
+docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
+docs/f3/README.md
+tools/verify-host-boundary.sh
+EOF
+
 check_paths "$head" "verifier-advance-commit" <<'EOF'
 tools/verify-current-stage.sh
 EOF
@@ -161,6 +188,8 @@ cat > "$tmpdir/allowed-diff" <<'EOF'
 docs/BUILD-ROADMAP.md
 docs/DECISION-LOG.md
 docs/HOST-WORK-AUTHORIZATION.md
+docs/SOURCE-REGISTER.md
+docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f4/README.md
 docs/f4/TRANSACTION-AUTHORITY-POLICY.md
@@ -182,7 +211,8 @@ EOF
 $GIT diff --name-only "$BASE" "$head" > "$tmpdir/actual-diff.raw" \
   || err "git diff --name-only failed (enumeration fail-closed)"
 [ -s "$tmpdir/actual-diff.raw" ] || err "git diff returned no changed paths (enumeration fail-closed)"
-LC_ALL=C sort "$tmpdir/actual-diff.raw" > "$tmpdir/actual-diff"
+LC_ALL=C sort "$tmpdir/actual-diff.raw" > "$tmpdir/actual-diff" \
+  || err "base-to-head diff path-set sort failed (fail-closed)"
 diff "$tmpdir/allowed-diff" "$tmpdir/actual-diff" > "$tmpdir/dd" 2>&1 \
   || err "tracked changes since base differ from the authorized set: $(cat "$tmpdir/dd")"
 # Every other tracked file is therefore byte-identical to base, including
@@ -290,7 +320,11 @@ grep -x 'HOST BOOTSTRAP SCOPE PASS' "$tmpdir/hb" >/dev/null \
 # ----------------------------------------------- h. Lockfile purity
 forbid "host/Cargo.lock contains external source/checksum entries" \
   -E '^(source|checksum) *=' host/Cargo.lock
+# grep -c exit 0 = matches counted, 1 = zero matches (count printed),
+# >1 = error; rc checked explicitly before the exact-count comparison.
 names=$(grep -c '^name = ' host/Cargo.lock)
+rc=$?
+[ "$rc" -le 1 ] || err "host/Cargo.lock package-name count failed (grep exit $rc)"
 [ "$names" = "2" ] || err "host/Cargo.lock does not contain exactly two packages (found $names)"
 grep '^name = "qk-host-model"$' host/Cargo.lock >/dev/null || err "qk-host-model missing from lockfile"
 grep '^name = "qk-host-sim"$' host/Cargo.lock >/dev/null || err "qk-host-sim missing from lockfile"
@@ -307,10 +341,11 @@ untracked=$(cat "$tmpdir/untracked")
 # -------- j0. Regression: the host-boundary Cargo.lock source/checksum
 # scan must use the fail-closed forbid helper (grep 0=violation,
 # 1=allowed no-match, >1=hard failure).
-grep -A 1 -F 'forbid "host/Cargo.lock contains external source/checksum entries"' \
+awk 'p == 1 { print; p = 0 }
+  index($0, "forbid \"host/Cargo.lock contains external source/checksum entries\"") > 0 { print; p = 1 }' \
   tools/verify-host-boundary.sh > "$tmpdir/lockscan" 2>&1
 rc=$?
-[ "$rc" -le 1 ] || err "lockfile-scan regression check failed to run (fail-closed)"
+[ "$rc" -eq 0 ] || err "lockfile-scan regression check failed to run (awk exit $rc; exact-empty is caught by the follow-on content check)"
 grep -F -- "-E '^(source|checksum) *=' host/Cargo.lock" "$tmpdir/lockscan" >/dev/null 2>&1 \
   || err "verify-host-boundary.sh Cargo.lock source/checksum scan does not use the fail-closed forbid helper"
 
