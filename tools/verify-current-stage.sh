@@ -61,6 +61,9 @@ C12=6640eb7945eaed8c9a5d9c75f4a617ef9b146ac2    # docs: correct current status a
 C13=d9277cd2fcd8d699448a1667624123a3347118d6    # chore: advance status-erratum consistency checks (PUBLISHED BASE)
 C14=6de0a4bb5863fc9717d32d8b5d25c88f6133da6f    # docs: record F3.1b Revision 2 policy-direction authorization
 C15=1d2bc774a0a0cde445770d48509b901b580c6e97    # docs(f3): clarify remaining Revision 2 status and weight rules (reconstructed B)
+C16=a9d1f205cfa879a6f54b8838256d36e469cfed97    # chore: rebind Revision 2 consistency checks (PUBLISHED BASE)
+C17=19979a5ec3d141125e7f4471d14846bba44e0e1a    # docs: authorize F3.2a Wallet Trust Spine drafting
+C18=a92a4b5dade0abcbcb8ad04a454b2cf4b229a32f    # docs(f3): correct Wallet Trust Spine draft and guards
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -80,11 +83,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> ... -> C12 -> C13 -> C14 ->
-# C15 -> HEAD, no merges. C13 is the PUBLISHED base of the current
+# Exact linear ancestry BASE -> C1 -> ... -> C15 -> C16 -> C17 ->
+# C18 -> HEAD, no merges. C16 is the PUBLISHED base of the current
 # unpublished work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c18=$($GIT rev-parse "$C18^" 2>/dev/null) || err "C18 has no parent"
+p_c17=$($GIT rev-parse "$C17^" 2>/dev/null) || err "C17 has no parent"
+p_c16=$($GIT rev-parse "$C16^" 2>/dev/null) || err "C16 has no parent"
 p_c15=$($GIT rev-parse "$C15^" 2>/dev/null) || err "C15 has no parent"
 p_c14=$($GIT rev-parse "$C14^" 2>/dev/null) || err "C14 has no parent"
 p_c13=$($GIT rev-parse "$C13^" 2>/dev/null) || err "C13 has no parent"
@@ -100,7 +106,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C15" ] || err "HEAD parent is $p_head, expected $C15"
+[ "$p_head" = "$C18" ] || err "HEAD parent is $p_head, expected $C18"
+[ "$p_c18" = "$C17" ] || err "C18 parent is $p_c18, expected $C17"
+[ "$p_c17" = "$C16" ] || err "C17 parent is $p_c17, expected $C16"
+[ "$p_c16" = "$C15" ] || err "C16 parent is $p_c16, expected $C15"
 [ "$p_c15" = "$C14" ] || err "C15 parent is $p_c15, expected $C14"
 [ "$p_c14" = "$C13" ] || err "C14 parent is $p_c14, expected $C13"
 [ "$p_c13" = "$C12" ] || err "C13 parent is $p_c13, expected $C12"
@@ -117,10 +126,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "16" ] || err "expected exactly 16 commits after base, found $count"
+[ "$count" = "19" ] || err "expected exactly 19 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -253,6 +262,21 @@ docs/f3/README.md
 tools/verify-host-boundary.sh
 EOF
 
+check_paths "$C16" "commit16" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C17" "commit17" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C18" "commit18" <<'EOF'
+docs/SOURCE-REGISTER.md
+docs/f3/README.md
+docs/f3/WALLET-TRUST-SPINE-DRAFT.md
+tools/verify-host-boundary.sh
+EOF
+
 check_paths "$head" "verifier-advance-commit" <<'EOF'
 tools/verify-current-stage.sh
 EOF
@@ -276,7 +300,7 @@ grep -F 'Agreed, I approve this direction.' docs/DECISION-LOG.md >/dev/null \
 # Static regression: the host checker must itself carry the corrected
 # B-final semantics checks (supporting lexical evidence only): the
 # COMPLETE-LITERAL-FULL-ROW source helper (POSIX grep -Fxc, exactly
-# one whole-line match) plus its resource-uniqueness check, all 19
+# one whole-line match) plus its resource-uniqueness check, all 26
 # invocations, the transaction.h correction, the four row-scoped PLAN
 # assertions, and the Revision 2 owner-directed PLAN-056 assertions
 # with the retired-language forbids. Old substring (grep -cF) helper
@@ -293,13 +317,13 @@ grep -F 'selcount=$(grep -cF "$2" docs/SOURCE-REGISTER.md)' tools/verify-host-bo
   || err "host checker helper does not perform the resource-uniqueness check"
 grep -F 'does not occur on exactly one source-table row' tools/verify-host-boundary.sh >/dev/null \
   || err "host checker helper missing the resource-uniqueness failure branch"
-# All 19 exact_row calls must use filename/path-only selectors (a
+# All 26 exact_row calls must use filename/path-only selectors (a
 # backticked token as the entire $2 argument), never selectors bound
 # to the mutable leading source-label cell. Fail-closed count check.
 fsel=$(grep -c "^  '\`[^\`]*\`' \\\\\$" tools/verify-host-boundary.sh)
 fsel_rc=$?
 [ "$fsel_rc" -le 1 ] || err "host checker filename-only selector count failed (grep exit $fsel_rc)"
-[ "$fsel" = "19" ] || err "host checker does not use filename/path-only selectors for all 19 exact_row calls (found $fsel)"
+[ "$fsel" = "26" ] || err "host checker does not use filename/path-only selectors for all 26 exact_row calls (found $fsel)"
 forbid "host checker still carries a source-label-bound resource selector argument" \
   -F "\` |' \\" tools/verify-host-boundary.sh
 grep -F 'does not match the complete literal expected row exactly once' tools/verify-host-boundary.sh >/dev/null \
@@ -309,7 +333,7 @@ forbid "host checker still carries the old substring grep -cF row helper behavio
 srcnt=$(grep -c '^exact_row ' tools/verify-host-boundary.sh)
 src_rc=$?
 [ "$src_rc" -le 1 ] || err "host checker exact_row invocation count failed (grep exit $src_rc)"
-[ "$srcnt" = "19" ] || err "host checker does not carry exactly 19 complete-full-row source checks (found $srcnt)"
+[ "$srcnt" = "26" ] || err "host checker does not carry exactly 26 complete-full-row source checks (found $srcnt)"
 grep -F "exact_row 'primitives/transaction.h'" tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the primitives/transaction.h full-row assertion"
 grep -F "F3.1a citation-only reference for LOCKTIME_THRESHOLD 500,000,000 only." tools/verify-host-boundary.sh >/dev/null \
@@ -408,6 +432,229 @@ grep -F 'not-proven-owned / treated as' tools/verify-host-boundary.sh >/dev/null
 # lexical evidence only): exhaustive README decision-status summary,
 # byte-exact honesty sentence, route-availability summaries, and the
 # BIP141 weight equation in three scopes.
+# ------------------------------ F3.2a Wallet Trust Spine draft stage
+# Direct essentials of the new draft, plus static assertions that the
+# host checker carries each new F3.2a guard. Lexical evidence only.
+WTS=docs/f3/WALLET-TRUST-SPINE-DRAFT.md
+[ -f "$WTS" ] || err "$WTS missing"
+grep -F 'QK-AUTH-F3.2A-001 — F3.2a Wallet Trust Spine drafting authorization' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the QK-AUTH-F3.2A-001 record"
+grep -F 'STATUS: AUTHORIZED — F3.2a HOST-ONLY WALLET TRUST-SPINE DRAFT — PROPOSED/NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED OR FROZEN — NO TEST VECTORS GENERATED OR RUN — NO IMPLEMENTATION — NO TARGET EVIDENCE.' "$WTS" >/dev/null \
+  || err "$WTS missing the exact mandatory status banner"
+csstl=$(grep -c '^STATUS:' "$WTS")
+csrc=$?
+[ "$csrc" -le 1 ] || err "WTS STATUS-line count failed (grep exit $csrc)"
+[ "$csstl" = "1" ] || err "$WTS must contain exactly one line beginning 'STATUS:' (found $csstl)"
+grep '^STATUS:' "$WTS" > "$tmpdir/cs.wts.status"
+csrc=$?
+[ "$csrc" -le 1 ] || err "WTS STATUS-line extraction failed (grep exit $csrc)"
+printf '%s\n' 'STATUS: AUTHORIZED — F3.2a HOST-ONLY WALLET TRUST-SPINE DRAFT — PROPOSED/NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED OR FROZEN — NO TEST VECTORS GENERATED OR RUN — NO IMPLEMENTATION — NO TARGET EVIDENCE.' > "$tmpdir/cs.wts.status.expected" \
+  || err "WTS expected-status generation failed (fail-closed)"
+cmp -s "$tmpdir/cs.wts.status.expected" "$tmpdir/cs.wts.status"
+cscmp=$?
+[ "$cscmp" -eq 0 ] || err "$WTS STATUS line is not exactly the mandatory banner as a full line (cmp exit $cscmp)"
+forbid "$WTS carries an affirmative APPROVED token" \
+  -E '(^|[^A-Za-z])APPROVED([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative IMPLEMENTED token" \
+  -E '(^|[^A-Za-z])IMPLEMENTED([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative VALIDATED token" \
+  -E '(^|[^A-Za-z])VALIDATED([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative CONFORMANT token" \
+  -E '(^|[^A-Za-z])CONFORMANT([^A-Za-z]|$)' "$WTS"
+forbid "$WTS carries an affirmative COMPLETE token" \
+  -E '(^|[^A-Za-z])COMPLETE([^A-Za-z]|$)' "$WTS"
+# Robust closed-world WTS ID sets, enforced DIRECTLY here (not only
+# via the host checker): extract every row-leading ID with any digit
+# count, compare against the exact expected lists, rc-check every
+# stage. Duplicates, omissions, malformed IDs and extras all fail.
+cwlines=$(grep -c '^\*\*QK-F3-WTS' "$WTS")
+cwrc=$?
+[ "$cwrc" -le 1 ] || err "WTS clause heading-prefix line count failed (grep exit $cwrc)"
+cwvalid=$(grep -cE '^\*\*QK-F3-WTS-[0-9][0-9][0-9] \(PROPOSED/NON-NORMATIVE\)\.\*\*' "$WTS")
+cwrc=$?
+[ "$cwrc" -le 1 ] || err "WTS valid clause heading count failed (grep exit $cwrc)"
+[ "$cwlines" = "$cwvalid" ] || err "$WTS has $cwlines clause heading-prefix lines but only $cwvalid satisfy the complete anchored heading grammar: malformed clause heading grammar"
+sed -n 's/^\*\*\(QK-F3-WTS-[0-9][0-9][0-9]\) (PROPOSED\/NON-NORMATIVE)\.\*\*.*/\1/p' "$WTS" > "$tmpdir/cs.wts.clauses.actual"
+cwrc=$?
+[ "$cwrc" -eq 0 ] || err "WTS clause heading extraction failed (sed exit $cwrc)"
+[ -s "$tmpdir/cs.wts.clauses.actual" ] || err "$WTS contains no valid WTS clause headings (fail-closed)"
+: > "$tmpdir/cs.wts.clauses.expected" || err "WTS clause expected-list init failed"
+wtsi=1
+while [ "$wtsi" -le 15 ]; do
+  printf 'QK-F3-WTS-%03d\n' "$wtsi" >> "$tmpdir/cs.wts.clauses.expected" \
+    || err "WTS clause expected-list generation failed at $wtsi"
+  wtsi=$((wtsi + 1))
+done
+LC_ALL=C sort "$tmpdir/cs.wts.clauses.actual" > "$tmpdir/cs.wts.clauses.sorted" \
+  || err "WTS clause sort failed (fail-closed)"
+cmp -s "$tmpdir/cs.wts.clauses.expected" "$tmpdir/cs.wts.clauses.sorted"
+cwcmp=$?
+[ "$cwcmp" -eq 0 ] || err "$WTS clause heading set is not exactly QK-F3-WTS-001..015 (cmp exit $cwcmp)"
+cwplines=$(grep -cE '^\|[ ]*QK-F3-WTS-PLAN' "$WTS")
+cwrc=$?
+[ "$cwrc" -le 1 ] || err "WTS plan row-prefix line count failed (grep exit $cwrc)"
+cwpvalid=$(grep -cE '^\| QK-F3-WTS-PLAN-[0-9][0-9][0-9] \|' "$WTS")
+cwrc=$?
+[ "$cwrc" -le 1 ] || err "WTS valid plan first-cell count failed (grep exit $cwrc)"
+[ "$cwplines" = "$cwpvalid" ] || err "$WTS has $cwplines plan-prefix rows but only $cwpvalid satisfy the exact anchored first-cell grammar: malformed plan row grammar"
+sed -n 's/^| \(QK-F3-WTS-PLAN-[0-9][0-9][0-9]\) |.*/\1/p' "$WTS" > "$tmpdir/cs.wts.plans.actual"
+cwrc=$?
+[ "$cwrc" -eq 0 ] || err "WTS plan ID extraction failed (sed exit $cwrc)"
+[ -s "$tmpdir/cs.wts.plans.actual" ] || err "$WTS contains no valid WTS plan rows (fail-closed)"
+: > "$tmpdir/cs.wts.plans.expected" || err "WTS plan expected-list init failed"
+wtsi=1
+while [ "$wtsi" -le 20 ]; do
+  printf 'QK-F3-WTS-PLAN-%03d\n' "$wtsi" >> "$tmpdir/cs.wts.plans.expected" \
+    || err "WTS plan expected-list generation failed at $wtsi"
+  wtsi=$((wtsi + 1))
+done
+LC_ALL=C sort "$tmpdir/cs.wts.plans.actual" > "$tmpdir/cs.wts.plans.sorted" \
+  || err "WTS plan sort failed (fail-closed)"
+cmp -s "$tmpdir/cs.wts.plans.expected" "$tmpdir/cs.wts.plans.sorted"
+cwcmp=$?
+[ "$cwcmp" -eq 0 ] || err "$WTS plan row set is not exactly QK-F3-WTS-PLAN-001..020 (cmp exit $cwcmp)"
+# Every plan row must END with the exact final status cell.
+wtspl=$(grep -cE '^\| QK-F3-WTS-PLAN-[0-9][0-9][0-9] \|.*\| PLANNED — NOT GENERATED — NOT RUN \|$' "$WTS")
+cwrc=$?
+[ "$cwrc" -le 1 ] || err "WTS plan final-status count failed (grep exit $cwrc)"
+[ "$wtspl" = "20" ] || err "$WTS does not have exactly 20 plan rows ending with the exact final status cell (found $wtspl)"
+grep -F 'wallet_id = SHA256(canonical_receive_descriptor_ASCII || 0x00 || canonical_change_descriptor_ASCII)' "$WTS" >/dev/null \
+  || err "$WTS missing the exact preserved wallet_id formula"
+grep -F 'single-interface B+C choreography is BLOCKED' "$WTS" >/dev/null \
+  || err "$WTS missing the B+C BLOCKED marker"
+grep -F 'END OF DRAFT — PROPOSED/NON-NORMATIVE — NO PROFILE ACCEPTED — NO VECTORS — NO IMPLEMENTATION — NO TARGET EVIDENCE.' "$WTS" >/dev/null \
+  || err "$WTS missing the exact end-of-draft status line"
+# Corrected semantic/status phrases enforced directly.
+grep -F 'a signer and A2 is not a signer role' "$WTS" >/dev/null \
+  || err "$WTS missing the corrected A1/A2 role statement"
+grep -F 'No single custody object alone satisfies the threshold' "$WTS" >/dev/null \
+  || err "$WTS missing the no-single-object-threshold rule"
+forbid "$WTS still carries the retired no-role-split wording" \
+  -F 'no role is ever split across' "$WTS"
+forbid "$WTS still names the unpinned BIP389" \
+  -F 'BIP389' "$WTS"
+grep -F 'contain the same A2 value' "$WTS" >/dev/null \
+  || err "$WTS missing the same-A2 canonical invariant"
+grep -F 'cannot be reached without establishing this same-A2 invariant' "$WTS" >/dev/null \
+  || err "$WTS missing the FINAL-ACCEPTANCE same-A2 precondition"
+grep -F "independently recomputed from each card's D" "$WTS" >/dev/null \
+  || err "$WTS missing the recomputed-not-stored wallet_id rule"
+grep -F 'wallet_id is never stored on the cards' "$WTS" >/dev/null \
+  || err "$WTS missing the wallet_id-never-stored rule"
+grep -F 'MUST match its OWN assigned role entry' "$WTS" >/dev/null \
+  || err "$WTS missing the per-role public-material agreement rule"
+grep -F 'stateless replacement terminal with no prior wallet registration' "$WTS" >/dev/null \
+  || err "$WTS missing the stateless-replacement-terminal statement"
+grep -F 'traceability is NOT DONE' "$WTS" >/dev/null \
+  || err "$WTS missing the honest traceability-NOT-DONE boundary"
+grep -F 'an explicit profile-acceptance prerequisite and remains NOT' "$WTS" >/dev/null \
+  || err "$WTS missing the traceability acceptance-prerequisite statement"
+forbid "$WTS still claims completed traceability to existing QK-TST IDs" \
+  -F 'traces only to existing' "$WTS"
+# Exact bounded append content enforced directly (checked stages, cmp).
+$GIT show "$C17:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C17"
+cmp -s "$tmpdir/cs.dlog.a" docs/DECISION-LOG.md
+csdl=$?
+[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C17 version (cmp exit $csdl)"
+$GIT show "$C16:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.base" 2>/dev/null \
+  || err "cannot read docs/SOURCE-REGISTER.md from C16"
+cat "$tmpdir/cs.sreg.base" > "$tmpdir/cs.sreg.expected" \
+  || err "source-register expected reconstruction failed (fail-closed)"
+for csbip in bip-0032 bip-0048 bip-0067 bip-0380 bip-0382 bip-0383 bip-0039; do
+  grep -F "| bitcoin/bips — \`$csbip.mediawiki\` |" docs/SOURCE-REGISTER.md > "$tmpdir/cs.sreg.row.$csbip"
+  csrc=$?
+  [ "$csrc" -le 1 ] || err "source-register row extraction failed for $csbip (grep exit $csrc)"
+  [ -s "$tmpdir/cs.sreg.row.$csbip" ] || err "docs/SOURCE-REGISTER.md missing the authorized $csbip row"
+  cat "$tmpdir/cs.sreg.row.$csbip" >> "$tmpdir/cs.sreg.expected" \
+    || err "source-register expected append failed for $csbip (fail-closed)"
+done
+cmp -s "$tmpdir/cs.sreg.expected" docs/SOURCE-REGISTER.md
+cssr=$?
+[ "$cssr" -eq 0 ] || err "docs/SOURCE-REGISTER.md is not exactly the C16 baseline plus the seven authorized F3.2a rows in declared order (cmp exit $cssr)"
+# Static assertions: host checker carries each F3.2a guard family.
+# These greps prove presence of the guard text in the checker only;
+# they are lexical, self-referential evidence with the same honesty
+# limits as every other static check here.
+grep -F 'WTS=docs/f3/WALLET-TRUST-SPINE-DRAFT.md' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the F3.2a draft section"
+grep -F 'clause heading set is not exactly QK-F3-WTS-001..015' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the closed-world clause-set comparison"
+grep -F 'plan row set is not exactly QK-F3-WTS-PLAN-001..020' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the closed-world plan-set comparison"
+grep -F 'malformed clause heading grammar' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the clause heading-prefix/valid-heading count equality check"
+grep -F 'malformed plan row grammar' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the plan row-prefix/valid-first-cell count equality check"
+grep -F 'satisfy the complete anchored heading grammar' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the complete anchored clause-heading grammar rule"
+grep -F 'satisfy the exact anchored first-cell grammar' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the exact anchored plan first-cell grammar rule"
+grep -F 'must occur exactly once as a line-anchored PROPOSED/NON-NORMATIVE heading' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the line-anchored per-ID clause heading check"
+grep -F 'must occur on exactly one line-anchored table row' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the line-anchored per-ID plan row uniqueness check"
+grep -F "must contain exactly one line beginning 'STATUS:'" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the exactly-one-STATUS-line rule"
+grep -F 'STATUS line is not exactly the mandatory banner' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the full-line STATUS banner equality rule"
+grep -F 'affirmative VALIDATED token' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the global VALIDATED token guard"
+grep -F 'affirmative CONFORMANT token' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the global CONFORMANT token guard"
+grep -F 'affirmative COMPLETE token' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the global COMPLETE token guard"
+grep -F "does not END with the exact final status cell" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the exact final plan-status-cell check"
+grep -F 'long secret-like hex run (>= 64 hex chars)' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the 64-hex material guard"
+grep -F 'unclassified exact-40-hex token(s) present in content paths' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the closed 40-hex pin-classifier guard"
+grep -F 'base64 payload blob' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the base64 payload guard"
+grep -F 'raw PSBT material' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the raw-PSBT material guard"
+grep -F 'affirmative APPROVED token' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the affirmative-APPROVED guard"
+grep -F 'claims production readiness' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the production-ready guard"
+grep -F 'claims a closed gate' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the closed-gate guard"
+grep -F 'is not byte-identical to the reviewed A commit' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the exact Decision-Log byte-identity check"
+grep -F 'plus the seven authorized F3.2a rows in declared order' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the exact Source-Register bounded-append check"
+grep -F 'wallet_id is never stored on the cards' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the wallet_id-never-stored check"
+grep -F 'contain the same A2 value' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the same-A2 invariant check"
+grep -F 'stateless replacement terminal with no prior wallet registration' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the stateless-replacement-terminal check"
+grep -F 'traceability is NOT DONE' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the traceability-NOT-DONE check"
+grep -F 'A fingerprint alone is NEVER identity' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the fingerprint-not-identity check"
+grep -F 'A QuietKey domain prefix MUST NOT be added' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the no-domain-prefix check"
+grep -F 'Receive first, then exactly one raw zero byte, then change' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the wallet_id byte-order check"
+grep -F 'PERMANENT SEMANTIC ROLE ORDER A,B,C' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the textual role-order check"
+grep -F 'NEVER redefines the semantic roles A/B/C' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the slot-never-redefines-role check"
+grep -F 'atomically committed as one physical transaction' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the no-atomic-provisioning check"
+grep -F 'the requirements currently CONFLICT' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the BND-003/D-03 conflict check"
+grep -F 'MUST NOT choose the construction' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the D-09-construction-open check"
+grep -F 'INSIDE the authorization trust boundary' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the malicious-terminal limitation check"
+grep -F 'contains what looks like a real extended key' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the payload-material lexical scan"
+grep -F 'single-interface B+C choreography BLOCKED pending QK-REQ-BND-003 versus D-03 reconciliation plus OD-02 evidence' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the README B+C BLOCKED summary check"
+
 grep -F "D-00, D-02, D-04, D-06, D-07, D-09, D-10, and D-11 remain owner-open/structurally open as classified in the decision table; D-05's present-profile allowlist remains owner-open while only its FUTURE recipient-only P2TR direction is recorded" docs/f3/README.md >/dev/null \
   || err "docs/f3/README.md missing the exhaustive open-decision status summary"
 forbid "docs/f3/README.md still carries the incomplete open-decision summary" \
@@ -475,7 +722,8 @@ check_prefix() {
   cprc=$?
   [ "$cprc" -eq 0 ] || err "$1 is not append-only: published-base content is not an exact byte prefix (cmp exit $cprc)"
 }
-check_prefix docs/DECISION-LOG.md "$C13"
+check_prefix docs/DECISION-LOG.md "$C16"
+check_prefix docs/SOURCE-REGISTER.md "$C16"
 check_prefix docs/REQUIREMENTS.md "$C10"
 # Truthful present-state wording present; stale claims gone.
 grep -F 'the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, and a non-normative PSBT review-profile draft' README.md >/dev/null \
@@ -546,6 +794,7 @@ docs/REQUIREMENTS.md
 docs/SOURCE-REGISTER.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
+docs/f3/WALLET-TRUST-SPINE-DRAFT.md
 docs/f4/README.md
 docs/f4/TRANSACTION-AUTHORITY-POLICY.md
 host/.gitignore
