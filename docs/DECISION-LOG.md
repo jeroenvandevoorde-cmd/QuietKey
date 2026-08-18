@@ -42,3 +42,13 @@ Entries in this section are immutable once checkpointed; corrections require a s
 - **Authorized next scope:** F2 feasibility only.
 - **Not approved:** implementation or use with funds; Bitcoin/wallet/cryptographic code; production language/toolchain/dependency selection; card/hardware selection; the entropy conditioner; A1 codec parameters; PSBT authorization choices; numeric limits; boot/update design; human-factors thresholds; kit wording; license or governance appointments; closure of any gate; F3 and beyond.
 - **Effect:** the architecture-owner-approval release blocker is satisfied; Gates A–E remain OPEN; implementation evidence remains none; OD-01…08 remain unresolved.
+
+### QK-AUTH-F3F4-001 — Host-only F3/F4 bootstrap authorization
+
+- **ID:** QK-AUTH-F3F4-001
+- **Date:** 2026-08-18
+- **Approver:** Project owner
+- **Owner words:** “Yes, go ahead.” (approving a software-first, bounded F3/F4 host bootstrap before hardware purchase, in the immediately preceding explicit scope; see docs/HOST-WORK-AUTHORIZATION.md)
+- **Scope:** host-only F3 profile and public test-vector preparation; host-only F4 interface and state-machine scaffold; the reversible rust-stable Replit module as a HOST bootstrap toolchain only.
+- **Not approved:** any production toolchain selection (OD-01 remains open); any license/SPDX choice (OD-08 remains open); F5–F12; gate closure; any QK-LIM/QK-TST/evidence/specimen/hardware transition; physical or exact-target work.
+- **Effect:** F2 remains AUTHORIZED — PREPARATION COMPLETE — PHYSICAL/EXACT-TARGET WORK BLOCKED — OVERALL INCOMPLETE; F3/F4 become AUTHORIZED host-only as recorded in docs/HOST-WORK-AUTHORIZATION.md; Gates A–E remain OPEN; OD-01…08 remain unresolved; host results are HOST evidence only, never TARGET evidence.
