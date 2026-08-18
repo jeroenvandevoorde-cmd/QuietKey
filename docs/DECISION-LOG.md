@@ -52,3 +52,19 @@ Entries in this section are immutable once checkpointed; corrections require a s
 - **Scope:** host-only F3 profile and public test-vector preparation; host-only F4 interface and state-machine scaffold; the reversible rust-stable Replit module as a HOST bootstrap toolchain only.
 - **Not approved:** any production toolchain selection (OD-01 remains open); any license/SPDX choice (OD-08 remains open); F5–F12; gate closure; any QK-LIM/QK-TST/evidence/specimen/hardware transition; physical or exact-target work.
 - **Effect:** F2 remains AUTHORIZED — PREPARATION COMPLETE — PHYSICAL/EXACT-TARGET WORK BLOCKED — OVERALL INCOMPLETE; F3/F4 become AUTHORIZED host-only as recorded in docs/HOST-WORK-AUTHORIZATION.md; Gates A–E remain OPEN; OD-01…08 remain unresolved; host results are HOST evidence only, never TARGET evidence.
+
+### QK-AUTH-F3.1A-001 — F3.1a correction-only remediation authorization
+
+- **ID:** QK-AUTH-F3.1A-001
+- **Date:** 2026-08-18
+- **Approver:** Project owner
+- **Owner words exactly:** “Please continue, full authorization sustained.”
+- **Context:** this immediately approved continuing the explicitly proposed F3.1a correction-only PSBT draft remediation, independent audit, and owner-decision-packet preparation.
+- **Published parent:** `145f960e659334be55afc11a1e0427c23c0f3b5e`.
+- **Authorized next commits:** Commit B changing exactly `docs/SOURCE-REGISTER.md`, `docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md`, `docs/f3/README.md`, `replit.md`, and `tools/verify-host-boundary.sh`; then Commit C changing exactly the current-stage consistency-checker path `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** no profile acceptance; no D item selected; no parser/code/vectors/fixtures/crypto/signing; no gate/OD/QK-LIM/QK-TST/evidence change; no hardware/Flux/procurement/fabrication; no license/governance-role selection; no claim that a repository script authenticates itself.
+- **Effect:** F3 remains authorized host-only drafting, incomplete, no profile accepted, no target evidence; all other existing statuses unchanged.
+
+### Effective-status clarification (append-only; alters no prior row or record)
+
+QK-DEC-001…014 are owner-approved as part of baseline H0 by the existing record QK-APR-2026-08-18-001; implementation remains unvalidated and all Gates remain OPEN. The original table cells above remain the historical status-at-creation and are intentionally unedited. No in-repo digest is a trust anchor.
