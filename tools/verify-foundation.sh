@@ -84,6 +84,8 @@ is_allowed() {
     ./README.md|./ARCHITECTURE.md|./replit.md|./AGENTS.md|./SECURITY.md|\
     ./docs/THREAT-MODEL.md|./docs/MATURITY-GATES.md|./docs/OPEN-DECISIONS.md|\
     ./docs/DECISION-LOG.md|./docs/SOURCE-REGISTER.md|./docs/BUILD-ROADMAP.md|\
+    ./docs/REQUIREMENTS.md|./docs/TRACEABILITY.md|./docs/LIFECYCLE-STATES.md|\
+    ./docs/RESOURCE-BUDGETS.md|./docs/TEST-ARCHITECTURE.md|\
     ./.gitignore|./tools/verify-foundation.sh|./.replit|./replit.nix) return 0 ;;
     *) return 1 ;;
   esac
@@ -105,6 +107,22 @@ if [ -n "$unexpected" ]; then
 else
   ok "only permitted foundation files exist (allowlist enforced)"
 fi
+
+# 7b. F1 documents: present and visibly DRAFT / non-authoritative.
+F1_BANNER='DRAFT — PENDING PROJECT-OWNER APPROVAL — NON-AUTHORITATIVE UNTIL CORRECTED F0 ARCHITECTURE IS APPROVED'
+for f in docs/REQUIREMENTS.md docs/TRACEABILITY.md docs/LIFECYCLE-STATES.md \
+         docs/RESOURCE-BUDGETS.md docs/TEST-ARCHITECTURE.md; do
+  if [ -f "$f" ]; then
+    ok "required F1 file exists: $f"
+    if grep -q "$F1_BANNER" "$f" 2>/dev/null; then
+      ok "F1 DRAFT banner present: $f"
+    else
+      err "F1 DRAFT banner missing: $f"
+    fi
+  else
+    err "missing required F1 file: $f"
+  fi
+done
 
 # 8. No functional wallet or cryptographic implementation exists.
 # (With no source files besides this verifier, none can exist; also check for
