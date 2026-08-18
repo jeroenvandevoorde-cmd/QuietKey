@@ -4,123 +4,208 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-Rule (non-normative restatement): every hostile-input path must have a hard approved bound before its parser is implemented. The normative statements of this rule are the uniquely identified bound requirements in `docs/REQUIREMENTS.md`: QK-REQ-A1-006, QK-REQ-CARD-004, QK-REQ-PSBT-005, QK-REQ-TRN-005, QK-REQ-TRN-006, QK-REQ-TUI-003, QK-REQ-PLT-006, and QK-REQ-ASR-005. This registry defines the dimensions those requirements bind; it introduces no normative language of its own.
+Rule (non-normative restatement): every hostile-input path must have a hard approved bound before production acceptance of its parser. The normative statements of this rule are the uniquely identified bound requirements in `docs/REQUIREMENTS.md`: QK-REQ-A1-006, QK-REQ-CARD-004, QK-REQ-PSBT-005, QK-REQ-TRN-005, QK-REQ-TRN-006, QK-REQ-TUI-003, QK-REQ-PLT-006, QK-REQ-PLT-010, and QK-REQ-ASR-005. This registry defines the dimensions those requirements bind; it introduces no normative language of its own.
 
-Every row is one atomic, individually auditable limit dimension. This registry deliberately contains **no numeric values, no examples, no defaults, no candidate values, and no recommendations**. Every Value cell is exactly `OPEN — TBD AFTER F2 TARGET MEASUREMENT` and every Status cell is exactly `OPEN`. Device-dependent rows cite the governing open decision (OD-02 exact card, OD-04 A1 physical codec, OD-05 transport ceilings and review layout, OD-06 boot/update and platform).
+Every row is one atomic limit: one metric, one unit, one scope, one enforcement point, one future value. This registry deliberately contains **no numeric values, no examples, no defaults, no candidate values, and no recommendations**. Every Value cell is exactly `OPEN — VALUE NOT AUTHORIZED IN F1` and every Status cell is exactly `OPEN`. Values may be authorized only by an explicit owner decision that consumes measurement evidence; no single project phase can freeze them by itself, and F2 measurement alone is insufficient. Instrumented, non-production prototypes may run before values are authorized only under explicit conservative temporary caps that appear in no normative document. No provisional number may appear in any normative document.
 
-Column meanings: **Boundary** — the component that must enforce the limit. **Threat / rationale** — the refined threat the bound addresses. **Links** — the requirement(s) binding this row and the planned test(s) that will exercise it. **Evidence needed** — measurement evidence required before the owner may freeze a value (in addition to the common freeze pack below).
+Column meanings: **Boundary** — the component that must enforce the limit. **Threat / rationale** — the refined threat the bound addresses. **Links** — the requirement(s) binding this row and the planned test(s) that will exercise it. **Evidence needed** — measurement evidence required before the owner may authorize a value (in addition to the common freeze pack below).
 
-Common freeze pack required for **every** row before its value may be approved: representative and adversarial corpora; measured peak RAM and stack on the exact target; worst-case CPU/time; camera/display usability where applicable; documented safety margin; defined rejection UX; versioning of the limit; explicit owner review and decision-log entry. Values are frozen only by owner decision — never by measurement alone.
+Common freeze pack required for **every** row before its value may be authorized: representative and adversarial corpora; measured peak RAM and stack on the exact target; worst-case CPU/time; camera/display usability where applicable; documented safety margin; defined rejection UX; versioning of the limit; explicit owner review and decision-log entry. Values are authorized only by owner decision — never by measurement alone.
 
-Append-only ID note (F1 audit-correction pass): formerly grouped rows were narrowed to a single atomic dimension while keeping their original IDs; the split-out dimensions were appended as new IDs. No ID was renumbered or reused.
+Append-only ID note: formerly grouped rows were narrowed to a single atomic dimension while keeping their original IDs; the split-out dimensions were appended as new IDs (F1 audit-correction pass and F1 semantic audit-correction pass). No ID was renumbered or reused.
 
 ## PSBT
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-PSBT-001 | Total serialized PSBT bytes | qk-io pre-parse and qk-core reparse | QK-THR-016 oversized input | QK-REQ-PSBT-005; QK-TST-FUZZ-001, QK-TST-BENCH-003 | Corpus size distribution; target RAM/time at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-002 | Global-map entry count | qk-core reparse | QK-THR-016 map flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial map corpora; parse work at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-003 | Input count | qk-core reparse | QK-THR-016 count explosion | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Worst-case validation work per input at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-004 | Output count | qk-core reparse | QK-THR-016 count explosion | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Worst-case validation and review work at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-005 | Script length (witness script, scriptPubKey) | qk-core reparse | QK-THR-016 oversized script | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Policy-relevant script corpus; parse work at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-006 | Derivation path depth | qk-core reparse | QK-THR-016 pathological depth | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Derivation work at ceiling on target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-007 | Key length per map entry | qk-core reparse | QK-THR-016 oversized key | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial key-length corpora | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-008 | Value length per map entry | qk-core reparse | QK-THR-016 oversized value | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial value-length corpora | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-009 | Per-input map entry count | qk-core reparse | QK-THR-016 map flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Parse work and memory at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-010 | Per-output map entry count | qk-core reparse | QK-THR-016 map flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Parse work and memory at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-011 | Child index ceiling | qk-core reparse | QK-THR-016 pathological index | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Derivation behavior across index range on target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-012 | Unknown-field budget (count and bytes) | qk-core reparse | QK-THR-016 unknown-field flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial unknown-field corpora | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-013 | Parsing work/time per PSBT | qk-core reparse | QK-THR-016 CPU exhaustion | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001, QK-TST-BENCH-003 | Worst-case CPU/time on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-PSBT-014 | Reviewable recipient/change output count | qk-core review construction | QK-THR-016/012 unreviewable transaction | QK-REQ-PSBT-005, QK-REQ-TUI-003; QK-TST-HF-002 | Human-factors review data at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
+| QK-LIM-PSBT-001 | Total serialized PSBT bytes | qk-io pre-parse and qk-core reparse | QK-THR-016 oversized input | QK-REQ-PSBT-005; QK-TST-FUZZ-001, QK-TST-BENCH-003 | Corpus size distribution; target RAM/time at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-002 | Global-map entry count | qk-core reparse | QK-THR-016 map flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial map corpora; parse work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-003 | Input count | qk-core reparse | QK-THR-016 count explosion | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Worst-case validation work per input at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-004 | Output count | qk-core reparse | QK-THR-016 count explosion | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Worst-case validation and review work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-005 | Witness script length | qk-core reparse | QK-THR-016 oversized script | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Policy-relevant witness-script corpus; parse work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-006 | Derivation path depth | qk-core reparse | QK-THR-016 pathological depth | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Derivation work at ceiling on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-007 | Key length per map entry | qk-core reparse | QK-THR-016 oversized key | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial key-length corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-008 | Value length per map entry | qk-core reparse | QK-THR-016 oversized value | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial value-length corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-009 | Per-input map entry count | qk-core reparse | QK-THR-016 map flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Parse work and memory at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-010 | Per-output map entry count | qk-core reparse | QK-THR-016 map flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Parse work and memory at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-011 | Child index ceiling (canonical wallet ceiling; QK-LIM-APDU-006 is bound to this row) | qk-core reparse | QK-THR-016 pathological index | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Derivation behavior across index range on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-012 | Unknown-field count | qk-core reparse | QK-THR-016 unknown-field flooding | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial unknown-field corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-013 | Parsing work (operations) per PSBT | qk-core reparse | QK-THR-016 CPU exhaustion | QK-REQ-PSBT-002, QK-REQ-PSBT-005; QK-TST-FUZZ-001, QK-TST-BENCH-003 | Worst-case parse operation counts on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-014 | Total reviewable output count | qk-core review construction | QK-THR-016/012 unreviewable transaction | QK-REQ-PSBT-005, QK-REQ-TUI-003; QK-TST-HF-002 | Human-factors review data at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-015 | scriptPubKey length | qk-core reparse | QK-THR-016 oversized script | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Policy-relevant scriptPubKey corpus; parse work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-016 | Unknown-field aggregate bytes | qk-core reparse | QK-THR-016 unknown-field flooding | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Adversarial unknown-field corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-017 | Parsing elapsed time per PSBT | qk-core reparse | QK-THR-016 CPU exhaustion | QK-REQ-PSBT-005; QK-TST-BENCH-003 | Worst-case elapsed parse time on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-018 | Reviewable recipient-output sublimit (QK-LIM-TUI-004 is bound to this row) | qk-core review construction | QK-THR-012 unreviewable recipient list | QK-REQ-PSBT-005; QK-TST-HF-002 | Human-trial accuracy at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-019 | Reviewable change-output sublimit (QK-LIM-TUI-005 is bound to this row) | qk-core review construction | QK-THR-012/017 hidden-change risk | QK-REQ-PSBT-005; QK-TST-HF-002 | Human-trial accuracy at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-020 | Aggregate map entries across all maps | qk-core reparse | QK-THR-016 aggregate flooding below per-map ceilings | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Aggregate parse work and memory at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-021 | Nested previous-transaction input count | qk-core prevtx validation | QK-THR-016 nested explosion | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Prevtx validation work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-022 | Nested previous-transaction output count | qk-core prevtx validation | QK-THR-016 nested explosion | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Prevtx validation work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-023 | Nested previous-transaction bytes | qk-core prevtx validation | QK-THR-016 oversized prevtx | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Prevtx size distribution; RAM at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-024 | Existing-signature verifications per PSBT | qk-core validation | QK-THR-016 verification-work DoS | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Signature-verification CPU at ceiling on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-025 | Child derivations per PSBT | qk-core validation | QK-THR-016 derivation-work DoS | QK-REQ-PSBT-005; QK-TST-FUZZ-001 | Derivation CPU at ceiling on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-026 | Signed PSBT output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-PSBT-027 | Raw final-transaction output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+
+## Descriptor
+
+| ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
+|---|---|---|---|---|---|---|---|---|
+| QK-LIM-DSC-001 | Descriptor bytes | qk-core descriptor parse | QK-THR-016 oversized descriptor | QK-REQ-PLT-010; QK-TST-FUZZ-001 | Descriptor size distribution; parse RAM at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-DSC-002 | Descriptor parse work | qk-core descriptor parse | QK-THR-016 CPU exhaustion | QK-REQ-PLT-010; QK-TST-FUZZ-001 | Worst-case descriptor parse CPU on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
 
 ## QR
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-QR-001 | Total decoded payload bytes per transfer | qk-io QR reassembly | QK-THR-016 oversized transfer | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-FUZZ-002 | Camera throughput and memory at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-002 | Frame count per BBQr transfer | qk-io QR reassembly | QK-THR-016 frame flooding | QK-REQ-TRN-005; QK-TST-FUZZ-002 | Scan duration and reassembly state at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-003 | Per-frame payload size | qk-io QR decode | QK-THR-016 oversized frame | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-FUZZ-002 | Camera/display usability; decode work per frame | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-004 | Scan session duration | qk-io QR session | QK-THR-016 unbounded session | QK-REQ-TRN-005; QK-TST-CORP-002 | Usability data for legitimate transfers | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-005 | Reassembly work per transfer | qk-io QR reassembly | QK-THR-016 CPU exhaustion | QK-REQ-TRN-005; QK-TST-FUZZ-002 | Worst-case reassembly CPU on target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-006 | Accepted frame size/version set | qk-io QR decode | QK-THR-016 parser ambiguity | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-UNIT-006 | Decode reliability per version on target camera | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-007 | Per-frame decode time | qk-io QR decode | QK-THR-016 CPU exhaustion | QK-REQ-TRN-005; QK-TST-BENCH-001 | Worst-case per-frame decode CPU on target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-008 | Duplicate/conflicting candidate frame count | qk-io QR reassembly | QK-THR-016/017 conflicting frames | QK-REQ-TRN-005; QK-TST-CORP-002 | Adversarial conflicting-frame corpora | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-QR-009 | Reassembly memory ceiling | qk-io QR reassembly | QK-THR-016 memory exhaustion | QK-REQ-TRN-005; QK-TST-FUZZ-002, QK-TST-BENCH-003 | Peak RAM at ceiling on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
+| QK-LIM-QR-001 | Total decoded payload bytes per transfer | qk-io QR reassembly | QK-THR-016 oversized transfer | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-FUZZ-002 | Camera throughput and memory at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-002 | Unique QR parts per BBQr transfer | qk-io QR reassembly | QK-THR-016 part flooding | QK-REQ-TRN-005; QK-TST-FUZZ-002 | Scan duration and reassembly state at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-003 | Per-frame payload size | qk-io QR decode | QK-THR-016 oversized frame | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-FUZZ-002 | Camera/display usability; decode work per frame | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-004 | Scan session duration | qk-io QR session | QK-THR-016 unbounded session | QK-REQ-TRN-005; QK-TST-CORP-002 | Usability data for legitimate transfers | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-005 | Reassembly work per transfer | qk-io QR reassembly | QK-THR-016 CPU exhaustion | QK-REQ-TRN-005; QK-TST-FUZZ-002 | Worst-case reassembly CPU on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-006 | Maximum accepted QR symbol version | qk-io QR decode | QK-THR-016 parser ambiguity | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-UNIT-006 | Decode reliability per version on target camera | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-007 | Per-frame decode time | qk-io QR decode | QK-THR-016 CPU exhaustion | QK-REQ-TRN-005; QK-TST-BENCH-001 | Worst-case per-frame decode CPU on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-008 | Duplicate frame count per transfer (conflicting content fails immediately — no allowance; see invariants) | qk-io QR reassembly | QK-THR-016 duplicate flooding | QK-REQ-TRN-005; QK-TST-CORP-002 | Adversarial duplicate-frame corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-009 | Reassembly memory ceiling | qk-io QR reassembly | QK-THR-016 memory exhaustion | QK-REQ-TRN-005; QK-TST-FUZZ-002, QK-TST-BENCH-003 | Peak RAM at ceiling on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-010 | Total frames processed per transfer (including duplicates and rejects) | qk-io QR session | QK-THR-016 processing flood below unique-part ceiling | QK-REQ-TRN-005; QK-TST-FUZZ-002 | Frame-processing CPU at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-011 | Accepted BBQr protocol mode set | qk-io QR decode | QK-THR-016 parser ambiguity | QK-REQ-TRN-003, QK-REQ-TRN-005; QK-TST-UNIT-006 | Mode-handling decode reliability on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-012 | Concurrent candidate reassembly streams | qk-io QR reassembly | QK-THR-016 state explosion | QK-REQ-TRN-005; QK-TST-FUZZ-002 | Reassembly state memory at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-013 | Raw camera image bytes per frame | qk-io camera capture | QK-THR-016 oversized capture | QK-REQ-TRN-005; QK-TST-BENCH-001 | Camera buffer geometry on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-QR-014 | Stream restarts per scan session | qk-io QR session | QK-THR-016 restart thrashing | QK-REQ-TRN-005; QK-TST-CORP-002 | Legitimate restart statistics | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
 
 ## SD
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-SD-001 | Accepted `.psbt` input file bytes | qk-io SD intake | QK-THR-016 oversized file | QK-REQ-TRN-001, QK-REQ-TRN-006; QK-TST-FUZZ-003 | Intake RAM/time at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-SD-002 | File/directory entries examined during intake | qk-io SD intake | QK-THR-016 directory flooding | QK-REQ-TRN-001, QK-REQ-TRN-006; QK-TST-FUZZ-003 | Hostile-filesystem corpora; traversal work | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-SD-003 | Filesystem metadata parsing work (reads, traversal depth, time) | qk-io SD intake | QK-THR-016 hostile filesystem | QK-REQ-TRN-006; QK-TST-FUZZ-003 | Worst-case metadata parse CPU on target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-SD-004 | Output file bytes | qk-io SD output | QK-THR-016/019 unbounded write | QK-REQ-TRN-006; QK-TST-CORP-003 | Write duration and media behavior at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-SD-005 | Filename/path length | qk-io SD intake | QK-THR-016 pathological names | QK-REQ-TRN-006; QK-TST-FUZZ-003 | Adversarial name corpora | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-SD-006 | Output write attempts per operation | qk-io SD output | QK-THR-019 retry storms, input overwrite pressure | QK-REQ-TRN-002, QK-REQ-TRN-006; QK-TST-PWR-003 | Interruption/retry behavior on target media | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-SD-007 | I/O operation duration | qk-io SD intake/output | QK-THR-016 stalled media DoS | QK-REQ-TRN-006; QK-TST-CORP-003 | Media latency distribution incl. degraded cards | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
+| QK-LIM-SD-001 | Accepted `.psbt` input file bytes | qk-io SD intake | QK-THR-016 oversized file | QK-REQ-TRN-001, QK-REQ-TRN-006; QK-TST-FUZZ-003 | Intake RAM/time at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-002 | File/directory entries examined during intake | qk-io SD intake | QK-THR-016 directory flooding | QK-REQ-TRN-001, QK-REQ-TRN-006; QK-TST-FUZZ-003 | Hostile-filesystem corpora; traversal work | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-003 | Filesystem metadata read operations | qk-io SD intake (userspace) | QK-THR-016 hostile filesystem | QK-REQ-TRN-006, QK-REQ-TRN-010; QK-TST-FUZZ-003 | Worst-case metadata read counts on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-SD-004 | Output file bytes | qk-io SD output writer | QK-THR-016/019 unbounded write | QK-REQ-TRN-006, QK-REQ-TRN-007; QK-TST-CORP-003 | Write duration and media behavior at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-005 | Filename bytes | qk-io SD intake | QK-THR-016 pathological names | QK-REQ-TRN-006; QK-TST-FUZZ-003 | Adversarial name corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-006 | Output write attempts per operation | qk-io SD output writer | QK-THR-019 retry storms, input overwrite pressure | QK-REQ-TRN-002, QK-REQ-TRN-006; QK-TST-PWR-003 | Interruption/retry behavior on target media | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-007 | Input-read deadline | qk-io SD intake | QK-THR-016 stalled media DoS | QK-REQ-TRN-006; QK-TST-CORP-003 | Media read-latency distribution incl. degraded cards | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-008 | Directory traversal depth | qk-io SD intake (userspace) | QK-THR-016 hostile filesystem | QK-REQ-TRN-006, QK-REQ-TRN-010; QK-TST-FUZZ-003 | Hostile-filesystem traversal corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-SD-009 | Filesystem metadata parse time | qk-io SD intake (userspace) | QK-THR-016 hostile filesystem | QK-REQ-TRN-006, QK-REQ-TRN-010; QK-TST-FUZZ-003 | Worst-case metadata parse CPU on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-SD-010 | Full-path bytes | qk-io SD intake | QK-THR-016 pathological paths | QK-REQ-TRN-006; QK-TST-FUZZ-003 | Adversarial path corpora | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-011 | Output-write deadline | qk-io SD output writer | QK-THR-016/019 stalled write | QK-REQ-TRN-008; QK-TST-PWR-005 | Media write-latency distribution | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-012 | Output sync deadline | qk-io SD output writer | QK-THR-019 unsynced output presented complete | QK-REQ-TRN-008; QK-TST-PWR-005 | Sync-latency distribution on target media | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-SD-013 | Output read-back verification deadline | qk-io SD output writer | QK-THR-019 unverified output presented complete | QK-REQ-TRN-008; QK-TST-PWR-005 | Read-back latency distribution on target media | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
 
 ## A1 / OCR
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-A1-001 | OCR candidate count per capture and per session | qk-core A1 capture pipeline | QK-THR-016 candidate explosion | QK-REQ-A1-006, QK-REQ-HF-003; QK-TST-FUZZ-005 | Candidate statistics on real prints; work at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
-| QK-LIM-A1-002 | Error-correction work per candidate (symbols corrected, iterations, time) | qk-core A1 decode | QK-THR-016 correction-work DoS | QK-REQ-A1-006; QK-TST-FUZZ-005 | Correction CPU at ceiling on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
-| QK-LIM-A1-003 | Decode/authentication attempts per session | qk-core A1 decode | QK-THR-016 attempt flooding | QK-REQ-A1-006; QK-TST-FUZZ-005 | Legitimate-recovery attempt statistics | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
-| QK-LIM-A1-004 | Scanned/footer symbol count per document | qk-core A1 capture | QK-THR-016 oversized symbol field | QK-REQ-A1-006; QK-TST-FUZZ-005 | Codec geometry vs. camera resolution on target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
-| QK-LIM-A1-005 | OCR confidence acceptance threshold | qk-core A1 capture | QK-THR-016/012 low-confidence garbage input | QK-REQ-A1-006; QK-TST-BENCH-004 | Confidence/success curves from print/capture trials | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
-| QK-LIM-A1-006 | Capture session duration | qk-core A1 capture | QK-THR-016 unbounded session | QK-REQ-A1-006; QK-TST-HF-001 | Human-trial capture duration data | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
-| QK-LIM-A1-007 | Capture pipeline memory ceiling | qk-core A1 capture | QK-THR-016 memory exhaustion | QK-REQ-A1-006; QK-TST-BENCH-003 | Peak RAM at ceiling on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-04 |
+| QK-LIM-A1-001 | OCR candidate count per capture | qk-io A1 capture pipeline | QK-THR-016 candidate explosion | QK-REQ-A1-006, QK-REQ-HF-003; QK-TST-FUZZ-005 | Candidate statistics on real prints; work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-002 | Error-correction symbols corrected per candidate | qk-io A1 decode | QK-THR-016 correction-work DoS | QK-REQ-A1-006; QK-TST-FUZZ-005 | Correction statistics on damaged prints | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-003 | Capsule decode attempts per session | qk-core A1 capsule intake | QK-THR-016 attempt flooding | QK-REQ-A1-006; QK-TST-FUZZ-005 | Legitimate-recovery attempt statistics | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-004 | Raw scanned symbol count per document | qk-io A1 capture | QK-THR-016 oversized symbol field | QK-REQ-A1-006; QK-TST-FUZZ-005 | Codec geometry vs. camera resolution on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-005 | OCR confidence acceptance threshold | qk-io A1 capture | QK-THR-016/012 low-confidence garbage input | QK-REQ-A1-006; QK-TST-BENCH-004 | Confidence/success curves from print/capture trials | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-006 | Capture session duration | qk-io A1 capture | QK-THR-016 unbounded session | QK-REQ-A1-006; QK-TST-HF-001 | Human-trial capture duration data | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-007 | Capture pipeline memory ceiling | qk-io A1 capture | QK-THR-016 memory exhaustion | QK-REQ-A1-006; QK-TST-BENCH-003 | Peak RAM at ceiling on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-008 | OCR candidate count per session | qk-io A1 capture pipeline | QK-THR-016 candidate explosion across captures | QK-REQ-A1-006; QK-TST-FUZZ-005 | Session-level candidate statistics | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-009 | Error-correction iterations per candidate | qk-io A1 decode | QK-THR-016 correction-work DoS | QK-REQ-A1-006; QK-TST-FUZZ-005 | Iteration counts at ceiling on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-010 | Error-correction time per candidate | qk-io A1 decode | QK-THR-016 CPU exhaustion | QK-REQ-A1-006; QK-TST-BENCH-003 | Correction CPU at ceiling on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-011 | Footer symbol count per document | qk-io A1 capture | QK-THR-016 oversized footer | QK-REQ-A1-006; QK-TST-FUZZ-005 | Codec footer geometry on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-012 | Raw image bytes per capture | qk-io A1 capture | QK-THR-016 oversized capture | QK-REQ-A1-006; QK-TST-BENCH-004 | Camera buffer geometry on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-013 | Erasure positions per candidate | qk-io A1 decode | QK-THR-016 pathological erasure patterns | QK-REQ-A1-006; QK-TST-FUZZ-005 | Erasure statistics on damaged prints | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
+| QK-LIM-A1-014 | AEAD authentication attempts per session | qk-core A1 capsule intake | QK-THR-016 attempt flooding | QK-REQ-A1-006; QK-TST-FUZZ-005 | Legitimate-recovery authentication statistics | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-04 |
 
 ## APDU / card
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-APDU-001 | Command bytes per APDU | qk-core card session | QK-THR-016 oversized command | QK-REQ-CARD-004, QK-REQ-HF-003; QK-TST-FUZZ-004 | Exact-card protocol behavior at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
-| QK-LIM-APDU-002 | Commands per operation and per session | qk-core card session | QK-THR-016 sequence flooding | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Legitimate-operation exchange counts on exact card | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
-| QK-LIM-APDU-003 | Card session duration | qk-core card session | QK-THR-016 unbounded session | QK-REQ-CARD-004; QK-TST-CORP-005 | Operation timing on exact card | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
-| QK-LIM-APDU-004 | Response bytes per APDU | qk-core card-response parse | QK-THR-016 oversized/hostile response | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Hostile-response corpora; parse work at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
-| QK-LIM-APDU-005 | Provisioning payload size | qk-core provisioning | QK-THR-016/019 oversized/partial write | QK-REQ-CARD-004; QK-TST-PWR-002 | Exact-card storage geometry; write timing | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
-| QK-LIM-APDU-006 | Derivation index ceiling per card operation | qk-core card session | QK-THR-016 pathological index | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Card derivation timing across index range | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
-| QK-LIM-APDU-007 | Per-operation time and retry count | qk-core card session | QK-THR-016/019 stall and retry storms | QK-REQ-CARD-004; QK-TST-CORP-005, QK-TST-PWR-002 | Exact-card latency and failure statistics | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-02 |
+| QK-LIM-APDU-001 | Command bytes per APDU | qk-core card session | QK-THR-016 oversized command | QK-REQ-CARD-004, QK-REQ-HF-003; QK-TST-FUZZ-004 | Exact-card protocol behavior at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-002 | Commands per operation | qk-core card session | QK-THR-016 sequence flooding | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Legitimate-operation exchange counts on exact card | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-003 | Card session duration | qk-core card session | QK-THR-016 unbounded session | QK-REQ-CARD-004; QK-TST-CORP-005 | Operation timing on exact card | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-004 | Response bytes per APDU | qk-core card-response parse | QK-THR-016 oversized/hostile response | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Hostile-response corpora; parse work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-005 | Provisioning payload size | qk-core provisioning | QK-THR-016/019 oversized/partial write | QK-REQ-CARD-004; QK-TST-PWR-002 | Exact-card storage geometry; write timing | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-006 | Derivation index ceiling per card operation (bound to the canonical wallet ceiling QK-LIM-PSBT-011; see invariants) | qk-core card session | QK-THR-016 pathological index | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Card derivation timing across index range | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-007 | Per-operation time | qk-core card session | QK-THR-016/019 stall | QK-REQ-CARD-004; QK-TST-CORP-005 | Exact-card latency statistics | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-008 | Commands per session | qk-core card session | QK-THR-016 sequence flooding | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Legitimate-session exchange counts on exact card | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-009 | Retry count per operation | qk-core card session | QK-THR-019 retry storms | QK-REQ-CARD-004; QK-TST-PWR-002 | Exact-card failure/retry statistics | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-010 | Aggregate APDU bytes per session | qk-core card session | QK-THR-016 aggregate flooding below per-APDU ceilings | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Session-level exchange volume on exact card | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
+| QK-LIM-APDU-011 | Signing requests per session | qk-core card session | QK-THR-016/017 signing-request flooding | QK-REQ-CARD-004; QK-TST-FUZZ-004 | Legitimate signing-request counts | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-02 |
 
 ## Trusted review UI
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-TUI-001 | Review page count per transaction | qk-core review | QK-THR-012/016 unreviewable pagination | QK-REQ-TUI-003; QK-TST-HF-002 | Human-factors review accuracy at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-TUI-002 | Items and rendered content per review page | qk-core review | QK-THR-012 overload, misread risk | QK-REQ-TUI-003; QK-TST-HF-002 | Display geometry; human-trial accuracy | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-TUI-003 | Idle timeout during review | qk-core review | QK-THR-019 stale approval/session | QK-REQ-TUI-003; QK-TST-CORP-006 | Legitimate review duration data | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-TUI-004 | Recipient output count presented for review | qk-core review | QK-THR-012 unreviewable recipient list | QK-REQ-TUI-003; QK-TST-HF-002 | Human-trial accuracy at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-TUI-005 | Change output count presented for review | qk-core review | QK-THR-012/017 hidden-change risk | QK-REQ-TUI-003; QK-TST-HF-002 | Human-trial accuracy at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-TUI-006 | Approval-hold duration | qk-core approval | QK-THR-012 accidental approval | QK-REQ-TUI-003; QK-TST-HF-002 | Human-trial approval-error data | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-TUI-007 | Error-message length | qk-core review/errors | QK-THR-016/018 unbounded or leaking messages | QK-REQ-TUI-003, QK-REQ-HF-003; QK-TST-CORP-006 | Display geometry; message audit | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
+| QK-LIM-TUI-001 | Review page count per transaction | qk-core review | QK-THR-012/016 unreviewable pagination | QK-REQ-TUI-003; QK-TST-HF-002 | Human-factors review accuracy at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-002 | Items per review page | qk-core review | QK-THR-012 overload, misread risk | QK-REQ-TUI-003; QK-TST-HF-002 | Display geometry; human-trial accuracy | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-003 | Per-page idle timeout during review | qk-core review | QK-THR-019 stale approval/session | QK-REQ-TUI-003; QK-TST-CORP-006 | Legitimate review duration data | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-004 | Recipient output count presented for review (bound to QK-LIM-PSBT-018; see invariants) | qk-core review | QK-THR-012 unreviewable recipient list | QK-REQ-TUI-003; QK-TST-HF-002 | Human-trial accuracy at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-005 | Change output count presented for review (bound to QK-LIM-PSBT-019; see invariants) | qk-core review | QK-THR-012/017 hidden-change risk | QK-REQ-TUI-003; QK-TST-HF-002 | Human-trial accuracy at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-006 | Approval-hold duration | qk-core approval | QK-THR-012 accidental approval | QK-REQ-TUI-003; QK-TST-HF-002 | Human-trial approval-error data | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-007 | Error-message length | qk-core review/errors | QK-THR-016/018 unbounded or leaking messages | QK-REQ-TUI-003, QK-REQ-HF-003; QK-TST-CORP-006 | Display geometry; message audit | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-008 | Rendered glyph/cell count per review page | qk-core review | QK-THR-012/016 render overload | QK-REQ-TUI-003; QK-TST-HF-002 | Display geometry; render work at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-TUI-009 | Total review duration per transaction | qk-core review | QK-THR-019 indefinitely open review | QK-REQ-TUI-003; QK-TST-CORP-006 | Legitimate end-to-end review duration data | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
 
 ## Core IPC
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-IPC-001 | Message size between `qk-io` and `qk-core` | qk-core IPC receive | QK-THR-016 oversized message | QK-REQ-PLT-006; QK-TST-SAN-001 | Transfer-size distribution; RAM at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-IPC-002 | Message rate | qk-core IPC receive | QK-THR-016 flooding | QK-REQ-PLT-006; QK-TST-SAN-001 | Legitimate-rate measurement; CPU at ceiling | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-IPC-003 | Queue depth | qk-core IPC receive | QK-THR-016 memory exhaustion via backlog | QK-REQ-PLT-006; QK-TST-SAN-001, QK-TST-BENCH-003 | Peak RAM at ceiling on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
+| QK-LIM-IPC-001 | Message size between `qk-io` and `qk-core` | qk-core IPC receive | QK-THR-016 oversized message | QK-REQ-PLT-006; QK-TST-SAN-001 | Transfer-size distribution; RAM at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-IPC-002 | Message rate | qk-core IPC receive | QK-THR-016 flooding | QK-REQ-PLT-006; QK-TST-SAN-001 | Legitimate-rate measurement; CPU at ceiling | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-IPC-003 | Queue depth | qk-core IPC receive | QK-THR-016 memory exhaustion via backlog | QK-REQ-PLT-006; QK-TST-SAN-001, QK-TST-BENCH-003 | Peak RAM at ceiling on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-IPC-004 | Messages per session | qk-core IPC receive | QK-THR-016 aggregate flooding below rate ceiling | QK-REQ-PLT-006; QK-TST-SAN-001 | Legitimate-session message counts | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-IPC-005 | Aggregate IPC bytes per session | qk-core IPC receive | QK-THR-016 aggregate volume flooding | QK-REQ-PLT-006; QK-TST-SAN-001 | Session-level transfer volume | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-IPC-006 | Per-exchange IPC deadline | qk-core IPC receive | QK-THR-016 stalled-peer DoS | QK-REQ-PLT-006; QK-TST-SAN-001 | Exchange latency distribution on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
 
 ## Memory
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-MEM-001 | Heap ceiling per process (`qk-core`, `qk-io`) | process runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak heap on exact target across worst cases | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-06 |
-| QK-LIM-MEM-002 | Stack ceiling per process and per parsing stage | process runtime | QK-THR-016 stack exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003, QK-TST-SAN-001 | Peak stack per stage on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-06 |
-| QK-LIM-MEM-003 | Secret arena size and residency | qk-core secret arena | QK-THR-018 remanence surface | QK-REQ-PLT-006, QK-REQ-PLT-004; QK-TST-SAN-001 | Secret-lifetime analysis on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-06 |
-| QK-LIM-MEM-004 | Parser arena size per hostile-input path | qk-core/qk-io parsers | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak arena use per path at input ceilings | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-06 |
+| QK-LIM-MEM-001 | `qk-core` heap ceiling | qk-core runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak heap on exact target across worst cases | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-002 | `qk-core` stack ceiling | qk-core runtime | QK-THR-016 stack exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003, QK-TST-SAN-001 | Peak stack on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-003 | Secret arena size (bytes) | qk-core secret arena | QK-THR-018 remanence surface | QK-REQ-PLT-006, QK-REQ-PLT-004; QK-TST-SAN-001 | Secret footprint analysis on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-004 | PSBT parser arena size | qk-core PSBT parser | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak arena use at PSBT input ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-005 | `qk-io` heap ceiling | qk-io runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak heap on exact target across worst cases | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-006 | `qk-decoy` heap ceiling | qk-decoy runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak heap on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-007 | `qk-io` stack ceiling | qk-io runtime | QK-THR-016 stack exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003, QK-TST-SAN-001 | Peak stack on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-008 | `qk-decoy` stack ceiling | qk-decoy runtime | QK-THR-016 stack exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak stack on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-009 | Secret arena residency duration | qk-core secret arena | QK-THR-018 remanence window | QK-REQ-PLT-006, QK-REQ-PLT-004; QK-TST-SAN-001 | Secret-lifetime analysis on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-010 | QR parser arena size | qk-io QR parser | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak arena use at QR input ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-011 | SD parser arena size | qk-io SD parser | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak arena use at SD input ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-012 | A1 parser arena size | qk-io A1 pipeline | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak arena use at A1 input ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-013 | APDU-response parser arena size | qk-core card-response parser | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak arena use at APDU response ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-014 | `qk-core` process RSS ceiling | qk-core runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak RSS on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-015 | `qk-io` process RSS ceiling | qk-io runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak RSS on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-016 | `qk-decoy` process RSS ceiling | qk-decoy runtime | QK-THR-016 memory exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Peak RSS on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-017 | Camera/DMA buffer bytes | qk-io camera path | QK-THR-016/018 buffer exhaustion, remanence surface | QK-REQ-PLT-006; QK-TST-BENCH-003, QK-TST-SAN-001 | Camera buffer geometry and clearing on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-MEM-018 | Framebuffer buffer bytes | qk-core display path | QK-THR-016/018 buffer exhaustion, remanence surface | QK-REQ-PLT-006; QK-TST-SAN-001 | Framebuffer geometry and clearing on target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
 
 ## Execution and cleanup
 
 | ID | Dimension | Boundary | Threat / rationale | Links | Evidence needed | Value | Status | Open decision |
 |---|---|---|---|---|---|---|---|---|
-| QK-LIM-EXE-001 | Per-stage execution time for each hostile-input path (parse, validate, review construction) | qk-core/qk-io stage watchdog | QK-THR-016 CPU exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Worst-case stage CPU on exact target | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-05 |
-| QK-LIM-EXE-002 | Cleanup/zeroization completion time at session end, cancellation, failure, and shutdown | qk-core cleanup | QK-THR-018 remanence window | QK-REQ-PLT-004, QK-REQ-PLT-006; QK-TST-SAN-001, QK-TST-PWR-004 | Zeroization timing on exact target incl. failure paths | OPEN — TBD AFTER F2 TARGET MEASUREMENT | OPEN | OD-06 |
+| QK-LIM-EXE-001 | Parse-stage time per hostile-input path | qk-core/qk-io stage watchdog | QK-THR-016 CPU exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Worst-case parse-stage CPU on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-EXE-002 | Cleanup/zeroization completion time at session end, cancellation, failure, and shutdown | qk-core cleanup | QK-THR-018 remanence window | QK-REQ-PLT-004, QK-REQ-PLT-006; QK-TST-SAN-001, QK-TST-PWR-004 | Zeroization timing on exact target incl. failure paths | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-06 |
+| QK-LIM-EXE-003 | Validation-stage time per hostile-input path | qk-core stage watchdog | QK-THR-016 CPU exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Worst-case validation-stage CPU on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-EXE-004 | Review-construction/render-stage time | qk-core stage watchdog | QK-THR-016 CPU exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Worst-case review/render CPU on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-EXE-005 | Total core-request deadline | qk-core request watchdog | QK-THR-016 aggregate stall below stage ceilings | QK-REQ-PLT-006; QK-TST-BENCH-003 | End-to-end request latency on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-EXE-006 | Finalization/serialization-stage time | qk-core output stage | QK-THR-016 CPU exhaustion | QK-REQ-PLT-006; QK-TST-BENCH-003 | Worst-case output-stage CPU on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+| QK-LIM-EXE-007 | Signature-verification-stage time | qk-core output stage | QK-THR-016 verification-work DoS | QK-REQ-PLT-006; QK-TST-BENCH-003 | Worst-case verification CPU on exact target | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |
+
+## Cross-limit invariants (checked arithmetic; non-normative restatement of QK-REQ-PSBT-007)
+
+Individually safe limits can multiply into unsafe totals. When values are authorized, each product below must be recomputed with checked arithmetic and independently shown safe on the exact target; overflow anywhere fails closed:
+
+- PSBT: input count × per-input map entries, output count × per-output map entries, and their sum vs. aggregate map entries (QK-LIM-PSBT-003 × 009, 004 × 010 vs. 020); map entries × max key/value length vs. total PSBT bytes and parser arena (007/008 × 020 vs. 001, MEM-004); prevtx inputs/outputs × prevtx bytes vs. validation work (021/022/023 vs. 013/017).
+- QR: unique parts × per-frame payload vs. total decoded bytes (QK-LIM-QR-002 × 003 vs. 001); total frames processed × per-frame decode time vs. scan session duration (010 × 007 vs. 004); concurrent streams × reassembly memory vs. arena (012 × 009 vs. MEM-010).
+- SD: entries examined × metadata reads per entry vs. metadata read ceiling and parse time (QK-LIM-SD-002 vs. 003/009).
+- A1: candidates per session × correction time per candidate vs. capture session duration (QK-LIM-A1-008 × 010 vs. 006); candidates × iterations vs. pipeline memory (008 × 009 vs. 007, MEM-012).
+- APDU: commands per session × command/response bytes vs. aggregate session bytes (QK-LIM-APDU-008 × 001/004 vs. 010).
+- TUI: pages × items per page and items × glyphs vs. total reviewable outputs and render budgets (QK-LIM-TUI-001 × 002, 002 × 008 vs. PSBT-014).
+- IPC: message rate × message size × session duration vs. aggregate session bytes (QK-LIM-IPC-002 × 001 vs. 005).
+- EXE: sum of stage times (parse + validation + review/render + finalization/serialization + signature verification) vs. the total core-request deadline (QK-LIM-EXE-001+003+004+006+007 vs. 005).
+
+## Bound duplicate concepts (anti-drift)
+
+- QK-LIM-APDU-006 (card derivation index ceiling) is bound to QK-LIM-PSBT-011 (canonical wallet child-index ceiling): one owner-authorized value governs both rows; they may never diverge.
+- QK-LIM-TUI-004/005 (review recipient/change capacities) are bound to QK-LIM-PSBT-018/019 (accepted PSBT review sublimits): the review UI may never advertise capacity the PSBT acceptance path does not enforce, or vice versa.
 
 ## Registry rules (non-normative summary)
 
-- 60 rows. No row may be implemented against until its value is owner-approved.
-- A frozen value change requires a new version of the row, fresh freeze evidence, and a new owner decision.
+- 121 rows. No row may be relied on in production until its value is owner-authorized.
+- An authorized value change requires a new version of the row, fresh freeze evidence, and a new owner decision.
+- Conflicting QR frame content fails the transfer immediately; no limit row grants an allowance for accepting conflicting content.
 - Rejection of over-limit input must be fail-closed and user-visible (QK-REQ-HF-003).

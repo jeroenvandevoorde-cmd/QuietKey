@@ -72,7 +72,7 @@ if [ -d .git ] && command -v git >/dev/null 2>&1; then
     ok "no attached_assets/ files are tracked by Git"
   fi
 else
-  ok "git unavailable; skipping attached_assets tracking check"
+  err "git or .git unavailable — tracking checks cannot run (fail closed)"
 fi
 
 # 7. Allowlist enforcement: outside .git and local Replit metadata
@@ -86,12 +86,12 @@ is_allowed() {
     ./docs/DECISION-LOG.md|./docs/SOURCE-REGISTER.md|./docs/BUILD-ROADMAP.md|\
     ./docs/REQUIREMENTS.md|./docs/TRACEABILITY.md|./docs/LIFECYCLE-STATES.md|\
     ./docs/RESOURCE-BUDGETS.md|./docs/TEST-ARCHITECTURE.md|\
-    ./.gitignore|./tools/verify-foundation.sh|./.replit|./replit.nix) return 0 ;;
+    ./.gitignore|./tools/verify-foundation.sh|./.replit) return 0 ;;
     *) return 1 ;;
   esac
 }
 unexpected=""
-for f in $(find . \
+unexpected=$(find . \
   -path ./.git -prune -o \
   -path ./.cache -prune -o \
   -path ./.local -prune -o \
@@ -99,13 +99,39 @@ for f in $(find . \
   -path ./.config -prune -o \
   -path ./.upm -prune -o \
   -path ./attached_assets -prune -o \
-  -type f -print 2>/dev/null); do
-  is_allowed "$f" || unexpected="$unexpected $f"
-done
+  -type f -print 2>/dev/null | while IFS= read -r f; do
+  is_allowed "$f" || printf ' %s' "$f"
+done)
 if [ -n "$unexpected" ]; then
   err "files exist outside the F0 allowlist:$unexpected"
 else
   ok "only permitted foundation files exist (allowlist enforced)"
+fi
+
+# 7a2. Environment config: replit.nix must not exist, and .replit must contain
+#      exactly the authorized content (in particular, no auto-added modules line).
+if [ -e replit.nix ]; then
+  err "replit.nix exists; the foundation authorizes no Nix package file"
+else
+  ok "replit.nix absent"
+fi
+expected_replit='run = "bash tools/verify-foundation.sh"
+
+[nix]
+channel = "stable-25_05"
+
+[agent]
+expertMode = true
+
+[packager.features]
+guessImports = false
+packageSearch = false
+enabledForHosting = false'
+actual_replit=$(cat .replit 2>/dev/null)
+if [ "$actual_replit" = "$expected_replit" ]; then
+  ok ".replit contains exactly the authorized content"
+else
+  err ".replit differs from the authorized content (auto-added modules line or other drift?)"
 fi
 
 # 7b. F1 documents: present and visibly DRAFT / non-authoritative.
@@ -133,8 +159,8 @@ TST=docs/TEST-ARCHITECTURE.md
 TRC=docs/TRACEABILITY.md
 THRM=docs/THREAT-MODEL.md
 
-tmpdir="${TMPDIR:-/tmp}/qk-verify.$$"
-mkdir -p "$tmpdir"
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/qk-verify.XXXXXX") || { echo "FAIL: cannot create temp dir"; exit 1; }
+trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
 # tokens FILE PATTERN — one matching ID token per line (POSIX: tr + grep, no -o).
 tokens() { tr -c 'A-Za-z0-9_-' '\n' < "$1" | grep "$2" ; }
@@ -278,7 +304,6 @@ if diff "$tmpdir/thrpairs_req" "$tmpdir/thrpairs_trc" > "$tmpdir/thr_diff" 2>&1;
 else
   err "reverse threat table disagrees with register: $(head -5 "$tmpdir/thr_diff")"
 fi
-rm -rf "$tmpdir"
 ok "cross-register citation and coverage checks completed"
 
 # No free-standing normative SHALL/SHALL NOT outside the requirements register.
@@ -301,26 +326,73 @@ else
   ok "no free-standing normative SHALL/SHALL NOT outside the requirements register"
 fi
 
-# Every resource-budget row has the exact OPEN placeholder value and OPEN status.
+# Budget row schema: exactly 9 columns (11 awk fields); Value cell is exactly
+# the placeholder; Status cell is exactly OPEN. No numbers, examples, defaults,
+# candidates, or recommendations may appear in any Value cell.
 bad_bud=$(awk -F'|' '/^\| QK-LIM-/ {
-  ok_row = 0
-  for (i = 1; i <= NF; i++) if ($i ~ /OPEN — TBD AFTER F2 TARGET MEASUREMENT/) ok_row = 1
-  has_status = 0
-  for (i = 1; i <= NF; i++) { gsub(/^ +| +$/, "", $i); if ($i == "OPEN") has_status = 1 }
-  if (!ok_row || !has_status) print $2 }' "$BUD")
+  if (NF != 11) { print $2 " (fields)"; next }
+  v=$8; gsub(/^ +| +$/,"",v);
+  s=$9; gsub(/^ +| +$/,"",s);
+  if (v != "OPEN — VALUE NOT AUTHORIZED IN F1") print $2 " (Value)";
+  if (s != "OPEN") print $2 " (Status)" }' "$BUD")
 if [ -n "$bad_bud" ]; then
-  err "budget rows missing exact OPEN placeholder value or OPEN status:$bad_bud"
+  err "budget rows violating the row schema (9 columns, exact placeholder Value, Status OPEN):$bad_bud"
 else
-  ok "every resource-budget row has the exact OPEN placeholder value and OPEN status"
+  ok "every budget row has 9 columns, the exact OPEN placeholder Value, and Status OPEN"
 fi
-# The Value column must contain nothing but the exact placeholder (no numbers,
-# examples, defaults, candidates, or recommendations).
-bad_val=$(awk -F'|' '/^\| QK-LIM-/ { v=$8; gsub(/^ +| +$/,"",v);
-  if (v != "OPEN — TBD AFTER F2 TARGET MEASUREMENT") print $2 }' "$BUD")
-if [ -n "$bad_val" ]; then
-  err "budget Value cells that are not exactly the OPEN placeholder:$bad_val"
+
+# Planned-test row schema: exactly 8 columns (10 awk fields); Status cell is
+# exactly PLANNED — NOT RUN; Milestone is F3–F12; Gate well-formed.
+bad_tst=$(awk -F'|' '/^\| QK-TST-/ {
+  if (NF != 10) { print $2 " (fields)"; next }
+  s=$9; gsub(/^ +| +$/,"",s);
+  if (s != "PLANNED — NOT RUN") print $2 " (Status)";
+  m=$6; gsub(/^ +| +$/,"",m);
+  if (m !~ /^F([3-9]|1[0-2])$/) print $2 " (Milestone)";
+  g=$7;
+  if (g !~ /Gate [A-E]/ && g !~ /FOUNDATION/) print $2 " (Gate)" }' "$TST")
+if [ -n "$bad_tst" ]; then
+  err "planned-test rows violating the row schema (8 columns, Status PLANNED — NOT RUN, Milestone F3–F12, Gate):$bad_tst"
 else
-  ok "budget Value column contains only the exact OPEN placeholder"
+  ok "every planned-test row has 8 columns, Status exactly PLANNED — NOT RUN, and a valid milestone/gate"
+fi
+
+# Threat-register row schema: exactly 9 columns (11 awk fields); Status is one
+# of OPEN, PLANNED CONTROL, ACCEPTED LIMITATION, OUT OF SCOPE; and every
+# defined threat appears in the register exactly once.
+bad_thr=$(awk -F'|' '/^\| QK-THR-/ {
+  if (NF != 11) { print $2 " (fields)"; next }
+  s=$9; gsub(/^ +| +$/,"",s);
+  if (s != "OPEN" && s != "PLANNED CONTROL" && s != "ACCEPTED LIMITATION" && s != "OUT OF SCOPE") print $2 " (Status)" }' "$THRM")
+if [ -n "$bad_thr" ]; then
+  err "threat-register rows violating the row schema:$bad_thr"
+else
+  ok "every threat-register row has 9 columns and an allowed status"
+fi
+awk -F'|' '/^\| QK-THR-/{gsub(/ /,"",$2); print $2}' "$THRM" | sort -u > "$tmpdir/thr_reg"
+m=$(comm -3 "$tmpdir/thr_def" "$tmpdir/thr_reg")
+if [ -n "$m" ]; then
+  err "threat register rows do not match the defined threat set: $m"
+else
+  ok "threat register covers exactly the defined threat set"
+fi
+
+# Single authoritative status definitions: each gate heading appears exactly
+# once in MATURITY-GATES, and the ARCHITECTURE DRAFT status line appears
+# exactly once in ARCHITECTURE.md.
+for g in A B C D E; do
+  n=$(grep -c "^### Gate $g " docs/MATURITY-GATES.md 2>/dev/null)
+  if [ "$n" = "1" ]; then
+    ok "exactly one authoritative status heading for Gate $g"
+  else
+    err "Gate $g has $n status headings in docs/MATURITY-GATES.md (must be exactly 1)"
+  fi
+done
+n=$(grep -c 'DRAFT — PENDING PROJECT-OWNER APPROVAL' ARCHITECTURE.md 2>/dev/null)
+if [ "$n" = "1" ]; then
+  ok "exactly one authoritative DRAFT status line in ARCHITECTURE.md"
+else
+  err "ARCHITECTURE.md has $n DRAFT status lines (must be exactly 1)"
 fi
 
 # ARCHITECTURE remains pending owner approval.
@@ -341,6 +413,10 @@ done
 ok "no wallet/cryptographic implementation, database, or workflow artifacts found"
 
 echo
+echo "NOTE: this verifier checks the working tree only. It cannot prove the absence"
+echo "NOTE: of Replit platform state outside the tree (Secrets, Deployments, object"
+echo "NOTE: storage, databases, scheduled jobs). Platform cleanliness requires manual"
+echo "NOTE: inspection of the workspace configuration."
 if [ "$fail" -eq 0 ]; then
   echo "FOUNDATION VERIFICATION: PASS"
   exit 0

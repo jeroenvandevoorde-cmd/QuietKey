@@ -23,6 +23,7 @@ Required evidence:
 - Realistic print/capture trials of the A1 physical codec on the fixed terminal mechanics (camera, optics, lighting) across damage and aging conditions, meeting predefined decode thresholds.
 - Human trials of A1 production and recovery with representative users meeting predefined thresholds.
 - Actual-camera BBQr type `P` limits and performance measured on the exact fixed hardware (frame rates, payload ceilings), recorded as trial data, not projections.
+- Fuzzing of the A1/OCR candidate and error-correction pipeline (QK-TST-FUZZ-005) with recorded corpora and results, and measured resource bounds for the A1 capture path on the exact target (inputs to the QK-LIM-A1 rows).
 
 ### Gate B — exact-card feasibility — **OPEN**
 
@@ -34,7 +35,7 @@ Required evidence, all on the exact production card model:
 - APDU protocol behavior including exact byte layouts.
 - Write atomicity, storage endurance, and power-cut behavior during card operations.
 - Confirmed independent B/C signing keys with the same A2 and D payloads (C never a clone of B).
-- Rescue path demonstrated with a commodity reader.
+- Rescue path demonstrated with a commodity reader (the definition of this evidence depends on OD-02: what a rescue reads, and how, cannot be specified until the card and its export model are selected).
 - Applet lifecycle and extraction-resistance characterization recorded.
 
 ### Gate C — production core — **OPEN**
@@ -44,7 +45,9 @@ Required evidence:
 - Target-language/toolchain decision recorded with ARMv6/target evidence (resolves OD-01).
 - Reproducible builds from controlled builders with traceable binaries.
 - Differential testing against independent implementations.
-- Fuzzing of all hostile-input parsers (PSBT, QR, SD, APDU responses) with recorded corpora and results.
+- Fuzzing of all hostile-input parsers (PSBT, descriptor, QR, SD, APDU responses, A1 candidate pipeline) with recorded corpora and results.
+- Semantic-validation evidence for descriptors, A1 capsules, card payloads, and QR/SD-delivered PSBTs performed independently in `qk-core` (QK-REQ-PLT-010), and APDU response parsing owned by `qk-core` (QK-REQ-PLT-011).
+- Exact-target air-gap verification: every radio absent or permanently disabled, with no software re-enable path (QK-REQ-PLT-008, QK-TST-AUD-007).
 - Property-based tests for core invariants.
 - Sanitizer runs (memory, undefined behavior) and static analysis with triaged findings.
 - Secret-memory handling review (allocation, zeroization between sessions, no swap/leak paths) verified on target.
@@ -60,6 +63,8 @@ Required evidence:
 - No input overwrite under any interruption or retry.
 - Demonstrated recovery from corrupt, full, removed, or interrupted media.
 - microSD electrical/removal fault behavior on target; media aging and error-correction limits characterized with recorded results.
+- Userspace SD filesystem-parser containment demonstrated (kernel never mounts removable media — QK-REQ-TRN-009/010, QK-TST-SAN-004).
+- SD output atomicity: an output interrupted during write, sync, or read-back verification is never presented as complete (QK-REQ-TRN-008, QK-TST-PWR-005).
 
 ### Gate E — complete recovery rehearsal — **OPEN**
 
@@ -82,4 +87,4 @@ All **OPEN**:
 - Configured private vulnerability reporting with designated ownership.
 - External independent audit.
 
-Replit and host simulation cannot validate the air gap, exact card, RNG, camera/optics, microSD electrical behavior, memory erasure, secure boot, update resilience, or power-loss behavior. Only exact-target evidence counts toward Gates A–E.
+Replit and host simulation cannot validate physical claims. For each physical claim — the air gap, exact-card behavior, RNG characteristics, camera/optics performance, microSD electrical behavior, memory erasure, secure boot, update resilience, and power-loss behavior — only evidence recorded on the exact production target counts toward the gate listing that claim. Non-physical logic claims (parser verdicts, state-machine behavior, protocol correctness) may accumulate `HOST-TESTED` evidence earlier, but every gate above still requires its listed target-level evidence before the owner may close it.
