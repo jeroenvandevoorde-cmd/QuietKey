@@ -55,6 +55,9 @@ C6=11991ff6fb0559fd7512d1c0be300300072c0669     # docs(f3): draft PSBT v0 review
 C7=145f960e659334be55afc11a1e0427c23c0f3b5e     # chore: advance current-stage verification (PUBLISHED BASE)
 C8=b4668047aef673eaf67992e00d3a953167547a66     # docs: record F3.1a correction-only authorization
 C9=757d41063749603a5fdb13aa73809ddbad098a82     # docs(f3.1a): remediate PSBT review-profile draft
+C10=9ffea22a75946a53b7aa4d358cf25844bb3e323a    # chore: advance current-stage consistency checks (PUBLISHED BASE)
+C11=b0155f16457f8ee82d2611f38571bf7dd508c147    # docs: record status-accuracy erratum authorization
+C12=6640eb7945eaed8c9a5d9c75f4a617ef9b146ac2    # docs: correct current status and CARD-006 evidence family
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -74,10 +77,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> ... -> C6 -> C7 -> C8 -> C9 -> HEAD,
-# no merges. C7 is the PUBLISHED base of the current unpublished work.
+# Exact linear ancestry BASE -> C1 -> ... -> C9 -> C10 -> C11 -> C12 ->
+# HEAD, no merges. C10 is the PUBLISHED base of the current unpublished
+# work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c12=$($GIT rev-parse "$C12^" 2>/dev/null) || err "C12 has no parent"
+p_c11=$($GIT rev-parse "$C11^" 2>/dev/null) || err "C11 has no parent"
+p_c10=$($GIT rev-parse "$C10^" 2>/dev/null) || err "C10 has no parent"
 p_c9=$($GIT rev-parse "$C9^" 2>/dev/null) || err "C9 has no parent"
 p_c8=$($GIT rev-parse "$C8^" 2>/dev/null) || err "C8 has no parent"
 p_c7=$($GIT rev-parse "$C7^" 2>/dev/null) || err "C7 has no parent"
@@ -87,7 +94,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C9" ] || err "HEAD parent is $p_head, expected $C9"
+[ "$p_head" = "$C12" ] || err "HEAD parent is $p_head, expected $C12"
+[ "$p_c12" = "$C11" ] || err "C12 parent is $p_c12, expected $C11"
+[ "$p_c11" = "$C10" ] || err "C11 parent is $p_c11, expected $C10"
+[ "$p_c10" = "$C9" ] || err "C10 parent is $p_c10, expected $C9"
 [ "$p_c9" = "$C8" ] || err "C9 parent is $p_c9, expected $C8"
 [ "$p_c8" = "$C7" ] || err "C8 parent is $p_c8, expected $C7"
 [ "$p_c7" = "$C6" ] || err "C7 parent is $p_c7, expected $C6"
@@ -98,10 +108,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "10" ] || err "expected exactly 10 commits after base, found $count"
+[ "$count" = "13" ] || err "expected exactly 13 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -202,6 +212,23 @@ replit.md
 tools/verify-host-boundary.sh
 EOF
 
+check_paths "$C10" "commit10" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C11" "commit11" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C12" "commit12" <<'EOF'
+README.md
+SECURITY.md
+docs/BUILD-ROADMAP.md
+docs/HOST-WORK-AUTHORIZATION.md
+docs/REQUIREMENTS.md
+tools/verify-host-boundary.sh
+EOF
+
 check_paths "$head" "verifier-advance-commit" <<'EOF'
 tools/verify-current-stage.sh
 EOF
@@ -275,6 +302,84 @@ grep -F '(including direct BIP125 signaling)' tools/verify-host-boundary.sh >/de
 grep -F 'PD (per the pinned BIP preamble)' tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the corrected BIP license classification checks"
 
+# ---------------- F3.1b status-accuracy erratum (QK-AUTH-F3.1B-001)
+# Supporting lexical/mechanical checks only, never proof of status.
+# Authorization and erratum markers.
+grep -F 'QK-AUTH-F3.1B-001' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the F3.1b authorization record QK-AUTH-F3.1B-001"
+grep -F '**Owner words exactly:** “Agreed”' docs/DECISION-LOG.md >/dev/null \
+  || err "docs/DECISION-LOG.md missing the exact F3.1b owner authorization words"
+grep -F 'QK-ERR-REQ-2026-08-18-001 — Effective erratum: QK-REQ-CARD-006 Evidence family (append-only)' docs/REQUIREMENTS.md >/dev/null \
+  || err "docs/REQUIREMENTS.md missing the CARD-006 evidence-family erratum"
+# Mechanical append-only proof: the file at published base C10 must be
+# an exact byte prefix of the current file (old length extracted, then
+# byte-for-byte compare of the leading segment; every step rc-checked).
+check_prefix() {
+  # $1 = path
+  $GIT show "$C10:$1" > "$tmpdir/pfx.old" 2>/dev/null \
+    || err "cannot read $1 from published base $C10"
+  wc -c < "$tmpdir/pfx.old" > "$tmpdir/pfx.len.raw" \
+    || err "prefix length wc failed for $1"
+  tr -d '[:space:]' < "$tmpdir/pfx.len.raw" > "$tmpdir/pfx.len" \
+    || err "prefix length strip failed for $1"
+  oldlen=$(cat "$tmpdir/pfx.len") || err "prefix length read-back failed for $1"
+  case "$oldlen" in ''|*[!0-9]*) err "prefix length not numeric for $1: '$oldlen'"; return ;; esac
+  dd if="$1" bs=1 count="$oldlen" > "$tmpdir/pfx.new" 2>/dev/null \
+    || err "prefix extraction failed for $1"
+  cmp -s "$tmpdir/pfx.old" "$tmpdir/pfx.new"
+  cprc=$?
+  [ "$cprc" -eq 0 ] || err "$1 is not append-only: published-base content is not an exact byte prefix (cmp exit $cprc)"
+}
+check_prefix docs/DECISION-LOG.md
+check_prefix docs/REQUIREMENTS.md
+# Truthful present-state wording present; stale claims gone.
+grep -F 'the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, and a non-normative PSBT review-profile draft' README.md >/dev/null \
+  || err "README.md missing the truthful current-state statement"
+grep -F 'historical status-at-creation rows preserved unedited; effective status is set by the appended owner-approval records' README.md >/dev/null \
+  || err "README.md missing the historical-vs-effective decision-record wording"
+forbid "README.md still carries the stale architecture-foundation-only claim" \
+  -F 'contains an architecture foundation only' README.md
+forbid "README.md still describes the decision record as all DRAFT" \
+  -F 'decision record (all DRAFT)' README.md
+grep -F 'QuietKey remains an unvalidated development specification; the tracked Rust is HOST-only non-product scaffold, and no product or target implementation evidence exists.' README.md >/dev/null \
+  || err "README.md missing the corrected unvalidated-specification sentence"
+forbid "README.md still carries the stale development-specification-only sentence" \
+  -F 'This repository is a development specification only; no implementation evidence exists.' README.md
+grep -F 'the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, and a non-normative PSBT review-profile draft' SECURITY.md >/dev/null \
+  || err "SECURITY.md missing the truthful current-state classification"
+forbid "SECURITY.md still carries the stale architecture-foundation-only claim" \
+  -F 'It contains an architecture foundation only.' SECURITY.md
+grep -F 'the baseline status block below records which preparation work has been completed or authorized to date' docs/BUILD-ROADMAP.md >/dev/null \
+  || err "BUILD-ROADMAP.md missing the truthful roadmap-summary wording"
+forbid "BUILD-ROADMAP.md still claims no milestone was executed" \
+  -F 'without executing any of them' docs/BUILD-ROADMAP.md
+grep -F 'STATUS: F2 PHYSICAL/EXACT-TARGET WORK BLOCKED — OVERALL INCOMPLETE; F3 HOST-ONLY DRAFTING AUTHORIZED — INCOMPLETE — NO PROFILE ACCEPTED — NO TARGET EVIDENCE; F4 HOST-ONLY SCAFFOLD AUTHORIZED — INCOMPLETE — NO TARGET CLAIM — NOT PRODUCT CODE — OD-01 OPEN — NO GATE CLOSED.' docs/HOST-WORK-AUTHORIZATION.md >/dev/null \
+  || err "HOST-WORK-AUTHORIZATION.md missing the truthful current status banner"
+forbid "HOST-WORK-AUTHORIZATION.md still carries the stale F2-only status banner" \
+  -F 'STATUS: F2 SOFTWARE PREPARATION — HOST PROBE ONLY — CANDIDATE TOOLCHAIN' docs/HOST-WORK-AUTHORIZATION.md
+grep -F 'QK-AUTH-F3F4-001 — Host-only F3/F4 bootstrap authorization' docs/HOST-WORK-AUTHORIZATION.md >/dev/null \
+  || err "HOST-WORK-AUTHORIZATION.md original authorization record heading is missing"
+grep -F '“Yes, go ahead.”' docs/HOST-WORK-AUTHORIZATION.md >/dev/null \
+  || err "HOST-WORK-AUTHORIZATION.md original owner quote is missing"
+# Static regression: the host checker must carry the F3.1b truthful-
+# status and erratum checks and the stale-claim forbids.
+grep -F 'F3.1b status-accuracy erratum (QK-AUTH-F3.1B-001)' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the F3.1b status-accuracy check block"
+grep -F 'The effective Evidence cell for QK-REQ-CARD-006 is "recovery-rehearsal, target-bench"; its Tst cell remains "QK-TST-REH-004, QK-TST-BENCH-005".' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the exact CARD-006 effective Evidence/Tst assertion"
+grep -F 'QK-TST-BENCH-005 remains conditional on OD-02 and no non-exportable-signer direction is selected.' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the OD-02 conditionality assertion"
+grep -F 'historical QK-REQ-CARD-006 row is missing or was edited' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the historical CARD-006 row-preservation assertion"
+grep -F -e "-F 'contains an architecture foundation only' README.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the stale README claim forbid"
+grep -F -e "-F 'without executing any of them' docs/BUILD-ROADMAP.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the stale roadmap claim forbid"
+grep -F 'missing the corrected unvalidated-specification sentence' tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the corrected README-sentence positive assertion"
+grep -F -e "-F 'This repository is a development specification only; no implementation evidence exists.' README.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker missing the stale README-sentence forbid"
+
 # --------------------------------- e. Historical verifiers byte-identical
 for v in tools/verify-foundation.sh tools/verify-f2-preparation.sh; do
   $GIT show "$BASE:$v" > "$tmpdir/hist" 2>/dev/null || err "cannot read $v from base"
@@ -287,9 +392,12 @@ done
 # later-stage additions/authorized modifications.
 cat > "$tmpdir/allowed-diff" <<'EOF'
 .replit
+README.md
+SECURITY.md
 docs/BUILD-ROADMAP.md
 docs/DECISION-LOG.md
 docs/HOST-WORK-AUTHORIZATION.md
+docs/REQUIREMENTS.md
 docs/SOURCE-REGISTER.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
