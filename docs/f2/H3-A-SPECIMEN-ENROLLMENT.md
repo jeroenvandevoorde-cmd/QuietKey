@@ -1,50 +1,138 @@
-# H3-A — Specimen Enrollment Intake Scaffold
+# H3-A — Specimen Enrollment Intake (H3-A.1 Design-Reference Record)
 
 F2 PREPARATION ONLY — TARGET WORK NOT RUN — NO GATE CLOSED
 
 - Base: c46024a4c3c82659cae71211eaac4ba3e1095466
-- Document status: DRAFT — OWNER INPUT REQUIRED — NO HARDWARE SELECTED — NO EXECUTION AUTHORITY
-- Enrollment status: INCOMPLETE — NO SPECIMEN IDENTIFIED
+- Prior H3-A checkpoint: 231836284bf78261563dc96fd144513b87154d09
+- Document status: DRAFT — OWNER DESIGN INPUT RECORDED — NO PHYSICAL PROTOTYPE IDENTIFIED — NO EXECUTION AUTHORITY
+- Enrollment status: INCOMPLETE — NO PHYSICAL SPECIMEN IDENTIFIED
 
 ## What H3-A is and is not
 
-H3-A is an F2.1 administrative intake checkpoint. It is not roadmap
-milestone F3, not the H3-B run-registration commit, and not H3-C execution
+H3-A is an F2.1 administrative intake checkpoint; H3-A.1 adds one
+owner-supplied design-reference record to it. It is not roadmap milestone
+F3, not the H3-B run-registration commit, and not H3-C execution
 authorization. H3-A authorizes intake preparation only. A template is not a
 run; a registered run is not an authorized run; an authorized run is not an
 accepted result; evidence never changes a gate or decision automatically.
 
 This repository contains no actual P0/RV3 BOM, CAD, schematic, PCB,
 enclosure, board, camera, display, keypad, SD/card-reader, power-path, or
-exact-card specification. These materials were NOT PROVIDED to this
-repository; this document makes no claim about whether they exist elsewhere.
+exact-card specification. A single owner-supplied design-reference PDF was
+reviewed outside the repository and is recorded below; its binary is NOT
+COMMITTED. All other materials remain NOT PROVIDED to this repository; this
+document makes no claim about whether they exist elsewhere.
 
-Facts may later come only from explicit project-owner-supplied inventory.
-They may not be inferred, researched, normalized, or filled in from concept
-renders, photos, filenames, product listings, vendor claims, AI-generated
-artifacts, earlier recommendations, or plausible defaults.
+H3-A physical identity, custody, availability, revision, and permission
+fields may be populated only from explicit owner-supplied inventory or a
+later separately authorized inspection. Independent research may inform a
+design-reference review, but it cannot establish or fill physical specimen
+identity, custody, availability, revision, target equivalence, capability,
+or permissions. Concept renders, photos, filenames, product listings,
+vendor claims, AI-generated artifacts, earlier recommendations, and
+plausible defaults cannot populate specimen facts.
 
-## Combined intake and empty ledger
+## Controlled design input — QK-HWREF-001
+
+This is a controlled design-input record, deliberately separate from the
+specimen ledger. A document is not a specimen.
+
+- Reference ID: QK-HWREF-001
+- Classification: OWNER-SUPPLIED HISTORICAL PHYSICAL DESIGN REFERENCE —
+  PARTIALLY SUPERSEDED — NOT TARGET EVIDENCE
+- Received basename (owner-supplied on 2026-08-18, outside the repository):
+  `QuietKey_QK2-HW-P0.1_Revised_Prototype_Hardware_Blueprint.pdf`
+- Internal document identifier/title: QK2-HW-P0.1 — Revised Prototype
+  Hardware Blueprint; issued 2026-08-16.
+- Received-file SHA-256, independently computed by the reviewing
+  controller:
+  `93126505453236103cd8f730a128efc6018cecd0ad06649408c6770f77cea2e0`
+- Bounded read-only inspection of those exact bytes: 92,154 bytes; PDF 1.4;
+  22 A4 landscape pages; unencrypted; no AcroForm; no document JavaScript,
+  OpenAction, additional actions, Names tree/embedded-file entry, or page
+  annotations were found. All 22 pages were text-extracted and visually
+  reviewed. This is a bounded format/content inspection, not proof of
+  safety, authenticity, correctness, feasibility, or approval.
+- Repository status: NOT COMMITTED — PUBLICATION/LICENSE/REDACTION REVIEW
+  PENDING (OD-08). The PDF must not be copied, uploaded, encoded, or
+  committed, and no extracted PDF text or media may be committed. No URL
+  inside it is followed or fetched.
+- Content status: READ-ONLY REVIEW COMPLETE — APPLICABILITY/SUPERSESSION
+  BOUNDARY RECORDED.
+
+A content hash binds only the reviewed bytes. It does not authenticate the
+document's origin, and it does not approve, validate, or adopt any of its
+content.
+
+## Applicability boundary of QK-HWREF-001
+
+QK-HWREF-001 may inform only unverified physical-design hypotheses:
+calculator-disguised form; the 112 × 74 × 20 mm document envelope;
+enclosure/board placement; the fixed camera/lens/window path; 320 × 240
+display and keypad placement; the top ISO-7816 card entrance; the
+battery-door microSD path; the four-AAA power arrangement; document-listed
+candidate parts; and the later R01/R02 proposal design.
+
+Every such item is DOCUMENT-DECLARED — UNVERIFIED. It is not selected,
+ordered, received, inspected, available, compatible, manufacturable,
+mechanically validated, air-gap evidence, BOM approval, production
+approval, or gate evidence. The PDF is not CAD, STEP, schematic, PCB,
+Gerber, netlist, pin-map, as-built BOM, or a physical specimen. No source
+package or RV3-controlled artifact has been supplied to the repository.
+
+## Supersession overlay (canonical architecture controls)
+
+| # | Historical QK-HWREF-001 statement | Current canonical treatment |
+|---|---|---|
+| 1 | Native P2WSH 2-of-2 | SUPERSEDED by QK-DEC-002 and QK-DEC-005: `wsh(sortedmulti(2,A,B,C))`; A, B, and C are independent and C is not a B clone. |
+| 2 | Blanket no-wallet-secret-at-rest wording | SUPERSEDED AS WRITTEN / NARROWED by QK-DEC-004 and QK-DEC-006: the replaceable terminal retains no wallet secret between sessions; B and C intentionally contain their distinct signer material plus A2 and D, subject to OD-02 feasibility. |
+| 3 | QR withdrawn or microSD-only | SUPERSEDED by QK-DEC-009: PSBT v0 binary microSD and uncompressed animated BBQr type P are both required; fixed-mechanics QR feasibility remains unproven. |
+| 4 | Exactly 142 Bech32 characters and the stated RS/footer construction | REJECTED/SUPERSEDED by QK-DEC-008: the physical codec remains OD-04 and will be custom URL-like, not Bech32; error correction never replaces AEAD authentication. |
+| 5 | 99-digit dice-entry acceptance row | HISTORICAL/INSUFFICIENT for the current ceremony: QK-DEC-007 requires exactly 100 private d6 rolls separately for each of A, B, C, and A2; mapping/conditioning remains OD-03. |
+| 6 | Historical P0 release and Gate A–C labels | NON-OPERATIVE in this repository. Current Gates A–E remain OPEN and H3-A.1 is inside F2 preparation. |
+| 7 | Any P0.1 permission for dimensional deviation, including a 20.8 mm local rear bulge | NOT AUTHORIZED by this intake. The current no-mechanical-redesign constraint remains in force. A failed fit is a blocker or a separately governed redesign request. |
+
+Current canonical architecture (`ARCHITECTURE.md` and the decision log)
+controls all conflicts. None of these historical statements may re-enter a
+later test criterion or fixture.
+
+## Owner declaration
+
+OWNER DECLARES NO PHYSICAL PROTOTYPE EXISTS AS OF 2026-08-18 — NOT
+INDEPENDENTLY PHYSICALLY VERIFIED.
+
+## Combined intake and empty specimen ledger
 
 The slot names below are bookkeeping categories only. They are not a
 component recommendation, suggestion, or selection, and they name no
 manufacturer, product, SKU, protocol, candidate, proxy, supplier, reader,
-camera, board, card, or apparatus.
+camera, board, card, or apparatus. `NOT MAPPED` means a document input
+(QK-HWREF-001) now exists but has not been mapped to any physical asset;
+`NOT PROVIDED` means no input of any kind exists for the slot.
 
-| Slot | Identity | BOM/CAD/mechanical reference |
+| Slot | Identity | Design-reference mapping |
 |---|---|---|
-| Integrated P0/RV3 assembly | NOT IDENTIFIED | NOT PROVIDED |
-| Mechanical/enclosure revision | NOT IDENTIFIED | NOT PROVIDED |
-| Compute target | NOT IDENTIFIED | NOT PROVIDED |
-| Camera path (sensor/lens/focus/mount/window/cable) | NOT IDENTIFIED | NOT PROVIDED |
-| Display path | NOT IDENTIFIED | NOT PROVIDED |
-| Keypad path | NOT IDENTIFIED | NOT PROVIDED |
-| Boot-storage path | NOT IDENTIFIED | NOT PROVIDED |
-| Transport-SD path | NOT IDENTIFIED | NOT PROVIDED |
-| Card electrical/interface path | NOT IDENTIFIED | NOT PROVIDED |
-| Candidate card batch | NOT IDENTIFIED | NOT PROVIDED |
-| Power/battery/brownout path | NOT IDENTIFIED | NOT PROVIDED |
+| Integrated P0/RV3 assembly | NOT IDENTIFIED | NOT MAPPED |
+| Mechanical/enclosure revision | NOT IDENTIFIED | NOT MAPPED |
+| Compute target | NOT IDENTIFIED | NOT MAPPED |
+| Camera path (sensor/lens/focus/mount/window/cable) | NOT IDENTIFIED | NOT MAPPED |
+| Display path | NOT IDENTIFIED | NOT MAPPED |
+| Keypad path | NOT IDENTIFIED | NOT MAPPED |
+| Boot-storage path | NOT IDENTIFIED | NOT MAPPED |
+| Transport-SD path | NOT IDENTIFIED | NOT MAPPED |
+| Card electrical/interface path | NOT IDENTIFIED | NOT MAPPED |
+| Candidate card batch | NOT IDENTIFIED | NOT MAPPED |
+| Power/battery/brownout path | NOT IDENTIFIED | NOT MAPPED |
 | Candidate bench readers and measurement apparatus | NOT IDENTIFIED | NOT PROVIDED |
+
+No classification (TARGET, PROXY, APPARATUS, or SACRIFICIAL) is assigned to
+any planned component. No serial, lot, custody, availability, revision, or
+apparatus is invented or recorded.
+
+R01/R02 target-validation registration remains blocked until an immutable
+controlled mechanical source baseline and an exact physical assembly exist
+and are enrolled. R03 remains blocked until exact sacrificial cards,
+readers, and apparatus are enrolled.
 
 ## Enrollment record fields (defined for later owner input; none populated)
 
@@ -53,9 +141,11 @@ only these fields:
 
 - Privacy-safe public asset alias.
 - Classification: TARGET, PROXY, APPARATUS, or SACRIFICIAL.
-- Exact identity held in a separately approved offline/private inventory,
-  not committed to this public repository.
-- Manufacturer / model / part / hardware revision (owner-supplied).
+- Private exact identity — the serial/asset/custody mapping — held under a
+  publication/redaction policy that is OWNER INPUT REQUIRED; no offline,
+  private, or public storage policy is selected by this document.
+- Manufacturer / model / part / hardware revision (owner-supplied); these
+  must eventually remain audit-visible for reproducibility.
 - Lot or batch, where safe to publish.
 - Quantity.
 - Provenance.
@@ -65,6 +155,9 @@ only these fields:
 - Firmware / applet / ATR, only if already owner-supplied without
   interrogating any asset.
 - Explicit mutable/destructive permission.
+- Physical operator: OWNER INPUT REQUIRED.
+- Evidence custodian: OWNER INPUT REQUIRED.
+- Publication/redaction policy: OWNER INPUT REQUIRED.
 
 No such field is populated in this document. Defaults for every future
 record are exactly:
@@ -86,12 +179,12 @@ committed until an owner-approved publication/redaction policy exists.
 
 ## Execution lock
 
-H3-A does not authorize procurement, ordering, energizing, connecting,
-opening, inserting a card or SD, reading ATR/APDUs, scanning QR,
-camera/display/keypad trials, applet loading or deletion, lifecycle or
-management-key changes, compilation, source fetching, network access,
-physical probing, soldering, power interruption, destructive testing, or
-experiment execution.
+H3-A (including H3-A.1) does not authorize procurement, ordering,
+energizing, connecting, opening, inserting a card or SD, reading ATR/APDUs,
+scanning QR, camera/display/keypad trials, applet loading or deletion,
+lifecycle or management-key changes, compilation, source fetching, network
+access, physical probing, soldering, power interruption, destructive
+testing, or experiment execution.
 
 The existing no-mechanical-redesign decision remains in force and is
 neither revisited nor waived here. A later failure is a blocker or a
