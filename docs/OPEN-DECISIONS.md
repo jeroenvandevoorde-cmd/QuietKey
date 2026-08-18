@@ -22,9 +22,27 @@ Exact hardware sources, health-check implementation, independence evidence, and 
 
 Reed–Solomon parameters, base32 alphabet, checksum, URL-like format details, font, OCR pipeline, and print/scan trial thresholds. The visual codec is explicitly not frozen (custom URL-like format, not Bech32).
 
-## OD-05 — Transport resource ceilings and review layout
+## OD-05 — Transport resource ceilings, review layout, and PSBT authorization profile — **STOP-BEFORE-F9** (PSBT policy)
 
 Exact values for every `OPEN — VALUE NOT AUTHORIZED IN F1` row in `docs/RESOURCE-BUDGETS.md` tagged OD-05, plus fee warnings, filenames, filesystem choice, and transaction review layout. Authorization profile per value (all required before any value freezes): representative and adversarial corpora; peak RAM/stack and worst-case CPU/time on the exact target (QK-TST-BENCH-003); camera/display usability where applicable; human-trial review-accuracy data for review-facing limits (QK-TST-HF-002); documented safety margin; rejection UX definition; cross-limit checked-arithmetic invariants recomputed (see the invariants section of the budget registry); bound rows (APDU-006↔PSBT-011, TUI-004/005↔PSBT-018/019) frozen together; owner decision recorded in `docs/DECISION-LOG.md`. Measurement alone — including everything F2 produces — authorizes nothing.
+
+**Unresolved PSBT v0 authorization profile — STOP-BEFORE-F9.** QK-REQ-PSBT-006 deliberately names the rejection classes generically; the exact PSBT v0 authorization policy behind them is an open, owner-reviewed decision that must be specified — and recorded in `docs/DECISION-LOG.md` — before any F9 signing work begins. No answer below is selected in F1; this list only enumerates what must be decided:
+
+- required UTXO data per input, and the `witness_utxo` versus `non_witness_utxo`/full-previous-transaction rules;
+- outpoint/prevout reconstruction and script/value consistency checks;
+- descriptor, `wallet_id`, origin fingerprint, derivation path/index, signer-role, `witnessScript`, and `sortedmulti`/pubkey-order checks;
+- accepted input/output/script profiles and network;
+- permitted sighash types;
+- existing partial-signature acceptance, uniqueness, validation, and expected-cosigner policy;
+- unknown/proprietary PSBT field rejection/preservation/round-trip policy;
+- recipient versus change classification and the change derivation proof;
+- absolute fee, fee rate/weight computation, warnings, and hard-reject policy;
+- the canonical trusted review object and every mandatory user-visible field;
+- whether QuietKey returns a partially signed PSBT, a finalized PSBT, a raw transaction, or an explicitly defined subset, including witness/finalization ownership;
+- the QR and SD signed-output lifecycle and cross-route equivalence;
+- negative/cross-implementation vectors, corpora, and the owner acceptance record.
+
+This STOP-BEFORE-F9 policy decision is additional to — and does not weaken — the limit-authorization rules above: no `OPEN — VALUE NOT AUTHORIZED IN F1` row is freezable through this policy, and this policy is not resolvable through value measurement.
 
 ## OD-06 — Boot, update, and rollback
 
