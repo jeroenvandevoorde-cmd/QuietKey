@@ -1,0 +1,9 @@
+[package]
+name = "qk-host-sim"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Library-only deterministic scenario runner over the disposable host state model. HOST evidence only. Not product code. Not a wallet simulator."
+
+[dependencies]
+qk-host-model = { path = "../qk-host-model" }

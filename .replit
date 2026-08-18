@@ -1,4 +1,5 @@
 run = "bash tools/verify-foundation.sh"
+modules = ["rust-stable"]
 
 [nix]
 channel = "stable-25_05"

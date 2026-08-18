@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["qk-host-model", "qk-host-sim"]
+
+[profile.release]
+overflow-checks = true
+panic = "abort"
