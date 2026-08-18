@@ -1,4 +1,4 @@
-run = "bash tools/verify-foundation.sh"
+run = "bash tools/verify-current-stage.sh"
 modules = ["rust-stable"]
 
 [nix]

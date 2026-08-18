@@ -22,4 +22,10 @@ This file is mutable convenience guidance only. It **cannot override `ARCHITECTU
 
 ## Environment
 
-Replit is a development and host-testing environment only — never QuietKey's production security boundary. Run executes `bash tools/verify-foundation.sh`, which verifies the governance foundation and must keep passing.
+Replit is a development and host-testing environment only — never QuietKey's production security boundary.
+
+Verifier roles:
+
+- `tools/verify-foundation.sh` is an immutable F0 snapshot verifier. It is required to pass at its clean H1 anchor (`d24cf39269eca79f6e471d16eeda2d7736334dd3`), where it defines the foundation. It is not the current HEAD runner: at later authorized revisions it reports expected stage mismatches (later-stage files outside its F0 allowlist and the authorized `.replit` changes). Its bytes must never change.
+- `tools/verify-f2-preparation.sh` is an immutable F2-preparation snapshot verifier, required to pass at its documented anchor (H2 `c46024a4c3c82659cae71211eaac4ba3e1095466`). It is not the current HEAD runner. Its bytes must never change.
+- `tools/verify-current-stage.sh` is the authoritative verifier for the current host-bootstrap stage. Run executes `bash tools/verify-current-stage.sh`, which must keep passing at HEAD. It reasserts every still-applicable foundation invariant (warnings, decision and gate state, no license, no external dependencies, no services/deploy/db/workflows, no secret use in tracked content, canonical-file immutability against the published base) while permitting only the documented later-stage additions. No enduring foundation invariant is weakened by this arrangement.

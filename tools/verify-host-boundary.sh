@@ -108,7 +108,7 @@ done
 # 4c. .replit: exactly the authorized content (run command, single module,
 #     nix channel, agent and packager settings untouched).
 cat > "$tmpdir/replit.expected" <<'EOF'
-run = "bash tools/verify-foundation.sh"
+run = "bash tools/verify-current-stage.sh"
 modules = ["rust-stable"]
 
 [nix]
