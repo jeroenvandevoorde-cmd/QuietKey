@@ -1226,7 +1226,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 8060a57e873eda0a69991fb31b6e53b9b44bf3a4:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show e29359bd0dac2892f0d3291a9ec4a11b758513f9:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -1371,7 +1371,7 @@ done
 #   55f93844b56e3637468321e1c68638a8138a3a2b  pinned COLDCARD firmware commit (SOURCE-REGISTER row)
 #   1e9dfb9518bd90d4531180d9a3258dd21e54dee3  retired QuietKey laboratory pin (SOURCE-REGISTER row)
 #   8f3154d0e7845ed5a4c69b73b9479821fdf06765  governance manifest-ancestry constant required by this authorized script
-#   8060a57e873eda0a69991fb31b6e53b9b44bf3a4  reviewed OD-08 packet authorization commit A (Decision-Log byte-identity anchor in this script)
+#   e29359bd0dac2892f0d3291a9ec4a11b758513f9  reviewed OD-08 owner-response authorization commit A (Decision-Log byte-identity anchor in this script)
 #   a9d1f205cfa879a6f54b8838256d36e469cfed97  published base commit (Source-Register bounded-append anchor in this script)
 {
   printf '%s\n' \
@@ -1379,11 +1379,11 @@ done
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
-    8060a57e873eda0a69991fb31b6e53b9b44bf3a4 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
-    de71c22328b24e0848bbe1bd12ac8974ca83b5b8
+    de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
+    e29359bd0dac2892f0d3291a9ec4a11b758513f9
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
