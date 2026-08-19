@@ -70,6 +70,7 @@ LC_ALL=C sort "$tmpdir/hostfiles.raw" > "$tmpdir/actual" \
   || err "host-scope file-set sort failed (fail-closed)"
 cat > "$tmpdir/expected" <<'EOF'
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1227,7 +1228,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 9e30750ebf85a17884624c0697cc0ef14a7bafe3:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 3dfda3d6c10d54f92e6c397866e8c630a1249898:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -1345,14 +1346,189 @@ grep -F 'exhaustive sweep of EVERY matrix-enumerated registered Silent Payments 
   || err "$DRAFT PLAN-062 is not an exhaustive Silent Payments sweep"
 grep -F 'not-fully-consumed INNER unsigned-transaction value' "$DRAFT" >/dev/null \
   || err "$DRAFT missing the dedicated inner-transaction malformation plan wording"
-# G: full changed-content material scan across the four named
+# F3.2b owner-response record. These are fail-closed lexical and
+# structural checks that provide supporting evidence only; they do not
+# independently prove the semantics or authenticity of the record.
+RSP32=docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+[ -f "$RSP32" ] || err "$RSP32 missing"
+r32first=$(head -n 1 "$RSP32") || err "$RSP32 first-line read failed (fail-closed)"
+[ "$r32first" = "EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET" ] \
+  || err "$RSP32 does not begin with the exact no-funds warning"
+r32title=$(grep -cFx -e '# F3.2b PSBT Decision Packet — Owner-Response Record' "$RSP32")
+r32rc=$?
+[ "$r32rc" -le 1 ] || err "$RSP32 title count failed (grep exit $r32rc)"
+[ "$r32title" = "1" ] || err "$RSP32 exact title not present exactly once (found $r32title)"
+r32status='STATUS: OWNER DIRECTION RECORDED — NON-ENACTING — POLICY DIRECTION ONLY — PROFILE NOT ACCEPTED — D-04 OWNER-OPEN — D-07, D-09, AND D-11 EVIDENCE/CONSTRUCTION-BLOCKED — NO IMPLEMENTATION — NO VECTORS GENERATED OR RUN — NO LICENSE APPLICATION — NO HARDWARE OR SETTINGS CHANGE — LOCAL AND UNPUBLISHED.'
+r32sc=$(grep -cFx -e "$r32status" "$RSP32")
+r32rc=$?
+[ "$r32rc" -le 1 ] || err "$RSP32 exact STATUS count failed (grep exit $r32rc)"
+[ "$r32sc" = "1" ] || err "$RSP32 exact STATUS line not present exactly once (found $r32sc)"
+r32sp=$(grep -c '^STATUS:' "$RSP32")
+r32rc=$?
+[ "$r32rc" -le 1 ] || err "$RSP32 STATUS-prefix count failed (grep exit $r32rc)"
+[ "$r32sp" = "1" ] || err "$RSP32 must contain exactly one STATUS line (found $r32sp)"
+r32cnt() {
+  r32msg=$1
+  r32exp=$2
+  r32pat=$3
+  r32n=$(grep -cF -e "$r32pat" "$RSP32")
+  r32rc=$?
+  [ "$r32rc" -le 1 ] || err "$RSP32 $r32msg count failed (grep exit $r32rc)"
+  [ "$r32n" = "$r32exp" ] || err "$RSP32 $r32msg: expected $r32exp, found $r32n"
+}
+r32cnt "source-base hash" 1 'bb6601f3b97528a72c55622251a4b475680ec21b'
+r32cnt "source-packet path" 1 'docs/f3/F3.2B-PSBT-DECISION-PACKET.md'
+r32cnt "exact owner quotation" 1 '“Approve all four F3.2b directions.”'
+r32cnt "governance-provenance limitation" 1 'This record is governance provenance, not cryptographic identity proof, audit proof, or profile acceptance.'
+r32cnt "D-04 OWNER-OPEN boundary" 1 'D-04 remains OWNER-OPEN, with representative coordinator-corpus review required before selection.'
+r32cnt "D-07 classified boundary" 1 'D-07 remains EVIDENCE/CONSTRUCTION-BLOCKED pending target/human QK-LIM evidence.'
+r32cnt "D-09 classified boundary" 1 'D-09 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the exact commitment construction.'
+r32cnt "D-11 classified boundary" 1 'D-11 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the media/write lifecycle.'
+r32cnt "D-00-open boundary" 1 'D-00 remains blocked.'
+r32cnt "OD-05-open boundary" 1 'OD-05 remains open.'
+r32cnt "QK-LIM-open boundary" 1 'Every QK-LIM remains open.'
+r32cnt "QK-TST/evidence unchanged boundary" 1 'QK-TST and all evidence statuses remain unchanged.'
+r32cnt "packet/profile non-normative boundary" 1 'The source packet and PSBT profile draft remain non-normative and are not accepted.'
+r32cnt "no-publication-authority boundary" 1 'No publication authority is granted.'
+r32cnt "GLOBAL_XPUB optional bound" 1 'PSBT_GLOBAL_XPUB is optional, with zero to three entries.'
+r32cnt "GLOBAL_XPUB strict match" 1 'full raw 78-byte serialization and full origin tuple'
+r32cnt "GLOBAL_XPUB rejection set" 1 'Any malformed, foreign, duplicate, conflicting, alternate-depth, alternate-network, alternate-origin, or ambiguous entry rejects the whole PSBT; invalid entries are never ignored.'
+r32cnt "GLOBAL_XPUB non-authority" 1 'Presence is a non-authoritative consistency cross-check only, and absence is neutral.'
+r32cnt "recipient exact classes" 1 'exactly canonical P2PKH, P2SH, P2WPKH, and P2WSH recipient scriptPubKey templates'
+r32cnt "P2TR future-only boundary" 1 'P2TR remains future-only and requires a later explicit architecture and profile action.'
+r32cnt "D-06 change class" 1 'PROVEN D CHANGE-BRANCH SCRIPT'
+r32cnt "D-06 self-transfer class" 1 'PROVEN D RECEIVE-BRANCH SELF-TRANSFER SCRIPT'
+r32cnt "D-06 recipient class" 1 'NOT PROVEN D-DERIVED — TREATED AS RECIPIENT'
+r32cnt "D-06 branch distinction" 1 'Branch 1 is change; branch 0 is the distinct receive-branch self-transfer class, and they are never merged.'
+r32cnt "D-06 complete output-derivation trio" 1 'complete trio specifically as PSBT_OUT_BIP32_DERIVATION records, one each for A, B, and C'
+r32cnt "D-06 class-3 fallback boundary" 1 'The class-3 fallback applies only to missing, coherent-but-incomplete, or unrelated, structurally valid output BIP32-derivation metadata'
+r32cnt "D-06 witnessScript rule" 1 'PSBT_OUT_WITNESS_SCRIPT is unnecessary. If present, it is allowed only with a complete D-derived candidate and must byte-match the independently derived witnessScript; otherwise reject.'
+r32cnt "D-06 label neutrality" 1 'PSBT_GLOBAL_XPUB and external/coordinator labels neither prove ownership nor alone cause rejection.'
+r32cnt "D-06 contradiction rejection" 1 'rejects the whole PSBT and is never downgraded.'
+r32cnt "D-06 never-proven-external boundary" 1 'Class 3 means not proven D-derived, never proven external.'
+r32cnt "D-06 proof limitation" 1 'not key possession, spendability, freshness, intent, chain state, or non-reuse'
+r32cnt "D-10 signer-only boundary" 1 'QuietKey acts only as a BIP174 Signer.'
+r32cnt "D-10 sole artifact" 1 'The sole releasable artifact is a fully serialized, freshly and independently reparsed unfinalized signed PSBT.'
+r32cnt "D-10 incoming-signature import rejection" 1 'Any pre-existing PSBT_IN_PARTIAL_SIG record, selected or non-selected, or any finalization field makes the PSBT ineligible and rejects at import before private-key/card access.'
+r32cnt "D-10 incoming-signature non-output boundary" 1 'Such a record or field is never validate-counted, preserved into output, overwritten, or stripped; therefore no pre-existing signature or final field can appear in an eligible output.'
+r32cnt "D-10 accepted non-signature preservation" 1 'Only accepted pre-existing NON-SIGNATURE key-value encodings are preserved byte-for-byte and in relative order.'
+r32cnt "D-10 exactly-two signatures" 1 'output has exactly the authorized two new selected-pair PSBT_IN_PARTIAL_SIG records'
+r32cnt "D-10 no-overwrite" 1 'no overwrite or substitution'
+r32cnt "D-10 all-or-nothing" 1 'all-or-nothing across every input'
+r32cnt "D-10 independent reparse" 1 'freshly parsed independently of builder or in-memory construction state'
+r32cnt "D-10 finalization prohibition" 1 'never creates or retains FINAL_SCRIPTSIG or FINAL_SCRIPTWITNESS, never finalizes, never extracts or releases a raw transaction, never creates a broadcast artifact, and never broadcasts.'
+r32cnt "D-10 failure boundary" 1 'Failure releases no artifact or partial output.'
+r32cnt "D-11 unresolved boundary" 1 'D-11 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the media/write lifecycle; this direction does not resolve route, naming, insertion order, atomic write, media lifecycle, or a second independent implementation.'
+# Closed-world response-ID enumeration: four table rows plus four
+# section headings, with no hidden or suffix-smuggled occurrence.
+r32qocc=$(awk 'BEGIN { n = 0 } { s = $0
+  while ((i = index(s, "F32B-PSBT-Q-")) > 0) { n = n + 1; s = substr(s, i + 12) } }
+  END { print n }' "$RSP32") \
+  || err "$RSP32 Q-ID enumeration failed (awk fail-closed)"
+[ "$r32qocc" = "8" ] || err "$RSP32 must contain exactly 8 Q-ID occurrences (4 rows + 4 headings; found $r32qocc)"
+grep '^| F32B-PSBT-Q-' "$RSP32" > "$tmpdir/r32.rows"
+r32rc=$?
+[ "$r32rc" -le 1 ] || err "$RSP32 response-row extraction failed (grep exit $r32rc)"
+cat > "$tmpdir/r32.rows.expected" <<'QK_F32B_RSP_ROWS_EOF' || err "$RSP32 expected-row generation failed"
+| F32B-PSBT-Q-001 | D-02 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+| F32B-PSBT-Q-002 | present-profile D-05 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+| F32B-PSBT-Q-003 | D-06 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+| F32B-PSBT-Q-004 | D-10 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+QK_F32B_RSP_ROWS_EOF
+cmp -s "$tmpdir/r32.rows.expected" "$tmpdir/r32.rows"
+r32rc=$?
+[ "$r32rc" -eq 0 ] || err "$RSP32 rows are missing, duplicated, reordered, malformed, or extra (cmp exit $r32rc)"
+for r32head in \
+  '### F32B-PSBT-Q-001 — D-02 direction' \
+  '### F32B-PSBT-Q-002 — present-profile D-05 direction' \
+  '### F32B-PSBT-Q-003 — D-06 direction' \
+  '### F32B-PSBT-Q-004 — D-10 direction'; do
+  r32hc=$(grep -cFx -e "$r32head" "$RSP32")
+  r32rc=$?
+  [ "$r32rc" -le 1 ] || err "$RSP32 heading check failed (grep exit $r32rc)"
+  [ "$r32hc" = "1" ] || err "$RSP32 heading missing or duplicated: $r32head"
+done
+# Clause-scoped rejection of superseded Q-003/Q-004 semantics.
+sed -n '/^### F32B-PSBT-Q-003 — D-06 direction$/,/^### F32B-PSBT-Q-004 — D-10 direction$/p' "$RSP32" > "$tmpdir/r32.q003"
+r32rc=$?
+[ "$r32rc" -eq 0 ] || err "$RSP32 Q-003 section extraction failed (sed exit $r32rc)"
+[ -s "$tmpdir/r32.q003" ] || err "$RSP32 Q-003 section extraction was empty"
+sed -n '/^### F32B-PSBT-Q-004 — D-10 direction$/,/^## Non-effect and open boundaries$/p' "$RSP32" > "$tmpdir/r32.q004"
+r32rc=$?
+[ "$r32rc" -eq 0 ] || err "$RSP32 Q-004 section extraction failed (sed exit $r32rc)"
+[ -s "$tmpdir/r32.q004" ] || err "$RSP32 Q-004 section extraction was empty"
+forbid "$RSP32 Q-003 allows witnessScript fall-through" \
+  -iE 'WITNESS_SCRIPT[^.]*(optional|ignored|accepted without|allowed without)|mismatch[^.]*(class 3|recipient)' "$tmpdir/r32.q003"
+forbid "$RSP32 Q-003 rejects solely on an external/coordinator label" \
+  -iE '(external/coordinator|external|coordinator) labels? (alone|solely) (cause|trigger) rejection' "$tmpdir/r32.q003"
+forbid "$RSP32 Q-004 allows incoming non-selected partial signatures" \
+  -iE '(pre-existing|incoming)[^.]*non-selected[^.]*(allowed|accepted)' "$tmpdir/r32.q004"
+forbid "$RSP32 Q-004 preserves incoming partial signatures" \
+  -iE '(pre-existing|incoming)[^.]*PARTIAL_SIG[^.]*(preserved|retained|copied|output)' "$tmpdir/r32.q004"
+forbid "$RSP32 carries the stale allowed-non-selected-signature sentence" \
+  -F 'Any allowed pre-existing non-selected signature remains pre-existing and byte-preserved' "$RSP32"
+forbid "$RSP32 carries the stale flattened D-item status" \
+  -F 'D-04, D-07, D-09, and D-11 remain open.' "$RSP32"
+# Prohibited widening or enactment concepts.
+forbid "$RSP32 gives GLOBAL_XPUB authoritative force" -iE 'GLOBAL_XPUB[^.]*authoritative (proof|authority)' "$RSP32"
+forbid "$RSP32 permits ignoring invalid GLOBAL_XPUB entries" -iE 'invalid[^.]*GLOBAL_XPUB[^.]*ignored|ignore[^.]*invalid[^.]*GLOBAL_XPUB' "$RSP32"
+forbid "$RSP32 activates P2TR" -iE 'P2TR (is( now)?|now|becomes) (accepted|allowed|enabled|active)' "$RSP32"
+forbid "$RSP32 folds self-transfer into change" -iE 'self-transfer[^.]*treated as change|self-transfer[^.]*is change' "$RSP32"
+forbid "$RSP32 claims proven external" -iE 'class 3 (is|means) proven external' "$RSP32"
+forbid "$RSP32 downgrades contradictory proof" -iE 'contradictory[^.]*(may be|is) downgraded' "$RSP32"
+forbid "$RSP32 weakens exactly-two signatures to up-to-two" -iE 'up to two[^.]*PARTIAL_SIG' "$RSP32"
+forbid "$RSP32 permits final fields or a final PSBT" -iE 'final PSBT|final fields? (is|are) (allowed|permitted|retained)' "$RSP32"
+forbid "$RSP32 permits a raw transaction or broadcast alternative" -iE 'raw transaction[^.]*alternative|broadcast[^.]*alternative' "$RSP32"
+forbid "$RSP32 resolves D-11" -iE 'D-11 (is( now)?|now|has been) (resolved|closed|selected)' "$RSP32"
+forbid "$RSP32 claims profile acceptance" -iE 'profile (is( now)?|now|has been) accepted' "$RSP32"
+forbid "$RSP32 claims implementation or conformance" -iE '(implementation|conformance) (is( now)?|now|has been) (authorized|approved|complete|validated)' "$RSP32"
+forbid "$RSP32 claims vectors or evidence were produced" -iE '(vectors?|evidence) (were|have been|are) (generated|run|produced|accepted)' "$RSP32"
+forbid "$RSP32 claims a gate closed" -iE 'Gate [A-E][^.]*CLOSED' "$RSP32"
+forbid "$RSP32 claims license application" -iE 'license (is|was|has been) applied' "$RSP32"
+forbid "$RSP32 claims hardware or settings work" -iE '(hardware|settings?) (were|was|have been|has been) (changed|implemented|configured)' "$RSP32"
+forbid "$RSP32 claims publication" -iE '(record|chain|profile) (is|was|has been) published' "$RSP32"
+# Record formatting and material scans.
+tail -c 1 "$RSP32" | od -An -tuC > "$tmpdir/r32.lastbyte" \
+  || err "$RSP32 final-byte inspection failed"
+r32last=$(tr -d '[:space:]' < "$tmpdir/r32.lastbyte") \
+  || err "$RSP32 final-byte normalization failed"
+[ "$r32last" = "10" ] || err "$RSP32 must end in LF"
+tail -c 2 "$RSP32" | od -An -tuC > "$tmpdir/r32.lasttwo" \
+  || err "$RSP32 final-two-byte inspection failed"
+r32lasttwo=$(tr -d '[:space:]' < "$tmpdir/r32.lasttwo") \
+  || err "$RSP32 final-two-byte normalization failed"
+[ "$r32lasttwo" != "1010" ] || err "$RSP32 must end in exactly one LF"
+forbid "$RSP32 contains a tab" -F "$(printf '\t')" "$RSP32"
+forbid "$RSP32 contains trailing whitespace" -E '[[:blank:]]$' "$RSP32"
+forbid "$RSP32 contains hidden HTML" -iE '<!--|-->' "$RSP32"
+# Actual-byte bidi scan. Whitespace is removed from od's checked hex
+# transcript so a UTF-8 sequence cannot hide across an od line break.
+# Reject U+202A/U+202B/U+202D/U+202E and U+2066..U+2069.
+od -An -tx1 "$RSP32" > "$tmpdir/r32.bytes.raw" \
+  || err "$RSP32 byte scan failed (od fail-closed)"
+[ -s "$tmpdir/r32.bytes.raw" ] || err "$RSP32 byte scan produced no output"
+tr -d '[:space:]' < "$tmpdir/r32.bytes.raw" > "$tmpdir/r32.bytes.hex" \
+  || err "$RSP32 byte scan normalization failed (tr fail-closed)"
+[ -s "$tmpdir/r32.bytes.hex" ] || err "$RSP32 normalized byte scan is empty"
+r32bidi=$(grep -cE 'e280a[abde]|e281a[6-9]' "$tmpdir/r32.bytes.hex")
+r32rc=$?
+[ "$r32rc" -le 1 ] || err "$RSP32 actual-byte bidi scan failed (grep exit $r32rc)"
+[ "$r32bidi" = "0" ] || err "$RSP32 contains an actual UTF-8 bidirectional control sequence"
+forbid "$RSP32 contains a real extended key" -E '[xyz](pub|prv)[1-9A-HJ-NP-Za-km-z]{20,}' "$RSP32"
+forbid "$RSP32 contains a WIF-like key" -E '(^|[^1-9A-HJ-NP-Za-km-z])[KL5][1-9A-HJ-NP-Za-km-z]{50,51}([^1-9A-HJ-NP-Za-km-z]|$)' "$RSP32"
+forbid "$RSP32 contains an address-like value" -E '(^|[^0-9A-Za-z])(bc1[qp][0-9a-z]{20,}|[13mn2][1-9A-HJ-NP-Za-km-z]{25,34})([^0-9A-Za-z]|$)' "$RSP32"
+forbid "$RSP32 contains a long secret-like hex run" -E '[0-9a-fA-F]{64}' "$RSP32"
+forbid "$RSP32 contains base64-like payload material" -E '[A-Za-z0-9+/]{44,}={0,2}([^A-Za-z0-9+/=]|$)' "$RSP32"
+forbid "$RSP32 contains raw PSBT material" -E '([c]HNidP|[7]0736274ff)' "$RSP32"
+
+# G: full changed-content material scan across the named
 # protocol/provenance/checker files below; replit.md is separately
 # bounded elsewhere and is NOT scanned here (this loop does not cover
 # all five content-commit paths). Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -1372,24 +1548,26 @@ done
 #   55f93844b56e3637468321e1c68638a8138a3a2b  pinned COLDCARD firmware commit (SOURCE-REGISTER row)
 #   1e9dfb9518bd90d4531180d9a3258dd21e54dee3  retired QuietKey laboratory pin (SOURCE-REGISTER row)
 #   8f3154d0e7845ed5a4c69b73b9479821fdf06765  governance manifest-ancestry constant required by this authorized script
-#   9e30750ebf85a17884624c0697cc0ef14a7bafe3  reviewed F3.2b decision-packet authorization commit A (Decision-Log byte-identity anchor in this script)
+#   3dfda3d6c10d54f92e6c397866e8c630a1249898  reviewed F3.2b owner-response authorization commit A (Decision-Log byte-identity anchor in this script)
 #   a9d1f205cfa879a6f54b8838256d36e469cfed97  published base commit (Source-Register bounded-append anchor in this script)
+#   bb6601f3b97528a72c55622251a4b475680ec21b  published F3.2b owner-response source base
 {
   printf '%s\n' \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
+    3dfda3d6c10d54f92e6c397866e8c630a1249898 \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
-    9e30750ebf85a17884624c0697cc0ef14a7bafe3 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
+    bb6601f3b97528a72c55622251a4b475680ec21b \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
