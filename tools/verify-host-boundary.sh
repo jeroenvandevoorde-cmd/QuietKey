@@ -44,6 +44,34 @@ umask 077
 mkdir "$tmpdir" || { echo "HOST BOUNDARY FAIL: cannot create temp dir" >&2; exit 1; }
 trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
+# Fail-closed utility canaries. Each command must prove both output and
+# return-code behavior before it can support later evidence checks.
+printf 'qk-canary\n' > "$tmpdir/tool.in" || err "utility canary input generation failed"
+sed 's/qk-canary/qk-sed-ok/' "$tmpdir/tool.in" > "$tmpdir/tool.sed" \
+  || err "sed utility canary failed"
+[ "$(cat "$tmpdir/tool.sed")" = "qk-sed-ok" ] || err "sed utility canary produced empty or wrong output"
+awk '{ print "qk-awk-ok" }' "$tmpdir/tool.in" > "$tmpdir/tool.awk" \
+  || err "awk utility canary failed"
+[ "$(cat "$tmpdir/tool.awk")" = "qk-awk-ok" ] || err "awk utility canary produced empty or wrong output"
+printf 'b\na\n' | LC_ALL=C sort > "$tmpdir/tool.sort" || err "sort utility canary failed"
+[ -s "$tmpdir/tool.sort" ] || err "sort utility canary produced empty output"
+printf 'a\nb\n' > "$tmpdir/tool.sort.exp" || err "sort utility canary expected generation failed"
+cmp -s "$tmpdir/tool.sort.exp" "$tmpdir/tool.sort"
+rc=$?
+[ "$rc" -eq 0 ] || err "sort utility canary output is not exactly the complete expected a,b sequence"
+printf 'a\n' > "$tmpdir/tool.cmp.a" || err "cmp utility canary A generation failed"
+printf 'b\n' > "$tmpdir/tool.cmp.b" || err "cmp utility canary B generation failed"
+cmp -s "$tmpdir/tool.cmp.a" "$tmpdir/tool.cmp.a"
+rc=$?
+[ "$rc" -eq 0 ] || err "cmp utility canary rejected identical files"
+cmp -s "$tmpdir/tool.cmp.a" "$tmpdir/tool.cmp.b"
+rc=$?
+[ "$rc" -eq 1 ] || err "cmp utility canary did not report different files"
+diff "$tmpdir/tool.cmp.a" "$tmpdir/tool.cmp.b" > "$tmpdir/tool.diff" 2>&1
+rc=$?
+[ "$rc" -eq 1 ] || err "diff utility canary did not report different files"
+[ -s "$tmpdir/tool.diff" ] || err "diff utility canary produced empty difference output"
+
 # Keep all Cargo output out of the repository worktree.
 CARGO_TARGET_DIR="$tmpdir/target"
 export CARGO_TARGET_DIR
@@ -71,6 +99,7 @@ LC_ALL=C sort "$tmpdir/hostfiles.raw" > "$tmpdir/actual" \
 cat > "$tmpdir/expected" <<'EOF'
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1228,7 +1257,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 3dfda3d6c10d54f92e6c397866e8c630a1249898:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 9354d4a2924378ddcc20e4ffa26be0602bd913c0:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -1521,14 +1550,477 @@ forbid "$RSP32 contains a long secret-like hex run" -E '[0-9a-fA-F]{64}' "$RSP32
 forbid "$RSP32 contains base64-like payload material" -E '[A-Za-z0-9+/]{44,}={0,2}([^A-Za-z0-9+/=]|$)' "$RSP32"
 forbid "$RSP32 contains raw PSBT material" -E '([c]HNidP|[7]0736274ff)' "$RSP32"
 
-# G: full changed-content material scan across the named
-# protocol/provenance/checker files below; replit.md is separately
-# bounded elsewhere and is NOT scanned here (this loop does not cover
-# all five content-commit paths). Supporting evidence only, never
+# F3.2c D-11 construction/readiness packet: supporting lexical and
+# structural evidence only, never self-authentication or independent proof.
+PKT32C=docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
+[ -f "$PKT32C" ] || err "$PKT32C missing"
+# This exact Git blob is an audit locator and supporting byte-identity
+# invariant only; it is never self-authentication or independent proof.
+p32blob=b4594210975940df71b0e941841320d11defaa4c
+p32blobact=$(git --no-optional-locks hash-object -- "$PKT32C"); p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C git hash-object audit-locator scan failed (exit $p32rc)"
+p32blobfmt=$(printf '%s\n' "$p32blobact" | grep -cE '^[0-9a-f]{40}$'); p32rc=$?
+[ "$p32rc" -le 1 ] || err "$PKT32C git hash-object audit-locator format scan failed"
+[ "$p32blobfmt" = 1 ] || err "$PKT32C git hash-object audit-locator output is not one lowercase 40-hex OID"
+[ "$p32blobact" = "$p32blob" ] || err "$PKT32C audit-locator blob identity differs from the approved packet blob"
+p32title='# QK-F3.2c — D-11 Media/Write Lifecycle Construction and Readiness Packet (Non-Binding)'
+p32warn='EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET'
+p32status='STATUS: OWNER-AUTHORIZED CONSTRUCTION/READINESS INPUT ONLY — NON-NORMATIVE — D-11 EVIDENCE/CONSTRUCTION-BLOCKED — D-11 NOT SELECTED — OWNER QUESTIONS UNANSWERED — PSBT PROFILE NOT ACCEPTED — NO IMPLEMENTATION OR DEPENDENCIES — NO VECTORS, FIXTURES, OR SPECIMENS GENERATED OR RUN — NO MEDIA I/O OR TESTING — NO TARGET EVIDENCE — NO QK-LIM VALUE SELECTED — NO QK-TST/EVIDENCE/GATE CHANGE — NO LICENSE APPLICATION — NO HARDWARE, FIRMWARE, SETTINGS, OR CREDENTIAL CHANGE — LOCAL AND UNPUBLISHED.'
+p32end='END OF PACKET — F3.2c D-11 CONSTRUCTION/READINESS INPUT ONLY — D-11 NOT SELECTED — OWNER QUESTIONS UNANSWERED — TARGET EVIDENCE ABSENT — PSBT PROFILE NOT ACCEPTED — LOCAL AND UNPUBLISHED.'
+[ "$(sed -n '1p' "$PKT32C")" = "$p32title" ] || err "$PKT32C exact title is not first"
+[ "$(sed -n '2p' "$PKT32C")" = "$p32warn" ] || err "$PKT32C exact warning is not second"
+for p32line in "$p32title" "$p32warn" "$p32status" "$p32end" \
+  '26e075704cdd172fce62b9b7cd38b4035db384d8' \
+  'QK-AUTH-F3.2C-D11-PKT-001' \
+  'D-11 selection is blocked until owner meaning is resolved.' \
+  'D-09 and every QK-LIM remain open.' \
+  'No QK-LIM value, default, or example is selected.'; do
+  p32n=$(grep -cF -e "$p32line" "$PKT32C"); p32rc=$?
+  [ "$p32rc" -le 1 ] || err "$PKT32C exact essential scan failed"
+  [ "$p32n" = 1 ] || err "$PKT32C essential must occur exactly once: $p32line"
+done
+[ "$(grep -c '^STATUS:' "$PKT32C")" = 1 ] || err "$PKT32C must contain exactly one canonical STATUS line"
+p32statusany=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$PKT32C"); p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C global STATUS occurrence scan failed"
+case $p32statusany in ''|*[!0-9]*) err "$PKT32C global STATUS occurrence scan produced empty or non-numeric output" ;; esac
+[ "$p32statusany" = 1 ] || err "$PKT32C must contain exactly one STATUS: occurrence anywhere (found $p32statusany)"
+# Exact full-line STATUS binding: the one canonical STATUS: line must equal the
+# complete required banner byte-for-byte, not merely contain it.
+grep '^STATUS:' "$PKT32C" > "$tmpdir/p32.status.act" || err "$PKT32C STATUS line extraction failed"
+printf '%s\n' "$p32status" > "$tmpdir/p32.status.exp" || err "$PKT32C STATUS expected generation failed"
+cmp -s "$tmpdir/p32.status.exp" "$tmpdir/p32.status.act"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C STATUS line is not exactly the complete required banner"
+# Fail-closed suffix canaries: any appended text (including a
+# 'D-11 SELECTED' claim) must break the exact full-line binding.
+for p32sfx in ' — D-11 SELECTED' ' EXTRA' '.'; do
+  printf '%s%s\n' "$p32status" "$p32sfx" > "$tmpdir/p32.status.bad" || err "STATUS suffix canary generation failed"
+  cmp -s "$tmpdir/p32.status.exp" "$tmpdir/p32.status.bad"
+  p32rc=$?
+  [ "$p32rc" -eq 1 ] || err "STATUS suffix canary failed to detect appended text (cmp exit $p32rc)"
+done
+# Global STATUS-uniqueness canaries cover visible Markdown forms that do
+# not begin at column zero, plus a same-line duplicate occurrence.
+for p32statusbad in '> STATUS: SECONDARY' '>> STATUS: SECONDARY' ' STATUS: SECONDARY'; do
+  printf '%s\n%s\n' "$p32status" "$p32statusbad" > "$tmpdir/p32.status.unique.bad" \
+    || err "STATUS uniqueness canary generation failed"
+  p32statusn=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$tmpdir/p32.status.unique.bad"); p32rc=$?
+  [ "$p32rc" -eq 0 ] || err "STATUS uniqueness canary scan failed"
+  case $p32statusn in ''|*[!0-9]*) err "STATUS uniqueness canary scan produced empty or non-numeric output" ;; esac
+  [ "$p32statusn" = 2 ] || err "STATUS uniqueness canary did not count exactly two occurrences"
+done
+printf '%s STATUS: SECONDARY\n' "$p32status" > "$tmpdir/p32.status.unique.bad" \
+  || err "STATUS same-line uniqueness canary generation failed"
+p32statusn=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$tmpdir/p32.status.unique.bad"); p32rc=$?
+[ "$p32rc" -eq 0 ] || err "STATUS same-line uniqueness canary scan failed"
+case $p32statusn in ''|*[!0-9]*) err "STATUS same-line uniqueness canary scan produced empty or non-numeric output" ;; esac
+[ "$p32statusn" = 2 ] || err "STATUS same-line uniqueness canary did not count exactly two occurrences"
+[ "$(tail -n 1 "$PKT32C")" = "$p32end" ] || err "$PKT32C exact terminal line missing"
+p32set() {
+  pfx=$1; max=$2; status=$3; out=$4
+  grep "^| $pfx" "$PKT32C" > "$tmpdir/p32.rows" || err "$PKT32C $pfx rows missing"
+  : > "$tmpdir/p32.exp" || err "$PKT32C expected-set init failed"
+  i=1
+  while [ "$i" -le "$max" ]; do printf '%s-%03d\n' "$pfx" "$i" >> "$tmpdir/p32.exp" || err "$PKT32C expected ID failed"; i=$((i + 1)); done
+  sed -n "s/^| \\($pfx-[0-9][0-9][0-9]\\) |.*| $status |$/\\1/p" "$tmpdir/p32.rows" > "$tmpdir/p32.act" \
+    || err "$PKT32C $pfx row parse failed"
+  cmp -s "$tmpdir/p32.exp" "$tmpdir/p32.act"; p32rc=$?
+  [ "$p32rc" -eq 0 ] || err "$PKT32C $pfx rows/order/status are not exact"
+  p32occ=$(awk -v p="$pfx-" '{s=$0; while (match(s,p"[0-9][0-9][0-9]")) {c++; s=substr(s,RSTART+RLENGTH)}} END{print c+0}' "$PKT32C") \
+    || err "$PKT32C $pfx occurrence scan failed"
+  [ "$p32occ" = "$max" ] || err "$PKT32C $pfx IDs are missing, duplicated, or smuggled"
+}
+p32set F32C-D11-C 8 'PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED' construction
+p32set F32C-D11-E 10 'PLANNED — NOT RUN — NO EVIDENCE' evidence
+p32set F32C-D11-Q 12 'OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION' questions
+p32set F32C-D11-F 22 'PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED' failures
+p32q001='| F32C-D11-Q-001 | Does D-10 “failure releases no artifact or partial output” prohibit any signed-PSBT bytes or transport fragments becoming observable through either route after an attempt later fails, including QR frames already displayed and SD prefixes or objects already written, or only prohibit recognizing or presenting an incomplete route representation as a complete signed-PSBT output? Interrupted QR cannot retract observed frames; frames from interrupted or retried cycles may be accumulated by a receiver; conventional SD staging cannot guarantee no residue; neither route may silently assume the weaker interpretation. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |'
+p32q001n=$(grep -cFx -e "$p32q001" "$PKT32C")
+p32rc=$?
+[ "$p32rc" -le 1 ] || err "$PKT32C exact Q-001 scan failed"
+[ "$p32q001n" = 1 ] || err "$PKT32C Q-001 is not the exact route-general ambiguity row"
+# Closed-world union: every exact F32C-D11 token and every row-leading
+# packet ID must be exactly the ordered C/E/Q/F union. Unknown families,
+# malformed or suffixed IDs, prose smuggling, duplicate rows, and extra
+# table sections all fail. Supporting self-authored evidence only.
+: > "$tmpdir/p32.union.exp" || err "$PKT32C union expected-list init failed"
+for p32spec in 'C 8' 'E 10' 'Q 12' 'F 22'; do
+  set -- $p32spec; p32i=1
+  while [ "$p32i" -le "$2" ]; do
+    printf 'F32C-D11-%s-%03d\n' "$1" "$p32i" >> "$tmpdir/p32.union.exp" \
+      || err "$PKT32C union expected-ID generation failed"
+    p32i=$((p32i + 1))
+  done
+done
+grep '^| F32C-D11-' "$PKT32C" > "$tmpdir/p32.union.rows"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C global row enumeration failed or found no rows"
+p32raw=$(awk 'END { print NR }' "$tmpdir/p32.union.rows") || err "$PKT32C raw row count failed"
+[ "$p32raw" = 52 ] || err "$PKT32C raw F32C-D11 row count is $p32raw, expected exactly 52"
+sed -n 's/^| \(F32C-D11-[CEQF]-[0-9][0-9][0-9]\) |.*$/\1/p' "$tmpdir/p32.union.rows" > "$tmpdir/p32.union.rowids" \
+  || err "$PKT32C global row-ID extraction failed"
+p32ids=$(awk 'END { print NR }' "$tmpdir/p32.union.rowids") || err "$PKT32C valid row-ID count failed"
+[ "$p32ids" = "$p32raw" ] || err "$PKT32C only $p32ids of $p32raw rows carry exact valid IDs"
+cmp -s "$tmpdir/p32.union.exp" "$tmpdir/p32.union.rowids"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C row-leading IDs are not the exact ordered C/E/Q/F union"
+awk '{s=$0; while (match(s,/F32C-D11-[A-Z]-[0-9][0-9][0-9]/)) {print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)}}' \
+  "$PKT32C" > "$tmpdir/p32.union.tokens" || err "$PKT32C global ID-token enumeration failed"
+cmp -s "$tmpdir/p32.union.exp" "$tmpdir/p32.union.tokens"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C exact ID tokens are missing, duplicated, reordered, unknown, or smuggled"
+# Closed-world broad token scan: enumerate every maximal F32C-D11-prefixed
+# token over letters, digits, underscore, hyphen, and literal asterisk
+# (any family width, digit width, suffix, or delimiter residue) and
+# require each to be an exact allowed ID or the single permitted exact
+# E-family glob token F32C-D11-E-*. Anything else fails closed.
+awk '{s=$0; while (match(s,/F32C-D11-[A-Za-z0-9_*-]*/)) {print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)}}' \
+  "$PKT32C" > "$tmpdir/p32.union.broad" || err "$PKT32C broad F32C-D11 token enumeration failed"
+[ -s "$tmpdir/p32.union.broad" ] || err "$PKT32C broad F32C-D11 token enumeration produced no tokens"
+sort -u "$tmpdir/p32.union.broad" > "$tmpdir/p32.union.broad.sorted" || err "$PKT32C broad token sort failed"
+sort -u "$tmpdir/p32.union.exp" > "$tmpdir/p32.union.allow" || err "$PKT32C expected union sort failed"
+printf 'F32C-D11-E-*\n' >> "$tmpdir/p32.union.allow" || err "$PKT32C family-glob allowance append failed"
+sort -o "$tmpdir/p32.union.allow" "$tmpdir/p32.union.allow" || err "$PKT32C allowance resort failed"
+comm -23 "$tmpdir/p32.union.broad.sorted" "$tmpdir/p32.union.allow" > "$tmpdir/p32.union.stray" \
+  || err "$PKT32C stray-token comparison failed"
+[ ! -s "$tmpdir/p32.union.stray" ] || err "$PKT32C contains F32C-D11-prefixed tokens outside the exact allowed IDs"
+p32glob=$(grep -cF -e 'F32C-D11-E-*' "$PKT32C"); p32rc=$?
+[ "$p32rc" -le 1 ] || err "$PKT32C family-glob scan failed"
+[ "$p32glob" = 1 ] || err "$PKT32C family-glob mention F32C-D11-E-* must occur exactly once"
+p32globtok=$(grep -cxF -e 'F32C-D11-E-*' "$tmpdir/p32.union.broad"); p32rc=$?
+[ "$p32rc" -le 1 ] || err "$PKT32C family-glob token count scan failed"
+[ "$p32globtok" = 1 ] || err "$PKT32C exact glob token F32C-D11-E-* must occur exactly once"
+# Fail-closed regression probes: the broad closed-world scan must reject
+# unknown and multi-letter families, wrong digit widths, suffixes, and
+# malformed delimiters. Supporting self-authored evidence only.
+cat > "$tmpdir/p32.probe.bad" <<'QK_F32C_PROBE_EOF' || err "F3.2c probe sample generation failed"
+F32C-D11-XX-001
+F32C-D11-F-01
+F32C-D11-F-0001
+F32C-D11-F-001X
+F32C-D11-F_001
+F32C-D11-FF-010
+F32C-D11-E-***
+QK_F32C_PROBE_EOF
+awk '{s=$0; while (match(s,/F32C-D11-[A-Za-z0-9_*-]*/)) {print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)}}' \
+  "$tmpdir/p32.probe.bad" > "$tmpdir/p32.probe.tok" || err "F3.2c probe tokenization failed"
+p32ptok=$(awk 'END { print NR }' "$tmpdir/p32.probe.tok") || err "F3.2c probe token count failed"
+[ "$p32ptok" = 7 ] || err "F3.2c probe tokenizer missed malformed IDs ($p32ptok of 7)"
+sort -u "$tmpdir/p32.probe.tok" > "$tmpdir/p32.probe.tok.sorted" || err "F3.2c probe token sort failed"
+comm -23 "$tmpdir/p32.probe.tok.sorted" "$tmpdir/p32.union.allow" > "$tmpdir/p32.probe.stray" \
+  || err "F3.2c probe comparison failed"
+p32pstray=$(awk 'END { print NR }' "$tmpdir/p32.probe.stray") || err "F3.2c probe stray count failed"
+[ "$p32pstray" = 7 ] || err "F3.2c closed-world probe failed to reject malformed IDs ($p32pstray of 7)"
+cat > "$tmpdir/p32.failure.expected" <<'QK_F32C_FAILURE_ROWS_EOF' || err "$PKT32C failure expected rows generation failed"
+| F32C-D11-F-001 | preapproval context change | rebuild review | no reuse | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-002 | postapproval bound change | D11-X1 plus full reparse/review | no stale approval | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-003 | signing uncertainty or failure | D11-X2; no representation leaves trusted volatile state | no retry, re-sign, or one-signature output | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-004 | output parse, delta, signature, or final-field failure | no route output begins | no ready claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-005 | QR planning or self-check failure before display | no frames shown | no partial stream | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-006 | QR interruption after display | stop further frames; previously observed frames cannot be withdrawn or assumed absent; Q-001 remains unresolved | no completion or delivery claim; no automatic SD fallback | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-007 | SD absent, read-only, full, or failure before create | no object | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-008 | collision or exclusive-create failure | end attempt | no truncate or replace | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-009 | short write or removal during write | end attempt and attachment epoch; residue may remain; Q-001 remains unresolved | no commit or completion; no continue after reinsertion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-010 | sync or close failure | no commit; residue may remain | no durability claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-011 | temp readback mismatch | no commit; orphan handling remains open | no repair or normalization | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-012 | no-replace visibility-transition failure | no final or completion claim | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-013 | metadata-barrier failure | durability unknown | no completion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-014 | final readback or reparse mismatch | stop; final-name bytes may already be observable and cannot be withdrawn; Q-001 remains unresolved | no completion, repair, overwrite, normalization, or treatment as the verified artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-015 | power cut after visibility transition | ambiguous final object and lost session | no auto-adoption or retroactive success | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-016 | orphan next session | only later-selected bounded handling | no resume or secure-erasure claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-017 | media replacement | attachment epoch ends; Q-002 decides attempt-versus-approval invalidation | never treat replacement as the same medium | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-018 | first route succeeds and second fails | Q-004 reviewed policy applies; first release cannot be undone | no silent downgrade | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-019 | retry request | same frozen bytes only if later selected; cross-attempt QR accumulation remains evidence-relevant | never re-sign or change plan | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-020 | restart | new session and review | no old-approval resume | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-021 | receiver acknowledgement | untrusted UX only | no cryptographic or coordinator acceptance | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-022 | any qk-io mutation | fatal; stop further output; if artifact-bearing I/O began, observed fragments or residue cannot be withdrawn and Q-001 remains unresolved | no continuation, normalization, completion, or treatment of altered bytes as the signed artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+QK_F32C_FAILURE_ROWS_EOF
+grep '^| F32C-D11-F-' "$PKT32C" > "$tmpdir/p32.failure.actual" || err "$PKT32C failure-row enumeration failed"
+cmp -s "$tmpdir/p32.failure.expected" "$tmpdir/p32.failure.actual"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C failure rows or outcomes are not exact"
+# Closed-world pipe transcript: every '|'-carrying line in the packet
+# must be exactly the ordered concatenation of the four closed tables
+# below (60 lines, no prose pipes); leading-pipe-omitted, indented,
+# extra-cell, appended, dropped, and reordered rows and any extra table
+# section all fail. Supporting self-authored evidence only.
+grep '|' "$PKT32C" > "$tmpdir/p32.pipes.act"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C pipe-line enumeration failed or found no pipe lines"
+p32pn=$(awk 'END { print NR }' "$tmpdir/p32.pipes.act") || err "$PKT32C pipe-line count failed"
+[ "$p32pn" = 60 ] || err "$PKT32C pipe-carrying line count is $p32pn, expected exactly 60"
+cat > "$tmpdir/p32.pipes.exp" <<'QK_F32C_PIPES_EOF' || err "$PKT32C expected pipe transcript generation failed"
+| ID | Construction input | Status |
+| --- | --- | --- |
+| F32C-D11-C-001 | eligible retained artifact and approval/route binding | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-002 | semantic route-set/media-attempt/session vocabulary | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-003 | new-output naming/collision/input-output separation/no overwrite; no concrete name or hash | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-004 | proposed SD staging, write, sync, close, reopen, compare, reparse, exact-delta, signature, no-replace publication, and final reopen sequence | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-005 | filesystem, controller, cache, sync, rename, and directory durability assumptions UNKNOWN; refuse SD if reliable no-replace publication cannot be proven | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-006 | cancellation/removal/power-cut/short-write/corrupt/full/read-only/write-protected/failure/orphan handling; no cleanup guarantee | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-007 | retry/idempotence/stale/duplicate alternatives; never blind re-sign; retry policy unselected | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-008 | QR lifecycle/cross-route equivalence/receiver and second-implementation evidence | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| ID | Planned evidence | Status |
+| --- | --- | --- |
+| F32C-D11-E-001 | exact-target filesystem/controller/cache/write ordering | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-002 | forced power loss at every transition | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-003 | removal at every read/write/sync/close/reopen/publish boundary | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-004 | full/read-only/write-protected/damaged/stale/duplicate media | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-005 | short-write/I/O/corruption/inconsistent metadata | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-006 | collision/input-output alias/no-overwrite | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-007 | retry/idempotence/orphan/stale-attempt | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-008 | independent reopen/byte compare/reparse/exact-delta/signatures | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-009 | QR/SD decoded-byte equivalence/coordinator interoperability | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-010 | human completion/safe-removal/error/retry plus independent second implementation | PLANNED — NOT RUN — NO EVIDENCE |
+| ID | Owner question | Status |
+| --- | --- | --- |
+| F32C-D11-Q-001 | Does D-10 “failure releases no artifact or partial output” prohibit any signed-PSBT bytes or transport fragments becoming observable through either route after an attempt later fails, including QR frames already displayed and SD prefixes or objects already written, or only prohibit recognizing or presenting an incomplete route representation as a complete signed-PSBT output? Interrupted QR cannot retract observed frames; frames from interrupted or retried cycles may be accumulated by a receiver; conventional SD staging cannot guarantee no residue; neither route may silently assume the weaker interpretation. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-002 | Must exact physical SD attachment epoch be present/approval-bound, or may logical SD route accept later insertion/replacement; reconcile broad media-change invalidation. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-003 | One approval: exactly one route or closed QR+SD route set. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-004 | If both, all required vs either sufficient vs independent outcomes; first succeeds/second fails. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-005 | Same frozen artifact retry under unchanged session vs new review; neither allows re-signing. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-006 | Same SD for input/output vs distinct already-bound media; prove directory/allocation writes cannot lose/overwrite input. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-007 | Eligible visibility/commit construction and exact evidence before any atomic/complete claim. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-008 | Filename and bounded collision policy without input overwrite, wallet metadata, or silent post-approval change. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-009 | Orphan/ambiguous final objects: leave-ignore, quarantine, or bounded best-effort cleanup; no secure erasure/resume. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-010 | Complete QR self-decode/reparse before display and wording separating presentation from receipt. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-011 | Deterministic insertion position/order of two new partial signatures while old records keep exact bytes/relative order. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-012 | Which semantic fields later enter D-09 commitment; serialization/hash/domain remain D-09-open. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| ID | Event | Proposed fail-closed result | Forbidden conclusion/action | Status |
+| --- | --- | --- | --- | --- |
+| F32C-D11-F-001 | preapproval context change | rebuild review | no reuse | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-002 | postapproval bound change | D11-X1 plus full reparse/review | no stale approval | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-003 | signing uncertainty or failure | D11-X2; no representation leaves trusted volatile state | no retry, re-sign, or one-signature output | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-004 | output parse, delta, signature, or final-field failure | no route output begins | no ready claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-005 | QR planning or self-check failure before display | no frames shown | no partial stream | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-006 | QR interruption after display | stop further frames; previously observed frames cannot be withdrawn or assumed absent; Q-001 remains unresolved | no completion or delivery claim; no automatic SD fallback | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-007 | SD absent, read-only, full, or failure before create | no object | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-008 | collision or exclusive-create failure | end attempt | no truncate or replace | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-009 | short write or removal during write | end attempt and attachment epoch; residue may remain; Q-001 remains unresolved | no commit or completion; no continue after reinsertion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-010 | sync or close failure | no commit; residue may remain | no durability claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-011 | temp readback mismatch | no commit; orphan handling remains open | no repair or normalization | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-012 | no-replace visibility-transition failure | no final or completion claim | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-013 | metadata-barrier failure | durability unknown | no completion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-014 | final readback or reparse mismatch | stop; final-name bytes may already be observable and cannot be withdrawn; Q-001 remains unresolved | no completion, repair, overwrite, normalization, or treatment as the verified artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-015 | power cut after visibility transition | ambiguous final object and lost session | no auto-adoption or retroactive success | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-016 | orphan next session | only later-selected bounded handling | no resume or secure-erasure claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-017 | media replacement | attachment epoch ends; Q-002 decides attempt-versus-approval invalidation | never treat replacement as the same medium | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-018 | first route succeeds and second fails | Q-004 reviewed policy applies; first release cannot be undone | no silent downgrade | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-019 | retry request | same frozen bytes only if later selected; cross-attempt QR accumulation remains evidence-relevant | never re-sign or change plan | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-020 | restart | new session and review | no old-approval resume | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-021 | receiver acknowledgement | untrusted UX only | no cryptographic or coordinator acceptance | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-022 | any qk-io mutation | fatal; stop further output; if artifact-bearing I/O began, observed fragments or residue cannot be withdrawn and Q-001 remains unresolved | no continuation, normalization, completion, or treatment of altered bytes as the signed artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+QK_F32C_PIPES_EOF
+cmp -s "$tmpdir/p32.pipes.exp" "$tmpdir/p32.pipes.act"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C pipe-carrying lines are not exactly the four closed tables"
+# Fail-closed pipe canaries: appended, dropped, indented, leading-pipe-
+# omitted, and extra-cell variants must each break the byte compare.
+{ cat "$tmpdir/p32.pipes.exp"; printf '%s\n' '| F32C-D11-C-001 | smuggled duplicate | EXTRA |'; } > "$tmpdir/p32.pipes.bad1" || err "pipe canary 1 generation failed"
+sed '$d' "$tmpdir/p32.pipes.exp" > "$tmpdir/p32.pipes.bad2" || err "pipe canary 2 generation failed"
+sed '1s/^/ /' "$tmpdir/p32.pipes.exp" > "$tmpdir/p32.pipes.bad3" || err "pipe canary 3 generation failed"
+sed '3s/^|//' "$tmpdir/p32.pipes.exp" > "$tmpdir/p32.pipes.bad4" || err "pipe canary 4 generation failed"
+sed '3s/|$/| EXTRA |/' "$tmpdir/p32.pipes.exp" > "$tmpdir/p32.pipes.bad5" || err "pipe canary 5 generation failed"
+for p32badp in "$tmpdir/p32.pipes.bad1" "$tmpdir/p32.pipes.bad2" "$tmpdir/p32.pipes.bad3" "$tmpdir/p32.pipes.bad4" "$tmpdir/p32.pipes.bad5"; do
+  cmp -s "$tmpdir/p32.pipes.exp" "$p32badp"
+  p32rc=$?
+  [ "$p32rc" -eq 1 ] || err "pipe transcript canary failed to detect a mutated table (cmp exit $p32rc for $p32badp)"
+done
+# Closed-world heading transcript: every '#'-carrying line in the packet
+# must be exactly the one H1 plus the eleven H2 headings below, in order
+# (12 lines, no prose hashes); extra, renamed, reordered, indented, or
+# deeper ATX headings all fail. Supporting self-authored evidence only.
+grep '#' "$PKT32C" > "$tmpdir/p32.heads.act"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C heading-line enumeration failed or found no hash lines"
+p32hn=$(awk 'END { print NR }' "$tmpdir/p32.heads.act") || err "$PKT32C heading-line count failed"
+[ "$p32hn" = 12 ] || err "$PKT32C hash-carrying line count is $p32hn, expected exactly 12"
+cat > "$tmpdir/p32.heads.exp" <<'QK_F32C_HEADS_EOF' || err "$PKT32C expected heading transcript generation failed"
+# QK-F3.2c — D-11 Media/Write Lifecycle Construction and Readiness Packet (Non-Binding)
+## Standing, source boundary, and labels
+## Inherited fixed requirements and recorded directions
+## Analysis-only vocabulary
+## Construction rows
+## Evidence rows
+## Owner questions
+## Mandatory contradiction warning
+## Proposed state and route analyses
+## Closed-world failure matrix
+## Dependency and evidence boundary
+## Explicit do-not-claim boundary
+QK_F32C_HEADS_EOF
+cmp -s "$tmpdir/p32.heads.exp" "$tmpdir/p32.heads.act"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C hash-carrying lines are not exactly the one H1 and eleven H2 headings"
+# Fail-closed heading canaries: appended, dropped, indented, and renamed
+# heading variants must each break the byte compare.
+{ cat "$tmpdir/p32.heads.exp"; printf '%s\n' '### Smuggled deeper heading'; } > "$tmpdir/p32.heads.bad1" || err "heading canary 1 generation failed"
+sed '$d' "$tmpdir/p32.heads.exp" > "$tmpdir/p32.heads.bad2" || err "heading canary 2 generation failed"
+sed '2s/^/ /' "$tmpdir/p32.heads.exp" > "$tmpdir/p32.heads.bad3" || err "heading canary 3 generation failed"
+sed '2s/labels/labels renamed/' "$tmpdir/p32.heads.exp" > "$tmpdir/p32.heads.bad4" || err "heading canary 4 generation failed"
+for p32badh in "$tmpdir/p32.heads.bad1" "$tmpdir/p32.heads.bad2" "$tmpdir/p32.heads.bad3" "$tmpdir/p32.heads.bad4"; do
+  cmp -s "$tmpdir/p32.heads.exp" "$p32badh"
+  p32rc=$?
+  [ "$p32rc" -eq 1 ] || err "heading transcript canary failed to detect a mutated heading set (cmp exit $p32rc for $p32badh)"
+done
+# Setext headings carry no '#', a one-column GFM table delimiter line
+# (":---", "---:", ":---:") carries no pipe, and either may hide behind
+# repeated blockquote '>' prefixes ("> :---", ">> :---:") while still
+# rendering, so all bypass the heading and pipe transcripts: forbid any
+# full-line '='/'-' run with optional leading/trailing alignment colons
+# and any run of blockquote prefixes, with positive canaries proving
+# the pattern matches Setext underline runs and pipe-free aligned-table
+# delimiter runs alike. Legitimate table separator lines carry pipes
+# and never match.
+forbid "$PKT32C contains a Setext underline or pipe-free GFM table delimiter run" -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$PKT32C"
+for p32sx in '=' '=====' '-' '-----' '   ---' ':---' '---:' ':---:' '   :---:' '> :---' '>> :---:' '> > ---:'; do
+  printf '%s\n' "$p32sx" > "$tmpdir/p32.setext.canary" || err "Setext/GFM delimiter canary generation failed"
+  grep -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$tmpdir/p32.setext.canary" >/dev/null
+  p32rc=$?
+  [ "$p32rc" -eq 0 ] || err "Setext/GFM delimiter canary pattern failed to match run '$p32sx' (grep exit $p32rc)"
+done
+printf '%s\n' '| :--- | ---: |' > "$tmpdir/p32.setext.negative" || err "Setext/GFM negative canary generation failed"
+grep -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$tmpdir/p32.setext.negative" >/dev/null
+p32rc=$?
+[ "$p32rc" -eq 1 ] || err "Setext/GFM delimiter pattern wrongly matched a legitimate piped separator line (grep exit $p32rc)"
+# Direct contradictory-claim forbids: none of these case-insensitive
+# fixed contradictory phrases may occur anywhere in the packet, in any
+# letter case; each would contradict the recorded non-selected,
+# unanswered, evidence-absent, unpublished state, and each rejection is
+# direct and recorded rather than implied by transcripts. This is a
+# closed fixed-phrase list, not exhaustive language coverage.
+for p32claim in 'D-11 SELECTED' 'D-11: SELECTED' 'PROFILE ACCEPTED' \
+  'OWNER QUESTIONS ANSWERED' 'TARGET EVIDENCE PRESENT' 'GATE CLOSED' \
+  'TESTS RUN' 'EVIDENCE RECORDED' 'IMPLEMENTATION ENABLED' \
+  'PUBLICATION AUTHORIZED'; do
+  p32cn=$(LC_ALL=C grep -ciF -e "$p32claim" "$PKT32C"); p32rc=$?
+  [ "$p32rc" -le 1 ] || err "$PKT32C contradictory-claim scan failed"
+  [ "$p32cn" = 0 ] || err "$PKT32C contains a contradictory claim: $p32claim"
+done
+# Fail-closed claim canaries: lowercase and mixed-case variants of the
+# fixed phrases must each be counted by the case-insensitive scan, so a
+# case-folding regression can never pass silently; a claim-free sample
+# must count zero (grep exit 1 tolerated), and a missing-file scan must
+# report an error exit greater than 1.
+cat > "$tmpdir/p32.claim.canary" <<'QK_F32C_CLAIM_CANARY_EOF' || err "claim canary generation failed"
+D-11 selected
+d-11: Selected
+Profile Accepted
+owner questions answered
+Target Evidence Present
+gate Closed
+tests run
+Evidence recorded
+implementation Enabled
+Publication Authorized
+QK_F32C_CLAIM_CANARY_EOF
+for p32claim in 'D-11 SELECTED' 'D-11: SELECTED' 'PROFILE ACCEPTED' \
+  'OWNER QUESTIONS ANSWERED' 'TARGET EVIDENCE PRESENT' 'GATE CLOSED' \
+  'TESTS RUN' 'EVIDENCE RECORDED' 'IMPLEMENTATION ENABLED' \
+  'PUBLICATION AUTHORIZED'; do
+  p32cc=$(LC_ALL=C grep -ciF -e "$p32claim" "$tmpdir/p32.claim.canary"); p32rc=$?
+  [ "$p32rc" -eq 0 ] || err "claim canary scan failed for: $p32claim (grep exit $p32rc)"
+  [ "$p32cc" = 1 ] || err "case-insensitive claim canary missed a mixed-case variant of: $p32claim"
+done
+printf 'no claims here\n' > "$tmpdir/p32.claim.zero" || err "claim zero-sample generation failed"
+p32cz=$(LC_ALL=C grep -ciF -e 'D-11 SELECTED' "$tmpdir/p32.claim.zero"); p32rc=$?
+[ "$p32rc" -eq 1 ] || err "claim zero-stage probe returned unexpected grep exit $p32rc"
+[ "$p32cz" = 0 ] || err "claim zero-stage probe counted a phantom claim"
+LC_ALL=C grep -ciF -e 'D-11 SELECTED' "$tmpdir/p32.claim.does-not-exist" >/dev/null 2>&1
+p32rc=$?
+[ "$p32rc" -gt 1 ] || err "claim error-stage probe failed to report a scan error (grep exit $p32rc)"
+forbid "$PKT32C authorizes a numeric QK-LIM value" -E 'QK-LIM[-A-Z0-9]*[[:space:]]*(=|:)[[:space:]]*[0-9]' "$PKT32C"
+for p32req in \
+  'binary `.psbt` only; no base64 or hex autodetection' \
+  'input is never overwritten under interruption, retry, or failure' \
+  'exactly two new selected-pair PSBT_IN_PARTIAL_SIG records per input' \
+  'no route retry may re-sign' \
+  'decoded QR payload bytes equal final SD file bytes, never frame bytes' \
+  'No automatic fallback is selected.' \
+  'no ARTIFACT-BEARING route output begins before D11-S6' \
+  'A bounded read-only SD preflight is an unselected candidate that may precede review' \
+  'Any bound preflight fact changing after approval goes to D11-X1.' \
+  'S9 does not prove receipt, finalization, broadcast, or durability.' \
+  'Interrupted QR cannot retract observed frames' \
+  'a receiver may accumulate frames across interrupted or retried cycles' \
+  'Neither route may silently assume the weaker interpretation.' \
+  'QR-Q2 SELF_CHECKED is an explicit candidate branch, not a universal transition' \
+  'At most one stream is active; a different artifact requires a reset' \
+  'exact-length write success before sync/close' \
+  'successful sync/close return before temp readback while not proving durability' \
+  'exact temp-byte equality plus `qk-core` fresh reparse before commit' \
+  'successful target-proven no-replace visibility-transition return before the metadata barrier while not proving atomicity' \
+  'successful target-specific metadata-barrier return before final readback while not proving durability' \
+  'exact final-byte equality plus fresh reparse before local completion indication' \
+  'QK-F2E-008, QK-F2E-009, and QK-F2E-015 are protocol templates only — NOT RUN — NOT GATE EVIDENCE.' \
+  'QK-TST-UNIT-009, QK-TST-DIFF-004, QK-TST-SAN-004, QK-TST-CORP-003, QK-TST-PWR-003, QK-TST-PWR-004, QK-TST-PWR-005, QK-TST-REH-004, and QK-TST-AUD-001 remain PLANNED — NOT RUN.' \
+  'OD-05 and OD-06 remain OPEN.' \
+  'Packet-local F32C-D11-E-* IDs create no canonical QK-TST, run registration, evidence record, or gate input.' \
+  'QK-REQ-BND-003 requires that any intervening input, card, media, session, or state change after approval invalidates approval before signing.' \
+  'binding and invalidation for extra factor, descriptor, wallet, profile, and policy-context facts come from the unaccepted profile' \
+  'Tested cuts never prove impossibility.'; do
+  grep -F -e "$p32req" "$PKT32C" >/dev/null || err "$PKT32C missing semantic boundary: $p32req"
+done
+forbid "$PKT32C claims D-11 selection" -iE 'D-11 (is|has been|now) selected' "$PKT32C"
+forbid "$PKT32C claims target validation" -iE '(target|hardware|media)[^.]* (validated|proven|tested successfully)' "$PKT32C"
+forbid "$PKT32C claims atomicity/durability" -iE '(rename|write|close|sync)[^.]* (guarantees|proves) (atomicity|durability)' "$PKT32C"
+forbid "$PKT32C retains stale preflight wording" -F 'no route I/O occurs before S6' "$PKT32C"
+forbid "$PKT32C retains stale S9 wording" -F 'S9 proves no receipt' "$PKT32C"
+forbid "$PKT32C retains stale blanket failure paragraph" -F 'For every row the proposed fail-closed outcome forbids' "$PKT32C"
+forbid "$PKT32C contains hidden HTML or link definition" -E '<!--|-->|^\[[^]]+\]:' "$PKT32C"
+forbid "$PKT32C contains tab/trailing whitespace" -E '	|[[:blank:]]$' "$PKT32C"
+od -An -tx1 "$PKT32C" > "$tmpdir/p32.bytes.raw" || err "$PKT32C od byte scan failed"
+[ -s "$tmpdir/p32.bytes.raw" ] || err "$PKT32C od byte scan produced empty output"
+tr -d '[:space:]' < "$tmpdir/p32.bytes.raw" > "$tmpdir/p32.bytes.hex" || err "$PKT32C byte normalization failed"
+[ -s "$tmpdir/p32.bytes.hex" ] || err "$PKT32C normalized byte scan produced empty output"
+p32bad=$(grep -cE '(^efbbbf)|00|0d|e2808[ef]|e280a[a-e]|e281a[6-9]' "$tmpdir/p32.bytes.hex"); p32rc=$?
+[ "$p32rc" -le 1 ] || err "$PKT32C control/bidi byte scan failed"
+[ "$p32bad" = 0 ] || err "$PKT32C contains BOM, NUL, CR, or actual bidi controls"
+[ "$(tail -c 1 "$PKT32C" | od -An -tuC | tr -d '[:space:]')" = 10 ] || err "$PKT32C must end in LF"
+[ "$(tail -c 2 "$PKT32C" | od -An -tuC | tr -d '[:space:]')" != 1010 ] || err "$PKT32C must end in exactly one LF"
+forbid "$PKT32C contains URL/URI/email" -iE '(https?://|[a-z][a-z0-9+.-]*://|[[:alnum:]_.+-]+@[[:alnum:].-]+)' "$PKT32C"
+forbid "$PKT32C contains license application" -E 'SPDX-License-Identifier:|^LICENSE$' "$PKT32C"
+forbid "$PKT32C contains extended-key material" -iE '(^|[^0-9A-Za-z])([xyztuv](pub|prv))[1-9A-HJ-NP-Za-km-z]{20,}([^0-9A-Za-z]|$)' "$PKT32C"
+forbid "$PKT32C contains WIF material" -E '(^|[^1-9A-HJ-NP-Za-km-z])([5KL9c])[1-9A-HJ-NP-Za-km-z]{49,51}([^1-9A-HJ-NP-Za-km-z]|$)' "$PKT32C"
+forbid "$PKT32C contains Base58 address material" -E '(^|[^1-9A-HJ-NP-Za-km-z])([13mn2])[1-9A-HJ-NP-Za-km-z]{25,34}([^1-9A-HJ-NP-Za-km-z]|$)' "$PKT32C"
+forbid "$PKT32C contains bech32 address material" -iE '(^|[^0-9a-z])((bc|tb|bcrt)1[02-9ac-hj-np-z]{20,})([^0-9a-z]|$)' "$PKT32C"
+forbid "$PKT32C contains raw PSBT material" -E '([c]HNidP|[7]0736274ff)' "$PKT32C"
+awk '{ s=$0
+  while (match(s, /[A-Za-z0-9+\/=]+/)) {
+    t=substr(s,RSTART,RLENGTH)
+    if (length(t) >= 44) { print t; exit }
+    s=substr(s,RSTART+RLENGTH)
+  }
+}' "$PKT32C" > "$tmpdir/p32.base64"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C base64 material scan failed (awk exit $p32rc)"
+[ ! -s "$tmpdir/p32.base64" ] || err "$PKT32C contains base64-like payload material"
+command -v iconv > "$tmpdir/p32.iconv.path" 2>/dev/null || err "iconv unavailable for strict UTF-8 validation"
+[ -s "$tmpdir/p32.iconv.path" ] || err "iconv lookup produced empty output"
+iconv -f UTF-8 -t UTF-8 "$PKT32C" > "$tmpdir/p32.utf8" 2> "$tmpdir/p32.iconv.err"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C is not strict UTF-8 (iconv exit $p32rc)"
+[ -s "$tmpdir/p32.utf8" ] || err "$PKT32C UTF-8 validation produced empty output"
+cmp -s "$PKT32C" "$tmpdir/p32.utf8"
+p32rc=$?
+[ "$p32rc" -eq 0 ] || err "$PKT32C UTF-8 validation changed bytes"
+printf '\300\257' > "$tmpdir/p32.utf8.overlong" || err "UTF-8 overlong regression generation failed"
+printf '\342\202' > "$tmpdir/p32.utf8.truncated" || err "UTF-8 truncated regression generation failed"
+printf '\377' > "$tmpdir/p32.utf8.invalid" || err "UTF-8 invalid regression generation failed"
+for p32badutf in "$tmpdir/p32.utf8.overlong" "$tmpdir/p32.utf8.truncated" "$tmpdir/p32.utf8.invalid"; do
+  iconv -f UTF-8 -t UTF-8 "$p32badutf" > "$tmpdir/p32.utf8.badout" 2>/dev/null
+  p32rc=$?
+  [ "$p32rc" -ne 0 ] || err "iconv accepted malformed UTF-8 regression input $p32badutf"
+done
+
+# G: full changed-content material scan across exactly the seven named
+# protocol/provenance/checker paths listed in the loop below; replit.md
+# is separately bounded elsewhere and is not part of this seven-path
+# scan. Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -1539,7 +2031,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" docs/f3/README.md docs/SOURCE-REGISTER.md too
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# in the four content paths; every token must be deliberately
+# across the same seven named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -1548,26 +2040,30 @@ done
 #   55f93844b56e3637468321e1c68638a8138a3a2b  pinned COLDCARD firmware commit (SOURCE-REGISTER row)
 #   1e9dfb9518bd90d4531180d9a3258dd21e54dee3  retired QuietKey laboratory pin (SOURCE-REGISTER row)
 #   8f3154d0e7845ed5a4c69b73b9479821fdf06765  governance manifest-ancestry constant required by this authorized script
-#   3dfda3d6c10d54f92e6c397866e8c630a1249898  reviewed F3.2b owner-response authorization commit A (Decision-Log byte-identity anchor in this script)
+#   26e075704cdd172fce62b9b7cd38b4035db384d8  published F3.2c parent and packet source base
+#   9354d4a2924378ddcc20e4ffa26be0602bd913c0  reviewed F3.2c construction-packet authorization commit A
 #   a9d1f205cfa879a6f54b8838256d36e469cfed97  published base commit (Source-Register bounded-append anchor in this script)
+#   b4594210975940df71b0e941841320d11defaa4c  F3.2c packet audit-locator/supporting byte-identity invariant
 #   bb6601f3b97528a72c55622251a4b475680ec21b  published F3.2b owner-response source base
 {
   printf '%s\n' \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
-    3dfda3d6c10d54f92e6c397866e8c630a1249898 \
+    26e075704cdd172fce62b9b7cd38b4035db384d8 \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
+    9354d4a2924378ddcc20e4ffa26be0602bd913c0 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
+    b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
