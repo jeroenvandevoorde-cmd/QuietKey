@@ -100,6 +100,7 @@ cat > "$tmpdir/expected" <<'EOF'
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
+docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1257,7 +1258,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 9354d4a2924378ddcc20e4ffa26be0602bd913c0:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 2c6d1152f09730661b2cadd86d2374c755191128:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2013,14 +2014,251 @@ for p32badutf in "$tmpdir/p32.utf8.overlong" "$tmpdir/p32.utf8.truncated" "$tmpd
   [ "$p32rc" -ne 0 ] || err "iconv accepted malformed UTF-8 regression input $p32badutf"
 done
 
-# G: full changed-content material scan across exactly the seven named
+# F3.2d Q-001 owner-clarification record: the whole-record blob is the
+# primary closed-world identity invariant. The lexical and structural
+# checks below are supporting evidence only, never self-authentication,
+# independent audit proof, or a trust anchor.
+CLR32D=docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
+[ -f "$CLR32D" ] || err "$CLR32D missing"
+q1blob=a996a6d7c2bfa3a15109085475868410fe354422
+q1blobact=$(git --no-optional-locks hash-object -- "$CLR32D"); q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D whole-record blob scan failed (exit $q1rc)"
+q1blobfmt=$(printf '%s\n' "$q1blobact" | grep -cE '^[0-9a-f]{40}$'); q1rc=$?
+[ "$q1rc" -le 1 ] || err "$CLR32D whole-record blob format scan failed"
+[ "$q1blobfmt" = 1 ] || err "$CLR32D whole-record blob output is not one lowercase 40-hex OID"
+[ "$q1blobact" = "$q1blob" ] || err "$CLR32D differs from the reviewed whole-record blob"
+q1title='# F3.2d D-11 Q-001 Owner-Clarification Record (Non-Enacting)'
+q1status='STATUS: OWNER CLARIFICATION RECORDED — NON-ENACTING — F32C-D11-Q-001 FAILURE/COMPLETION MEANING CLARIFIED — D-11 NOT SELECTED — D-11 EVIDENCE/CONSTRUCTION-BLOCKED — F32C-D11-Q-002 THROUGH F32C-D11-Q-012 UNANSWERED — PSBT PROFILE NOT ACCEPTED — D-09 AND EVERY QK-LIM OPEN — NO IMPLEMENTATION — NO TESTING OR MEDIA I/O — NO QK-TST/EVIDENCE/GATE CHANGE — NO LICENSE APPLICATION — NO HARDWARE, FIRMWARE, SETTINGS, OR CREDENTIAL CHANGE — LOCAL AND UNPUBLISHED.'
+q1end='END OF RECORD — F32C-D11-Q-001 OWNER CLARIFICATION RECORDED — NON-ENACTING — D-11 NOT SELECTED — Q-002 THROUGH Q-012 UNANSWERED — TARGET EVIDENCE ABSENT — D-09 AND EVERY QK-LIM OPEN — PSBT PROFILE NOT ACCEPTED — LOCAL AND UNPUBLISHED.'
+sed -n '1p' "$CLR32D" > "$tmpdir/q1.title.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D title read failed (exit $q1rc)"
+[ -s "$tmpdir/q1.title.act" ] || err "$CLR32D title read produced empty output"
+printf '%s\n' "$q1title" > "$tmpdir/q1.title.exp" \
+  || err "$CLR32D title fixture generation failed"
+cmp -s "$tmpdir/q1.title.exp" "$tmpdir/q1.title.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D exact title is not first"
+tail -n 1 "$CLR32D" > "$tmpdir/q1.end.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D terminal-line read failed (exit $q1rc)"
+[ -s "$tmpdir/q1.end.act" ] || err "$CLR32D terminal-line read produced empty output"
+printf '%s\n' "$q1end" > "$tmpdir/q1.end.exp" \
+  || err "$CLR32D terminal-line fixture generation failed"
+cmp -s "$tmpdir/q1.end.exp" "$tmpdir/q1.end.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D exact terminal line missing"
+cat > "$tmpdir/q1.essential" <<'QK_F32D_Q001_ESSENTIAL_EOF' || err "$CLR32D essential-line fixture generation failed"
+- Source base: `e4cdf7771e189fc0f729358334aafd35177048c6`.
+- Source packet: `docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md` at that source base.
+- Source packet Git blob: `b4594210975940df71b0e941841320d11defaa4c`.
+- The source base and packet blob are audit locators and supporting byte-identity references only. They are not authentication, audit proof, or trust anchors.
+- Preparation and independent read-only audit were authorized by `QK-AUTH-F3.2D-D11-Q001-CLR-001`. Publication was not authorized.
+F32C-D11-Q-001 DISPOSITION: OWNER CLARIFICATION RECORDED — NON-ENACTING — D-11 NOT SELECTED.
+- The source F3.2c packet remains byte-identical.
+The Q-001 “no retry” clarification does not answer Q-005 future-new-attempt policy. The Q-001 “no automatic fallback” clarification does not answer Q-003 or Q-004 route cardinality or outcomes.
+- D-11 remains EVIDENCE/CONSTRUCTION-BLOCKED and NOT SELECTED.
+- OD-05 and OD-06 remain OPEN.
+- Tests remain PLANNED — NOT RUN. No test or media I/O was run for this record.
+- Gates A–E remain OPEN. STOP-SHIP remains unchanged.
+QK_F32D_Q001_ESSENTIAL_EOF
+q1exp=$(awk 'END {print NR+0}' "$tmpdir/q1.essential") || err "$CLR32D essential-line fixture count failed"
+[ "$q1exp" = 12 ] || err "$CLR32D essential-line fixture is incomplete (found $q1exp of 12)"
+q1proc=0
+while IFS= read -r q1line; do
+  q1n=$(grep -cFx -e "$q1line" "$CLR32D"); q1rc=$?
+  [ "$q1rc" -le 1 ] || err "$CLR32D exact essential-line scan failed"
+  [ "$q1n" = 1 ] || err "$CLR32D essential line must occur exactly once: $q1line"
+  q1proc=$((q1proc + 1))
+done < "$tmpdir/q1.essential"
+[ "$q1proc" = 12 ] || err "$CLR32D essential-line loop processed $q1proc of 12 lines"
+# The canonical STATUS line is full-line bound, and every STATUS:
+# occurrence in any letter case is counted globally so indentation,
+# blockquotes, prose, and same-line duplication cannot hide a second one.
+q1statuslines=$(grep -c '^STATUS:' "$CLR32D"); q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D canonical STATUS line scan failed"
+[ "$q1statuslines" = 1 ] || err "$CLR32D must contain exactly one canonical STATUS line"
+grep '^STATUS:' "$CLR32D" > "$tmpdir/q1.status.act" || err "$CLR32D STATUS extraction failed"
+printf '%s\n' "$q1status" > "$tmpdir/q1.status.exp" || err "$CLR32D STATUS fixture generation failed"
+cmp -s "$tmpdir/q1.status.exp" "$tmpdir/q1.status.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D STATUS line is not exactly the complete required banner"
+q1statusany=$(awk '{s=toupper($0); while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$CLR32D"); q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D case-insensitive global STATUS occurrence scan failed"
+case $q1statusany in ''|*[!0-9]*) err "$CLR32D case-insensitive STATUS occurrence scan produced non-numeric output" ;; esac
+[ "$q1statusany" = 1 ] || err "$CLR32D must contain exactly one case-insensitive STATUS: occurrence anywhere (found $q1statusany)"
+printf '%s status: SECONDARY\n' "$q1status" > "$tmpdir/q1.status.canary" || err "$CLR32D STATUS canary generation failed"
+q1statuscanary=$(awk '{s=toupper($0); while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$tmpdir/q1.status.canary"); q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D STATUS canary scan failed"
+[ "$q1statuscanary" = 2 ] || err "$CLR32D case-insensitive same-line STATUS canary did not count two occurrences"
+# Exact literal two-paragraph owner transcript, including the one blank
+# line between paragraphs and the surrounding section boundaries.
+sed -n '/^## Owner words exactly$/,/^## Q-001 disposition$/p' "$CLR32D" > "$tmpdir/q1.owner.act" \
+  || err "$CLR32D owner-word section extraction failed"
+cat > "$tmpdir/q1.owner.exp" <<'QK_F32D_Q001_OWNER_EOF' || err "$CLR32D owner-word fixture generation failed"
+## Owner words exactly
+
+Approve the recommended F32C-D11-Q-001 clarification: “Failure releases no artifact or partial output” does not claim that already observed QR frames or SD residue can be withdrawn or proven absent. Before route output begins, failure releases nothing; after output begins, a later failure stops further output, permits no complete-artifact, delivery, receipt, finalization, broadcast, atomicity, or durability claim, and permits no automatic fallback, retry, or re-signing.
+
+Authorize preparation and independent audit of a non-enacting docs-only F3.2d Q-001 owner-clarification record from e4cdf7771e189fc0f729358334aafd35177048c6, with only the mechanically necessary verifier bindings. No D-11 selection; no answer to Q-002 through Q-012; no profile acceptance, D-09 or QK-LIM selection, implementation, testing, media I/O, hardware work, settings changes, or publication.
+
+## Q-001 disposition
+QK_F32D_Q001_OWNER_EOF
+cmp -s "$tmpdir/q1.owner.exp" "$tmpdir/q1.owner.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D owner words or required blank-line transcript differ from the authorization"
+# Ordered exact Q-002..Q-012 transcript, with no table grammar.
+grep '^- F32C-D11-Q-0' "$CLR32D" > "$tmpdir/q1.questions.act"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D Q-002 through Q-012 transcript extraction failed"
+cat > "$tmpdir/q1.questions.exp" <<'QK_F32D_Q001_QUESTIONS_EOF' || err "$CLR32D question transcript fixture generation failed"
+- F32C-D11-Q-002 — Must exact physical SD attachment epoch be present/approval-bound, or may logical SD route accept later insertion/replacement; reconcile broad media-change invalidation. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-003 — One approval: exactly one route or closed QR+SD route set. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-004 — If both, all required vs either sufficient vs independent outcomes; first succeeds/second fails. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-005 — Same frozen artifact retry under unchanged session vs new review; neither allows re-signing. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-006 — Same SD for input/output vs distinct already-bound media; prove directory/allocation writes cannot lose/overwrite input. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-007 — Eligible visibility/commit construction and exact evidence before any atomic/complete claim. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-008 — Filename and bounded collision policy without input overwrite, wallet metadata, or silent post-approval change. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-009 — Orphan/ambiguous final objects: leave-ignore, quarantine, or bounded best-effort cleanup; no secure erasure/resume. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-010 — Complete QR self-decode/reparse before display and wording separating presentation from receipt. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-011 — Deterministic insertion position/order of two new partial signatures while old records keep exact bytes/relative order. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+- F32C-D11-Q-012 — Which semantic fields later enter D-09 commitment; serialization/hash/domain remain D-09-open. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION
+QK_F32D_Q001_QUESTIONS_EOF
+cmp -s "$tmpdir/q1.questions.exp" "$tmpdir/q1.questions.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D Q-002 through Q-012 transcript is missing, answered, malformed, duplicated, or reordered"
+# Closed heading transcript; any extra, renamed, reordered, indented, or
+# deeper ATX heading fails.
+grep '#' "$CLR32D" > "$tmpdir/q1.heads.act"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D heading transcript extraction failed"
+cat > "$tmpdir/q1.heads.exp" <<'QK_F32D_Q001_HEADS_EOF' || err "$CLR32D heading transcript fixture generation failed"
+# F3.2d D-11 Q-001 Owner-Clarification Record (Non-Enacting)
+## Standing and provenance
+## Owner words exactly
+## Q-001 disposition
+## Narrow clarification
+## Source packet historical boundary
+## Questions remaining unanswered
+## Non-effects and open boundaries
+QK_F32D_Q001_HEADS_EOF
+cmp -s "$tmpdir/q1.heads.exp" "$tmpdir/q1.heads.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D headings are not the exact closed ordered transcript"
+# The clarification core is closed to exactly the five owner-authorized
+# bullets. The retained boundary/F-row/S9 non-effects are exact unbulleted
+# lines so no broader policy consequence can be smuggled into the core.
+sed -n '/^## Narrow clarification$/,/^## Source packet historical boundary$/p' "$CLR32D" > "$tmpdir/q1.narrow.act" \
+  || err "$CLR32D narrow-clarification extraction failed"
+cat > "$tmpdir/q1.narrow.exp" <<'QK_F32D_Q001_NARROW_EOF' || err "$CLR32D narrow-clarification fixture generation failed"
+## Narrow clarification
+
+- “Failure releases no artifact or partial output” does not claim that already observed QR frames or SD residue can be withdrawn or proven absent.
+- Before route output begins, failure releases nothing.
+- After route output begins, a later failure stops further output.
+- A later failure permits no complete-artifact, delivery, receipt, finalization, broadcast, atomicity, or durability claim.
+- A later failure permits no automatic fallback, retry, or re-signing.
+
+This clarification defines no route-output-begins boundary and selects no D-11 construction, state, route, or route set.
+
+F32C-D11-F-006, F32C-D11-F-009, F32C-D11-F-014, and F32C-D11-F-022 remain PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED.
+
+S9 does not prove receipt, finalization, broadcast, or durability.
+
+## Source packet historical boundary
+QK_F32D_Q001_NARROW_EOF
+cmp -s "$tmpdir/q1.narrow.exp" "$tmpdir/q1.narrow.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D narrow clarification is not the exact closed owner-authorized transcript"
+for q1req in \
+  '- “Failure releases no artifact or partial output” does not claim that already observed QR frames or SD residue can be withdrawn or proven absent.' \
+  '- Before route output begins, failure releases nothing.' \
+  '- After route output begins, a later failure stops further output.' \
+  '- A later failure permits no complete-artifact, delivery, receipt, finalization, broadcast, atomicity, or durability claim.' \
+  '- A later failure permits no automatic fallback, retry, or re-signing.' \
+  'This clarification defines no route-output-begins boundary and selects no D-11 construction, state, route, or route set.' \
+  'F32C-D11-F-006, F32C-D11-F-009, F32C-D11-F-014, and F32C-D11-F-022 remain PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED.' \
+  '- No D-11 construction, state, route, route set, filesystem, filename, attachment, retry, orphan, QR-preflight, or signature-order policy is selected.' \
+  '- D-09 remains open. No D-09 field, serialization, hash, or domain is selected.' \
+  '- Every QK-LIM remains open. No QK-LIM value is selected.' \
+  '- The PSBT profile remains not accepted. No profile or clause is accepted.' \
+  '- No OD, QK-TST, evidence, gate, or STOP-SHIP status changes.' \
+  '- This record makes no audit, authentication, publication, target-validation, atomicity, or durability claim.'; do
+  q1n=$(grep -cFx -e "$q1req" "$CLR32D"); q1rc=$?
+  [ "$q1rc" -le 1 ] || err "$CLR32D exact semantic-line scan failed"
+  [ "$q1n" = 1 ] || err "$CLR32D required semantic must occur exactly once: $q1req"
+done
+for q1claim in 'D-11 IS SELECTED' 'D-11 HAS BEEN SELECTED' 'D-11 IS CLOSED' \
+  'Q-001 IS CLOSED' 'PROFILE IS ACCEPTED' 'TESTS WERE RUN' \
+  'GATE IS CLOSED' 'PUBLICATION IS AUTHORIZED' 'RECORD IS AUDITED' \
+  'RECORD IS AUTHENTICATED' 'RECORD IS PUBLISHED'; do
+  q1cn=$(LC_ALL=C grep -ciF -e "$q1claim" "$CLR32D"); q1rc=$?
+  [ "$q1rc" -le 1 ] || err "$CLR32D contradictory-claim scan failed"
+  [ "$q1cn" = 0 ] || err "$CLR32D contains a contradictory claim: $q1claim"
+done
+# Prefer no tables and close Markdown rendering bypasses.
+forbid "$CLR32D contains a table/prose pipe" -F '|' "$CLR32D"
+forbid "$CLR32D contains a blockquote-prefixed line" -E '^[[:blank:]]*>' "$CLR32D"
+forbid "$CLR32D contains a Setext underline or pipe-free GFM table delimiter run" -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$CLR32D"
+forbid "$CLR32D contains hidden HTML or a link definition" -E '<!--|-->|^\[[^]]+\]:' "$CLR32D"
+forbid "$CLR32D contains a tab or trailing whitespace" -E '	|[[:blank:]]$' "$CLR32D"
+forbid "$CLR32D contains URL/URI/email material" -iE '(https?://|[a-z][a-z0-9+.-]*://|[[:alnum:]_.+-]+@[[:alnum:].-]+)' "$CLR32D"
+od -An -tx1 "$CLR32D" > "$tmpdir/q1.bytes.raw" || err "$CLR32D byte scan failed"
+[ -s "$tmpdir/q1.bytes.raw" ] || err "$CLR32D byte scan produced empty output"
+tr -d '[:space:]' < "$tmpdir/q1.bytes.raw" > "$tmpdir/q1.bytes.hex" || err "$CLR32D byte normalization failed"
+[ -s "$tmpdir/q1.bytes.hex" ] || err "$CLR32D normalized byte scan produced empty output"
+q1bad=$(grep -cE '(^efbbbf)|00|0d|e2808[ef]|e280a[a-e]|e281a[6-9]' "$tmpdir/q1.bytes.hex"); q1rc=$?
+[ "$q1rc" -le 1 ] || err "$CLR32D control/bidi byte scan failed"
+[ "$q1bad" = 0 ] || err "$CLR32D contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+iconv -f UTF-8 -t UTF-8 "$CLR32D" > "$tmpdir/q1.utf8" 2> "$tmpdir/q1.iconv.err"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D strict UTF-8 validation failed"
+[ -s "$tmpdir/q1.utf8" ] || err "$CLR32D UTF-8 validation produced empty output"
+cmp -s "$CLR32D" "$tmpdir/q1.utf8"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D UTF-8 validation changed bytes"
+tail -c 1 "$CLR32D" > "$tmpdir/q1.tail1.raw"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-one-byte tail stage failed"
+[ -s "$tmpdir/q1.tail1.raw" ] || err "$CLR32D final-one-byte tail stage produced empty output"
+od -An -tuC "$tmpdir/q1.tail1.raw" > "$tmpdir/q1.tail1.od"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-one-byte od stage failed"
+[ -s "$tmpdir/q1.tail1.od" ] || err "$CLR32D final-one-byte od stage produced empty output"
+tr -d '[:space:]' < "$tmpdir/q1.tail1.od" > "$tmpdir/q1.tail1.txt"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-one-byte normalization stage failed"
+q1tail1=$(cat "$tmpdir/q1.tail1.txt"); q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-one-byte read-back stage failed"
+case $q1tail1 in ''|*[!0-9]*) err "$CLR32D final-one-byte result is empty or non-numeric" ;; esac
+[ "$q1tail1" = 10 ] || err "$CLR32D must end in LF"
+tail -c 2 "$CLR32D" > "$tmpdir/q1.tail2.raw"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-two-byte tail stage failed"
+[ -s "$tmpdir/q1.tail2.raw" ] || err "$CLR32D final-two-byte tail stage produced empty output"
+od -An -tuC "$tmpdir/q1.tail2.raw" > "$tmpdir/q1.tail2.od"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-two-byte od stage failed"
+[ -s "$tmpdir/q1.tail2.od" ] || err "$CLR32D final-two-byte od stage produced empty output"
+tr -d '[:space:]' < "$tmpdir/q1.tail2.od" > "$tmpdir/q1.tail2.txt"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-two-byte normalization stage failed"
+q1tail2=$(cat "$tmpdir/q1.tail2.txt"); q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D final-two-byte read-back stage failed"
+case $q1tail2 in ''|*[!0-9]*) err "$CLR32D final-two-byte result is empty or non-numeric" ;; esac
+[ "$q1tail2" != 1010 ] || err "$CLR32D must end in exactly one LF"
+# The record may contain exactly its source commit and source packet
+# blob as 40-hex tokens; nothing else.
+printf '%s\n' b4594210975940df71b0e941841320d11defaa4c e4cdf7771e189fc0f729358334aafd35177048c6 > "$tmpdir/q1.hex.exp" \
+  || err "$CLR32D exact-40-hex allowlist generation failed"
+awk '{s=$0; while (match(s,/[0-9a-fA-F]+/)) {t=substr(s,RSTART,RLENGTH); if (length(t)==40) print tolower(t); s=substr(s,RSTART+RLENGTH)}}' \
+  "$CLR32D" > "$tmpdir/q1.hex.raw"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D exact-40-hex enumeration failed"
+LC_ALL=C sort -u "$tmpdir/q1.hex.raw" > "$tmpdir/q1.hex.act"
+q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D exact-40-hex sort failed"
+cmp -s "$tmpdir/q1.hex.exp" "$tmpdir/q1.hex.act"; q1rc=$?
+[ "$q1rc" -eq 0 ] || err "$CLR32D contains a missing, altered, or extra exact-40-hex token"
+
+# G: full changed-content material scan across exactly the eight named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this seven-path
+# is separately bounded elsewhere and is not part of this eight-path
 # scan. Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -2031,7 +2269,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" docs/f3/README.md docs/SOURCE-REGIS
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same seven named scan paths; every token must be deliberately
+# across the same eight named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -2041,29 +2279,33 @@ done
 #   1e9dfb9518bd90d4531180d9a3258dd21e54dee3  retired QuietKey laboratory pin (SOURCE-REGISTER row)
 #   8f3154d0e7845ed5a4c69b73b9479821fdf06765  governance manifest-ancestry constant required by this authorized script
 #   26e075704cdd172fce62b9b7cd38b4035db384d8  published F3.2c parent and packet source base
-#   9354d4a2924378ddcc20e4ffa26be0602bd913c0  reviewed F3.2c construction-packet authorization commit A
+#   a996a6d7c2bfa3a15109085475868410fe354422  F3.2d Q-001 whole-record reviewed blob
+#   2c6d1152f09730661b2cadd86d2374c755191128  reviewed F3.2d Q-001 authorization commit A
 #   a9d1f205cfa879a6f54b8838256d36e469cfed97  published base commit (Source-Register bounded-append anchor in this script)
 #   b4594210975940df71b0e941841320d11defaa4c  F3.2c packet audit-locator/supporting byte-identity invariant
 #   bb6601f3b97528a72c55622251a4b475680ec21b  published F3.2b owner-response source base
+#   e4cdf7771e189fc0f729358334aafd35177048c6  published F3.2d Q-001 source base
 {
   printf '%s\n' \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
+    2c6d1152f09730661b2cadd86d2374c755191128 \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
-    9354d4a2924378ddcc20e4ffa26be0602bd913c0 \
+    a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
     b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
-    de71c22328b24e0848bbe1bd12ac8974ca83b5b8
+    de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
+    e4cdf7771e189fc0f729358334aafd35177048c6
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
