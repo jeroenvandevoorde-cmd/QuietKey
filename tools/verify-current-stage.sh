@@ -67,6 +67,9 @@ C18=a92a4b5dade0abcbcb8ad04a454b2cf4b229a32f    # docs(f3): correct Wallet Trust
 C19=e81ab9c61dda9be60ac45facbe5db57115578540    # chore: rebind F3.2a consistency checks (PUBLISHED BASE)
 C20=8060a57e873eda0a69991fb31b6e53b9b44bf3a4    # docs: authorize OD-08 decision-packet preparation
 C21=30a2240945842e6b33b0b492e4ae34212b5858f6    # docs(od08): add decision packet and reanchor host checks
+C22=8c18266c6fc6c00831f444f51a6a1f762250a12d    # chore: bind OD-08 decision-packet consistency checks (PUBLISHED OD-08 PARENT)
+C23=e29359bd0dac2892f0d3291a9ec4a11b758513f9    # docs: authorize OD-08 owner-response record preparation
+C24=e5c887b46eef7fde14cfe667264bb427598be3cb    # docs(od08): add non-enacting owner-response record and reanchor host checks
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -86,11 +89,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> ... -> C18 -> C19 -> C20 ->
-# C21 -> HEAD, no merges. C19 is the PUBLISHED base of the current
+# Exact linear ancestry BASE -> C1 -> ... -> C21 -> C22 -> C23 ->
+# C24 -> HEAD, no merges. C22 is the PUBLISHED base of the current
 # unpublished work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c24=$($GIT rev-parse "$C24^" 2>/dev/null) || err "C24 has no parent"
+p_c23=$($GIT rev-parse "$C23^" 2>/dev/null) || err "C23 has no parent"
+p_c22=$($GIT rev-parse "$C22^" 2>/dev/null) || err "C22 has no parent"
 p_c21=$($GIT rev-parse "$C21^" 2>/dev/null) || err "C21 has no parent"
 p_c20=$($GIT rev-parse "$C20^" 2>/dev/null) || err "C20 has no parent"
 p_c19=$($GIT rev-parse "$C19^" 2>/dev/null) || err "C19 has no parent"
@@ -112,7 +118,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C21" ] || err "HEAD parent is $p_head, expected $C21"
+[ "$p_head" = "$C24" ] || err "HEAD parent is $p_head, expected $C24"
+[ "$p_c24" = "$C23" ] || err "C24 parent is $p_c24, expected $C23"
+[ "$p_c23" = "$C22" ] || err "C23 parent is $p_c23, expected $C22"
+[ "$p_c22" = "$C21" ] || err "C22 parent is $p_c22, expected $C21"
 [ "$p_c21" = "$C20" ] || err "C21 parent is $p_c21, expected $C20"
 [ "$p_c20" = "$C19" ] || err "C20 parent is $p_c20, expected $C19"
 [ "$p_c19" = "$C18" ] || err "C19 parent is $p_c19, expected $C18"
@@ -135,10 +144,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "22" ] || err "expected exactly 22 commits after base, found $count"
+[ "$count" = "25" ] || err "expected exactly 25 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -296,6 +305,19 @@ EOF
 
 check_paths "$C21" "commit21" <<'EOF'
 docs/OD-08-DECISION-PACKET.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$C22" "commit22" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C23" "commit23" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C24" "commit24" <<'EOF'
+docs/OD-08-OWNER-RESPONSE-RECORD.md
 tools/verify-host-boundary.sh
 EOF
 
@@ -574,27 +596,51 @@ grep -F 'an explicit profile-acceptance prerequisite and remains NOT' "$WTS" >/d
 forbid "$WTS still claims completed traceability to existing QK-TST IDs" \
   -F 'traces only to existing' "$WTS"
 # Exact bounded append content enforced directly (checked stages, cmp).
-# The current Decision Log must be byte-identical to the reviewed OD-08
-# authorization commit A (C20), and the published C19 content must be
-# an exact byte prefix of it (append-only proof below via check_prefix).
-$GIT show "$C20:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
-  || err "cannot read docs/DECISION-LOG.md from C20"
+# The current Decision Log must be byte-identical to the reviewed
+# owner-response authorization commit A (C23); the published C22
+# content must be an exact byte prefix of it; and the appended suffix
+# beyond the C22 prefix must be byte-identical to the exact authorized
+# QK-AUTH-OD08-RSP-001 record transcript embedded below.
+$GIT show "$C23:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C23"
 cmp -s "$tmpdir/cs.dlog.a" docs/DECISION-LOG.md
 csdl=$?
-[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C20 (OD-08 A) version (cmp exit $csdl)"
-$GIT show "$C19:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.base" 2>/dev/null \
-  || err "cannot read docs/DECISION-LOG.md from C19"
+[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C23 (OD-08 RSP A) version (cmp exit $csdl)"
+$GIT show "$C22:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.base" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C22"
 wc -c < "$tmpdir/cs.dlog.base" > "$tmpdir/cs.dlog.len.raw" \
-  || err "C19 Decision-Log length failed (fail-closed)"
+  || err "C22 Decision-Log length failed (fail-closed)"
 tr -d '[:space:]' < "$tmpdir/cs.dlog.len.raw" > "$tmpdir/cs.dlog.len" \
-  || err "C19 Decision-Log length strip failed (fail-closed)"
-dlbl=$(cat "$tmpdir/cs.dlog.len") || err "C19 Decision-Log length read-back failed (fail-closed)"
-case "$dlbl" in ''|*[!0-9]*) err "C19 Decision-Log length not numeric: '$dlbl'" ;; esac
+  || err "C22 Decision-Log length strip failed (fail-closed)"
+dlbl=$(cat "$tmpdir/cs.dlog.len") || err "C22 Decision-Log length read-back failed (fail-closed)"
+case "$dlbl" in ''|*[!0-9]*) err "C22 Decision-Log length not numeric: '$dlbl'" ;; esac
 dd if=docs/DECISION-LOG.md bs=1 count="$dlbl" > "$tmpdir/cs.dlog.head" 2>/dev/null \
   || err "Decision-Log prefix extraction failed (fail-closed)"
 cmp -s "$tmpdir/cs.dlog.base" "$tmpdir/cs.dlog.head"
 csdl=$?
-[ "$csdl" -eq 0 ] || err "published C19 Decision-Log is not an exact byte prefix of the current Decision-Log (cmp exit $csdl)"
+[ "$csdl" -eq 0 ] || err "published C22 Decision-Log is not an exact byte prefix of the current Decision-Log (cmp exit $csdl)"
+# Exact authorized suffix beyond the C22 prefix.
+dlskip=$((dlbl + 1)) || err "suffix offset arithmetic failed (fail-closed)"
+tail -c "+$dlskip" docs/DECISION-LOG.md > "$tmpdir/cs.dlog.suffix" \
+  || err "Decision-Log suffix extraction failed (fail-closed)"
+cat > "$tmpdir/cs.dlog.suffix.expected" <<'QK_RSP_SUFFIX_EOF' || err "expected Decision-Log suffix file generation failed (fail-closed)"
+
+### QK-AUTH-OD08-RSP-001 — OD-08 non-enacting owner-response record preparation authorization
+
+- **ID:** QK-AUTH-OD08-RSP-001
+- **Date:** 2026-08-19
+- **Approver:** Project owner
+- **Owner words exactly:** “Authorize preparation and independent audit of the OD‑08 owner-response record from 8c18266. No license application or settings changes.”
+- **Context:** given after publication of the audited OD-08 decision-packet chain ending at the published parent below. The owner authorized preparation and independent audit of a non-enacting owner-response record only; no license application, settings change, or policy enactment was authorized; the owner responses recorded under this authorization are direction input only and are not independently verified legal facts.
+- **Published parent:** `8c18266c6fc6c00831f444f51a6a1f762250a12d`.
+- **Authorizes only:** transcription of the owner-provided responses into a non-enacting owner-response record; local verification of the prepared chain; independent read-only audit of the prepared record; export of the exact unpushed tree for that audit; Commit B; and Commit C. Publication is not authorized by this record and requires a later explicit owner instruction after passing independent audits.
+- **Authorized next commits:** Commit B adding exactly `docs/OD-08-OWNER-RESPONSE-RECORD.md` and changing exactly `tools/verify-host-boundary.sh` solely to advance its byte-identity Decision-Log anchor to Commit A while preserving all other host-boundary predicates; then Commit C changing exactly `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** no publication; no license or SPDX selection, application, or grant; no legal conclusion; no OD-08 closure; no policy, role, channel, repository or hosting setting, support promise, release, or maturity-gate activation; no protected canonical-document change; no code, vector, fixture, dependency, hardware, Flux, procurement, or fabrication work; no assertion of copyright ownership, contributor consent, or chain-of-title proof; no person, organization, handle, email, channel, maintainer, reviewer, key custodian, auditor, or service appointment takes operational effect by virtue of this record.
+- **Effect:** OD-08 remains OPEN in full; this chain enacts nothing, grants no rights, and does not determine or revoke any rights that may have arisen from historical repository versions; the repository still has no selected project license; Gates A–E remain OPEN, STOP-SHIP remains in force, every other status remains unchanged; and this chain remains local and unpublished pending a later explicit owner publication instruction after passing independent audits.
+QK_RSP_SUFFIX_EOF
+cmp -s "$tmpdir/cs.dlog.suffix.expected" "$tmpdir/cs.dlog.suffix"
+csdl=$?
+[ "$csdl" -eq 0 ] || err "Decision-Log suffix beyond the published C22 prefix is not the exact authorized QK-AUTH-OD08-RSP-001 record (cmp exit $csdl)"
 # OD-08 authorization record essentials. Every check below is a
 # COMPLETE-literal-line proof: grep -cFx -e against the entire exact
 # bullet or heading line from docs/DECISION-LOG.md, each required
@@ -616,12 +662,41 @@ EOF
 dlexp=$(awk 'BEGIN { n = 0 } /./ { n = n + 1 } END { print n }' "$tmpdir/cs.dlog.lines") \
   || err "expected authorization-line count stage failed (awk fail-closed)"
 [ "$dlexp" = "7" ] || err "expected authorization-line file must contain exactly 7 nonempty lines (found $dlexp): generation was partial, empty, or corrupted"
+dlproc=0
 while IFS= read -r dlline; do
   dlc=$(grep -cFx -e "$dlline" docs/DECISION-LOG.md)
   dlrc=$?
   [ "$dlrc" -le 1 ] || err "OD-08 record full-line check failed (grep exit $dlrc)"
   [ "$dlc" = "1" ] || err "OD-08 record line not present exactly once as a complete line (found $dlc): $dlline"
+  dlproc=$((dlproc + 1))
 done < "$tmpdir/cs.dlog.lines"
+[ "$dlproc" = "7" ] || err "OD-08 packet-record full-line loop processed $dlproc of 7 expected lines (fail-closed)"
+# OD-08 owner-response authorization record essentials
+# (QK-AUTH-OD08-RSP-001). Same COMPLETE-literal-line mechanism as the
+# packet-record block above: rc-checked generation, exact expected
+# nonempty line count before the loop, per-line grep -cFx -e exactly
+# once, exact processed count after the loop.
+cat > "$tmpdir/cs.rsp.lines" <<'QK_RSP_LINES_EOF' || err "expected owner-response authorization-line file generation failed (fail-closed)"
+### QK-AUTH-OD08-RSP-001 — OD-08 non-enacting owner-response record preparation authorization
+- **Owner words exactly:** “Authorize preparation and independent audit of the OD‑08 owner-response record from 8c18266. No license application or settings changes.”
+- **Published parent:** `8c18266c6fc6c00831f444f51a6a1f762250a12d`.
+- **Authorizes only:** transcription of the owner-provided responses into a non-enacting owner-response record; local verification of the prepared chain; independent read-only audit of the prepared record; export of the exact unpushed tree for that audit; Commit B; and Commit C. Publication is not authorized by this record and requires a later explicit owner instruction after passing independent audits.
+- **Authorized next commits:** Commit B adding exactly `docs/OD-08-OWNER-RESPONSE-RECORD.md` and changing exactly `tools/verify-host-boundary.sh` solely to advance its byte-identity Decision-Log anchor to Commit A while preserving all other host-boundary predicates; then Commit C changing exactly `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** no publication; no license or SPDX selection, application, or grant; no legal conclusion; no OD-08 closure; no policy, role, channel, repository or hosting setting, support promise, release, or maturity-gate activation; no protected canonical-document change; no code, vector, fixture, dependency, hardware, Flux, procurement, or fabrication work; no assertion of copyright ownership, contributor consent, or chain-of-title proof; no person, organization, handle, email, channel, maintainer, reviewer, key custodian, auditor, or service appointment takes operational effect by virtue of this record.
+- **Effect:** OD-08 remains OPEN in full; this chain enacts nothing, grants no rights, and does not determine or revoke any rights that may have arisen from historical repository versions; the repository still has no selected project license; Gates A–E remain OPEN, STOP-SHIP remains in force, every other status remains unchanged; and this chain remains local and unpublished pending a later explicit owner publication instruction after passing independent audits.
+QK_RSP_LINES_EOF
+rspexp=$(awk 'BEGIN { n = 0 } /./ { n = n + 1 } END { print n }' "$tmpdir/cs.rsp.lines") \
+  || err "expected owner-response authorization-line count stage failed (awk fail-closed)"
+[ "$rspexp" = "7" ] || err "expected owner-response authorization-line file must contain exactly 7 nonempty lines (found $rspexp): generation was partial, empty, or corrupted"
+rspproc=0
+while IFS= read -r rspline; do
+  rspc=$(grep -cFx -e "$rspline" docs/DECISION-LOG.md)
+  rsprc=$?
+  [ "$rsprc" -le 1 ] || err "OD-08 owner-response record full-line check failed (grep exit $rsprc)"
+  [ "$rspc" = "1" ] || err "OD-08 owner-response record line not present exactly once as a complete line (found $rspc): $rspline"
+  rspproc=$((rspproc + 1))
+done < "$tmpdir/cs.rsp.lines"
+[ "$rspproc" = "7" ] || err "OD-08 owner-response record full-line loop processed $rspproc of 7 expected lines (fail-closed)"
 
 # ---------------- OD-08 decision packet (QK-AUTH-OD08-PKT-001)
 # Non-binding decision-input packet: byte-bound to reviewed commit B,
@@ -931,37 +1006,53 @@ forbid "$PKT links the stale signing-commits page instead of signing-tags" \
 # or new Decision-Log anchor SHA (exactly 3 removed / 3 added lines).
 $GIT show "$C21:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C21"
-cmp -s "$tmpdir/cs.hb.b" tools/verify-host-boundary.sh
+$GIT show "$C24:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b24" 2>/dev/null \
+  || err "cannot read tools/verify-host-boundary.sh from C24"
+cmp -s "$tmpdir/cs.hb.b24" tools/verify-host-boundary.sh
 pkc=$?
-[ "$pkc" -eq 0 ] || err "tools/verify-host-boundary.sh is not byte-identical to the reviewed C21 (OD-08 B) version (cmp exit $pkc)"
-$GIT show "$C19:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.base" 2>/dev/null \
-  || err "cannot read tools/verify-host-boundary.sh from C19"
+[ "$pkc" -eq 0 ] || err "tools/verify-host-boundary.sh is not byte-identical to the reviewed C24 (OD-08 RSP B) version (cmp exit $pkc)"
+# Reanchor-only proof: the delta from the published C22 host verifier
+# to the reviewed C24 version must equal the exact minimal old/new
+# anchor transcript embedded below — nothing broadened, weakened, or
+# otherwise changed.
+$GIT show "$C22:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.base" 2>/dev/null \
+  || err "cannot read tools/verify-host-boundary.sh from C22"
 diff "$tmpdir/cs.hb.base" tools/verify-host-boundary.sh > "$tmpdir/cs.hb.d" 2>&1
 hbd=$?
-[ "$hbd" -eq 1 ] || err "host-verifier e81 delta diff did not report exactly a difference (diff exit $hbd)"
-grep '^[<>]' "$tmpdir/cs.hb.d" > "$tmpdir/cs.hb.lines"
-prc=$?
-[ "$prc" -le 1 ] || err "host-verifier delta line extraction failed (grep exit $prc)"
-hbl=$(grep -c '^[<>]' "$tmpdir/cs.hb.d")
-prc=$?
-[ "$prc" -le 1 ] || err "host-verifier delta line count failed (grep exit $prc)"
-[ "$hbl" = "6" ] || err "host-verifier e81 delta is not exactly 3 removed + 3 added lines (found $hbl changed lines): more than the anchor advance changed"
-grep -vE "(19979a5ec3d141125e7f4471d14846bba44e0e1a|$C20)" "$tmpdir/cs.hb.lines" > "$tmpdir/cs.hb.bad"
-prc=$?
-[ "$prc" -le 1 ] || err "host-verifier delta anchor filter failed (grep exit $prc)"
-[ ! -s "$tmpdir/cs.hb.bad" ] || err "host-verifier e81 delta touches a non-anchor line: $(cat "$tmpdir/cs.hb.bad")"
-grep -F "show $C20:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
-  || err "host checker Decision-Log anchor is not the OD-08 A commit"
+[ "$hbd" -eq 1 ] || err "host-verifier C22 delta diff did not report exactly a difference (diff exit $hbd)"
+cat > "$tmpdir/cs.hb.d.expected" <<'QK_HB_DIFF_EOF' || err "expected host-verifier delta transcript generation failed (fail-closed)"
+1229c1229
+< git --no-optional-locks show 8060a57e873eda0a69991fb31b6e53b9b44bf3a4:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+---
+> git --no-optional-locks show e29359bd0dac2892f0d3291a9ec4a11b758513f9:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+1374c1374
+< #   8060a57e873eda0a69991fb31b6e53b9b44bf3a4  reviewed OD-08 packet authorization commit A (Decision-Log byte-identity anchor in this script)
+---
+> #   e29359bd0dac2892f0d3291a9ec4a11b758513f9  reviewed OD-08 owner-response authorization commit A (Decision-Log byte-identity anchor in this script)
+1382d1381
+<     8060a57e873eda0a69991fb31b6e53b9b44bf3a4 \
+1386c1385,1386
+<     de71c22328b24e0848bbe1bd12ac8974ca83b5b8
+---
+>     de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
+>     e29359bd0dac2892f0d3291a9ec4a11b758513f9
+QK_HB_DIFF_EOF
+cmp -s "$tmpdir/cs.hb.d.expected" "$tmpdir/cs.hb.d"
+hbd=$?
+[ "$hbd" -eq 0 ] || err "host-verifier C22-to-C24 delta is not the exact minimal anchor-advance transcript (cmp exit $hbd): $(cat "$tmpdir/cs.hb.d")"
+grep -F "show $C23:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker Decision-Log anchor is not the OD-08 RSP A commit"
 # ------------------------- SOURCE-REGISTER byte-identical to e81/C19
 $GIT show "$C19:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.c19" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C19"
 cmp -s "$tmpdir/cs.sreg.c19" docs/SOURCE-REGISTER.md
 pkc=$?
 [ "$pkc" -eq 0 ] || err "docs/SOURCE-REGISTER.md is not byte-identical to the published C19 version (cmp exit $pkc)"
-# ------------------- Exact e81..HEAD changed path set (exactly four)
+# ------------------- Exact e81..HEAD changed path set (exactly five)
 cat > "$tmpdir/cs.od08.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/OD-08-DECISION-PACKET.md
+docs/OD-08-OWNER-RESPONSE-RECORD.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -971,7 +1062,269 @@ $GIT diff --name-only "$C19" "$head" > "$tmpdir/cs.od08.raw" \
 LC_ALL=C sort "$tmpdir/cs.od08.raw" > "$tmpdir/cs.od08.act" \
   || err "C19..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.od08.exp" "$tmpdir/cs.od08.act" > "$tmpdir/cs.od08.dd" 2>&1 \
-  || err "changes since published C19 differ from the four authorized OD-08 paths: $(cat "$tmpdir/cs.od08.dd")"
+  || err "changes since published C19 differ from the five authorized OD-08 paths: $(cat "$tmpdir/cs.od08.dd")"
+# --------- Exact C22..HEAD changed path set (exactly four, this chain)
+cat > "$tmpdir/cs.rspset.exp" <<'EOF'
+docs/DECISION-LOG.md
+docs/OD-08-OWNER-RESPONSE-RECORD.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+EOF
+$GIT diff --name-only "$C22" "$head" > "$tmpdir/cs.rspset.raw" \
+  || err "git diff C22..HEAD failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.rspset.raw" ] || err "git diff C22..HEAD returned no paths (enumeration fail-closed)"
+LC_ALL=C sort "$tmpdir/cs.rspset.raw" > "$tmpdir/cs.rspset.act" \
+  || err "C22..HEAD path-set sort failed (fail-closed)"
+diff "$tmpdir/cs.rspset.exp" "$tmpdir/cs.rspset.act" > "$tmpdir/cs.rspset.dd" 2>&1 \
+  || err "changes since published C22 differ from the four authorized owner-response chain paths: $(cat "$tmpdir/cs.rspset.dd")"
+# Every other tracked blob — the decision packet, SOURCE-REGISTER,
+# OPEN-DECISIONS, architecture, requirements, security docs, gates,
+# limits, tests, evidence, code, manifests/lock, .replit and all the
+# rest — is therefore byte-identical to the published C22 state.
+# --------------------------------------- Verifier executable modes
+# Fail-closed mode guard: both verifier scripts must be executable in
+# the working tree, and their committed modes at HEAD must be exactly
+# 100755. Separate rc-checked git ls-tree stages plus checked
+# read/extraction stages; missing, duplicate, malformed, or
+# non-100755 results are all rejected. Like every other check in this
+# script, this is self-referential supporting evidence with the same
+# self-authentication limits: a hostile history could carry a guard
+# that lies about itself; independent audit remains required.
+[ -x tools/verify-current-stage.sh ] || err "working-tree tools/verify-current-stage.sh is not executable"
+[ -x tools/verify-host-boundary.sh ] || err "working-tree tools/verify-host-boundary.sh is not executable"
+for modepath in tools/verify-current-stage.sh tools/verify-host-boundary.sh; do
+  $GIT ls-tree HEAD -- "$modepath" > "$tmpdir/cs.mode.raw" \
+    || err "git ls-tree HEAD failed for $modepath (fail-closed)"
+  [ -s "$tmpdir/cs.mode.raw" ] || err "committed mode entry missing for $modepath (fail-closed)"
+  modelines=$(awk 'BEGIN { n = 0 } { n = n + 1 } END { print n }' "$tmpdir/cs.mode.raw") \
+    || err "committed mode line count failed for $modepath (awk fail-closed)"
+  [ "$modelines" = "1" ] || err "committed mode entry for $modepath is not exactly one ls-tree line (found $modelines)"
+  modeval=$(awk 'NR == 1 { print $1 }' "$tmpdir/cs.mode.raw") \
+    || err "committed mode extraction failed for $modepath (awk fail-closed)"
+  case "$modeval" in
+    100755) : ;;
+    '') err "committed mode for $modepath is empty or malformed (fail-closed)" ;;
+    *) err "committed mode for $modepath is $modeval, expected exactly 100755" ;;
+  esac
+done
+
+# ---------------- OD-08 owner-response record (QK-AUTH-OD08-RSP-001)
+# Non-enacting direction-input record: byte-bound to reviewed commit
+# C24, closed-world question-row set, recorded-state proof, and
+# license/material/claim guards. Lexical evidence only; nothing here
+# proves legal status, ownership, or enactment.
+RSP=docs/OD-08-OWNER-RESPONSE-RECORD.md
+[ -f "$RSP" ] || err "$RSP missing"
+$GIT show "$C24:$RSP" > "$tmpdir/cs.rsp.b" 2>/dev/null \
+  || err "cannot read $RSP from C24"
+cmp -s "$tmpdir/cs.rsp.b" "$RSP"
+rspk=$?
+[ "$rspk" -eq 0 ] || err "$RSP is not byte-identical to the reviewed C24 (OD-08 RSP B) version (cmp exit $rspk)"
+rfirst=$(head -n 1 "$RSP") || err "owner-response record first-line read failed (fail-closed)"
+[ "$rfirst" = "EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET" ] \
+  || err "$RSP does not begin with the exact no-funds warning"
+rstc=$(grep -cFx -e 'STATUS: OWNER RESPONSES RECORDED — NON-BINDING DIRECTION INPUT ONLY — OD-08 OPEN — NO PROJECT LICENSE, SPDX EXPRESSION, OR POLICY SELECTED, APPLIED, OR GRANTED — NO RIGHTS GRANTED — NO ROLE, CHANNEL, REPOSITORY SETTING, SUPPORT PROMISE, RELEASE, OR GATE CHANGE ENACTED — BELGIAN/EU LEGAL REVIEW REQUIRED.' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response STATUS full-line count failed (grep exit $rstrc)"
+[ "$rstc" = "1" ] || err "$RSP exact STATUS line not present exactly once (found $rstc)"
+rstp=$(grep -c '^STATUS:' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response STATUS prefix count failed (grep exit $rstrc)"
+[ "$rstp" = "1" ] || err "$RSP must contain exactly one STATUS line (found $rstp)"
+rendc=$(grep -cFx -e 'END OF OWNER-RESPONSE RECORD — OD-08 REMAINS OPEN — BELGIAN LEGAL REVIEW AND SEPARATE OWNER AUTHORIZATION ARE REQUIRED BEFORE ANY APPLICATION.' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response terminal-line count failed (grep exit $rstrc)"
+[ "$rendc" = "1" ] || err "$RSP exact terminal line not present exactly once (found $rendc)"
+rlast=$(tail -n 1 "$RSP") || err "owner-response record last-line read failed (fail-closed)"
+[ "$rlast" = "END OF OWNER-RESPONSE RECORD — OD-08 REMAINS OPEN — BELGIAN LEGAL REVIEW AND SEPARATE OWNER AUTHORIZATION ARE REQUIRED BEFORE ANY APPLICATION." ] \
+  || err "$RSP does not end with the exact terminal line"
+# Closed-world question-ID occurrence enumeration: rc-checked single
+# POSIX awk stage counts EVERY substring occurrence of "OD08-Q-"
+# anywhere in the record, so a same-line smuggled reference cannot
+# hide from line-based greps.
+rqocc=$(awk 'BEGIN { n = 0 } { s = $0
+  while ((i = index(s, "OD08-Q-")) > 0) { n = n + 1; s = substr(s, i + 7) } }
+  END { print n }' "$RSP") \
+  || err "owner-response question-token enumeration failed (awk fail-closed)"
+[ "$rqocc" = "15" ] || err "$RSP must contain exactly 15 OD08-Q- occurrences anywhere (found $rqocc)"
+# Every question row matches the full three-cell grammar with the
+# exact recorded state and a pipe-free single-line response cell.
+grep '^| OD08-Q-' "$RSP" > "$tmpdir/cs.rsp.rows"
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response row extraction failed (grep exit $rstrc)"
+rrows=$(grep -c '^| OD08-Q-' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response row count failed (grep exit $rstrc)"
+[ "$rrows" = "15" ] || err "$RSP must contain exactly 15 question rows (found $rrows)"
+rbad=$(grep -c -v -E '^\| OD08-Q-[0-9][0-9][0-9] \| [^|]+ \| RECORDED — DIRECTION INPUT ONLY — NOT ENACTED \|$' "$tmpdir/cs.rsp.rows")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response row grammar scan failed (grep exit $rstrc)"
+[ "$rbad" = "0" ] || err "$RSP contains $rbad question rows that violate the exact three-cell recorded-state grammar"
+# IDs exactly 001..015, generated expected list, sorted, cmp.
+sed -e 's/^| \(OD08-Q-[0-9][0-9][0-9]\) |.*$/\1/' "$tmpdir/cs.rsp.rows" > "$tmpdir/cs.rsp.ids.raw" \
+  || err "owner-response ID extraction failed (fail-closed)"
+LC_ALL=C sort "$tmpdir/cs.rsp.ids.raw" > "$tmpdir/cs.rsp.ids" \
+  || err "owner-response ID sort failed (fail-closed)"
+awk 'BEGIN { for (i = 1; i <= 15; i = i + 1) printf "OD08-Q-%03d\n", i }' > "$tmpdir/cs.rsp.ids.exp" \
+  || err "owner-response expected-ID generation failed (awk fail-closed)"
+ridexp=$(awk 'BEGIN { n = 0 } /./ { n = n + 1 } END { print n }' "$tmpdir/cs.rsp.ids.exp") \
+  || err "owner-response expected-ID count stage failed (awk fail-closed)"
+[ "$ridexp" = "15" ] || err "owner-response expected-ID file must contain exactly 15 lines (found $ridexp): generation was partial, empty, or corrupted"
+cmp -s "$tmpdir/cs.rsp.ids.exp" "$tmpdir/cs.rsp.ids"
+rspk=$?
+[ "$rspk" -eq 0 ] || err "$RSP question IDs are not exactly OD08-Q-001..OD08-Q-015 in a duplicate-free set (cmp exit $rspk)"
+# Rows appear in declared 001..015 order (unsorted extraction equals
+# the generated expected order).
+cmp -s "$tmpdir/cs.rsp.ids.exp" "$tmpdir/cs.rsp.ids.raw"
+rspk=$?
+[ "$rspk" -eq 0 ] || err "$RSP question rows are not in exact OD08-Q-001..015 order (cmp exit $rspk)"
+# Each complete literal row exactly once (grep -Fxc), checked against
+# an INDEPENDENT embedded expected transcript of all 15 rows — not
+# derived from the record under test — with rc-checked heredoc
+# creation, an exact-15-nonempty-line precondition, and an exact
+# processed count after the loop.
+cat > "$tmpdir/cs.rsp.rows.exp" <<'QK_RSP_ROWS_EOF' || err "expected owner-response row-transcript generation failed (fail-closed)"
+| OD08-Q-001 | OWNER ATTESTATION ONLY — NOT INDEPENDENTLY VERIFIED — PARTIAL: As of the published parent identified in QK-AUTH-OD08-RSP-001, Jeroen Vande Voorde attests, based on personal knowledge, that he claims to be the sole known and disclosed human rightsholder and reports no other known human contributor or claimant. He reports that he is not aware of incorporated copied or adapted third-party material; cited sources are references only, and citation supplies neither permission nor title. Service, agent, and synthetic Git identities and their terms, employment and contract history, copyright, patent, database, moral-right, trademark, historical-title, and contributor-consent questions remain evidence and Belgian-counsel dependencies. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-002 | OWNER CLASSIFICATION PRINCIPLE RECORDED — PARTIAL, NOT A COMMIT-BOUND PATH MAP: software includes Rust, scripts, manifests, and configuration; documentation includes specifications and docs; future CAD, schematics, PCB, and BOM material is hardware-design material; vectors, fixtures, and datasets are data; logos, artwork, fonts, gateware, and manufacturing outputs are separate and deferred. Cited sources remain third-party and outside any future grant unless separately cleared; citations do not import source material or rights. An exact commit-bound nonexclusive per-path map, mixed-content handling, future paths, and exclusions remain required before any separate selection or application. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-003 | PREFERRED FUTURE CANDIDATE FOR LATER SEPARATE SELECTION: Apache-2.0 for later enumerated rights-cleared first-party software, subject to rights evidence, an exact path map, and written Belgian counsel review. This record does not select, apply, or grant it. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-004 | PREFERRED FUTURE CANDIDATE FOR LATER SEPARATE SELECTION: CERN-OHL-W-2.0 for later enumerated rights-cleared hardware-design sources, subject to rights evidence, an exact path map, and written Belgian counsel review. It is not a safety certification. This record does not select, apply, or grant it. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-005 | PREFERRED FUTURE CANDIDATE FOR LATER SEPARATE SELECTION: CC-BY-4.0 for later enumerated rights-cleared first-party documentation, not software, subject to rights evidence, an exact path map, and written Belgian counsel review. This record does not select, apply, or grant it. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-006 | PREFERRED FUTURE CANDIDATE FOR LATER SEPARATE SELECTION: unmodified CC0-1.0, including its built-in fallback, for later enumerated rights-cleared public first-party vectors and data. Whether a separately selected alternative is needed where CC0 is unsuitable remains open; fixtures and every other deferred asset class remain open; CC0 does not affect patents or trademarks. This record does not select, apply, or grant it. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-007 | CURRENT REPOSITORY FACT AT THE PUBLISHED PARENT: no contribution or inbound policy is enacted, so no external submission can be treated as accepted under one. FUTURE POLICY PREFERENCE: initially decline external code, design, and documentation contributions. If later opened by separate enactment, use verbatim DCO 1.1 plus a separate explicit inbound-equals-outbound rule; the DCO is a certification, not a license, assignment, or grant. No CLA is selected by this response. This record neither opens nor closes contribution intake. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-008 | INTENDED FUTURE NOMINEE ONLY: Jeroen Vande Voorde as primary maintainer. This record appoints no operational role. Backup remains unappointed; operating scope, least privilege, succession, removal, and conflict rules remain open. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-009 | PREFERRED PROSPECTIVE GOVERNANCE STANDARD FOR LATER SEPARATE ENACTMENT: routine changes require one independent human reviewer; protected security, release, license, and governance changes require the author plus two independent human approvers. Current staffing is not established; under any later-enacted standard, solo routine work and protected work or release without the required independent humans would remain blocked; agents and bots do not count as human approvers; no break-glass route is selected. This supplies no retroactive validation and enacts no setting. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-010 | PREFERRED FUTURE MECHANISM: GitHub private vulnerability reporting, which may be separately enabled only after a named human owner and backup plus monitoring, access, retention, acknowledgement, escalation, and disclosure procedures exist. Satisfying those prerequisites does not itself enable it. This record creates or enables no channel or setting; the published repository documentation records none configured, but repository content cannot prove hosting-platform state. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-011 | PREFERRED FUTURE RELEASE CONTROL FOR LATER SEPARATE SELECTION AND ENACTMENT: two authorized human releasers, each independent of every material artifact preparer or builder; reproducible-build match; a signed annotated tag plus a signed manifest or attestation jointly binding the exact tag object ID, exact commit SHA, every artifact digest, and the provenance and reproducible-build record; a protected release ref or external transparency anchor; public verification; and separated key custody, backup, rotation, revocation, and compromise procedures. Exact people, reviewer/releaser overlap, signing scheme, and operational details remain open. No control is enabled and no release exists. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-012 | VERIFIED REPOSITORY FACT AT THE PUBLISHED PARENT: no tag, release, supported version of any kind, approved support policy, or security-support promise exists. OWNER DIRECTION INPUT: a separately enacted no-support notice should be published and retained until a separately approved supported release exists. Future support window, EOL, backport, and notification rules remain open. This record enacts no notice or support policy. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-013 | INTENDED FUTURE COORDINATOR NOMINEE ONLY: Jeroen Vande Voorde. Substantive audits require an independent qualified reviewer. Coordination does not appoint Jeroen, qualify him as the independent reviewer, permit suppression of findings, close a gate, or accept residual risk. Reviewer, conflict-disclosure rules, scope, remediation, retest, and publication process remain open; no auditor or audit process is appointed or activated. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-014 | DESIRED FUTURE SEPARATE TRADEMARK AND OFFICIAL-BUILD POLICY: Jeroen Vande Voorde is the intended controller, subject to legal clearance. No present ownership, registration, exclusivity, or enforceability is claimed. Lawful nominative and customary references remain permitted without implied endorsement. No copyright or open-content grant itself conveys trademark, endorsement, or official-build permission except where an applicable license or law requires or permits it. Nothing is applied. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+| OD08-Q-015 | OWNER DIRECTION INPUT: review by counsel qualified in Belgian and EU intellectual-property law. This does not select Belgian governing law, forum, or jurisdiction for any license or policy. No effective date, retroactivity, or historical scope is selected. Written counsel review and sign-off must be tied to the exact evidence and any proposed application. Any later application acts only through an exact, separately authorized commit and path map. This record asserts no revocation, rescission, narrowing, replacement, or alteration of rights recipients may have obtained under historical MIT-published versions. | RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |
+QK_RSP_ROWS_EOF
+rexp=$(awk 'BEGIN { n = 0 } /./ { n = n + 1 } END { print n }' "$tmpdir/cs.rsp.rows.exp") \
+  || err "expected owner-response row-transcript count stage failed (awk fail-closed)"
+[ "$rexp" = "15" ] || err "expected owner-response row-transcript file must contain exactly 15 nonempty lines (found $rexp): generation was partial, empty, or corrupted"
+rowproc=0
+while IFS= read -r rrow; do
+  rowc=$(grep -Fxc -e "$rrow" "$RSP")
+  rstrc=$?
+  [ "$rstrc" -le 1 ] || err "owner-response complete-row check failed (grep exit $rstrc)"
+  [ "$rowc" = "1" ] || err "owner-response record does not contain the expected complete literal row exactly once (found $rowc): $rrow"
+  rowproc=$((rowproc + 1))
+done < "$tmpdir/cs.rsp.rows.exp"
+[ "$rowproc" = "15" ] || err "owner-response expected-row loop processed $rowproc of 15 expected rows (fail-closed)"
+# Exactly 15 recorded-state cells anywhere (substring enumeration).
+rsc=$(awk 'BEGIN { n = 0 } { s = $0
+  while ((i = index(s, "| RECORDED — DIRECTION INPUT ONLY — NOT ENACTED |")) > 0) { n = n + 1; s = substr(s, i + 1) } }
+  END { print n }' "$RSP") \
+  || err "owner-response state-cell enumeration failed (awk fail-closed)"
+[ "$rsc" = "15" ] || err "$RSP must contain exactly 15 exact recorded-state cells (found $rsc)"
+rsumc=$(grep -cFx -e 'Summary: 15 response rows recorded. Several responses are partial and contain deferred or open matters; 0 questions closed; OD-08 remains OPEN in full.' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "owner-response summary-line count failed (grep exit $rstrc)"
+[ "$rsumc" = "1" ] || err "$RSP exact summary line not present exactly once (found $rsumc)"
+# Positive limitation and open-dependency assertions (full lines).
+grep -Fx -e '- This record is not legal advice and contains no legal conclusion.' "$RSP" >/dev/null \
+  || err "$RSP missing the exact not-legal-advice line"
+grep -Fx -e '- Owner statements and owner choices recorded here are direction input only; they are not independent legal verification of any fact, right, or title.' "$RSP" >/dev/null \
+  || err "$RSP missing the exact no-independent-verification line"
+grep -Fx -e '- Git metadata, hosting-service metadata, and agent metadata are not chain-of-title proof.' "$RSP" >/dev/null \
+  || err "$RSP missing the exact metadata-not-title-proof line"
+grep -Fx -e '- No response in this record closes OD-08; OD-08 remains OPEN in full.' "$RSP" >/dev/null \
+  || err "$RSP missing the exact no-closure line"
+grep -F 'preserved byte-for-byte, including all of its original placeholder cells' "$RSP" >/dev/null \
+  || err "$RSP missing the packet byte-preservation statement"
+grep -Fx -e '## Remaining open dependencies' "$RSP" >/dev/null \
+  || err "$RSP missing the remaining-open-dependencies section heading"
+grep -Fx -e '- written review and sign-off by counsel qualified in Belgian and EU intellectual-property law' "$RSP" >/dev/null \
+  || err "$RSP missing the Belgian/EU-counsel open dependency"
+grep -Fx -e '- later owner closure decision and still-later separately authorized application chain' "$RSP" >/dev/null \
+  || err "$RSP missing the closure-and-application-chain open dependency"
+grep -Fx -e '- independent chain-of-title and rights evidence' "$RSP" >/dev/null \
+  || err "$RSP missing the chain-of-title open dependency"
+grep -Fx -e '- a later explicit license and policy selection/closure record before any application' "$RSP" >/dev/null \
+  || err "$RSP missing the later-selection-record open dependency"
+# Required exact attestation-only prefix (Q001) and no-selection
+# sentence (Q015), each present as a substring exactly once.
+rq1c=$(grep -cF -e 'OWNER ATTESTATION ONLY — NOT INDEPENDENTLY VERIFIED — PARTIAL:' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "Q001 attestation-prefix count failed (grep exit $rstrc)"
+[ "$rq1c" = "1" ] || err "$RSP Q001 exact attestation-only prefix not present exactly once (found $rq1c)"
+rq15c=$(grep -cF -e 'This does not select Belgian governing law, forum, or jurisdiction for any license or policy.' "$RSP")
+rstrc=$?
+[ "$rstrc" -le 1 ] || err "Q015 no-selection-sentence count failed (grep exit $rstrc)"
+[ "$rq15c" = "1" ] || err "$RSP Q015 exact no-governing-law/forum/jurisdiction sentence not present exactly once (found $rq15c)"
+grep -Fx -e 'OD-08 remains OPEN.' "$RSP" >/dev/null \
+  || err "$RSP missing the exact OD-08-remains-OPEN line"
+# Forbidden content in the record.
+forbid "$RSP applies an SPDX expression" -F 'SPDX-License-Identifier:' "$RSP"
+forbid "$RSP contains an email-like locator" -E '[A-Za-z0-9._%+-][A-Za-z0-9._%+-]*@[A-Za-z0-9.-][A-Za-z0-9.-]*\.[A-Za-z]' "$RSP"
+forbid "$RSP contains a checked task box" -F '[x]' "$RSP"
+forbid "$RSP claims OD-08 is closed" -F 'OD-08 is CLOSED' "$RSP"
+forbid "$RSP claims OD-08 is resolved" -F 'OD-08 is RESOLVED' "$RSP"
+forbid "$RSP imports actual license text" -F 'Apache License, Version 2.0, January 2004' "$RSP"
+forbid "$RSP imports actual license text preamble" -F 'TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION' "$RSP"
+forbid "$RSP carries the stale sole-artifact-preparer wording" -F 'sole artifact preparer' "$RSP"
+forbid "$RSP carries the stale contributions-closed-now phrasing" -F 'External contributions are closed now' "$RSP"
+forbid "$RSP carries the stale present-direction-and-fact phrasing" -F 'Present direction and fact' "$RSP"
+forbid "$RSP carries the stale supported-versions phrasing" -F 'zero supported production versions' "$RSP"
+forbid "$RSP carries the stale summary line" -F 'Summary: 15 recorded, 0 deferred, 0 unanswered.' "$RSP"
+forbid "$RSP carries the stale partially-unverified phrasing" -F 'PARTIALLY UNVERIFIED' "$RSP"
+forbid "$RSP carries the stale license-direction phrasing" -F 'Future software-license direction is' "$RSP"
+forbid "$RSP contains an uppercase checked task box" -F '[X]' "$RSP"
+forbid "$RSP claims a role was actually appointed" -F 'is hereby appointed' "$RSP"
+forbid "$RSP claims a channel or setting is now enabled" -F 'is now enabled' "$RSP"
+forbid "$RSP claims a channel or setting has been enabled" -F 'has been enabled' "$RSP"
+# Long-hex payload guard: no 40+ hex run may appear in the record at
+# all (the record cites no commit hashes by design). Fail-closed:
+# the awk stage writes to a checked temporary file; any awk failure
+# is an error, and the file must exist and be empty.
+awk '{ s = $0
+  while (match(s, /[0-9a-fA-F]+/)) {
+    t = substr(s, RSTART, RLENGTH)
+    if (length(t) >= 40) print t
+    s = substr(s, RSTART + RLENGTH) } }' "$RSP" > "$tmpdir/cs.rsp.hex" \
+  || err "owner-response hex-run scan failed (awk fail-closed)"
+[ -f "$tmpdir/cs.rsp.hex" ] || err "owner-response hex-run scan produced no output file (fail-closed)"
+[ ! -s "$tmpdir/cs.rsp.hex" ] || err "$RSP contains a 40+ character hex run (raw payload guard): $(cat "$tmpdir/cs.rsp.hex")"
+# Base64-like payload guard: run-enumeration flagging EVERY run of 44
+# or more base64-alphabet characters, including all-letter runs.
+# Same fail-closed checked-file pattern.
+awk '{ s = $0
+  while (match(s, /[A-Za-z0-9+\/=]+/)) {
+    t = substr(s, RSTART, RLENGTH)
+    if (length(t) >= 44) print t
+    s = substr(s, RSTART + RLENGTH) } }' "$RSP" > "$tmpdir/cs.rsp.b64" \
+  || err "owner-response base64-run scan failed (awk fail-closed)"
+[ -f "$tmpdir/cs.rsp.b64" ] || err "owner-response base64-run scan produced no output file (fail-closed)"
+[ ! -s "$tmpdir/cs.rsp.b64" ] || err "$RSP contains a base64-like payload run: $(cat "$tmpdir/cs.rsp.b64")"
+# The response record intentionally contains no URL, wallet-material
+# token, PSBT payload, or checkbox of either case. Each scan below is
+# an rc-checked grep stage (exit 0 or 1 only) writing to a checked
+# temporary file that must be empty. Exact coverage: URL schemes and
+# bech32-like prefixes are matched case-insensitively; extended-key
+# prefixes cover x/y/z/t/u/v pub and prv in any letter case, each
+# requiring a 6+ character Base58 tail so ordinary prose cannot
+# false-match; WIF-like tokens cover mainnet prefixes 5/K/L and
+# testnet prefixes 9/c with Base58 bodies of both applicable total
+# lengths (51 and 52); the PSBT guards match the fixed base64 and
+# raw-hex magic prefixes only.
+rscan() {
+  rsmsg=$1; rsopt=$2; rspat=$3; rsout=$4
+  grep "$rsopt" -e "$rspat" "$RSP" > "$tmpdir/$rsout"
+  rsrc=$?
+  [ "$rsrc" -le 1 ] || err "owner-response $rsmsg scan failed (grep exit $rsrc)"
+  [ -f "$tmpdir/$rsout" ] || err "owner-response $rsmsg scan produced no output file (fail-closed)"
+  [ ! -s "$tmpdir/$rsout" ] || err "$RSP contains forbidden $rsmsg content: $(cat "$tmpdir/$rsout")"
+}
+rscan "http-URL" -iF 'http://' cs.rsp.urlh
+rscan "https-URL" -iF 'https://' cs.rsp.urls
+rscan "lowercase-checkbox" -F '[x]' cs.rsp.cbl
+rscan "uppercase-checkbox" -F '[X]' cs.rsp.cbu
+rscan "extended-key-material" -iE '[xyztuv](pub|prv)[1-9A-HJ-NP-Za-km-z]{6}' cs.rsp.xkey
+rscan "WIF-like-material" -E '[5KL9c][1-9A-HJ-NP-Za-km-z]{50,51}' cs.rsp.wif
+rscan "bech32-address-material" -iE '(bc1|tb1|bcrt1)[ac-hj-np-z02-9]{8}' cs.rsp.bech
+rscan "PSBT-base64-material" -F 'cHNidP' cs.rsp.psbtb
+rscan "PSBT-hex-material" -F '70736274' cs.rsp.psbth
 $GIT show "$C16:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.base" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C16"
 cat "$tmpdir/cs.sreg.base" > "$tmpdir/cs.sreg.expected" \
@@ -1206,6 +1559,7 @@ docs/BUILD-ROADMAP.md
 docs/DECISION-LOG.md
 docs/HOST-WORK-AUTHORIZATION.md
 docs/OD-08-DECISION-PACKET.md
+docs/OD-08-OWNER-RESPONSE-RECORD.md
 docs/REQUIREMENTS.md
 docs/SOURCE-REGISTER.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
@@ -1244,6 +1598,7 @@ for f in \
   docs/THREAT-MODEL.md docs/MATURITY-GATES.md docs/OPEN-DECISIONS.md \
   docs/DECISION-LOG.md docs/SOURCE-REGISTER.md docs/BUILD-ROADMAP.md \
   docs/HOST-WORK-AUTHORIZATION.md .gitignore \
+  docs/OD-08-DECISION-PACKET.md docs/OD-08-OWNER-RESPONSE-RECORD.md \
   tools/verify-foundation.sh tools/verify-f2-preparation.sh \
   tools/verify-host-boundary.sh tools/verify-current-stage.sh
 do
