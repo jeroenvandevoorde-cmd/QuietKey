@@ -170,3 +170,22 @@ QK-DEC-001…014 are owner-approved as part of baseline H0 by the existing recor
 - **Boundaries:** D-11 remains unanswered and EVIDENCE/CONSTRUCTION-BLOCKED; D-09 remains unresolved; the PSBT profile draft remains not accepted; no normative clause, OD, limit, test, evidence, gate, implementation, product, target, release, remote, publication, license, hardware, firmware, setting, credential, tag, or other-branch transition is authorized.
 - **Later publication:** publication requires a separate explicit instruction naming the exact audited 40-hex commit.
 - **Effect:** this authorization records no D-11 selection, enacts no profile or clause, changes no protected status, and authorizes no publication.
+
+### QK-AUTH-F3.2D-D11-Q001-CLR-001 — F3.2d D-11 Q-001 owner-clarification record preparation authorization
+
+- **ID:** QK-AUTH-F3.2D-D11-Q001-CLR-001
+- **Date:** 2026-08-19
+- **Approver:** Project owner
+- **Owner words exactly (literal two-paragraph block follows):**
+
+Approve the recommended F32C-D11-Q-001 clarification: “Failure releases no artifact or partial output” does not claim that already observed QR frames or SD residue can be withdrawn or proven absent. Before route output begins, failure releases nothing; after output begins, a later failure stops further output, permits no complete-artifact, delivery, receipt, finalization, broadcast, atomicity, or durability claim, and permits no automatic fallback, retry, or re-signing.
+
+Authorize preparation and independent audit of a non-enacting docs-only F3.2d Q-001 owner-clarification record from e4cdf7771e189fc0f729358334aafd35177048c6, with only the mechanically necessary verifier bindings. No D-11 selection; no answer to Q-002 through Q-012; no profile acceptance, D-09 or QK-LIM selection, implementation, testing, media I/O, hardware work, settings changes, or publication.
+
+- **Published parent:** `e4cdf7771e189fc0f729358334aafd35177048c6`.
+- **Source packet:** `docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md` at the published parent.
+- **Exact commit/path map:** Commit A changes only `docs/DECISION-LOG.md`; Commit B adds only `docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md` and changes only `tools/verify-host-boundary.sh`; Commit C changes only `tools/verify-current-stage.sh`.
+- **Least-authority scope:** only local preparation and verification of the non-enacting docs-only F3.2d Q-001 owner-clarification record, the mechanically necessary verifier bindings, and independent read-only audit are authorized.
+- **Explicit exclusions:** no D-11 selection, closure, construction, state, route, route-set, filesystem, filename, attachment, retry, orphan, QR-preflight, or signature-order selection; no response to F32C-D11-Q-002 through F32C-D11-Q-012; no profile or clause acceptance; no D-09 field, serialization, hash, or domain selection; no QK-LIM selection; no OD, QK-TST, evidence, gate, STOP-SHIP, implementation, dependency, vector, fixture, specimen, test, media-I/O, license, hardware, firmware, setting, credential, remote, tag, release, publication, or other-branch change.
+- **Effect:** this authorization records preparation authority for one non-enacting clarification record only; it does not close Q-001 or D-11, select any construction or policy, enact any profile or clause, alter any protected status, authenticate or audit its own output, or authorize publication.
+- **Later publication:** publication requires a separate explicit owner instruction naming the exact independently audited 40-hex commit.
