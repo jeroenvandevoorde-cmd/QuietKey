@@ -64,6 +64,9 @@ C15=1d2bc774a0a0cde445770d48509b901b580c6e97    # docs(f3): clarify remaining Re
 C16=a9d1f205cfa879a6f54b8838256d36e469cfed97    # chore: rebind Revision 2 consistency checks (PUBLISHED BASE)
 C17=19979a5ec3d141125e7f4471d14846bba44e0e1a    # docs: authorize F3.2a Wallet Trust Spine drafting
 C18=a92a4b5dade0abcbcb8ad04a454b2cf4b229a32f    # docs(f3): correct Wallet Trust Spine draft and guards
+C19=e81ab9c61dda9be60ac45facbe5db57115578540    # chore: rebind F3.2a consistency checks (PUBLISHED BASE)
+C20=8060a57e873eda0a69991fb31b6e53b9b44bf3a4    # docs: authorize OD-08 decision-packet preparation
+C21=30a2240945842e6b33b0b492e4ae34212b5858f6    # docs(od08): add decision packet and reanchor host checks
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -83,11 +86,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> ... -> C15 -> C16 -> C17 ->
-# C18 -> HEAD, no merges. C16 is the PUBLISHED base of the current
+# Exact linear ancestry BASE -> C1 -> ... -> C18 -> C19 -> C20 ->
+# C21 -> HEAD, no merges. C19 is the PUBLISHED base of the current
 # unpublished work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c21=$($GIT rev-parse "$C21^" 2>/dev/null) || err "C21 has no parent"
+p_c20=$($GIT rev-parse "$C20^" 2>/dev/null) || err "C20 has no parent"
+p_c19=$($GIT rev-parse "$C19^" 2>/dev/null) || err "C19 has no parent"
 p_c18=$($GIT rev-parse "$C18^" 2>/dev/null) || err "C18 has no parent"
 p_c17=$($GIT rev-parse "$C17^" 2>/dev/null) || err "C17 has no parent"
 p_c16=$($GIT rev-parse "$C16^" 2>/dev/null) || err "C16 has no parent"
@@ -106,7 +112,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C18" ] || err "HEAD parent is $p_head, expected $C18"
+[ "$p_head" = "$C21" ] || err "HEAD parent is $p_head, expected $C21"
+[ "$p_c21" = "$C20" ] || err "C21 parent is $p_c21, expected $C20"
+[ "$p_c20" = "$C19" ] || err "C20 parent is $p_c20, expected $C19"
+[ "$p_c19" = "$C18" ] || err "C19 parent is $p_c19, expected $C18"
 [ "$p_c18" = "$C17" ] || err "C18 parent is $p_c18, expected $C17"
 [ "$p_c17" = "$C16" ] || err "C17 parent is $p_c17, expected $C16"
 [ "$p_c16" = "$C15" ] || err "C16 parent is $p_c16, expected $C15"
@@ -126,10 +135,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "19" ] || err "expected exactly 19 commits after base, found $count"
+[ "$count" = "22" ] || err "expected exactly 22 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -274,6 +283,19 @@ check_paths "$C18" "commit18" <<'EOF'
 docs/SOURCE-REGISTER.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$C19" "commit19" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C20" "commit20" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C21" "commit21" <<'EOF'
+docs/OD-08-DECISION-PACKET.md
 tools/verify-host-boundary.sh
 EOF
 
@@ -552,11 +574,404 @@ grep -F 'an explicit profile-acceptance prerequisite and remains NOT' "$WTS" >/d
 forbid "$WTS still claims completed traceability to existing QK-TST IDs" \
   -F 'traces only to existing' "$WTS"
 # Exact bounded append content enforced directly (checked stages, cmp).
-$GIT show "$C17:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
-  || err "cannot read docs/DECISION-LOG.md from C17"
+# The current Decision Log must be byte-identical to the reviewed OD-08
+# authorization commit A (C20), and the published C19 content must be
+# an exact byte prefix of it (append-only proof below via check_prefix).
+$GIT show "$C20:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C20"
 cmp -s "$tmpdir/cs.dlog.a" docs/DECISION-LOG.md
 csdl=$?
-[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C17 version (cmp exit $csdl)"
+[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C20 (OD-08 A) version (cmp exit $csdl)"
+$GIT show "$C19:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.base" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C19"
+wc -c < "$tmpdir/cs.dlog.base" > "$tmpdir/cs.dlog.len.raw" \
+  || err "C19 Decision-Log length failed (fail-closed)"
+tr -d '[:space:]' < "$tmpdir/cs.dlog.len.raw" > "$tmpdir/cs.dlog.len" \
+  || err "C19 Decision-Log length strip failed (fail-closed)"
+dlbl=$(cat "$tmpdir/cs.dlog.len") || err "C19 Decision-Log length read-back failed (fail-closed)"
+case "$dlbl" in ''|*[!0-9]*) err "C19 Decision-Log length not numeric: '$dlbl'" ;; esac
+dd if=docs/DECISION-LOG.md bs=1 count="$dlbl" > "$tmpdir/cs.dlog.head" 2>/dev/null \
+  || err "Decision-Log prefix extraction failed (fail-closed)"
+cmp -s "$tmpdir/cs.dlog.base" "$tmpdir/cs.dlog.head"
+csdl=$?
+[ "$csdl" -eq 0 ] || err "published C19 Decision-Log is not an exact byte prefix of the current Decision-Log (cmp exit $csdl)"
+# OD-08 authorization record essentials. Every check below is a
+# COMPLETE-literal-line proof: grep -cFx -e against the entire exact
+# bullet or heading line from docs/DECISION-LOG.md, each required
+# exactly once with rc handling. A duplicated phrase on the same line,
+# or any shortened, prefixed, or suffixed variant of a bullet, changes
+# the line bytes and therefore fails the corresponding full-line guard.
+cat > "$tmpdir/cs.dlog.lines" <<'EOF' || err "expected authorization-line file generation failed (fail-closed)"
+### QK-AUTH-OD08-PKT-001 — OD-08 non-binding decision-packet preparation authorization
+- **Owner words exactly:** “Perfect, go ahead”
+- **Published parent:** `e81ab9c61dda9be60ac45facbe5db57115578540`.
+- **Authorizes only:** local preparation of a factual current-state and rights-chain inventory; an informational comparison of unselected standard license families for software, hardware designs, documentation, and ancillary material; separately answerable owner questions covering licensing, contributions, maintainership, review, vulnerability reporting, release signing, supported versions, audit ownership, and trademark/official-build boundaries; independent read-only audit of the prepared packet; and the exact verifier rebind below. Publication is not authorized by this record and requires a later explicit owner instruction after a passing independent audit.
+- **Authorized next commits:** Commit B adding exactly `docs/OD-08-DECISION-PACKET.md` and changing exactly `tools/verify-host-boundary.sh` solely to advance its byte-identity Decision-Log anchor to Commit A while preserving all other host-boundary predicates; then Commit C changing exactly `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** no license selection, grant, application, modification, or legal conclusion; no `LICENSE`, `LICENCE`, `COPYING`, `COPYRIGHT`, `NOTICE`, `AUTHORS`, `CONTRIBUTING`, `CODEOWNERS`, `REUSE.toml`, SPDX header, manifest license field, DCO/CLA activation, or third-party text/code import; no assertion of copyright ownership or contributor consent; no OD resolution; no architecture, requirement, limit, test, evidence, maturity-gate, milestone, release, or support-status change; no person, organization, handle, email, channel, maintainer, reviewer, key custodian, auditor, or service appointment; no repository/hosting setting, branch rule, private-reporting channel, release-signing mechanism, or supported-version policy activation; no code, vector, fixture, dependency, hardware, Flux, procurement, fabrication, or use-with-funds authorization; no host-boundary scope, acceptance predicate, test expectation, status rule, file allowlist, platform/dependency check, or semantic claim may change except the exact necessary Decision-Log anchor advance.
+- **Effect:** OD-08 remains OPEN in full; this chain grants no new rights and does not determine or revoke any rights that may have arisen from historical repository versions; the repository still has no selected project license; no governance role or channel exists by virtue of this record; Gates A–E remain OPEN, STOP-SHIP remains in force, every other status remains unchanged; and this chain remains local and unpublished pending a separate explicit owner publication approval.
+EOF
+# Independent precondition: the expected-line file must contain exactly
+# seven nonempty lines before the loop runs, so an empty, partially
+# written, or truncated file cannot silently run zero or fewer checks.
+dlexp=$(awk 'BEGIN { n = 0 } /./ { n = n + 1 } END { print n }' "$tmpdir/cs.dlog.lines") \
+  || err "expected authorization-line count stage failed (awk fail-closed)"
+[ "$dlexp" = "7" ] || err "expected authorization-line file must contain exactly 7 nonempty lines (found $dlexp): generation was partial, empty, or corrupted"
+while IFS= read -r dlline; do
+  dlc=$(grep -cFx -e "$dlline" docs/DECISION-LOG.md)
+  dlrc=$?
+  [ "$dlrc" -le 1 ] || err "OD-08 record full-line check failed (grep exit $dlrc)"
+  [ "$dlc" = "1" ] || err "OD-08 record line not present exactly once as a complete line (found $dlc): $dlline"
+done < "$tmpdir/cs.dlog.lines"
+
+# ---------------- OD-08 decision packet (QK-AUTH-OD08-PKT-001)
+# Non-binding decision-input packet: byte-bound to reviewed commit B,
+# closed-world question set, unanswered-response proof, and
+# license/material/claim guards. Lexical evidence only; nothing here
+# proves legal status.
+PKT=docs/OD-08-DECISION-PACKET.md
+[ -f "$PKT" ] || err "$PKT missing"
+$GIT show "$C21:$PKT" > "$tmpdir/cs.pkt.b" 2>/dev/null \
+  || err "cannot read $PKT from C21"
+cmp -s "$tmpdir/cs.pkt.b" "$PKT"
+pkc=$?
+[ "$pkc" -eq 0 ] || err "$PKT is not byte-identical to the reviewed C21 (OD-08 B) version (cmp exit $pkc)"
+pfirst=$(head -n 1 "$PKT") || err "packet first-line read failed (fail-closed)"
+[ "$pfirst" = "EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET" ] \
+  || err "$PKT does not begin with the exact no-funds warning"
+plast=$(tail -n 1 "$PKT") || err "packet last-line read failed (fail-closed)"
+[ "$plast" = "END OF PACKET — OD-08 REMAINS OPEN — OWNER RESPONSES AND A SEPARATE RECORDED APPLICATION AUTHORIZATION ARE REQUIRED." ] \
+  || err "$PKT does not end with the exact end-of-packet line"
+pst=$(grep -c '^STATUS:' "$PKT")
+prc=$?
+[ "$prc" -le 1 ] || err "packet STATUS-line count failed (grep exit $prc)"
+[ "$pst" = "1" ] || err "$PKT must contain exactly one line beginning 'STATUS:' (found $pst)"
+grep '^STATUS:' "$PKT" > "$tmpdir/cs.pkt.status"
+prc=$?
+[ "$prc" -le 1 ] || err "packet STATUS-line extraction failed (grep exit $prc)"
+printf '%s\n' 'STATUS: OWNER-AUTHORIZED DECISION INPUT ONLY — NON-NORMATIVE — OD-08 OPEN — ALL OPTIONS UNSELECTED — THIS PACKET GRANTS NO RIGHTS — NO ROLE APPOINTED OR CHANNEL CONFIGURED — NO RELEASE OR GATE CHANGE.' > "$tmpdir/cs.pkt.status.expected" \
+  || err "packet expected-status generation failed (fail-closed)"
+cmp -s "$tmpdir/cs.pkt.status.expected" "$tmpdir/cs.pkt.status"
+pcmp=$?
+[ "$pcmp" -eq 0 ] || err "$PKT STATUS line is not exactly the mandatory banner as a full line (cmp exit $pcmp)"
+# Closed-world OD08 question set: every row-leading token must satisfy
+# the complete anchored 3-cell row grammar (ID cell, pipe-free subject
+# cell, exact unanswered response cell); IDs are derived only from
+# fully valid rows and must be exactly 001..015; every OD08-Q-
+# occurrence anywhere in the packet is enumerated by an awk substring
+# loop and must total exactly 15, so a second token smuggled onto one
+# line (which line-based grep -c cannot see) also fails.
+qpre=$(grep -c '^| OD08-Q-' "$PKT")
+prc=$?
+[ "$prc" -le 1 ] || err "packet question row-prefix count failed (grep exit $prc)"
+qval=$(grep -cE '^\| OD08-Q-[0-9][0-9][0-9] \| [^|]* \| OWNER RESPONSE REQUIRED — UNSELECTED \|$' "$PKT")
+prc=$?
+[ "$prc" -le 1 ] || err "packet valid full-row grammar count failed (grep exit $prc)"
+[ "$qpre" = "$qval" ] || err "$PKT has $qpre question-prefix rows but only $qval satisfy the exact anchored 3-cell row grammar: malformed question row (extra pipe cell, altered response cell, or bad ID)"
+[ "$qval" = "15" ] || err "$PKT must contain exactly 15 fully valid question rows (found $qval)"
+awk 'BEGIN { n = 0 }
+  { s = $0
+    while ((i = index(s, "OD08-Q-")) > 0) { n = n + 1; s = substr(s, i + 7) } }
+  END { print n }' "$PKT" > "$tmpdir/cs.q.tok"
+prc=$?
+[ "$prc" -eq 0 ] || err "packet OD08-Q- occurrence enumeration failed (awk exit $prc)"
+qtok=$(cat "$tmpdir/cs.q.tok") || err "packet OD08-Q- occurrence read-back failed (fail-closed)"
+[ "$qtok" = "15" ] || err "$PKT contains $qtok OD08-Q- occurrences, expected exactly 15: smuggled, duplicated, or same-line extra question token"
+sed -n 's/^| \(OD08-Q-[0-9][0-9][0-9]\) | [^|]* | OWNER RESPONSE REQUIRED — UNSELECTED |$/\1/p' "$PKT" > "$tmpdir/cs.q.actual"
+prc=$?
+[ "$prc" -eq 0 ] || err "packet question-token extraction failed (sed exit $prc)"
+[ -s "$tmpdir/cs.q.actual" ] || err "$PKT contains no valid OD08 question rows (fail-closed)"
+: > "$tmpdir/cs.q.expected" || err "packet expected question-list init failed"
+qi=1
+while [ "$qi" -le 15 ]; do
+  printf 'OD08-Q-%03d\n' "$qi" >> "$tmpdir/cs.q.expected" \
+    || err "packet expected question-list generation failed at $qi"
+  qi=$((qi + 1))
+done
+LC_ALL=C sort "$tmpdir/cs.q.actual" > "$tmpdir/cs.q.sorted" \
+  || err "packet question sort failed (fail-closed)"
+cmp -s "$tmpdir/cs.q.expected" "$tmpdir/cs.q.sorted"
+pcmp=$?
+[ "$pcmp" -eq 0 ] || err "$PKT question set is not exactly OD08-Q-001..015 (cmp exit $pcmp)"
+qresp=$(grep -cF ' | OWNER RESPONSE REQUIRED — UNSELECTED |' "$PKT")
+prc=$?
+[ "$prc" -le 1 ] || err "packet unanswered-response count failed (grep exit $prc)"
+[ "$qresp" = "15" ] || err "$PKT does not have exactly 15 lines carrying the exact unanswered response cell (found $qresp): filled, malformed, or extra owner response"
+grep -F 'DEFER — REMAINS OPEN' "$PKT" >/dev/null \
+  || err "$PKT missing the explicit DEFER — REMAINS OPEN instruction"
+grep -F 'An owner answer to any question is direction input only. Partial answers leave' "$PKT" >/dev/null \
+  || err "$PKT missing the direction-input-only / partial-answers caveat"
+grep -F 'All 15 questions are separately answerable' "$PKT" >/dev/null \
+  || err "$PKT missing the separately-answerable statement"
+# Key verified facts, candidates and caveats (exact strings).
+grep -F 'Publication is not authorized by QK-AUTH-OD08-PKT-001' "$PKT" >/dev/null \
+  || err "$PKT missing the publication-not-authorized statement"
+grep -F 'Preparation of this packet was authorized by the owner record' "$PKT" >/dev/null \
+  || err "$PKT missing the preparation-only authorization statement"
+grep -F 'the repository has no selected project license' "$PKT" >/dev/null \
+  || err "$PKT missing the no-selected-license fact"
+grep -F 'No project-applied `SPDX-License-Identifier` header, manifest license field, or' "$PKT" >/dev/null \
+  || err "$PKT missing the project-applied-SPDX-scoped fact"
+grep -F 'cite third-party license identifiers for provenance without' "$PKT" >/dev/null \
+  || err "$PKT missing the Source-Register third-party-identifier boundary"
+grep -F 'zero third-party/registry dependencies' "$PKT" >/dev/null \
+  || err "$PKT missing the zero-third-party-dependency fact"
+grep -F 'one first-party path dependency on `host/qk-host-model`' "$PKT" >/dev/null \
+  || err "$PKT missing the first-party path-dependency fact"
+grep -F '`publish = false`' "$PKT" >/dev/null \
+  || err "$PKT missing the publish=false fact"
+grep -F '1adce1afa1e6cf6cc22287af54c2a7a3a8e2458e' "$PKT" >/dev/null \
+  || err "$PKT missing the historical MIT-introduction commit fact"
+grep -F '8f7ce227db21299d831636243ab76b110a875f73' "$PKT" >/dev/null \
+  || err "$PKT missing the historical MIT-removal commit fact"
+grep -F 'removal revoked any rights' "$PKT" >/dev/null \
+  || err "$PKT missing the no-revocation-claim caveat"
+grep -F 'Git author labels are commit metadata only' "$PKT" >/dev/null \
+  || err "$PKT missing the author-labels-not-title caveat"
+grep -F 'not legal advice' "$PKT" >/dev/null \
+  || err "$PKT missing the not-legal-advice caveat"
+grep -F 'Every row below has status UNSELECTED.' "$PKT" >/dev/null \
+  || err "$PKT missing the all-rows-UNSELECTED statement"
+grep -F 'Apache-2.0, only after rights/legal review' "$PKT" >/dev/null \
+  || err "$PKT missing the software starting recommendation"
+grep -F 'MIT; MPL-2.0' "$PKT" >/dev/null \
+  || err "$PKT missing the software alternatives"
+grep -F 'CHOICE of either license; it does not automatically apply both' "$PKT" >/dev/null \
+  || err "$PKT missing the MIT-OR-Apache recipient-choice explanation"
+grep -F 'CERN-OHL-W-2.0' "$PKT" >/dev/null \
+  || err "$PKT missing the hardware starting recommendation"
+grep -F 'CERN-OHL-P-2.0; CERN-OHL-S-2.0' "$PKT" >/dev/null \
+  || err "$PKT missing the hardware alternatives"
+grep -F 'No safety certification exists or is implied' "$PKT" >/dev/null \
+  || err "$PKT missing the no-safety-certification caveat"
+grep -F 'CC-BY-4.0' "$PKT" >/dev/null \
+  || err "$PKT missing the documentation starting recommendation"
+grep -F 'CC-BY-SA-4.0' "$PKT" >/dev/null \
+  || err "$PKT missing the documentation alternative"
+grep -F 'recommends against applying CC licenses to software' "$PKT" >/dev/null \
+  || err "$PKT missing the Creative-Commons-recommendation caveat"
+grep -F 'software documentation may use CC' "$PKT" >/dev/null \
+  || err "$PKT missing the software-documentation-may-use-CC clause"
+grep -F 'code snippets mixed into documentation must be handled separately' "$PKT" >/dev/null \
+  || err "$PKT missing the mixed-code-snippet caveat"
+grep -F 'CC0-1.0 where legally effective' "$PKT" >/dev/null \
+  || err "$PKT missing the data starting candidate"
+grep -F 'need explicit classification' "$PKT" >/dev/null \
+  || err "$PKT missing the ancillary-classification requirement"
+grep -F 'A separately enacted inbound=outbound rule, plus DCO 1.1 sign-off' "$PKT" >/dev/null \
+  || err "$PKT missing the contributions starting recommendation"
+grep -F 'certification of submission authority, not an inbound license' "$PKT" >/dev/null \
+  || err "$PKT missing the DCO-is-not-a-license clarification"
+grep -F 'CLA only if a specific need justifies it' "$PKT" >/dev/null \
+  || err "$PKT missing the CLA-only-if-justified caveat"
+grep -F 'the author plus two independent human approvers' "$PKT" >/dev/null \
+  || err "$PKT missing the protected-change approval rule"
+grep -F 'at least one non-author reviewer' "$PKT" >/dev/null \
+  || err "$PKT missing the routine-change reviewer rule"
+grep -F 'protected changes remain blocked' "$PKT" >/dev/null \
+  || err "$PKT missing the absent-staffing blocked rule"
+grep -F 'it is not enabled by this packet' "$PKT" >/dev/null \
+  || err "$PKT missing the private-reporting evaluated-not-enabled caveat"
+grep -F 'No versions of any kind are supported; no security-support promise or policy is approved.' "$PKT" >/dev/null \
+  || err "$PKT missing the exact no-supported-versions fact"
+grep -F 'a tag ref is not inherently immutable' "$PKT" >/dev/null \
+  || err "$PKT missing the tag-ref-not-immutable qualification"
+grep -F 'reproducible-build match' "$PKT" >/dev/null \
+  || err "$PKT missing the reproducible-build release element"
+grep -F 'both independent of every material artifact preparer or builder' "$PKT" >/dev/null \
+  || err "$PKT missing the releaser-independence rule"
+grep -F 'JOINTLY binds the exact annotated tag object, the exact commit SHA, every artifact digest, and the provenance/reproducible-build record' "$PKT" >/dev/null \
+  || err "$PKT missing the joint-binding release manifest/attestation requirement"
+grep -F 'a signed release manifest or attestation' "$PKT" >/dev/null \
+  || err "$PKT missing the signed release manifest/attestation element"
+grep -F 'never closes a gate or accepts residual risk' "$PKT" >/dev/null \
+  || err "$PKT missing the audit-never-closes-gates rule"
+grep -F 'an open or CC license alone does not settle mark use' "$PKT" >/dev/null \
+  || err "$PKT missing the trademark-separation caveat"
+grep -F '(three people)' "$PKT" >/dev/null \
+  || err "$PKT missing the three-person protected-review count"
+grep -F 'no self-review, no shared account' "$PKT" >/dev/null \
+  || err "$PKT missing the independence definition"
+grep -F 'non-exclusive and non-exhaustive' "$PKT" >/dev/null \
+  || err "$PKT missing the non-exclusive classification note"
+grep -F 'mixed-content boundaries' "$PKT" >/dev/null \
+  || err "$PKT missing the mixed-content-boundaries note"
+grep -F 'moral-right consents or waivers where legally possible' "$PKT" >/dev/null \
+  || err "$PKT missing the moral-rights element"
+grep -F 'database rights where applicable' "$PKT" >/dev/null \
+  || err "$PKT missing the database-rights element"
+grep -F 'makes no legal conclusion' "$PKT" >/dev/null \
+  || err "$PKT missing the no-legal-conclusion statement"
+grep -F 'waiver plus a fallback public license' "$PKT" >/dev/null \
+  || err "$PKT missing the CC0 waiver/fallback explanation"
+grep -F 'does not settle patent or trademark rights' "$PKT" >/dev/null \
+  || err "$PKT missing the CC0 patent/trademark caveat"
+grep -F 'No auditor is appointed' "$PKT" >/dev/null \
+  || err "$PKT missing the no-auditor-appointed statement"
+grep -F 'Closing OD-08 requires a' "$PKT" >/dev/null \
+  || err "$PKT missing the later-explicit-owner-record closure rule"
+grep -F 'separately authorized application chain' "$PKT" >/dev/null \
+  || err "$PKT missing the separate-application-chain rule"
+grep -F 'no Source Register row is added' "$PKT" >/dev/null \
+  || err "$PKT missing the no-source-register-row statement"
+# Informational links: closed-world URL allowlist. Each of the 15
+# exact labeled bullets must appear exactly once as a full line; every
+# https:// occurrence anywhere in the packet is enumerated by an awk
+# substring loop and must total exactly 15, so an unlabeled URL, an
+# extra URL, or two URLs on one line all fail.
+purl=$(grep -c '^- https://' "$PKT")
+prc=$?
+[ "$prc" -le 1 ] || err "packet URL-line count failed (grep exit $prc)"
+plab=$(grep -c '^- https://.* — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED$' "$PKT")
+prc=$?
+[ "$prc" -le 1 ] || err "packet labeled-URL count failed (grep exit $prc)"
+[ "$purl" = "15" ] || err "$PKT must list exactly 15 informational URL bullets (found $purl)"
+[ "$purl" = "$plab" ] || err "$PKT has $purl URL lines but only $plab carry the exact UNPINNED/INFORMATIONAL/NO-TEXT label"
+awk 'BEGIN { n = 0 }
+  { s = $0
+    while ((i = index(s, "https://")) > 0) { n = n + 1; s = substr(s, i + 8) } }
+  END { print n }' "$PKT" > "$tmpdir/cs.url.tok"
+prc=$?
+[ "$prc" -eq 0 ] || err "packet https:// occurrence enumeration failed (awk exit $prc)"
+utok=$(cat "$tmpdir/cs.url.tok") || err "packet https:// occurrence read-back failed (fail-closed)"
+[ "$utok" = "15" ] || err "$PKT contains $utok https:// occurrences, expected exactly 15: extra, smuggled, or same-line additional URL"
+cat > "$tmpdir/cs.url.exp" <<'EOF'
+- https://spdx.org/licenses/ — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://www.apache.org/licenses/LICENSE-2.0 — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://opensource.org/license/mit — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://www.mozilla.org/en-US/MPL/2.0/ — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://cern-ohl.web.cern.ch/ — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://creativecommons.org/licenses/by/4.0/legalcode.en — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://creativecommons.org/licenses/by-sa/4.0/legalcode.en — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://creativecommons.org/publicdomain/zero/1.0/legalcode.en — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://creativecommons.org/faq/#can-i-apply-a-creative-commons-license-to-software — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://developercertificate.org/ — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://opensource.org/osd — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-tags — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+- https://doc.rust-lang.org/cargo/reference/manifest.html — UNPINNED / INFORMATIONAL ONLY / NO TEXT IMPORTED
+EOF
+while IFS= read -r ubl; do
+  ucnt=$(grep -cFx -e "$ubl" "$PKT")
+  prc=$?
+  [ "$prc" -le 1 ] || err "packet URL-bullet check failed (grep exit $prc)"
+  [ "$ucnt" = "1" ] || err "$PKT does not contain exactly once (found $ucnt): $ubl"
+done < "$tmpdir/cs.url.exp"
+# License/claim/material guards over the packet (fail-closed forbid).
+# The packet legitimately NAMES the backticked `SPDX-License-Identifier`
+# header in its no-project-applied-header fact; only the colon-suffixed
+# applied-tag form is forbidden.
+forbid "$PKT contains an applied SPDX license identifier tag" \
+  -F 'SPDX-License-Identifier:' "$PKT"
+forbid "$PKT contains copied MIT license text" \
+  -F 'Permission is hereby granted' "$PKT"
+forbid "$PKT contains copied Apache license application text" \
+  -F 'Licensed under the Apache License' "$PKT"
+forbid "$PKT contains a mailto channel" \
+  -F 'mailto:' "$PKT"
+forbid "$PKT contains an email address" \
+  -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]' "$PKT"
+forbid "$PKT contains a long secret-like hex run (>= 64 hex chars)" \
+  -E '[0-9a-fA-F]{64}' "$PKT"
+forbid "$PKT contains extended-key-like material" \
+  -E '(^|[^A-Za-z0-9])[xt](prv|pub)[A-Za-z0-9]{20,}' "$PKT"
+forbid "$PKT contains bech32-address-like material" \
+  -E '(^|[^0-9a-z])[b]c1[02-9ac-hj-np-z]{20,}' "$PKT"
+forbid "$PKT contains raw PSBT material" \
+  -E '[c]HNidP|[7]0736274ff' "$PKT"
+# Base64-blob guard: enumerate every base64-alphabet run of 44+ chars
+# (awk length test, no interval regex, no pipeline); legitimate prose
+# slash-lists (lowercase words joined by /) are tolerated, but any
+# such run carrying a digit or '+' is treated as payload material.
+awk '{ s = $0
+  while (match(s, /[A-Za-z0-9+\/]+/)) {
+    t = substr(s, RSTART, RLENGTH)
+    if (length(t) >= 44) print t
+    s = substr(s, RSTART + RLENGTH) } }' "$PKT" > "$tmpdir/cs.b64runs"
+prc=$?
+[ "$prc" -eq 0 ] || err "packet base64-run enumeration failed (awk exit $prc; empty output is legitimate and distinguished from error)"
+grep '[0-9+]' "$tmpdir/cs.b64runs" > "$tmpdir/cs.b64bad"
+prc=$?
+[ "$prc" -le 1 ] || err "packet base64-run classification failed (grep exit $prc)"
+[ ! -s "$tmpdir/cs.b64bad" ] || err "$PKT contains a base64 payload blob: $(cat "$tmpdir/cs.b64bad")"
+forbid "$PKT claims OD-08 is resolved or closed" \
+  -iE 'OD-08 (is |was |has been |now )?(resolved|closed)' "$PKT"
+forbid "$PKT claims a license was selected, adopted, applied or granted" \
+  -iE '(license|licence) (is|was|has been|hereby) (selected|adopted|applied|granted)' "$PKT"
+forbid "$PKT performs a hereby-style grant, appointment or activation" \
+  -iE 'hereby (grant|license|appoint|configure|enable)' "$PKT"
+forbid "$PKT claims production readiness" \
+  -iE 'production[- ]ready' "$PKT"
+forbid "$PKT claims a validated, secure or audited status" \
+  -iE '(is|are) (fully )?(validated|secure|audited)' "$PKT"
+forbid "$PKT claims a closed gate" \
+  -iE 'Gate [A-E][^.]*CLOSED' "$PKT"
+forbid "$PKT contains a checked checkbox" \
+  -E '\[[xX]\]' "$PKT"
+# Stale or overbroad wording rejected by the independent audit.
+forbid "$PKT claims publication was authorized together with preparation" \
+  -F 'Preparation and publication' "$PKT"
+forbid "$PKT overclaims that no SPDX expression exists anywhere" \
+  -F 'no SPDX expression exist anywhere' "$PKT"
+forbid "$PKT overclaims no external dependency" \
+  -F 'no external dependency' "$PKT"
+forbid "$PKT uses the categorical CC-not-suitable-for-software wording" \
+  -F 'licenses are not suitable for software' "$PKT"
+forbid "$PKT conflates DCO with an inbound=outbound license rule" \
+  -F 'DCO 1.1 with inbound=outbound' "$PKT"
+forbid "$PKT claims an inherently immutable signed tag" \
+  -F 'immutable signed tag' "$PKT"
+forbid "$PKT uses the stale sole-artifact-preparer wording" \
+  -F 'sole artifact preparer' "$PKT"
+forbid "$PKT links the stale signing-commits page instead of signing-tags" \
+  -F 'managing-commit-signature-verification/signing-commits' "$PKT"
+# ------------- Host verifier: byte identity and reanchor-only proof
+# The active host verifier must be byte-identical to reviewed B, and
+# its entire e81->B delta must be confined to lines carrying the old
+# or new Decision-Log anchor SHA (exactly 3 removed / 3 added lines).
+$GIT show "$C21:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b" 2>/dev/null \
+  || err "cannot read tools/verify-host-boundary.sh from C21"
+cmp -s "$tmpdir/cs.hb.b" tools/verify-host-boundary.sh
+pkc=$?
+[ "$pkc" -eq 0 ] || err "tools/verify-host-boundary.sh is not byte-identical to the reviewed C21 (OD-08 B) version (cmp exit $pkc)"
+$GIT show "$C19:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.base" 2>/dev/null \
+  || err "cannot read tools/verify-host-boundary.sh from C19"
+diff "$tmpdir/cs.hb.base" tools/verify-host-boundary.sh > "$tmpdir/cs.hb.d" 2>&1
+hbd=$?
+[ "$hbd" -eq 1 ] || err "host-verifier e81 delta diff did not report exactly a difference (diff exit $hbd)"
+grep '^[<>]' "$tmpdir/cs.hb.d" > "$tmpdir/cs.hb.lines"
+prc=$?
+[ "$prc" -le 1 ] || err "host-verifier delta line extraction failed (grep exit $prc)"
+hbl=$(grep -c '^[<>]' "$tmpdir/cs.hb.d")
+prc=$?
+[ "$prc" -le 1 ] || err "host-verifier delta line count failed (grep exit $prc)"
+[ "$hbl" = "6" ] || err "host-verifier e81 delta is not exactly 3 removed + 3 added lines (found $hbl changed lines): more than the anchor advance changed"
+grep -vE "(19979a5ec3d141125e7f4471d14846bba44e0e1a|$C20)" "$tmpdir/cs.hb.lines" > "$tmpdir/cs.hb.bad"
+prc=$?
+[ "$prc" -le 1 ] || err "host-verifier delta anchor filter failed (grep exit $prc)"
+[ ! -s "$tmpdir/cs.hb.bad" ] || err "host-verifier e81 delta touches a non-anchor line: $(cat "$tmpdir/cs.hb.bad")"
+grep -F "show $C20:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "host checker Decision-Log anchor is not the OD-08 A commit"
+# ------------------------- SOURCE-REGISTER byte-identical to e81/C19
+$GIT show "$C19:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.c19" 2>/dev/null \
+  || err "cannot read docs/SOURCE-REGISTER.md from C19"
+cmp -s "$tmpdir/cs.sreg.c19" docs/SOURCE-REGISTER.md
+pkc=$?
+[ "$pkc" -eq 0 ] || err "docs/SOURCE-REGISTER.md is not byte-identical to the published C19 version (cmp exit $pkc)"
+# ------------------- Exact e81..HEAD changed path set (exactly four)
+cat > "$tmpdir/cs.od08.exp" <<'EOF'
+docs/DECISION-LOG.md
+docs/OD-08-DECISION-PACKET.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+EOF
+$GIT diff --name-only "$C19" "$head" > "$tmpdir/cs.od08.raw" \
+  || err "git diff C19..HEAD failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.od08.raw" ] || err "git diff C19..HEAD returned no paths (enumeration fail-closed)"
+LC_ALL=C sort "$tmpdir/cs.od08.raw" > "$tmpdir/cs.od08.act" \
+  || err "C19..HEAD path-set sort failed (fail-closed)"
+diff "$tmpdir/cs.od08.exp" "$tmpdir/cs.od08.act" > "$tmpdir/cs.od08.dd" 2>&1 \
+  || err "changes since published C19 differ from the four authorized OD-08 paths: $(cat "$tmpdir/cs.od08.dd")"
 $GIT show "$C16:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.base" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C16"
 cat "$tmpdir/cs.sreg.base" > "$tmpdir/cs.sreg.expected" \
@@ -790,6 +1205,7 @@ SECURITY.md
 docs/BUILD-ROADMAP.md
 docs/DECISION-LOG.md
 docs/HOST-WORK-AUTHORIZATION.md
+docs/OD-08-DECISION-PACKET.md
 docs/REQUIREMENTS.md
 docs/SOURCE-REGISTER.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
