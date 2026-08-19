@@ -101,6 +101,7 @@ docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
+docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1258,7 +1259,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 2c6d1152f09730661b2cadd86d2374c755191128:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show e57faff4ead69ddf108cf522cb6c3cbfbef8219a:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2251,14 +2252,321 @@ q1rc=$?
 cmp -s "$tmpdir/q1.hex.exp" "$tmpdir/q1.hex.act"; q1rc=$?
 [ "$q1rc" -eq 0 ] || err "$CLR32D contains a missing, altered, or extra exact-40-hex token"
 
-# G: full changed-content material scan across exactly the eight named
+# F3.2e PSBT-output TEST-ARCHITECTURE alignment packet: supporting lexical
+# and structural evidence only, never self-authentication or independent proof.
+PKT32E=docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
+[ -f "$PKT32E" ] || err "$PKT32E missing"
+# This exact Git blob is an audit locator and supporting byte-identity
+# invariant only; it is never self-authentication or independent proof.
+p32eblob=4ffa20afbedeb0b6cfbbe57298f941bc0537683e
+git --no-optional-locks hash-object -- "$PKT32E" > "$tmpdir/p32e.blob.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E git hash-object audit-locator scan failed (exit $p32erc)"
+[ -s "$tmpdir/p32e.blob.act" ] || err "$PKT32E git hash-object audit-locator scan produced empty output"
+grep -cE '^[0-9a-f]{40}$' "$tmpdir/p32e.blob.act" > "$tmpdir/p32e.blob.count"; p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E git hash-object audit-locator format scan failed"
+p32eblobfmt=$(cat "$tmpdir/p32e.blob.count"); p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E git hash-object audit-locator format-count read failed"
+[ "$p32eblobfmt" = 1 ] || err "$PKT32E git hash-object audit-locator output is not one lowercase 40-hex OID"
+printf '%s\n' "$p32eblob" > "$tmpdir/p32e.blob.exp" \
+  || err "$PKT32E expected audit-locator blob generation failed"
+cmp -s "$tmpdir/p32e.blob.exp" "$tmpdir/p32e.blob.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E audit-locator blob identity differs from the pinned packet blob"
+p32etitle='# QK-F3.2e — PSBT-Output TEST-ARCHITECTURE Alignment Packet (Non-Binding)'
+p32estatus='STATUS: OWNER-AUTHORIZED ALIGNMENT INPUT ONLY — NON-BINDING — PROPOSED CORRECTION TEXT UNSELECTED — QK-TST-DIFF-002 AND QK-TST-DIFF-004 ARE CORRECTION TARGETS ONLY — QK-TST-REH-004 RETAINED UNCHANGED AS EXTERNAL-FINALIZATION CONTROL — CANONICAL TEST-ARCHITECTURE UNCHANGED — ALL QK-TST STATUSES UNCHANGED — PLANNED — NOT RUN — D-11 NOT SELECTED — F32C-D11-Q-002 THROUGH F32C-D11-Q-012 UNANSWERED — D-09 AND EVERY QK-LIM OPEN — PSBT PROFILE NOT ACCEPTED — NO IMPLEMENTATION, TESTING, VECTORS, OR MEDIA I/O — NO EVIDENCE OR GATE CHANGE — LOCAL AND UNPUBLISHED.'
+p32eend='END OF PACKET — F3.2e PSBT-OUTPUT TEST-ARCHITECTURE ALIGNMENT INPUT ONLY — PROPOSED CORRECTION TEXT UNSELECTED — CANONICAL TEST-ARCHITECTURE AND ALL QK-TST STATUSES UNCHANGED — LOCAL AND UNPUBLISHED.'
+sed -n '1p' "$PKT32E" > "$tmpdir/p32e.title.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E title read failed (exit $p32erc)"
+[ -s "$tmpdir/p32e.title.act" ] || err "$PKT32E title read produced empty output"
+printf '%s\n' "$p32etitle" > "$tmpdir/p32e.title.exp" \
+  || err "$PKT32E title fixture generation failed"
+cmp -s "$tmpdir/p32e.title.exp" "$tmpdir/p32e.title.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E exact title is not first"
+tail -n 1 "$PKT32E" > "$tmpdir/p32e.end.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E terminal-line read failed (exit $p32erc)"
+[ -s "$tmpdir/p32e.end.act" ] || err "$PKT32E terminal-line read produced empty output"
+printf '%s\n' "$p32eend" > "$tmpdir/p32e.end.exp" \
+  || err "$PKT32E terminal-line fixture generation failed"
+cmp -s "$tmpdir/p32e.end.exp" "$tmpdir/p32e.end.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E exact terminal line missing"
+# Exact full-line STATUS binding.
+grep -c '^STATUS:' "$PKT32E" > "$tmpdir/p32e.status.count"; p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E STATUS count failed"
+p32estatuslines=$(cat "$tmpdir/p32e.status.count"); p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E STATUS count read failed"
+[ "$p32estatuslines" = 1 ] || err "$PKT32E must contain exactly one canonical STATUS line"
+grep '^STATUS:' "$PKT32E" > "$tmpdir/p32e.status.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E STATUS line extraction failed"
+printf '%s\n' "$p32estatus" > "$tmpdir/p32e.status.exp" || err "$PKT32E STATUS expected generation failed"
+cmp -s "$tmpdir/p32e.status.exp" "$tmpdir/p32e.status.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E STATUS line is not exactly the complete required banner"
+p32estatusany=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$PKT32E"); p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E global STATUS occurrence scan failed"
+case $p32estatusany in ''|*[!0-9]*) err "$PKT32E global STATUS occurrence scan produced non-numeric output" ;; esac
+[ "$p32estatusany" = 1 ] || err "$PKT32E must contain exactly one STATUS: occurrence anywhere (found $p32estatusany)"
+# Owner words: exact one-paragraph quote present exactly once.
+p32eowner='Authorize preparation and independent audit of a non-binding docs-only F3.2e PSBT-output TEST-ARCHITECTURE alignment packet from be4d019e349e15ca575ac64b64f900957283e5e0, with only the mechanically necessary verifier bindings. Limit scope to QK-TST-DIFF-002 and QK-TST-DIFF-004, with QK-TST-REH-004 retained unchanged as the external-finalization control. No canonical TEST-ARCHITECTURE edit, test-status change, Q-002 through Q-012 answer, D-11 or D-09 selection, profile acceptance, implementation, testing, vectors, media I/O, hardware work, settings changes, or publication.'
+p32eown=$(grep -cFx -e "$p32eowner" "$PKT32E"); p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E owner-quote exact scan failed"
+[ "$p32eown" = 1 ] || err "$PKT32E exact owner quote must occur exactly once"
+sed -n '/^## Owner words exactly$/,/^## Canonical source rows (reproduced byte-for-byte from source base)$/p' \
+  "$PKT32E" > "$tmpdir/p32e.owner.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E owner section extraction failed"
+cat > "$tmpdir/p32e.owner.exp" <<'QK_F32E_OWNER_EOF' || err "$PKT32E owner section fixture generation failed"
+## Owner words exactly
+
+Authorize preparation and independent audit of a non-binding docs-only F3.2e PSBT-output TEST-ARCHITECTURE alignment packet from be4d019e349e15ca575ac64b64f900957283e5e0, with only the mechanically necessary verifier bindings. Limit scope to QK-TST-DIFF-002 and QK-TST-DIFF-004, with QK-TST-REH-004 retained unchanged as the external-finalization control. No canonical TEST-ARCHITECTURE edit, test-status change, Q-002 through Q-012 answer, D-11 or D-09 selection, profile acceptance, implementation, testing, vectors, media I/O, hardware work, settings changes, or publication.
+
+## Canonical source rows (reproduced byte-for-byte from source base)
+QK_F32E_OWNER_EOF
+cmp -s "$tmpdir/p32e.owner.exp" "$tmpdir/p32e.owner.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E owner section is not the exact closed transcript"
+# Source base audit locator present at least once (appears in standing section
+# and verbatim in owner words quote).
+grep -F -e 'be4d019e349e15ca575ac64b64f900957283e5e0' "$PKT32E" > "$tmpdir/p32e.srcbase.act" 2>/dev/null
+p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E source-base 40-hex scan failed"
+[ -s "$tmpdir/p32e.srcbase.act" ] || err "$PKT32E source-base must be present at least once"
+# Commit A audit locator present exactly once.
+p32ecmta=$(grep -cF -e 'e57faff4ead69ddf108cf522cb6c3cbfbef8219a' "$PKT32E"); p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E commit-A 40-hex scan failed"
+[ "$p32ecmta" = 1 ] || err "$PKT32E commit A must occur exactly once"
+# Six source/protected blob audit locators each present exactly once.
+for p32eblk in \
+  f4e127a92fc68243274b7d384e335fa4632e5dd2 \
+  981b1b497102187da66fb4e82ef0725b32c088f7 \
+  b4594210975940df71b0e941841320d11defaa4c \
+  a996a6d7c2bfa3a15109085475868410fe354422 \
+  838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
+  877866e5a3636bdfb7015d715e048ccfad63d939; do
+  p32en=$(grep -cF -e "$p32eblk" "$PKT32E"); p32erc=$?
+  [ "$p32erc" -le 1 ] || err "$PKT32E audit-locator blob scan failed for $p32eblk"
+  [ "$p32en" = 1 ] || err "$PKT32E audit-locator blob must occur exactly once: $p32eblk"
+done
+# The source/protected working-tree files themselves must retain those
+# reviewed blobs; the packet's printed locators alone are not sufficient.
+while IFS=' ' read -r p32esource p32eexpected; do
+  git --no-optional-locks hash-object -- "$p32esource" > "$tmpdir/p32e.source.act"; p32erc=$?
+  [ "$p32erc" -eq 0 ] || err "$p32esource source/protected blob scan failed (exit $p32erc)"
+  [ -s "$tmpdir/p32e.source.act" ] || err "$p32esource source/protected blob scan produced empty output"
+  printf '%s\n' "$p32eexpected" > "$tmpdir/p32e.source.exp" \
+    || err "$p32esource expected source/protected blob generation failed"
+  cmp -s "$tmpdir/p32e.source.exp" "$tmpdir/p32e.source.act"; p32erc=$?
+  [ "$p32erc" -eq 0 ] || err "$p32esource differs from the F3.2e reviewed source/protected blob"
+done <<'QK_F32E_SOURCE_BLOBS_EOF'
+docs/TEST-ARCHITECTURE.md f4e127a92fc68243274b7d384e335fa4632e5dd2
+docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md b4594210975940df71b0e941841320d11defaa4c
+docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md a996a6d7c2bfa3a15109085475868410fe354422
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md 838a732ab556b51ca8b0b61bed9ae9d512d47a87
+docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md 877866e5a3636bdfb7015d715e048ccfad63d939
+QK_F32E_SOURCE_BLOBS_EOF
+# Canonical source rows reproduced byte-for-byte.
+p32ediff002='| QK-TST-DIFF-002 | DIFF | PSBT parsing, validation, signing, and finalized output vs. independent implementations; signature verification and independent parseability. Oracle: verdict/byte agreement on shared corpora. | QK-REQ-PSBT-004, QK-REQ-PSBT-006; QK-THR-006, QK-THR-017 | F9 | Gate C | Cross-implementation agreement record with corpus hashes | PLANNED — NOT RUN |'
+p32ediff004='| QK-TST-DIFF-004 | DIFF | Export-route interop: the signed PSBT and raw final transaction exported via QR and via SD are byte-identical to each other and parse/verify identically in independent implementations. Oracle: cross-route byte comparison plus independent-parser agreement. | QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026, QK-LIM-PSBT-027 | F10 | Gate C | Cross-implementation agreement record with corpus hashes | PLANNED — NOT RUN |'
+p32ereh004='| QK-TST-REH-004 | REH | Rescue with commodity reader and open rescue tool; independent transaction finalization outside QuietKey tooling; acceptance by Bitcoin Core. Dependency: rescue evidence is definable only after OD-02 resolves the card interface. Oracle: Bitcoin Core acceptance of the rescued transaction. | QK-REQ-CARD-006, QK-REQ-PSBT-004, QK-REQ-REC-006, QK-REQ-TRN-007; QK-THR-001, QK-THR-006, QK-THR-020 | F12 | Gate B, Gate C, Gate E | Rehearsal transcript + artifact hashes | PLANNED — NOT RUN |'
+for p32erow in "$p32ediff002" "$p32ediff004" "$p32ereh004"; do
+  p32ern=$(grep -cFx -e "$p32erow" "$PKT32E"); p32erc=$?
+  [ "$p32erc" -le 1 ] || err "$PKT32E canonical row scan failed"
+  [ "$p32ern" = 1 ] || err "$PKT32E one required canonical source row is missing, altered, or duplicated"
+done
+# Proposed plan/oracle text present (unselected marker and key phrases).
+grep -F 'PSBT v0 parsing and then-selected-profile validation against an independent implementation' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-002 proposed plan key phrase"
+grep -F 'Export-route interoperability for one already frozen, fully serialized, freshly independently reparsed unfinalized signed-PSBT artifact.' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-004 proposed plan key phrase"
+grep -F 'UNCHANGED CONTROL — NO CANDIDATE EDIT' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing UNCHANGED CONTROL label for REH-004"
+# Conflict statements present.
+grep -F '"finalized output" is therefore stale and ambiguous under D-10' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-002 conflict statement"
+grep -F '"raw final transaction" in the DIFF-004 plan directly conflicts with D-10' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-004 conflict statement"
+# Unchanged-control meaning stated.
+grep -F 'QK-TST-REH-004 RETAINED UNCHANGED AS EXTERNAL-FINALIZATION CONTROL' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing unchanged-control meaning in STATUS"
+# QK-LIM-PSBT-027 residual inconsistency flagged.
+grep -F 'QK-LIM-PSBT-027' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing QK-LIM-PSBT-027 residual inconsistency flag"
+grep -F 'residual cross-document inconsistency' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing residual cross-document inconsistency statement"
+# Dependencies and non-effects.
+grep -F 'DIFF-002 cannot run before' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-002 dependency statement"
+grep -F 'DIFF-004 cannot run before' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-004 dependency statement"
+grep -F 'DIFF-002 owns signature' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing DIFF-002 vs DIFF-004 scope separation statement"
+# No finalization/raw-transaction language leaked into proposed text.
+sed -n '/^### QK-TST-DIFF-002 proposed/,/^### QK-TST-DIFF-004 proposed/p' "$PKT32E" > "$tmpdir/p32e.d002prop" \
+  || err "$PKT32E DIFF-002 proposed section extraction failed"
+[ -s "$tmpdir/p32e.d002prop" ] || err "$PKT32E DIFF-002 proposed section extraction was empty"
+forbid "$PKT32E DIFF-002 proposed plan leaks finalization field language" \
+  -iE '(FINAL_SCRIPTSIG|FINAL_SCRIPTWITNESS)' "$tmpdir/p32e.d002prop"
+forbid "$PKT32E DIFF-002 proposed plan claims QuietKey produces finalized output" \
+  -iE 'QuietKey[^.]*finali[sz]ed? output|produces[^.]*finali[sz]ed? output|finali[sz]ed? output[^.]*is released' "$tmpdir/p32e.d002prop"
+sed -n '/^### QK-TST-DIFF-004 proposed/,/^## Dependencies/p' "$PKT32E" > "$tmpdir/p32e.d004prop" \
+  || err "$PKT32E DIFF-004 proposed section extraction failed"
+[ -s "$tmpdir/p32e.d004prop" ] || err "$PKT32E DIFF-004 proposed section extraction was empty"
+forbid "$PKT32E DIFF-004 proposed plan claims a raw final transaction" \
+  -iE 'raw final transaction' "$tmpdir/p32e.d004prop"
+# No canonical TEST-ARCHITECTURE edit claim.
+forbid "$PKT32E claims canonical TEST-ARCHITECTURE was edited" \
+  -iE '(TEST-ARCHITECTURE|QK-TST)[^.]*((has been|was|is now) (updated|changed|edited|corrected|amended))' "$PKT32E"
+# No test-status change claim.
+forbid "$PKT32E claims a QK-TST status was changed" \
+  -iE 'QK-TST[^.]*(status (changed|updated|is now)|(now|has been) (RUN|PASSED|FAILED|COMPLETE))' "$PKT32E"
+grep -F 'No correction is selected by this packet; candidate text requires later owner approval, and canonical correction requires a still-later separate authorization.' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing exact correction non-selection and later-authorization boundary"
+grep -F 'D-09, D-11, F32C-D11-Q-002 through F32C-D11-Q-012, every QK-LIM, profile acceptance, tests, evidence, gates A through E, and STOP-SHIP all remain open or unchanged.' "$PKT32E" >/dev/null \
+  || err "$PKT32E missing exact open-or-unchanged governance boundary"
+forbid "$PKT32E claims tests were run or completed" \
+  -iE '(test(s|ing)? (was|were|has been|have been) (run|performed|completed)|QK-TST-[^.]* (PASSED|FAILED|COMPLETE))' "$PKT32E"
+forbid "$PKT32E claims evidence or a gate was created, changed, or satisfied" \
+  -iE '(evidence|gate(s| [A-E])?)[^.]*((has been|was|is) (created|updated|changed|satisfied|passed|closed))' "$PKT32E"
+# Exact allowed QK-TST set: only QK-TST-DIFF-002, QK-TST-DIFF-004, QK-TST-REH-004.
+grep -E 'QK-TST-[A-Z0-9-]+' "$PKT32E" > "$tmpdir/p32e.tst.raw" 2>/dev/null; p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E QK-TST token scan failed"
+awk '{ s = $0
+  while (match(s, /QK-TST-[A-Z0-9-]+/)) {
+    print substr(s, RSTART, RLENGTH)
+    s = substr(s, RSTART + RLENGTH) } }' "$PKT32E" > "$tmpdir/p32e.tst.tokens" \
+  || err "$PKT32E QK-TST token extraction failed"
+LC_ALL=C sort -u "$tmpdir/p32e.tst.tokens" > "$tmpdir/p32e.tst.found" \
+  || err "$PKT32E QK-TST token sort failed"
+printf '%s\n' \
+  QK-TST-DIFF-002 \
+  QK-TST-DIFF-004 \
+  QK-TST-REH-004 > "$tmpdir/p32e.tst.exp" \
+  || err "$PKT32E QK-TST expected list generation failed"
+LC_ALL=C comm -23 "$tmpdir/p32e.tst.found" "$tmpdir/p32e.tst.exp" > "$tmpdir/p32e.tst.extra" \
+  || err "$PKT32E QK-TST extra-token comm failed"
+[ ! -s "$tmpdir/p32e.tst.extra" ] || err "$PKT32E contains QK-TST tokens outside the exact allowed set: $(cat "$tmpdir/p32e.tst.extra")"
+LC_ALL=C comm -23 "$tmpdir/p32e.tst.exp" "$tmpdir/p32e.tst.found" > "$tmpdir/p32e.tst.missing" \
+  || err "$PKT32E QK-TST missing-token comm failed"
+[ ! -s "$tmpdir/p32e.tst.missing" ] || err "$PKT32E is missing required QK-TST tokens: $(cat "$tmpdir/p32e.tst.missing")"
+# Headings transcript.
+grep '#' "$PKT32E" > "$tmpdir/p32e.heads.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E heading extraction failed"
+cat > "$tmpdir/p32e.heads.exp" <<'QK_F32E_HEADS_EOF' || err "$PKT32E heading fixture generation failed"
+# QK-F3.2e — PSBT-Output TEST-ARCHITECTURE Alignment Packet (Non-Binding)
+## Standing and source boundary
+## Audit locators (supporting byte identity only)
+## Owner words exactly
+## Canonical source rows (reproduced byte-for-byte from source base)
+### Differential table (canonical)
+### Rehearsal table (canonical, unchanged control)
+## Conflict analysis
+### DIFF-002 conflict
+### DIFF-004 conflict
+## Proposed correction text (UNSELECTED — candidate only)
+### QK-TST-DIFF-002 proposed plan/oracle (UNSELECTED)
+### QK-TST-DIFF-004 proposed plan/oracle (UNSELECTED)
+## Dependencies and non-effects
+QK_F32E_HEADS_EOF
+cmp -s "$tmpdir/p32e.heads.exp" "$tmpdir/p32e.heads.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E headings are not the exact closed ordered transcript"
+# Table transcript: pipe-carrying lines.
+grep '|' "$PKT32E" > "$tmpdir/p32e.pipes.act"; p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E pipe-line scan failed"
+cat > "$tmpdir/p32e.pipes.exp" <<'QK_F32E_PIPES_EOF' || err "$PKT32E pipe-line fixture generation failed"
+| ID | Method | Plan / oracle | Links | Milestone | Gate | Evidence artifact | Status |
+|---|---|---|---|---|---|---|---|
+| QK-TST-DIFF-002 | DIFF | PSBT parsing, validation, signing, and finalized output vs. independent implementations; signature verification and independent parseability. Oracle: verdict/byte agreement on shared corpora. | QK-REQ-PSBT-004, QK-REQ-PSBT-006; QK-THR-006, QK-THR-017 | F9 | Gate C | Cross-implementation agreement record with corpus hashes | PLANNED — NOT RUN |
+| QK-TST-DIFF-004 | DIFF | Export-route interop: the signed PSBT and raw final transaction exported via QR and via SD are byte-identical to each other and parse/verify identically in independent implementations. Oracle: cross-route byte comparison plus independent-parser agreement. | QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026, QK-LIM-PSBT-027 | F10 | Gate C | Cross-implementation agreement record with corpus hashes | PLANNED — NOT RUN |
+| ID | Method | Plan / oracle | Links | Milestone | Gate | Evidence artifact | Status |
+|---|---|---|---|---|---|---|---|
+| QK-TST-REH-004 | REH | Rescue with commodity reader and open rescue tool; independent transaction finalization outside QuietKey tooling; acceptance by Bitcoin Core. Dependency: rescue evidence is definable only after OD-02 resolves the card interface. Oracle: Bitcoin Core acceptance of the rescued transaction. | QK-REQ-CARD-006, QK-REQ-PSBT-004, QK-REQ-REC-006, QK-REQ-TRN-007; QK-THR-001, QK-THR-006, QK-THR-020 | F12 | Gate B, Gate C, Gate E | Rehearsal transcript + artifact hashes | PLANNED — NOT RUN |
+| ID | Method | Plan / oracle | Links | Milestone | Gate | Evidence artifact | Status |
+|---|---|---|---|---|---|---|---|
+| QK-TST-DIFF-002 | DIFF | PSBT v0 parsing and then-selected-profile validation against an independent implementation over shared positive and adversarial corpora; for each QuietKey-produced candidate output, independently fully consume and parse the exact serialized bytes, prove that the output is one unfinalized signed PSBT, verify every produced signature, and prove the exact record-level delta: every accepted pre-existing non-signature key/value record remains byte-identical in its original map and original relative order; every input contains exactly the two new authorized selected-pair PSBT_IN_PARTIAL_SIG records; no pre-existing partial-signature record and no missing, foreign, third, duplicate, replaced, or mutated selected-pair partial-signature record is present; and no finalization record is present. No finalization, extraction, raw transaction, or broadcast occurs. Oracle: all then-selected-profile verdicts agree and every independent output-parse, signature, and exact-delta assertion passes; any disagreement or failed assertion fails the row. Whole-output byte agreement between separately signing implementations is not required. | QK-REQ-PSBT-004, QK-REQ-PSBT-006; QK-THR-006, QK-THR-017 | F9 | Gate C | Cross-implementation agreement record with corpus hashes | PLANNED — NOT RUN |
+| QK-TST-DIFF-004 | DIFF | Export-route interoperability for one already frozen, fully serialized, freshly independently reparsed unfinalized signed-PSBT artifact. Without re-signing, route-specific cases provide that same byte sequence to uncompressed BBQr file type P output and to a newly created binary .psbt SD output under the then-selected D-11 lifecycle. Independent route receivers/readers recover the payloads; decoded QR payload bytes and completed SD output-file bytes must each equal the frozen artifact byte-for-byte and therefore equal each other, and an independent PSBT implementation must fully consume and parse both recovered byte sequences as the same unfinalized signed PSBT. The cases make no route approval, session, cardinality, completion, finalization, extraction, raw-transaction, broadcast, delivery, receipt, atomicity, or durability claim. Oracle: exact three-way byte equality plus independent full-consumption parse agreement; any wrapper, sidecar, trailing byte, route mismatch, finalization field, raw transaction, or parse disagreement fails the row. | QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026, QK-LIM-PSBT-027 | F10 | Gate C | Cross-implementation agreement record with corpus hashes | PLANNED — NOT RUN |
+QK_F32E_PIPES_EOF
+cmp -s "$tmpdir/p32e.pipes.exp" "$tmpdir/p32e.pipes.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E pipe-carrying lines are not the exact closed table transcript"
+# UTF-8/LF/hidden/material checks.
+iconv -f UTF-8 -t UTF-8 "$PKT32E" > "$tmpdir/p32e.utf8" 2> "$tmpdir/p32e.iconv.err"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E is not strict UTF-8 (iconv exit $p32erc)"
+[ -s "$tmpdir/p32e.utf8" ] || err "$PKT32E UTF-8 validation produced empty output"
+cmp -s "$PKT32E" "$tmpdir/p32e.utf8"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E UTF-8 validation changed bytes"
+tail -c 1 "$PKT32E" > "$tmpdir/p32e.tail1.raw"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-byte read failed"
+[ -s "$tmpdir/p32e.tail1.raw" ] || err "$PKT32E final-byte read produced empty output"
+od -An -tuC "$tmpdir/p32e.tail1.raw" > "$tmpdir/p32e.tail1.od"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-byte od failed"
+tr -d '[:space:]' < "$tmpdir/p32e.tail1.od" > "$tmpdir/p32e.tail1.txt"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-byte normalization failed"
+p32etail1=$(cat "$tmpdir/p32e.tail1.txt"); p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-byte read-back failed"
+case $p32etail1 in ''|*[!0-9]*) err "$PKT32E final-byte result is empty or non-numeric" ;; esac
+[ "$p32etail1" = 10 ] || err "$PKT32E must end in LF"
+tail -c 2 "$PKT32E" > "$tmpdir/p32e.tail2.raw"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-two-byte read failed"
+od -An -tuC "$tmpdir/p32e.tail2.raw" > "$tmpdir/p32e.tail2.od"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-two-byte od failed"
+tr -d '[:space:]' < "$tmpdir/p32e.tail2.od" > "$tmpdir/p32e.tail2.txt"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-two-byte normalization failed"
+p32etail2=$(cat "$tmpdir/p32e.tail2.txt"); p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E final-two-byte read-back failed"
+case $p32etail2 in ''|*[!0-9]*) err "$PKT32E final-two-byte result is empty or non-numeric" ;; esac
+[ "$p32etail2" != 1010 ] || err "$PKT32E must end in exactly one LF"
+od -An -tx1 "$PKT32E" > "$tmpdir/p32e.bytes.raw"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E byte scan failed"
+[ -s "$tmpdir/p32e.bytes.raw" ] || err "$PKT32E byte scan produced empty output"
+tr -d '[:space:]' < "$tmpdir/p32e.bytes.raw" > "$tmpdir/p32e.bytes.hex"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E byte normalization failed"
+[ -s "$tmpdir/p32e.bytes.hex" ] || err "$PKT32E normalized byte scan produced empty output"
+p32ebad=$(grep -cE '(^efbbbf)|00|0d|e2808[ef]|e280a[a-e]|e281a[6-9]' "$tmpdir/p32e.bytes.hex"); p32erc=$?
+[ "$p32erc" -le 1 ] || err "$PKT32E control/bidi byte scan failed"
+[ "$p32ebad" = 0 ] || err "$PKT32E contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$PKT32E contains hidden HTML or a link definition" -E '<!--|-->|^\[[^]]+\]:' "$PKT32E"
+forbid "$PKT32E contains a tab or trailing whitespace" -E '	|[[:blank:]]$' "$PKT32E"
+forbid "$PKT32E contains a block quote" -E '^[[:space:]]*>' "$PKT32E"
+forbid "$PKT32E contains a Setext heading or horizontal-rule line" -E '^[[:space:]]*(=+|-+)[[:space:]]*$' "$PKT32E"
+forbid "$PKT32E contains URL/URI/email material" -iE '(https?://|[a-z][a-z0-9+.-]*://|[[:alnum:]_.+-]+@[[:alnum:].-]+)' "$PKT32E"
+forbid "$PKT32E contains PSBT magic hex" -E '[7]0736274' "$PKT32E"
+forbid "$PKT32E contains PSBT base64 magic" -E '[c]HNidP' "$PKT32E"
+forbid "$PKT32E contains xpub-like material" -E '[x]pub[1-9A-HJ-NP-Za-km-z]{20,}' "$PKT32E"
+forbid "$PKT32E contains xprv-like material" -E '[x]prv[1-9A-HJ-NP-Za-km-z]{20,}' "$PKT32E"
+forbid "$PKT32E contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$PKT32E"
+awk '{ s=$0
+  while (match(s, /[A-Za-z0-9+\/=]+/)) {
+    t=substr(s,RSTART,RLENGTH)
+    if (length(t) >= 44) { print t; exit }
+    s=substr(s,RSTART+RLENGTH)
+  }
+}' "$PKT32E" > "$tmpdir/p32e.base64"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E base64 material scan failed (awk exit $p32erc)"
+[ ! -s "$tmpdir/p32e.base64" ] || err "$PKT32E contains base64-like payload material"
+# Exact 40-hex token allowlist for this packet.
+printf '%s\n' \
+  838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
+  877866e5a3636bdfb7015d715e048ccfad63d939 \
+  981b1b497102187da66fb4e82ef0725b32c088f7 \
+  a996a6d7c2bfa3a15109085475868410fe354422 \
+  b4594210975940df71b0e941841320d11defaa4c \
+  be4d019e349e15ca575ac64b64f900957283e5e0 \
+  e57faff4ead69ddf108cf522cb6c3cbfbef8219a \
+  f4e127a92fc68243274b7d384e335fa4632e5dd2 > "$tmpdir/p32e.hex.exp" \
+  || err "$PKT32E exact-40-hex allowlist generation failed"
+LC_ALL=C sort -c "$tmpdir/p32e.hex.exp" \
+  || err "$PKT32E exact-40-hex allowlist is not sorted (fail-closed self-check)"
+awk '{s=$0; while (match(s,/[0-9a-fA-F]+/)) {t=substr(s,RSTART,RLENGTH); if (length(t)==40) print tolower(t); s=substr(s,RSTART+RLENGTH)}}' \
+  "$PKT32E" > "$tmpdir/p32e.hex.raw"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E exact-40-hex enumeration failed"
+LC_ALL=C sort -u "$tmpdir/p32e.hex.raw" > "$tmpdir/p32e.hex.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E exact-40-hex sort failed"
+cmp -s "$tmpdir/p32e.hex.exp" "$tmpdir/p32e.hex.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "$PKT32E contains a missing, altered, or extra exact-40-hex token"
+
+# G: full changed-content material scan across exactly the nine named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this eight-path
+# is separately bounded elsewhere and is not part of this nine-path
 # scan. Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -2269,7 +2577,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" docs/f3/README.md docs/SO
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same eight named scan paths; every token must be deliberately
+# across the same nine named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -2285,27 +2593,41 @@ done
 #   b4594210975940df71b0e941841320d11defaa4c  F3.2c packet audit-locator/supporting byte-identity invariant
 #   bb6601f3b97528a72c55622251a4b475680ec21b  published F3.2b owner-response source base
 #   e4cdf7771e189fc0f729358334aafd35177048c6  published F3.2d Q-001 source base
+#   4ffa20afbedeb0b6cfbbe57298f941bc0537683e  F3.2e packet pinned whole-file blob
+#   838a732ab556b51ca8b0b61bed9ae9d512d47a87  F3.2b owner-response blob (F3.2e audit locator)
+#   877866e5a3636bdfb7015d715e048ccfad63d939  PSBT draft blob (F3.2e audit locator)
+#   981b1b497102187da66fb4e82ef0725b32c088f7  REQUIREMENTS blob (F3.2e audit locator)
+#   be4d019e349e15ca575ac64b64f900957283e5e0  F3.2e source base
+#   e57faff4ead69ddf108cf522cb6c3cbfbef8219a  F3.2e authorization commit A (Decision Log anchor)
+#   f4e127a92fc68243274b7d384e335fa4632e5dd2  TEST-ARCHITECTURE blob (F3.2e audit locator)
 {
   printf '%s\n' \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
+    4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
+    838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
+    877866e5a3636bdfb7015d715e048ccfad63d939 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
+    981b1b497102187da66fb4e82ef0725b32c088f7 \
     a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
     b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
+    be4d019e349e15ca575ac64b64f900957283e5e0 \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
-    e4cdf7771e189fc0f729358334aafd35177048c6
+    e4cdf7771e189fc0f729358334aafd35177048c6 \
+    e57faff4ead69ddf108cf522cb6c3cbfbef8219a \
+    f4e127a92fc68243274b7d384e335fa4632e5dd2
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
