@@ -76,6 +76,9 @@ C27=85b5356961e5f04f49e7c9e8d835c09e45755e9f    # docs(f3): add non-binding F3.2
 C28=bb6601f3b97528a72c55622251a4b475680ec21b    # chore: bind F3.2b PSBT decision-packet consistency checks (PUBLISHED RESPONSE PARENT)
 C29=3dfda3d6c10d54f92e6c397866e8c630a1249898    # docs: authorize F3.2b PSBT owner-response preparation
 C30=363eda2137f6e4e29ba01db9183d9ea72672fb10    # docs(f3): record owner-approved F3.2b PSBT directions and reanchor host checks
+C31=26e075704cdd172fce62b9b7cd38b4035db384d8    # published F3.2c parent
+C32=9354d4a2924378ddcc20e4ffa26be0602bd913c0    # docs: authorize F3.2c D-11 construction-packet preparation
+C33=76839acf30c48e3623c27c68cb7ecdbf5f5cf698    # docs(f3): add non-binding F3.2c D-11 construction packet and reanchor host checks
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -95,11 +98,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> ... -> C27 -> C28 -> C29 ->
-# C30 -> HEAD, no merges. C28 is the PUBLISHED base of the current
-# unpublished work.
+# Exact linear ancestry BASE -> C1 -> ... -> C30 -> C31 -> C32 ->
+# C33 -> HEAD, no merges. C31 is the published base of the current
+# unpublished F3.2c work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c33=$($GIT rev-parse "$C33^" 2>/dev/null) || err "C33 has no parent"
+p_c32=$($GIT rev-parse "$C32^" 2>/dev/null) || err "C32 has no parent"
+p_c31=$($GIT rev-parse "$C31^" 2>/dev/null) || err "C31 has no parent"
 p_c30=$($GIT rev-parse "$C30^" 2>/dev/null) || err "C30 has no parent"
 p_c29=$($GIT rev-parse "$C29^" 2>/dev/null) || err "C29 has no parent"
 p_c28=$($GIT rev-parse "$C28^" 2>/dev/null) || err "C28 has no parent"
@@ -130,7 +136,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C30" ] || err "HEAD parent is $p_head, expected $C30"
+[ "$p_head" = "$C33" ] || err "HEAD parent is $p_head, expected $C33"
+[ "$p_c33" = "$C32" ] || err "C33 parent is $p_c33, expected $C32"
+[ "$p_c32" = "$C31" ] || err "C32 parent is $p_c32, expected $C31"
+[ "$p_c31" = "$C30" ] || err "C31 parent is $p_c31, expected $C30"
 [ "$p_c30" = "$C29" ] || err "C30 parent is $p_c30, expected $C29"
 [ "$p_c29" = "$C28" ] || err "C29 parent is $p_c29, expected $C28"
 [ "$p_c28" = "$C27" ] || err "C28 parent is $p_c28, expected $C27"
@@ -162,10 +171,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "31" ] || err "expected exactly 31 commits after base, found $count"
+[ "$count" = "34" ] || err "expected exactly 34 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -362,6 +371,19 @@ EOF
 
 check_paths "$C30" "commit30" <<'EOF'
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$C31" "commit31" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C32" "commit32" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C33" "commit33" <<'EOF'
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 tools/verify-host-boundary.sh
 EOF
 
@@ -639,17 +661,15 @@ grep -F 'an explicit profile-acceptance prerequisite and remains NOT' "$WTS" >/d
   || err "$WTS missing the traceability acceptance-prerequisite statement"
 forbid "$WTS still claims completed traceability to existing QK-TST IDs" \
   -F 'traces only to existing' "$WTS"
-# Exact bounded append content enforced directly (checked stages, cmp).
-# The current Decision Log must be byte-identical to the reviewed
-# F3.2b response authorization commit A (C29); the published C28
-# content must be an exact byte prefix of it; and the appended suffix
-# beyond the C28 prefix must be byte-identical to the exact authorized
-# QK-AUTH-F3.2B-RSP-001 record transcript embedded below.
+# Historical F3.2b bounded append content enforced directly. C29 is a
+# historical Decision-Log prefix; it is not the current active log.
 $GIT show "$C29:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from C29"
-cmp -s "$tmpdir/cs.dlog.a" docs/DECISION-LOG.md
-csdl=$?
-[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C29 (F3.2b response A) version (cmp exit $csdl)"
+wc -c < "$tmpdir/cs.dlog.a" > "$tmpdir/cs.dlog.a.len.raw" || err "C29 Decision-Log length failed"
+tr -d '[:space:]' < "$tmpdir/cs.dlog.a.len.raw" > "$tmpdir/cs.dlog.a.len" || err "C29 Decision-Log length strip failed"
+csd29=$(cat "$tmpdir/cs.dlog.a.len") || err "C29 Decision-Log length read failed"
+dd if=docs/DECISION-LOG.md bs=1 count="$csd29" > "$tmpdir/cs.dlog.a.prefix" 2>/dev/null || err "C29 Decision-Log prefix extraction failed"
+cmp -s "$tmpdir/cs.dlog.a" "$tmpdir/cs.dlog.a.prefix" || err "reviewed C29 Decision Log is not an exact prefix"
 $GIT show "$C28:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.base" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from C28"
 wc -c < "$tmpdir/cs.dlog.base" > "$tmpdir/cs.dlog.len.raw" \
@@ -665,7 +685,7 @@ csdl=$?
 [ "$csdl" -eq 0 ] || err "published C28 Decision-Log is not an exact byte prefix of the current Decision-Log (cmp exit $csdl)"
 # Exact authorized suffix beyond the C28 prefix.
 dlskip=$((dlbl + 1)) || err "suffix offset arithmetic failed (fail-closed)"
-tail -c "+$dlskip" docs/DECISION-LOG.md > "$tmpdir/cs.dlog.suffix" \
+tail -c "+$dlskip" "$tmpdir/cs.dlog.a" > "$tmpdir/cs.dlog.suffix" \
   || err "Decision-Log suffix extraction failed (fail-closed)"
 cat > "$tmpdir/cs.dlog.suffix.expected" <<'QK_F32B_RSP_SUFFIX_EOF' || err "expected Decision-Log suffix file generation failed (fail-closed)"
 
@@ -686,6 +706,45 @@ QK_F32B_RSP_SUFFIX_EOF
 cmp -s "$tmpdir/cs.dlog.suffix.expected" "$tmpdir/cs.dlog.suffix"
 csdl=$?
 [ "$csdl" -eq 0 ] || err "Decision-Log suffix beyond the published C28 prefix is not the exact authorized QK-AUTH-F3.2B-RSP-001 record (cmp exit $csdl)"
+# Current F3.2c authorization append: C31 is the exact prefix, C32 is
+# the current Decision Log, and the suffix is the one exact authorized
+# QK-AUTH-F3.2C-D11-PKT-001 transcript. Supporting evidence only.
+$GIT show "$C31:docs/DECISION-LOG.md" > "$tmpdir/cs.f32c.dlog.c31" 2>/dev/null \
+  || err "cannot read C31 published Decision Log"
+$GIT show "$C32:docs/DECISION-LOG.md" > "$tmpdir/cs.f32c.dlog.c32" 2>/dev/null \
+  || err "cannot read C32 authorization Decision Log"
+cmp -s "$tmpdir/cs.f32c.dlog.c32" docs/DECISION-LOG.md \
+  || err "current Decision Log is not byte-identical to C32"
+wc -c < "$tmpdir/cs.f32c.dlog.c31" > "$tmpdir/cs.f32c.dlog.len.raw" \
+  || err "C31 Decision-Log length failed"
+tr -d '[:space:]' < "$tmpdir/cs.f32c.dlog.len.raw" > "$tmpdir/cs.f32c.dlog.len" \
+  || err "C31 Decision-Log length normalization failed"
+f32cdl=$(cat "$tmpdir/cs.f32c.dlog.len") || err "C31 Decision-Log length read failed"
+case "$f32cdl" in ''|*[!0-9]*) err "C31 Decision-Log length is not numeric" ;; esac
+dd if="$tmpdir/cs.f32c.dlog.c32" bs=1 count="$f32cdl" > "$tmpdir/cs.f32c.dlog.prefix" 2>/dev/null \
+  || err "C31/C32 Decision-Log prefix extraction failed"
+cmp -s "$tmpdir/cs.f32c.dlog.c31" "$tmpdir/cs.f32c.dlog.prefix" \
+  || err "C31 Decision Log is not an exact byte prefix of C32"
+f32cskip=$((f32cdl + 1))
+tail -c "+$f32cskip" "$tmpdir/cs.f32c.dlog.c32" > "$tmpdir/cs.f32c.dlog.suffix" \
+  || err "F3.2c Decision-Log suffix extraction failed"
+cat > "$tmpdir/cs.f32c.dlog.suffix.expected" <<'QK_F32C_DLOG_SUFFIX_EOF' || err "F3.2c Decision-Log expected suffix generation failed"
+
+### QK-AUTH-F3.2C-D11-PKT-001 — F3.2c D-11 non-binding media/write lifecycle construction-packet preparation authorization
+
+- **ID:** QK-AUTH-F3.2C-D11-PKT-001
+- **Date:** 2026-08-19
+- **Approver:** Project owner
+- **Owner words exactly:** “Authorize preparation and independent audit of the non-binding docs-only F3.2c D-11 media/write lifecycle construction packet from 26e075704cdd172fce62b9b7cd38b4035db384d8, with only the mechanically necessary host-boundary and current-stage verifier bindings. No D-11 selection, profile or clause acceptance, implementation, dependencies, vectors, fixtures, specimens, media I/O or testing, QK-LIM/QK-TST/evidence/gate change, license application, hardware or firmware work, settings or credential changes, or publication.”
+- **Published parent:** `26e075704cdd172fce62b9b7cd38b4035db384d8`.
+- **Exact commit/path map:** Commit A changes only `docs/DECISION-LOG.md`; Commit B adds only `docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md` and changes only `tools/verify-host-boundary.sh`; Commit C changes only `tools/verify-current-stage.sh`.
+- **Least-authority scope:** only local packet preparation and verification, one credential-safe audit-bundle export, and independent read-only audit are authorized. The mechanically necessary verifier bindings do not broaden this authority.
+- **Boundaries:** D-11 remains unanswered and EVIDENCE/CONSTRUCTION-BLOCKED; D-09 remains unresolved; the PSBT profile draft remains not accepted; no normative clause, OD, limit, test, evidence, gate, implementation, product, target, release, remote, publication, license, hardware, firmware, setting, credential, tag, or other-branch transition is authorized.
+- **Later publication:** publication requires a separate explicit instruction naming the exact audited 40-hex commit.
+- **Effect:** this authorization records no D-11 selection, enacts no profile or clause, changes no protected status, and authorizes no publication.
+QK_F32C_DLOG_SUFFIX_EOF
+cmp -s "$tmpdir/cs.f32c.dlog.suffix.expected" "$tmpdir/cs.f32c.dlog.suffix" \
+  || err "C32 Decision-Log suffix is not the exact QK-AUTH-F3.2C-D11-PKT-001 record"
 # OD-08 authorization record essentials. Every check below is a
 # COMPLETE-literal-line proof: grep -cFx -e against the entire exact
 # bullet or heading line from docs/DECISION-LOG.md, each required
@@ -1094,18 +1153,29 @@ forbid "$PKT uses the stale sole-artifact-preparer wording" \
   -F 'sole artifact preparer' "$PKT"
 forbid "$PKT links the stale signing-commits page instead of signing-tags" \
   -F 'managing-commit-signature-verification/signing-commits' "$PKT"
-# ------------- Host verifier: historical proof plus active B identity
-# Preserve the exact historical F3.2b packet delta check, and require
-# the active host verifier to be byte-identical to response Commit B.
+# ------------- Host verifier: truthful historical and active bindings
+# C30, C31, and C32 carry the same historical F3.2b host bytes. C33 is
+# the active F3.2c Commit B host and is bound separately below.
 $GIT show "$C21:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C21"
 $GIT show "$C27:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b27" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C27"
 $GIT show "$C30:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b30" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C30"
-cmp -s "$tmpdir/cs.hb.b30" tools/verify-host-boundary.sh
-pkc=$?
-[ "$pkc" -eq 0 ] || err "tools/verify-host-boundary.sh is not byte-identical to the reviewed C30 (F3.2b response B) version (cmp exit $pkc)"
+$GIT show "$C31:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.c31" 2>/dev/null \
+  || err "cannot read historical host verifier from C31"
+$GIT show "$C32:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.c32" 2>/dev/null \
+  || err "cannot read historical host verifier from C32"
+cmp -s "$tmpdir/cs.hb.b30" "$tmpdir/cs.hb.c31" \
+  || err "historical C30 and C31 host verifiers differ"
+cmp -s "$tmpdir/cs.hb.c31" "$tmpdir/cs.hb.c32" \
+  || err "historical C31 and C32 host verifiers differ"
+# Reject any tautological two-file cmp in this checker. Such a line can
+# only prove a temporary file equals itself and is not historical evidence.
+awk '$1 == "cmp" && $2 == "-s" && $3 == $4 { print }' tools/verify-current-stage.sh > "$tmpdir/cs.selfcmp" \
+  || err "current-stage self-comparison scan failed"
+[ ! -s "$tmpdir/cs.selfcmp" ] \
+  || err "current-stage checker contains a tautological cmp self-comparison: $(cat "$tmpdir/cs.selfcmp")"
 # Reanchor-plus-single-file-set proof: the delta from the published
 # C25 host verifier to the reviewed C27 version must equal the exact
 # minimal transcript embedded below — the three Decision-Log-anchor
@@ -1140,21 +1210,22 @@ hbd=$?
 [ "$hbd" -eq 0 ] || err "host-verifier C25-to-C27 delta is not the exact minimal anchor-advance-plus-file-set transcript (cmp exit $hbd): $(cat "$tmpdir/cs.hb.d")"
 grep -F "show $C26:docs/DECISION-LOG.md" "$tmpdir/cs.hb.b27" >/dev/null \
   || err "historical C27 host checker Decision-Log anchor is not the F3.2b packet A commit"
-grep -F "show $C29:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
-  || err "active host checker Decision-Log anchor is not the F3.2b response A commit"
+grep -F "show $C32:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "active host checker Decision-Log anchor is not the F3.2c authorization A commit"
 # ------------------------- SOURCE-REGISTER byte-identical to e81/C19
 $GIT show "$C19:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.c19" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C19"
 cmp -s "$tmpdir/cs.sreg.c19" docs/SOURCE-REGISTER.md
 pkc=$?
 [ "$pkc" -eq 0 ] || err "docs/SOURCE-REGISTER.md is not byte-identical to the published C19 version (cmp exit $pkc)"
-# ------------------- Exact e81..HEAD changed path set (exactly five)
+# ------------------- Exact C19..HEAD changed path set (exactly eight)
 cat > "$tmpdir/cs.od08.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/OD-08-DECISION-PACKET.md
 docs/OD-08-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1164,13 +1235,14 @@ $GIT diff --name-only "$C19" "$head" > "$tmpdir/cs.od08.raw" \
 LC_ALL=C sort "$tmpdir/cs.od08.raw" > "$tmpdir/cs.od08.act" \
   || err "C19..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.od08.exp" "$tmpdir/cs.od08.act" > "$tmpdir/cs.od08.dd" 2>&1 \
-  || err "changes since published C19 differ from the six authorized OD-08 and F3.2b paths: $(cat "$tmpdir/cs.od08.dd")"
-# --------- Exact C22..HEAD changed path set (exactly four, this chain)
+  || err "changes since published C19 differ from the eight authorized OD-08, F3.2b, and F3.2c paths: $(cat "$tmpdir/cs.od08.dd")"
+# --------- Exact C22..HEAD changed path set (exactly seven)
 cat > "$tmpdir/cs.rspset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/OD-08-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1180,12 +1252,13 @@ $GIT diff --name-only "$C22" "$head" > "$tmpdir/cs.rspset.raw" \
 LC_ALL=C sort "$tmpdir/cs.rspset.raw" > "$tmpdir/cs.rspset.act" \
   || err "C22..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.rspset.exp" "$tmpdir/cs.rspset.act" > "$tmpdir/cs.rspset.dd" 2>&1 \
-  || err "changes since published C22 differ from the five authorized owner-response and F3.2b chain paths: $(cat "$tmpdir/cs.rspset.dd")"
-# --------- Exact C25..HEAD changed path set (exactly five)
+  || err "changes since published C22 differ from the seven authorized owner-response, F3.2b, and F3.2c paths: $(cat "$tmpdir/cs.rspset.dd")"
+# --------- Exact C25..HEAD changed path set (exactly six)
 cat > "$tmpdir/cs.f32bset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1195,11 +1268,12 @@ $GIT diff --name-only "$C25" "$head" > "$tmpdir/cs.f32bset.raw" \
 LC_ALL=C sort "$tmpdir/cs.f32bset.raw" > "$tmpdir/cs.f32bset.act" \
   || err "C25..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.f32bset.exp" "$tmpdir/cs.f32bset.act" > "$tmpdir/cs.f32bset.dd" 2>&1 \
-  || err "changes since published C25 differ from the five authorized F3.2b packet/response paths: $(cat "$tmpdir/cs.f32bset.dd")"
-# --------- Exact C28..HEAD changed path set (exactly four, this chain)
+  || err "changes since published C25 differ from the six authorized F3.2b and F3.2c paths: $(cat "$tmpdir/cs.f32bset.dd")"
+# --------- Exact C28..HEAD changed path set (exactly five)
 cat > "$tmpdir/cs.f32brspset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1209,12 +1283,14 @@ $GIT diff --name-only "$C28" "$head" > "$tmpdir/cs.f32brspset.raw" \
 LC_ALL=C sort "$tmpdir/cs.f32brspset.raw" > "$tmpdir/cs.f32brspset.act" \
   || err "C28..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.f32brspset.exp" "$tmpdir/cs.f32brspset.act" > "$tmpdir/cs.f32brspset.dd" 2>&1 \
-  || err "changes since published C28 differ from the four authorized F3.2b owner-response paths: $(cat "$tmpdir/cs.f32brspset.dd")"
-# Every other tracked blob — the packet, PSBT draft, F3 README, wallet-trust
-# spine, SOURCE-REGISTER, OPEN-DECISIONS, OD-08 docs, architecture,
-# requirements, security docs, gates, limits, tests, evidence, code,
-# manifests/lock, .replit and all the rest — is therefore
-# byte-identical to the published C28 state.
+  || err "changes since published C28 differ from the five authorized F3.2b response and F3.2c paths: $(cat "$tmpdir/cs.f32brspset.dd")"
+# Every tracked blob outside the five-path C28..HEAD set above —
+# including the F3.2b decision packet, the PSBT draft, F3 README,
+# wallet-trust spine, SOURCE-REGISTER, OPEN-DECISIONS, OD-08 docs,
+# architecture, requirements, security docs, gates, limits, tests,
+# evidence, code, manifests/lock, .replit and all the rest — is
+# therefore byte-identical to the published C28 state; executable
+# scope is unchanged.
 # --------------------------------------- Verifier executable modes
 # Fail-closed mode guard: both verifier scripts must be executable in
 # the working tree, and their committed modes at HEAD must be exactly
@@ -1240,6 +1316,23 @@ for modepath in tools/verify-current-stage.sh tools/verify-host-boundary.sh; do
     '') err "committed mode for $modepath is empty or malformed (fail-closed)" ;;
     *) err "committed mode for $modepath is $modeval, expected exactly 100755" ;;
   esac
+done
+# F3.2c Commit B mode partition: packet exactly 100644 and active host
+# verifier exactly 100755, each represented by one unique tree entry.
+for bmodepair in \
+  '100644 docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md' \
+  '100755 tools/verify-host-boundary.sh'; do
+  bmodeexp=${bmodepair%% *}
+  bmodepath=${bmodepair#* }
+  $GIT ls-tree "$C33" -- "$bmodepath" > "$tmpdir/cs.f32c.bmode.raw" \
+    || err "git ls-tree C33 failed for $bmodepath"
+  [ -s "$tmpdir/cs.f32c.bmode.raw" ] || err "C33 mode entry missing for $bmodepath"
+  bmodelines=$(awk 'END { print NR+0 }' "$tmpdir/cs.f32c.bmode.raw") \
+    || err "C33 mode line count failed for $bmodepath"
+  [ "$bmodelines" = "1" ] || err "C33 mode entry is not unique for $bmodepath"
+  bmodeact=$(awk 'NR == 1 { print $1 }' "$tmpdir/cs.f32c.bmode.raw") \
+    || err "C33 mode extraction failed for $bmodepath"
+  [ "$bmodeact" = "$bmodeexp" ] || err "C33 mode for $bmodepath is $bmodeact, expected $bmodeexp"
 done
 # Commit B mode partition: the new response record is exactly 100644
 # and the host verifier remains exactly 100755.
@@ -2075,6 +2168,474 @@ grep -F 'missing the corrected unvalidated-specification sentence' tools/verify-
 grep -F -e "-F 'This repository is a development specification only; no implementation evidence exists.' README.md" tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the stale README-sentence forbid"
 
+# F3.2c direct bindings. Supporting self-authored evidence only; these
+# checks do not authenticate themselves or replace independent audit.
+F32CPKT=docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
+$GIT show "$C32:docs/DECISION-LOG.md" > "$tmpdir/cs.f32c.dlog" 2>/dev/null || err "cannot read C32 Decision Log"
+cmp -s "$tmpdir/cs.f32c.dlog" docs/DECISION-LOG.md || err "Decision Log is not byte-identical to C32"
+$GIT show "$C33:$F32CPKT" > "$tmpdir/cs.f32c.packet" 2>/dev/null || err "cannot read C33 packet"
+cmp -s "$tmpdir/cs.f32c.packet" "$F32CPKT" || err "F3.2c packet is not byte-identical to C33"
+csf32cblob=b4594210975940df71b0e941841320d11defaa4c
+csf32ctreeblob=$($GIT ls-tree "$C33" -- "$F32CPKT" | awk '{print $3}'); csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c C33 packet tree-blob lookup failed"
+[ "$csf32ctreeblob" = "$csf32cblob" ] || err "F3.2c C33 packet tree blob differs from the approved packet blob"
+csf32cactblob=$($GIT hash-object -- "$F32CPKT"); csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c active packet hash-object scan failed"
+[ "$csf32cactblob" = "$csf32cblob" ] || err "F3.2c active packet blob differs from the approved packet blob"
+grep -F -e 'git --no-optional-locks hash-object -- "$PKT32C"' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the packet hash-object audit-locator mechanism"
+grep -F -e 'b4594210975940df71b0e941841320d11defaa4c' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the approved packet audit-locator blob"
+grep -F -e '[ "$p32blobact" = "$p32blob" ] || err' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the active packet blob comparison"
+$GIT show "$C33:tools/verify-host-boundary.sh" > "$tmpdir/cs.f32c.host" 2>/dev/null || err "cannot read C33 host verifier"
+cmp -s "$tmpdir/cs.f32c.host" tools/verify-host-boundary.sh || err "host verifier is not byte-identical to C33"
+for csf32c in \
+  '# QK-F3.2c — D-11 Media/Write Lifecycle Construction and Readiness Packet (Non-Binding)' \
+  'OWNER QUESTIONS UNANSWERED' \
+  'D-11 selection is blocked until owner meaning is resolved.' \
+  'p32set F32C-D11-C 8' \
+  'p32set F32C-D11-E 10' \
+  'p32set F32C-D11-Q 12' \
+  'p32set F32C-D11-F 22' \
+  'row-leading IDs are not the exact ordered C/E/Q/F union' \
+  'expected exactly 52' \
+  'failure rows or outcomes are not exact' \
+  'pipe-carrying lines are not exactly the four closed tables' \
+  'hash-carrying lines are not exactly the one H1 and eleven H2 headings' \
+  'contains a contradictory claim' \
+  'contains a Setext underline or pipe-free GFM table delimiter run' \
+  'od byte scan produced empty output' \
+  'UTF-8 validation changed bytes' \
+  'e2808[ef]|e280a[a-e]|e281a[6-9]' \
+  'never self-authentication or independent proof.'; do
+  grep -F -e "$csf32c" tools/verify-host-boundary.sh "$F32CPKT" >/dev/null \
+    || err "F3.2c static guard/packet phrase missing: $csf32c"
+done
+# Independent exact full-line STATUS binding: the packet's sole STATUS:
+# line must equal the complete required banner byte-for-byte.
+csf32cstatus='STATUS: OWNER-AUTHORIZED CONSTRUCTION/READINESS INPUT ONLY — NON-NORMATIVE — D-11 EVIDENCE/CONSTRUCTION-BLOCKED — D-11 NOT SELECTED — OWNER QUESTIONS UNANSWERED — PSBT PROFILE NOT ACCEPTED — NO IMPLEMENTATION OR DEPENDENCIES — NO VECTORS, FIXTURES, OR SPECIMENS GENERATED OR RUN — NO MEDIA I/O OR TESTING — NO TARGET EVIDENCE — NO QK-LIM VALUE SELECTED — NO QK-TST/EVIDENCE/GATE CHANGE — NO LICENSE APPLICATION — NO HARDWARE, FIRMWARE, SETTINGS, OR CREDENTIAL CHANGE — LOCAL AND UNPUBLISHED.'
+[ "$(grep -c '^STATUS:' "$F32CPKT")" = 1 ] || err "F3.2c packet must contain exactly one canonical STATUS line"
+csf32cstatusany=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$F32CPKT"); csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c global STATUS occurrence scan failed"
+case $csf32cstatusany in ''|*[!0-9]*) err "F3.2c global STATUS occurrence scan produced empty or non-numeric output" ;; esac
+[ "$csf32cstatusany" = 1 ] || err "F3.2c packet must contain exactly one STATUS: occurrence anywhere (found $csf32cstatusany)"
+grep -F -e 'awk '\''{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}'\'' "$PKT32C"' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the literal STATUS occurrence-count mechanism"
+grep -F -e 'global STATUS occurrence scan produced empty or non-numeric output' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the fail-closed STATUS occurrence output guard"
+grep -F -e 'STATUS same-line uniqueness canary generation failed' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the corrected same-line STATUS canary"
+grep '^STATUS:' "$F32CPKT" > "$tmpdir/cs.f32c.status.act" || err "F3.2c STATUS line extraction failed"
+printf '%s\n' "$csf32cstatus" > "$tmpdir/cs.f32c.status.exp" || err "F3.2c STATUS expected generation failed"
+cmp -s "$tmpdir/cs.f32c.status.exp" "$tmpdir/cs.f32c.status.act"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c STATUS line is not exactly the complete required banner"
+# Fail-closed suffix canaries: any appended text (including a
+# 'D-11 SELECTED' claim) must break the exact full-line binding.
+for csf32csfx in ' — D-11 SELECTED' ' EXTRA' '.'; do
+  printf '%s%s\n' "$csf32cstatus" "$csf32csfx" > "$tmpdir/cs.f32c.status.bad" || err "F3.2c STATUS suffix canary generation failed"
+  cmp -s "$tmpdir/cs.f32c.status.exp" "$tmpdir/cs.f32c.status.bad"
+  csf32crc=$?
+  [ "$csf32crc" -eq 1 ] || err "F3.2c STATUS suffix canary failed to detect appended text (cmp exit $csf32crc)"
+done
+# Independent global STATUS-uniqueness canaries cover visible Markdown
+# prefixes and a second occurrence on the canonical line.
+for csf32cstatusbad in '> STATUS: SECONDARY' '>> STATUS: SECONDARY' ' STATUS: SECONDARY'; do
+  printf '%s\n%s\n' "$csf32cstatus" "$csf32cstatusbad" > "$tmpdir/cs.f32c.status.unique.bad" \
+    || err "F3.2c STATUS uniqueness canary generation failed"
+  csf32cstatusn=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$tmpdir/cs.f32c.status.unique.bad"); csf32crc=$?
+  [ "$csf32crc" -eq 0 ] || err "F3.2c STATUS uniqueness canary scan failed"
+  case $csf32cstatusn in ''|*[!0-9]*) err "F3.2c STATUS uniqueness canary scan produced empty or non-numeric output" ;; esac
+  [ "$csf32cstatusn" = 2 ] || err "F3.2c STATUS uniqueness canary did not count exactly two occurrences"
+done
+printf '%s STATUS: SECONDARY\n' "$csf32cstatus" > "$tmpdir/cs.f32c.status.unique.bad" \
+  || err "F3.2c STATUS same-line uniqueness canary generation failed"
+csf32cstatusn=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$tmpdir/cs.f32c.status.unique.bad"); csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c STATUS same-line uniqueness canary scan failed"
+case $csf32cstatusn in ''|*[!0-9]*) err "F3.2c STATUS same-line uniqueness canary scan produced empty or non-numeric output" ;; esac
+[ "$csf32cstatusn" = 2 ] || err "F3.2c STATUS same-line uniqueness canary did not count exactly two occurrences"
+# Independently enumerate the complete packet row union rather than
+# relying only on the active host checker. Malformed, unknown-family,
+# duplicate, suffixed, smuggled, or reordered row IDs fail.
+: > "$tmpdir/cs.f32c.union.exp" || err "F3.2c expected union init failed"
+for csf32cspec in 'C 8' 'E 10' 'Q 12' 'F 22'; do
+  set -- $csf32cspec; csf32ci=1
+  while [ "$csf32ci" -le "$2" ]; do
+    printf 'F32C-D11-%s-%03d\n' "$1" "$csf32ci" >> "$tmpdir/cs.f32c.union.exp" \
+      || err "F3.2c expected union generation failed"
+    csf32ci=$((csf32ci + 1))
+  done
+done
+grep '^| F32C-D11-' "$F32CPKT" > "$tmpdir/cs.f32c.union.rows"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c row enumeration failed or returned no rows"
+csf32craw=$(awk 'END { print NR }' "$tmpdir/cs.f32c.union.rows") || err "F3.2c raw row count failed"
+[ "$csf32craw" = 52 ] || err "F3.2c raw F32C-D11 row count is $csf32craw, expected exactly 52"
+sed -n 's/^| \(F32C-D11-[CEQF]-[0-9][0-9][0-9]\) |.*$/\1/p' "$tmpdir/cs.f32c.union.rows" > "$tmpdir/cs.f32c.union.rowids" \
+  || err "F3.2c row-ID extraction failed"
+csf32cids=$(awk 'END { print NR }' "$tmpdir/cs.f32c.union.rowids") || err "F3.2c valid row-ID count failed"
+[ "$csf32cids" = "$csf32craw" ] || err "F3.2c only $csf32cids of $csf32craw rows carry exact valid IDs"
+cmp -s "$tmpdir/cs.f32c.union.exp" "$tmpdir/cs.f32c.union.rowids" \
+  || err "F3.2c row IDs are not the exact ordered C/E/Q/F union"
+awk '{s=$0; while (match(s,/F32C-D11-[A-Z]-[0-9][0-9][0-9]/)) {print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)}}' \
+  "$F32CPKT" > "$tmpdir/cs.f32c.union.tokens" || err "F3.2c token enumeration failed"
+cmp -s "$tmpdir/cs.f32c.union.exp" "$tmpdir/cs.f32c.union.tokens" \
+  || err "F3.2c exact ID tokens are missing, duplicated, unknown, or smuggled"
+# Closed-world broad token scan: every maximal F32C-D11-prefixed token
+# over letters, digits, underscore, hyphen, and literal asterisk
+# (any family width, digit width, suffix, or delimiter residue) must be
+# an exact allowed ID or the single permitted exact E-family glob token
+# F32C-D11-E-*.
+awk '{s=$0; while (match(s,/F32C-D11-[A-Za-z0-9_*-]*/)) {print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)}}' \
+  "$F32CPKT" > "$tmpdir/cs.f32c.union.broad" || err "F3.2c broad F32C-D11 token enumeration failed"
+[ -s "$tmpdir/cs.f32c.union.broad" ] || err "F3.2c broad F32C-D11 token enumeration produced no tokens"
+sort -u "$tmpdir/cs.f32c.union.broad" > "$tmpdir/cs.f32c.union.broad.sorted" || err "F3.2c broad token sort failed"
+sort -u "$tmpdir/cs.f32c.union.exp" > "$tmpdir/cs.f32c.union.allow" || err "F3.2c expected union sort failed"
+printf 'F32C-D11-E-*\n' >> "$tmpdir/cs.f32c.union.allow" || err "F3.2c family-glob allowance append failed"
+sort -o "$tmpdir/cs.f32c.union.allow" "$tmpdir/cs.f32c.union.allow" || err "F3.2c allowance resort failed"
+comm -23 "$tmpdir/cs.f32c.union.broad.sorted" "$tmpdir/cs.f32c.union.allow" > "$tmpdir/cs.f32c.union.stray" \
+  || err "F3.2c stray-token comparison failed"
+[ ! -s "$tmpdir/cs.f32c.union.stray" ] || err "F3.2c packet contains F32C-D11-prefixed tokens outside the exact allowed IDs"
+csf32cglob=$(grep -cF -e 'F32C-D11-E-*' "$F32CPKT"); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c family-glob scan failed"
+[ "$csf32cglob" = 1 ] || err "F3.2c family-glob mention F32C-D11-E-* must occur exactly once"
+csf32cgtok=$(grep -cxF -e 'F32C-D11-E-*' "$tmpdir/cs.f32c.union.broad"); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c family-glob token count scan failed"
+[ "$csf32cgtok" = 1 ] || err "F3.2c exact glob token F32C-D11-E-* must occur exactly once"
+# Fail-closed regression probes: the broad closed-world scan must reject
+# unknown and multi-letter families, wrong digit widths, suffixes, and
+# malformed delimiters. Supporting self-authored evidence only.
+cat > "$tmpdir/cs.f32c.probe.bad" <<'QK_CS_F32C_PROBE_EOF' || err "F3.2c probe sample generation failed"
+F32C-D11-XX-001
+F32C-D11-F-01
+F32C-D11-F-0001
+F32C-D11-F-001X
+F32C-D11-F_001
+F32C-D11-FF-010
+F32C-D11-E-***
+QK_CS_F32C_PROBE_EOF
+awk '{s=$0; while (match(s,/F32C-D11-[A-Za-z0-9_*-]*/)) {print substr(s,RSTART,RLENGTH); s=substr(s,RSTART+RLENGTH)}}' \
+  "$tmpdir/cs.f32c.probe.bad" > "$tmpdir/cs.f32c.probe.tok" || err "F3.2c probe tokenization failed"
+csf32cptok=$(awk 'END { print NR }' "$tmpdir/cs.f32c.probe.tok") || err "F3.2c probe token count failed"
+[ "$csf32cptok" = 7 ] || err "F3.2c probe tokenizer missed malformed IDs ($csf32cptok of 7)"
+sort -u "$tmpdir/cs.f32c.probe.tok" > "$tmpdir/cs.f32c.probe.tok.sorted" || err "F3.2c probe token sort failed"
+comm -23 "$tmpdir/cs.f32c.probe.tok.sorted" "$tmpdir/cs.f32c.union.allow" > "$tmpdir/cs.f32c.probe.stray" \
+  || err "F3.2c probe comparison failed"
+csf32cpstray=$(awk 'END { print NR }' "$tmpdir/cs.f32c.probe.stray") || err "F3.2c probe stray count failed"
+[ "$csf32cpstray" = 7 ] || err "F3.2c closed-world probe failed to reject malformed IDs ($csf32cpstray of 7)"
+cat > "$tmpdir/cs.f32c.failure.expected" <<'QK_CS_F32C_FAILURE_ROWS_EOF' || err "F3.2c expected failure rows generation failed"
+| F32C-D11-F-001 | preapproval context change | rebuild review | no reuse | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-002 | postapproval bound change | D11-X1 plus full reparse/review | no stale approval | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-003 | signing uncertainty or failure | D11-X2; no representation leaves trusted volatile state | no retry, re-sign, or one-signature output | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-004 | output parse, delta, signature, or final-field failure | no route output begins | no ready claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-005 | QR planning or self-check failure before display | no frames shown | no partial stream | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-006 | QR interruption after display | stop further frames; previously observed frames cannot be withdrawn or assumed absent; Q-001 remains unresolved | no completion or delivery claim; no automatic SD fallback | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-007 | SD absent, read-only, full, or failure before create | no object | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-008 | collision or exclusive-create failure | end attempt | no truncate or replace | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-009 | short write or removal during write | end attempt and attachment epoch; residue may remain; Q-001 remains unresolved | no commit or completion; no continue after reinsertion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-010 | sync or close failure | no commit; residue may remain | no durability claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-011 | temp readback mismatch | no commit; orphan handling remains open | no repair or normalization | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-012 | no-replace visibility-transition failure | no final or completion claim | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-013 | metadata-barrier failure | durability unknown | no completion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-014 | final readback or reparse mismatch | stop; final-name bytes may already be observable and cannot be withdrawn; Q-001 remains unresolved | no completion, repair, overwrite, normalization, or treatment as the verified artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-015 | power cut after visibility transition | ambiguous final object and lost session | no auto-adoption or retroactive success | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-016 | orphan next session | only later-selected bounded handling | no resume or secure-erasure claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-017 | media replacement | attachment epoch ends; Q-002 decides attempt-versus-approval invalidation | never treat replacement as the same medium | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-018 | first route succeeds and second fails | Q-004 reviewed policy applies; first release cannot be undone | no silent downgrade | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-019 | retry request | same frozen bytes only if later selected; cross-attempt QR accumulation remains evidence-relevant | never re-sign or change plan | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-020 | restart | new session and review | no old-approval resume | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-021 | receiver acknowledgement | untrusted UX only | no cryptographic or coordinator acceptance | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-022 | any qk-io mutation | fatal; stop further output; if artifact-bearing I/O began, observed fragments or residue cannot be withdrawn and Q-001 remains unresolved | no continuation, normalization, completion, or treatment of altered bytes as the signed artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+QK_CS_F32C_FAILURE_ROWS_EOF
+grep '^| F32C-D11-F-' "$F32CPKT" > "$tmpdir/cs.f32c.failure.actual" \
+  || err "F3.2c failure row enumeration failed"
+cmp -s "$tmpdir/cs.f32c.failure.expected" "$tmpdir/cs.f32c.failure.actual" \
+  || err "F3.2c failure rows or outcomes differ from the exact closed table"
+# Independent closed-world pipe transcript: every '|'-carrying line in
+# the packet must be exactly the ordered concatenation of the four
+# closed tables below (60 lines, no prose pipes); leading-pipe-omitted,
+# indented, extra-cell, appended, dropped, and reordered rows and any
+# extra table section all fail. Supporting self-authored evidence only.
+grep '|' "$F32CPKT" > "$tmpdir/cs.f32c.pipes.act"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c pipe-line enumeration failed or found no pipe lines"
+csf32cpn=$(awk 'END { print NR }' "$tmpdir/cs.f32c.pipes.act") || err "F3.2c pipe-line count failed"
+[ "$csf32cpn" = 60 ] || err "F3.2c pipe-carrying line count is $csf32cpn, expected exactly 60"
+cat > "$tmpdir/cs.f32c.pipes.exp" <<'QK_CS_F32C_PIPES_EOF' || err "F3.2c expected pipe transcript generation failed"
+| ID | Construction input | Status |
+| --- | --- | --- |
+| F32C-D11-C-001 | eligible retained artifact and approval/route binding | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-002 | semantic route-set/media-attempt/session vocabulary | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-003 | new-output naming/collision/input-output separation/no overwrite; no concrete name or hash | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-004 | proposed SD staging, write, sync, close, reopen, compare, reparse, exact-delta, signature, no-replace publication, and final reopen sequence | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-005 | filesystem, controller, cache, sync, rename, and directory durability assumptions UNKNOWN; refuse SD if reliable no-replace publication cannot be proven | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-006 | cancellation/removal/power-cut/short-write/corrupt/full/read-only/write-protected/failure/orphan handling; no cleanup guarantee | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-007 | retry/idempotence/stale/duplicate alternatives; never blind re-sign; retry policy unselected | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-C-008 | QR lifecycle/cross-route equivalence/receiver and second-implementation evidence | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| ID | Planned evidence | Status |
+| --- | --- | --- |
+| F32C-D11-E-001 | exact-target filesystem/controller/cache/write ordering | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-002 | forced power loss at every transition | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-003 | removal at every read/write/sync/close/reopen/publish boundary | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-004 | full/read-only/write-protected/damaged/stale/duplicate media | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-005 | short-write/I/O/corruption/inconsistent metadata | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-006 | collision/input-output alias/no-overwrite | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-007 | retry/idempotence/orphan/stale-attempt | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-008 | independent reopen/byte compare/reparse/exact-delta/signatures | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-009 | QR/SD decoded-byte equivalence/coordinator interoperability | PLANNED — NOT RUN — NO EVIDENCE |
+| F32C-D11-E-010 | human completion/safe-removal/error/retry plus independent second implementation | PLANNED — NOT RUN — NO EVIDENCE |
+| ID | Owner question | Status |
+| --- | --- | --- |
+| F32C-D11-Q-001 | Does D-10 “failure releases no artifact or partial output” prohibit any signed-PSBT bytes or transport fragments becoming observable through either route after an attempt later fails, including QR frames already displayed and SD prefixes or objects already written, or only prohibit recognizing or presenting an incomplete route representation as a complete signed-PSBT output? Interrupted QR cannot retract observed frames; frames from interrupted or retried cycles may be accumulated by a receiver; conventional SD staging cannot guarantee no residue; neither route may silently assume the weaker interpretation. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-002 | Must exact physical SD attachment epoch be present/approval-bound, or may logical SD route accept later insertion/replacement; reconcile broad media-change invalidation. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-003 | One approval: exactly one route or closed QR+SD route set. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-004 | If both, all required vs either sufficient vs independent outcomes; first succeeds/second fails. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-005 | Same frozen artifact retry under unchanged session vs new review; neither allows re-signing. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-006 | Same SD for input/output vs distinct already-bound media; prove directory/allocation writes cannot lose/overwrite input. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-007 | Eligible visibility/commit construction and exact evidence before any atomic/complete claim. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-008 | Filename and bounded collision policy without input overwrite, wallet metadata, or silent post-approval change. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-009 | Orphan/ambiguous final objects: leave-ignore, quarantine, or bounded best-effort cleanup; no secure erasure/resume. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-010 | Complete QR self-decode/reparse before display and wording separating presentation from receipt. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-011 | Deterministic insertion position/order of two new partial signatures while old records keep exact bytes/relative order. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| F32C-D11-Q-012 | Which semantic fields later enter D-09 commitment; serialization/hash/domain remain D-09-open. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |
+| ID | Event | Proposed fail-closed result | Forbidden conclusion/action | Status |
+| --- | --- | --- | --- | --- |
+| F32C-D11-F-001 | preapproval context change | rebuild review | no reuse | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-002 | postapproval bound change | D11-X1 plus full reparse/review | no stale approval | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-003 | signing uncertainty or failure | D11-X2; no representation leaves trusted volatile state | no retry, re-sign, or one-signature output | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-004 | output parse, delta, signature, or final-field failure | no route output begins | no ready claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-005 | QR planning or self-check failure before display | no frames shown | no partial stream | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-006 | QR interruption after display | stop further frames; previously observed frames cannot be withdrawn or assumed absent; Q-001 remains unresolved | no completion or delivery claim; no automatic SD fallback | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-007 | SD absent, read-only, full, or failure before create | no object | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-008 | collision or exclusive-create failure | end attempt | no truncate or replace | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-009 | short write or removal during write | end attempt and attachment epoch; residue may remain; Q-001 remains unresolved | no commit or completion; no continue after reinsertion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-010 | sync or close failure | no commit; residue may remain | no durability claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-011 | temp readback mismatch | no commit; orphan handling remains open | no repair or normalization | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-012 | no-replace visibility-transition failure | no final or completion claim | no overwrite | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-013 | metadata-barrier failure | durability unknown | no completion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-014 | final readback or reparse mismatch | stop; final-name bytes may already be observable and cannot be withdrawn; Q-001 remains unresolved | no completion, repair, overwrite, normalization, or treatment as the verified artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-015 | power cut after visibility transition | ambiguous final object and lost session | no auto-adoption or retroactive success | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-016 | orphan next session | only later-selected bounded handling | no resume or secure-erasure claim | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-017 | media replacement | attachment epoch ends; Q-002 decides attempt-versus-approval invalidation | never treat replacement as the same medium | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-018 | first route succeeds and second fails | Q-004 reviewed policy applies; first release cannot be undone | no silent downgrade | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-019 | retry request | same frozen bytes only if later selected; cross-attempt QR accumulation remains evidence-relevant | never re-sign or change plan | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-020 | restart | new session and review | no old-approval resume | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-021 | receiver acknowledgement | untrusted UX only | no cryptographic or coordinator acceptance | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+| F32C-D11-F-022 | any qk-io mutation | fatal; stop further output; if artifact-bearing I/O began, observed fragments or residue cannot be withdrawn and Q-001 remains unresolved | no continuation, normalization, completion, or treatment of altered bytes as the signed artifact | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |
+QK_CS_F32C_PIPES_EOF
+cmp -s "$tmpdir/cs.f32c.pipes.exp" "$tmpdir/cs.f32c.pipes.act"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c pipe-carrying lines are not exactly the four closed tables"
+# Fail-closed pipe canaries: appended, dropped, indented, leading-pipe-
+# omitted, and extra-cell variants must each break the byte compare.
+{ cat "$tmpdir/cs.f32c.pipes.exp"; printf '%s\n' '| F32C-D11-C-001 | smuggled duplicate | EXTRA |'; } > "$tmpdir/cs.f32c.pipes.bad1" || err "F3.2c pipe canary 1 generation failed"
+sed '$d' "$tmpdir/cs.f32c.pipes.exp" > "$tmpdir/cs.f32c.pipes.bad2" || err "F3.2c pipe canary 2 generation failed"
+sed '1s/^/ /' "$tmpdir/cs.f32c.pipes.exp" > "$tmpdir/cs.f32c.pipes.bad3" || err "F3.2c pipe canary 3 generation failed"
+sed '3s/^|//' "$tmpdir/cs.f32c.pipes.exp" > "$tmpdir/cs.f32c.pipes.bad4" || err "F3.2c pipe canary 4 generation failed"
+sed '3s/|$/| EXTRA |/' "$tmpdir/cs.f32c.pipes.exp" > "$tmpdir/cs.f32c.pipes.bad5" || err "F3.2c pipe canary 5 generation failed"
+for csf32cbadp in "$tmpdir/cs.f32c.pipes.bad1" "$tmpdir/cs.f32c.pipes.bad2" "$tmpdir/cs.f32c.pipes.bad3" "$tmpdir/cs.f32c.pipes.bad4" "$tmpdir/cs.f32c.pipes.bad5"; do
+  cmp -s "$tmpdir/cs.f32c.pipes.exp" "$csf32cbadp"
+  csf32crc=$?
+  [ "$csf32crc" -eq 1 ] || err "F3.2c pipe transcript canary failed to detect a mutated table (cmp exit $csf32crc for $csf32cbadp)"
+done
+# Independent closed-world heading transcript: every '#'-carrying line
+# in the packet must be exactly the one H1 plus the eleven H2 headings
+# below, in order (12 lines, no prose hashes); extra, renamed,
+# reordered, indented, or deeper ATX headings all fail.
+grep '#' "$F32CPKT" > "$tmpdir/cs.f32c.heads.act"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c heading-line enumeration failed or found no hash lines"
+csf32chn=$(awk 'END { print NR }' "$tmpdir/cs.f32c.heads.act") || err "F3.2c heading-line count failed"
+[ "$csf32chn" = 12 ] || err "F3.2c hash-carrying line count is $csf32chn, expected exactly 12"
+cat > "$tmpdir/cs.f32c.heads.exp" <<'QK_CS_F32C_HEADS_EOF' || err "F3.2c expected heading transcript generation failed"
+# QK-F3.2c — D-11 Media/Write Lifecycle Construction and Readiness Packet (Non-Binding)
+## Standing, source boundary, and labels
+## Inherited fixed requirements and recorded directions
+## Analysis-only vocabulary
+## Construction rows
+## Evidence rows
+## Owner questions
+## Mandatory contradiction warning
+## Proposed state and route analyses
+## Closed-world failure matrix
+## Dependency and evidence boundary
+## Explicit do-not-claim boundary
+QK_CS_F32C_HEADS_EOF
+cmp -s "$tmpdir/cs.f32c.heads.exp" "$tmpdir/cs.f32c.heads.act"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c hash-carrying lines are not exactly the one H1 and eleven H2 headings"
+# Fail-closed heading canaries: appended, dropped, indented, and renamed
+# heading variants must each break the byte compare.
+{ cat "$tmpdir/cs.f32c.heads.exp"; printf '%s\n' '### Smuggled deeper heading'; } > "$tmpdir/cs.f32c.heads.bad1" || err "F3.2c heading canary 1 generation failed"
+sed '$d' "$tmpdir/cs.f32c.heads.exp" > "$tmpdir/cs.f32c.heads.bad2" || err "F3.2c heading canary 2 generation failed"
+sed '2s/^/ /' "$tmpdir/cs.f32c.heads.exp" > "$tmpdir/cs.f32c.heads.bad3" || err "F3.2c heading canary 3 generation failed"
+sed '2s/labels/labels renamed/' "$tmpdir/cs.f32c.heads.exp" > "$tmpdir/cs.f32c.heads.bad4" || err "F3.2c heading canary 4 generation failed"
+for csf32cbadh in "$tmpdir/cs.f32c.heads.bad1" "$tmpdir/cs.f32c.heads.bad2" "$tmpdir/cs.f32c.heads.bad3" "$tmpdir/cs.f32c.heads.bad4"; do
+  cmp -s "$tmpdir/cs.f32c.heads.exp" "$csf32cbadh"
+  csf32crc=$?
+  [ "$csf32crc" -eq 1 ] || err "F3.2c heading transcript canary failed to detect a mutated heading set (cmp exit $csf32crc for $csf32cbadh)"
+done
+# Setext headings carry no '#', a one-column GFM table delimiter line
+# (":---", "---:", ":---:") carries no pipe, and either may hide behind
+# repeated blockquote '>' prefixes ("> :---", ">> :---:") while still
+# rendering, so all bypass the heading and pipe transcripts: forbid any
+# full-line '='/'-' run with optional leading/trailing alignment colons
+# and any run of blockquote prefixes, with positive canaries proving
+# the pattern matches Setext underline runs and pipe-free aligned-table
+# delimiter runs alike. Legitimate table separator lines carry pipes
+# and never match.
+forbid "F3.2c packet contains a Setext underline or pipe-free GFM table delimiter run" -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$F32CPKT"
+for csf32csx in '=' '=====' '-' '-----' '   ---' ':---' '---:' ':---:' '   :---:' '> :---' '>> :---:' '> > ---:'; do
+  printf '%s\n' "$csf32csx" > "$tmpdir/cs.f32c.setext.canary" || err "F3.2c Setext/GFM delimiter canary generation failed"
+  grep -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$tmpdir/cs.f32c.setext.canary" >/dev/null
+  csf32crc=$?
+  [ "$csf32crc" -eq 0 ] || err "F3.2c Setext/GFM delimiter canary pattern failed to match run '$csf32csx' (grep exit $csf32crc)"
+done
+printf '%s\n' '| :--- | ---: |' > "$tmpdir/cs.f32c.setext.negative" || err "F3.2c Setext/GFM negative canary generation failed"
+grep -E '^[[:blank:]]*(>[[:blank:]]*)*:?(=+|-+):?[[:blank:]]*$' "$tmpdir/cs.f32c.setext.negative" >/dev/null
+csf32crc=$?
+[ "$csf32crc" -eq 1 ] || err "F3.2c Setext/GFM delimiter pattern wrongly matched a legitimate piped separator line (grep exit $csf32crc)"
+# Decision-Log tree-mode binding at the authorization commit A (C32),
+# alongside the existing Commit-B/HEAD mode partition checks.
+csdlmode=$($GIT ls-tree "$C32" -- docs/DECISION-LOG.md | awk '{ print $1 }') \
+  || err "F3.2c Decision-Log mode lookup at C32 failed"
+[ "$csdlmode" = 100644 ] || err "docs/DECISION-LOG.md tree mode at C32 is not exactly 100644"
+for csf32csem in \
+  'Interrupted QR cannot retract observed frames' \
+  'a receiver may accumulate frames across interrupted or retried cycles' \
+  'Conventional SD staging cannot guarantee no residue.' \
+  'Neither route may silently assume the weaker interpretation.' \
+  'no ARTIFACT-BEARING route output begins before D11-S6' \
+  'A bounded read-only SD preflight is an unselected candidate that may precede review' \
+  'Any bound preflight fact changing after approval goes to D11-X1.' \
+  'QR-Q2 SELF_CHECKED is an explicit candidate branch, not a universal transition' \
+  'exact-length write success before sync/close' \
+  'successful sync/close return before temp readback while not proving durability' \
+  'exact temp-byte equality plus `qk-core` fresh reparse before commit' \
+  'successful target-proven no-replace visibility-transition return before the metadata barrier while not proving atomicity' \
+  'successful target-specific metadata-barrier return before final readback while not proving durability' \
+  'exact final-byte equality plus fresh reparse before local completion indication' \
+  'S9 does not prove receipt, finalization, broadcast, or durability.' \
+  'QK-F2E-008, QK-F2E-009, and QK-F2E-015 are protocol templates only — NOT RUN — NOT GATE EVIDENCE.' \
+  'OD-05 and OD-06 remain OPEN.' \
+  'Packet-local F32C-D11-E-* IDs create no canonical QK-TST, run registration, evidence record, or gate input.' \
+  'QK-REQ-BND-003 requires that any intervening input, card, media, session, or state change after approval invalidates approval before signing.'; do
+  grep -F -e "$csf32csem" "$F32CPKT" >/dev/null \
+    || err "F3.2c independently required semantic is missing: $csf32csem"
+done
+# S9 location binding: the S9 boundary sentence is asserted packet-only
+# in the csf32csem list above. Independently, exact full-line fixtures
+# bind its one required-phrase entry inside the host p32req list and the
+# complete active p32req-to-PKT32C enforcement line. An anywhere match,
+# including one relocated to a comment, cannot satisfy either location.
+csf32cs9='S9 does not prove receipt, finalization, broadcast, or durability.'
+csf32cs9p=$(grep -cF -e "$csf32cs9" "$F32CPKT"); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c packet S9 line-count scan failed"
+[ "$csf32cs9p" = 1 ] || err "F3.2c packet must contain exactly one S9 boundary line (found $csf32cs9p)"
+cat > "$tmpdir/cs.f32c.s9.required-line" <<'QK_F32C_S9_REQUIRED_LINE_EOF'
+  'S9 does not prove receipt, finalization, broadcast, or durability.' \
+QK_F32C_S9_REQUIRED_LINE_EOF
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c host S9 required-line fixture generation failed"
+csf32cs9n=$(grep -cFx -f "$tmpdir/cs.f32c.s9.required-line" tools/verify-host-boundary.sh); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c host S9 exact required-line scan failed"
+[ "$csf32cs9n" = 1 ] || err "host verifier must contain exactly one exact S9 p32req entry (found $csf32cs9n)"
+cat > "$tmpdir/cs.f32c.s9.enforcement-line" <<'QK_F32C_S9_ENFORCEMENT_LINE_EOF'
+  grep -F -e "$p32req" "$PKT32C" >/dev/null || err "$PKT32C missing semantic boundary: $p32req"
+QK_F32C_S9_ENFORCEMENT_LINE_EOF
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c host S9 enforcement-line fixture generation failed"
+csf32cs9e=$(grep -cFx -f "$tmpdir/cs.f32c.s9.enforcement-line" tools/verify-host-boundary.sh); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c host S9 exact enforcement-line scan failed"
+[ "$csf32cs9e" = 1 ] || err "host verifier must contain exactly one complete active p32req packet enforcement line (found $csf32cs9e)"
+# Relocation canary: delete only the exact p32req entry, then append the
+# same sentence as a comment. The anywhere count deliberately remains
+# one while the exact required-line count must become zero.
+grep -Fvx -f "$tmpdir/cs.f32c.s9.required-line" tools/verify-host-boundary.sh > "$tmpdir/cs.f32c.s9.relocated-host"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c S9 relocation canary host-copy generation failed"
+printf '# %s\n' "$csf32cs9" >> "$tmpdir/cs.f32c.s9.relocated-host" \
+  || err "F3.2c S9 relocation canary comment append failed"
+csf32cs9a=$(grep -cF -e "$csf32cs9" "$tmpdir/cs.f32c.s9.relocated-host"); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c S9 relocation canary anywhere scan failed"
+[ "$csf32cs9a" = 1 ] || err "F3.2c S9 relocation canary anywhere count is $csf32cs9a, expected 1"
+csf32cs9x=$(grep -cFx -f "$tmpdir/cs.f32c.s9.required-line" "$tmpdir/cs.f32c.s9.relocated-host"); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c S9 relocation canary exact-line scan failed"
+[ "$csf32cs9x" = 0 ] || err "F3.2c S9 relocation canary exact required-line count is $csf32cs9x, expected 0"
+# Fail-closed S9 probes: (a) a packet copy with the S9 sentence removed
+# must fail the dedicated packet-only grep even though the host verifier
+# is unchanged; (b) a host-verifier copy with its S9 literal removed
+# must contain no anywhere literal even though the packet
+# is unchanged.
+grep -Fv -e "$csf32cs9" "$F32CPKT" > "$tmpdir/cs.f32c.s9.pkt" || err "F3.2c S9 packet probe generation failed"
+grep -F -e "$csf32cs9" "$tmpdir/cs.f32c.s9.pkt" >/dev/null
+csf32crc=$?
+[ "$csf32crc" -eq 1 ] || err "F3.2c S9 packet-removal probe was not detected by the packet-only check (grep exit $csf32crc)"
+grep -Fv -e "$csf32cs9" tools/verify-host-boundary.sh > "$tmpdir/cs.f32c.s9.host" || err "F3.2c S9 host probe generation failed"
+csf32cs9h=$(grep -cF -e "$csf32cs9" "$tmpdir/cs.f32c.s9.host"); csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c S9 host probe scan failed"
+[ "$csf32cs9h" = 0 ] || err "F3.2c S9 host-removal probe still contains the literal (probe ineffective)"
+# Independent packet-only case-insensitive fixed contradictory-phrase
+# loop (a closed fixed-phrase list, not exhaustive language coverage),
+# run here in addition to executing and byte-binding the host verifier.
+for csf32cclaim in 'D-11 SELECTED' 'D-11: SELECTED' 'PROFILE ACCEPTED' \
+  'OWNER QUESTIONS ANSWERED' 'TARGET EVIDENCE PRESENT' 'GATE CLOSED' \
+  'TESTS RUN' 'EVIDENCE RECORDED' 'IMPLEMENTATION ENABLED' \
+  'PUBLICATION AUTHORIZED'; do
+  csf32ccn=$(LC_ALL=C grep -ciF -e "$csf32cclaim" "$F32CPKT"); csf32crc=$?
+  [ "$csf32crc" -le 1 ] || err "F3.2c contradictory-claim scan failed"
+  [ "$csf32ccn" = 0 ] || err "F3.2c packet contains a contradictory claim: $csf32cclaim"
+done
+# Statically require the case-insensitive host claim guard and its
+# canaries in the active host verifier.
+grep -F -e 'LC_ALL=C grep -ciF -e "$p32claim" "$PKT32C"' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the case-insensitive contradictory-claim guard"
+grep -F -e 'case-insensitive claim canary missed a mixed-case variant of:' tools/verify-host-boundary.sh >/dev/null \
+  || err "host verifier is missing the mixed-case claim canaries"
+# Mixed-case claim canaries plus zero-stage and error-stage probes for
+# this independent loop: a lowercase variant must be counted, a
+# claim-free sample must count zero (grep exit 1 tolerated), and a
+# missing-file scan must report an error exit greater than 1.
+printf '%s\n' 'D-11 selected' 'Publication authorized' > "$tmpdir/cs.f32c.claim.canary" \
+  || err "F3.2c claim canary generation failed"
+csf32ccc=$(LC_ALL=C grep -ciF -e 'D-11 SELECTED' "$tmpdir/cs.f32c.claim.canary"); csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c claim canary scan failed (grep exit $csf32crc)"
+[ "$csf32ccc" = 1 ] || err "F3.2c case-insensitive claim canary missed the lowercase D-11 selected variant"
+csf32ccc=$(LC_ALL=C grep -ciF -e 'PUBLICATION AUTHORIZED' "$tmpdir/cs.f32c.claim.canary"); csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c claim canary scan failed (grep exit $csf32crc)"
+[ "$csf32ccc" = 1 ] || err "F3.2c case-insensitive claim canary missed the mixed-case publication variant"
+printf 'no claims here\n' > "$tmpdir/cs.f32c.claim.zero" || err "F3.2c claim zero-sample generation failed"
+csf32ccz=$(LC_ALL=C grep -ciF -e 'D-11 SELECTED' "$tmpdir/cs.f32c.claim.zero"); csf32crc=$?
+[ "$csf32crc" -eq 1 ] || err "F3.2c claim zero-stage probe returned unexpected grep exit $csf32crc"
+[ "$csf32ccz" = 0 ] || err "F3.2c claim zero-stage probe counted a phantom claim"
+LC_ALL=C grep -ciF -e 'D-11 SELECTED' "$tmpdir/cs.f32c.claim.does-not-exist" >/dev/null 2>&1
+csf32crc=$?
+[ "$csf32crc" -gt 1 ] || err "F3.2c claim error-stage probe failed to report a scan error (grep exit $csf32crc)"
+forbid "$F32CPKT retains stale preflight wording" -F 'no route I/O occurs before S6' "$F32CPKT"
+forbid "$F32CPKT retains stale S9 wording" -F 'S9 proves no receipt' "$F32CPKT"
+forbid "$F32CPKT retains stale blanket failure wording" -F 'For every row the proposed fail-closed outcome forbids' "$F32CPKT"
+# Independent strict byte pipeline: checked and nonempty raw and
+# normalized stages, exact UTF-8 round trip, and actual-byte control scan.
+od -An -tx1 "$F32CPKT" > "$tmpdir/cs.f32c.bytes.raw" || err "F3.2c od stage failed"
+[ -s "$tmpdir/cs.f32c.bytes.raw" ] || err "F3.2c od stage produced empty output"
+tr -d '[:space:]' < "$tmpdir/cs.f32c.bytes.raw" > "$tmpdir/cs.f32c.bytes.hex" \
+  || err "F3.2c tr stage failed"
+[ -s "$tmpdir/cs.f32c.bytes.hex" ] || err "F3.2c tr stage produced empty output"
+csf32cbad=$(grep -cE '(^efbbbf)|00|0d|e2808[ef]|e280a[a-e]|e281a[6-9]' "$tmpdir/cs.f32c.bytes.hex")
+csf32crc=$?
+[ "$csf32crc" -le 1 ] || err "F3.2c actual-byte control scan failed"
+[ "$csf32cbad" = 0 ] || err "F3.2c contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+iconv -f UTF-8 -t UTF-8 "$F32CPKT" > "$tmpdir/cs.f32c.utf8" 2> "$tmpdir/cs.f32c.iconv.err"
+csf32crc=$?
+[ "$csf32crc" -eq 0 ] || err "F3.2c strict UTF-8 validation failed"
+[ -s "$tmpdir/cs.f32c.utf8" ] || err "F3.2c UTF-8 stage produced empty output"
+cmp -s "$F32CPKT" "$tmpdir/cs.f32c.utf8" || err "F3.2c UTF-8 round trip changed bytes"
+for protected in docs/f3/F3.2B-PSBT-DECISION-PACKET.md docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md; do
+  $GIT show "$C31:$protected" > "$tmpdir/cs.f32c.protected" 2>/dev/null || err "cannot read protected C31 blob $protected"
+  cmp -s "$tmpdir/cs.f32c.protected" "$protected" || err "protected file differs from C31: $protected"
+done
+
 # --------------------------------- e. Historical verifiers byte-identical
 for v in tools/verify-foundation.sh tools/verify-f2-preparation.sh; do
   $GIT show "$BASE:$v" > "$tmpdir/hist" 2>/dev/null || err "cannot read $v from base"
@@ -2098,6 +2659,7 @@ docs/REQUIREMENTS.md
 docs/SOURCE-REGISTER.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -2136,6 +2698,7 @@ for f in \
   docs/HOST-WORK-AUTHORIZATION.md .gitignore \
   docs/OD-08-DECISION-PACKET.md docs/OD-08-OWNER-RESPONSE-RECORD.md \
   docs/f3/F3.2B-PSBT-DECISION-PACKET.md docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md \
+  docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md \
   tools/verify-foundation.sh tools/verify-f2-preparation.sh \
   tools/verify-host-boundary.sh tools/verify-current-stage.sh
 do
