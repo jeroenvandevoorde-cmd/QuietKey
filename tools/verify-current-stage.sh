@@ -73,6 +73,9 @@ C24=e5c887b46eef7fde14cfe667264bb427598be3cb    # docs(od08): add non-enacting o
 C25=a9840819eba4d1b98b8346fc0ae0b44f611a45c5    # chore: bind OD-08 owner-response consistency checks (PUBLISHED F3.2B PARENT)
 C26=9e30750ebf85a17884624c0697cc0ef14a7bafe3    # docs: authorize F3.2b PSBT decision-packet preparation
 C27=85b5356961e5f04f49e7c9e8d835c09e45755e9f    # docs(f3): add non-binding F3.2b PSBT decision packet and reanchor host checks
+C28=bb6601f3b97528a72c55622251a4b475680ec21b    # chore: bind F3.2b PSBT decision-packet consistency checks (PUBLISHED RESPONSE PARENT)
+C29=3dfda3d6c10d54f92e6c397866e8c630a1249898    # docs: authorize F3.2b PSBT owner-response preparation
+C30=363eda2137f6e4e29ba01db9183d9ea72672fb10    # docs(f3): record owner-approved F3.2b PSBT directions and reanchor host checks
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -92,11 +95,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 [ -s "$tmpdir/allfiles" ] || err "git ls-files returned no tracked files (enumeration fail-closed)"
 
 # ----------------------------------------------------------- a. Ancestry
-# Exact linear ancestry BASE -> C1 -> ... -> C24 -> C25 -> C26 ->
-# C27 -> HEAD, no merges. C25 is the PUBLISHED base of the current
+# Exact linear ancestry BASE -> C1 -> ... -> C27 -> C28 -> C29 ->
+# C30 -> HEAD, no merges. C28 is the PUBLISHED base of the current
 # unpublished work.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c30=$($GIT rev-parse "$C30^" 2>/dev/null) || err "C30 has no parent"
+p_c29=$($GIT rev-parse "$C29^" 2>/dev/null) || err "C29 has no parent"
+p_c28=$($GIT rev-parse "$C28^" 2>/dev/null) || err "C28 has no parent"
 p_c27=$($GIT rev-parse "$C27^" 2>/dev/null) || err "C27 has no parent"
 p_c26=$($GIT rev-parse "$C26^" 2>/dev/null) || err "C26 has no parent"
 p_c25=$($GIT rev-parse "$C25^" 2>/dev/null) || err "C25 has no parent"
@@ -124,7 +130,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C27" ] || err "HEAD parent is $p_head, expected $C27"
+[ "$p_head" = "$C30" ] || err "HEAD parent is $p_head, expected $C30"
+[ "$p_c30" = "$C29" ] || err "C30 parent is $p_c30, expected $C29"
+[ "$p_c29" = "$C28" ] || err "C29 parent is $p_c29, expected $C28"
+[ "$p_c28" = "$C27" ] || err "C28 parent is $p_c28, expected $C27"
 [ "$p_c27" = "$C26" ] || err "C27 parent is $p_c27, expected $C26"
 [ "$p_c26" = "$C25" ] || err "C26 parent is $p_c26, expected $C25"
 [ "$p_c25" = "$C24" ] || err "C25 parent is $p_c25, expected $C24"
@@ -153,10 +162,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "28" ] || err "expected exactly 28 commits after base, found $count"
+[ "$count" = "31" ] || err "expected exactly 31 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -340,6 +349,19 @@ EOF
 
 check_paths "$C27" "commit27" <<'EOF'
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$C28" "commit28" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C29" "commit29" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C30" "commit30" <<'EOF'
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 tools/verify-host-boundary.sh
 EOF
 
@@ -619,50 +641,51 @@ forbid "$WTS still claims completed traceability to existing QK-TST IDs" \
   -F 'traces only to existing' "$WTS"
 # Exact bounded append content enforced directly (checked stages, cmp).
 # The current Decision Log must be byte-identical to the reviewed
-# owner-response authorization commit A (C23); the published C22
+# F3.2b response authorization commit A (C29); the published C28
 # content must be an exact byte prefix of it; and the appended suffix
-# beyond the C22 prefix must be byte-identical to the exact authorized
-# QK-AUTH-OD08-RSP-001 record transcript embedded below.
-$GIT show "$C26:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
-  || err "cannot read docs/DECISION-LOG.md from C26"
+# beyond the C28 prefix must be byte-identical to the exact authorized
+# QK-AUTH-F3.2B-RSP-001 record transcript embedded below.
+$GIT show "$C29:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.a" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C29"
 cmp -s "$tmpdir/cs.dlog.a" docs/DECISION-LOG.md
 csdl=$?
-[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C26 (F3.2b A) version (cmp exit $csdl)"
-$GIT show "$C25:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.base" 2>/dev/null \
-  || err "cannot read docs/DECISION-LOG.md from C25"
+[ "$csdl" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed C29 (F3.2b response A) version (cmp exit $csdl)"
+$GIT show "$C28:docs/DECISION-LOG.md" > "$tmpdir/cs.dlog.base" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from C28"
 wc -c < "$tmpdir/cs.dlog.base" > "$tmpdir/cs.dlog.len.raw" \
-  || err "C25 Decision-Log length failed (fail-closed)"
+  || err "C28 Decision-Log length failed (fail-closed)"
 tr -d '[:space:]' < "$tmpdir/cs.dlog.len.raw" > "$tmpdir/cs.dlog.len" \
-  || err "C25 Decision-Log length strip failed (fail-closed)"
-dlbl=$(cat "$tmpdir/cs.dlog.len") || err "C25 Decision-Log length read-back failed (fail-closed)"
-case "$dlbl" in ''|*[!0-9]*) err "C25 Decision-Log length not numeric: '$dlbl'" ;; esac
+  || err "C28 Decision-Log length strip failed (fail-closed)"
+dlbl=$(cat "$tmpdir/cs.dlog.len") || err "C28 Decision-Log length read-back failed (fail-closed)"
+case "$dlbl" in ''|*[!0-9]*) err "C28 Decision-Log length not numeric: '$dlbl'" ;; esac
 dd if=docs/DECISION-LOG.md bs=1 count="$dlbl" > "$tmpdir/cs.dlog.head" 2>/dev/null \
   || err "Decision-Log prefix extraction failed (fail-closed)"
 cmp -s "$tmpdir/cs.dlog.base" "$tmpdir/cs.dlog.head"
 csdl=$?
-[ "$csdl" -eq 0 ] || err "published C25 Decision-Log is not an exact byte prefix of the current Decision-Log (cmp exit $csdl)"
-# Exact authorized suffix beyond the C25 prefix.
+[ "$csdl" -eq 0 ] || err "published C28 Decision-Log is not an exact byte prefix of the current Decision-Log (cmp exit $csdl)"
+# Exact authorized suffix beyond the C28 prefix.
 dlskip=$((dlbl + 1)) || err "suffix offset arithmetic failed (fail-closed)"
 tail -c "+$dlskip" docs/DECISION-LOG.md > "$tmpdir/cs.dlog.suffix" \
   || err "Decision-Log suffix extraction failed (fail-closed)"
-cat > "$tmpdir/cs.dlog.suffix.expected" <<'QK_F32B_SUFFIX_EOF' || err "expected Decision-Log suffix file generation failed (fail-closed)"
+cat > "$tmpdir/cs.dlog.suffix.expected" <<'QK_F32B_RSP_SUFFIX_EOF' || err "expected Decision-Log suffix file generation failed (fail-closed)"
 
-### QK-AUTH-F3.2B-PKT-001 — F3.2b non-binding PSBT decision-packet preparation authorization
+### QK-AUTH-F3.2B-RSP-001 — F3.2b PSBT owner-response record preparation authorization
 
-- **ID:** QK-AUTH-F3.2B-PKT-001
+- **ID:** QK-AUTH-F3.2B-RSP-001
 - **Date:** 2026-08-19
 - **Approver:** Project owner
-- **Owner words exactly:** “Authorize preparation and independent audit of the docs-only F3.2b PSBT decision packet from a9840819. No profile acceptance, implementation, vectors, license application, hardware work, or settings changes.”
-- **Context:** given after publication of the audited OD-08 owner-response chain ending at the published parent below. The owner authorized preparation and independent audit of a non-binding F3.2b PSBT decision packet only: decision input, not an answer, selection, adoption, or acceptance of any profile or clause, and not publication or any later implementation or application authority. The prepared chain includes the single mechanically necessary host-verifier file-set addition described below because the packet lives inside the host verifier’s exact tracked host file set scope; this implementation detail does not broaden the owner’s quoted authorization or alter any other host-boundary predicate.
-- **Published parent:** `a9840819eba4d1b98b8346fc0ae0b44f611a45c5`.
-- **Authorizes only:** local preparation of the non-binding F3.2b PSBT decision packet; local verification of the prepared chain; independent read-only audit of the prepared packet; export of the exact unpushed tree for that audit; Commit B adding exactly `docs/f3/F3.2B-PSBT-DECISION-PACKET.md` and changing exactly `tools/verify-host-boundary.sh` solely to reanchor its Decision-Log byte-identity anchor to this Commit A and to add exactly `docs/f3/F3.2B-PSBT-DECISION-PACKET.md` as one line to its exact authorized tracked host file set, while preserving every other host-boundary predicate; then Commit C changing exactly `tools/verify-current-stage.sh`. Publication is not authorized by this record and requires a later explicit owner instruction after passing independent audits.
-- **Packet scope:** exactly four owner questions: D-02, present-profile D-05, D-06, and D-10. D-00 remains blocked; D-04 remains owner-open and is not posed in this four-question packet; representative coordinator-corpus review remains required before any later selection; D-07, D-09, and D-11 remain evidence- or construction-blocked with no response requested; the recorded D-01, D-03, D-08, and D-12 directions remain non-normative and are preserved without reopening; the future-only recipient-P2TR direction remains future-only.
-- **Explicit exclusions:** no publication; no owner response or new D-item selection; no profile, bundle, clause, serialization, hash, policy, limit, test, vector, or evidence acceptance; no normative change; no edit to the PSBT draft, F3 README, Source Register, Architecture, Requirements, Traceability, Open Decisions, gates, evidence, OD, QK-LIM, or QK-TST documents; no code, parser, serializer, wallet, crypto, signing, key, address, PSBT specimen, QR, SD, card, or target work; no vector, fixture, corpus, or payload generation or execution; no license, SPDX, or manifest license change; no hardware, Flux, procurement, or fabrication work; no role, channel, repository setting, workflow, deployment, or `.replit` change; no third-party text, import, or source change; no host-boundary predicate change besides the exact Decision-Log anchor advance and the single authorized file-set line addition above.
-- **Effect:** local packet preparation only; the PSBT draft remains byte-identical, proposed, non-normative, and not accepted; every status remains unchanged; Gates A–E remain OPEN; F5–F12 remain unauthorized; and this chain remains local and unpublished pending a later explicit owner publication instruction after passing independent audits.
-QK_F32B_SUFFIX_EOF
+- **Owner words exactly:** “Approve all four F3.2b directions.”
+- **Owner preparation authority exactly:** “Authorize preparation and independent audit of the docs-only F3.2b owner-response record from bb6601f3. No profile acceptance, implementation, vectors, license application, hardware work, settings changes, or publication.”
+- **Published parent:** `bb6601f3b97528a72c55622251a4b475680ec21b`.
+- **Source packet:** `docs/f3/F3.2B-PSBT-DECISION-PACKET.md` at the published parent.
+- **Scope:** exactly four non-enacting policy directions only: `F32B-PSBT-Q-001`/D-02, `F32B-PSBT-Q-002`/D-05, `F32B-PSBT-Q-003`/D-06, and `F32B-PSBT-Q-004`/D-10. Preparation and independent audit are authorized; publication and any profile or clause acceptance are not authorized.
+- **Authorized next commits:** Commit B adding exactly `docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md` and changing exactly `tools/verify-host-boundary.sh` to reanchor this Decision Log state, add the record to its exact host file set, and add strict record checks; then Commit C changing exactly `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** D-00 remains blocked; D-04 remains OWNER-OPEN, with representative coordinator-corpus review required before selection; D-07 remains EVIDENCE/CONSTRUCTION-BLOCKED pending target/human QK-LIM evidence; D-09 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the exact commitment construction; D-11 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the media/write lifecycle; no edit to the packet or PSBT profile draft; no architecture/requirements/OD/QK-LIM/QK-TST/evidence/gate status change; no implementation, dependencies, parser/signing/crypto code, fixtures/vectors, conformance or real-funds use; no finalization/extraction/broadcast authorization; no license application; no hardware/firmware/Flux/procurement/fabrication; no other-branch, remote-branch, branch-setting, tag, release, push, publication, settings, or credential change.
+- **Effect:** this record records four non-enacting owner-direction dispositions, but enacts no normative profile or clause and changes no OD, QK-LIM, QK-TST, evidence, gate, implementation, release, remote, or publication status; it authorizes no publication.
+QK_F32B_RSP_SUFFIX_EOF
 cmp -s "$tmpdir/cs.dlog.suffix.expected" "$tmpdir/cs.dlog.suffix"
 csdl=$?
-[ "$csdl" -eq 0 ] || err "Decision-Log suffix beyond the published C25 prefix is not the exact authorized QK-AUTH-F3.2B-PKT-001 record (cmp exit $csdl)"
+[ "$csdl" -eq 0 ] || err "Decision-Log suffix beyond the published C28 prefix is not the exact authorized QK-AUTH-F3.2B-RSP-001 record (cmp exit $csdl)"
 # OD-08 authorization record essentials. Every check below is a
 # COMPLETE-literal-line proof: grep -cFx -e against the entire exact
 # bullet or heading line from docs/DECISION-LOG.md, each required
@@ -742,6 +765,32 @@ while IFS= read -r f32bline; do
   f32bproc=$((f32bproc + 1))
 done < "$tmpdir/cs.f32b.lines"
 [ "$f32bproc" = "5" ] || err "F3.2b record full-line loop processed $f32bproc of 5 expected lines (fail-closed)"
+
+# F3.2b owner-response authorization record essentials
+# (QK-AUTH-F3.2B-RSP-001), checked as complete literal lines.
+cat > "$tmpdir/cs.f32brsp.lines" <<'QK_F32B_RSP_LINES_EOF' || err "expected F3.2b response authorization-line file generation failed"
+### QK-AUTH-F3.2B-RSP-001 — F3.2b PSBT owner-response record preparation authorization
+- **Owner words exactly:** “Approve all four F3.2b directions.”
+- **Owner preparation authority exactly:** “Authorize preparation and independent audit of the docs-only F3.2b owner-response record from bb6601f3. No profile acceptance, implementation, vectors, license application, hardware work, settings changes, or publication.”
+- **Published parent:** `bb6601f3b97528a72c55622251a4b475680ec21b`.
+- **Source packet:** `docs/f3/F3.2B-PSBT-DECISION-PACKET.md` at the published parent.
+- **Scope:** exactly four non-enacting policy directions only: `F32B-PSBT-Q-001`/D-02, `F32B-PSBT-Q-002`/D-05, `F32B-PSBT-Q-003`/D-06, and `F32B-PSBT-Q-004`/D-10. Preparation and independent audit are authorized; publication and any profile or clause acceptance are not authorized.
+- **Authorized next commits:** Commit B adding exactly `docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md` and changing exactly `tools/verify-host-boundary.sh` to reanchor this Decision Log state, add the record to its exact host file set, and add strict record checks; then Commit C changing exactly `tools/verify-current-stage.sh`.
+- **Explicit exclusions:** D-00 remains blocked; D-04 remains OWNER-OPEN, with representative coordinator-corpus review required before selection; D-07 remains EVIDENCE/CONSTRUCTION-BLOCKED pending target/human QK-LIM evidence; D-09 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the exact commitment construction; D-11 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the media/write lifecycle; no edit to the packet or PSBT profile draft; no architecture/requirements/OD/QK-LIM/QK-TST/evidence/gate status change; no implementation, dependencies, parser/signing/crypto code, fixtures/vectors, conformance or real-funds use; no finalization/extraction/broadcast authorization; no license application; no hardware/firmware/Flux/procurement/fabrication; no other-branch, remote-branch, branch-setting, tag, release, push, publication, settings, or credential change.
+- **Effect:** this record records four non-enacting owner-direction dispositions, but enacts no normative profile or clause and changes no OD, QK-LIM, QK-TST, evidence, gate, implementation, release, remote, or publication status; it authorizes no publication.
+QK_F32B_RSP_LINES_EOF
+f32brspexp=$(awk 'BEGIN { n = 0 } /./ { n = n + 1 } END { print n }' "$tmpdir/cs.f32brsp.lines") \
+  || err "F3.2b response expected-line count failed"
+[ "$f32brspexp" = "9" ] || err "F3.2b response expected-line transcript must contain exactly 9 lines (found $f32brspexp)"
+f32brspproc=0
+while IFS= read -r f32brspline; do
+  f32brspc=$(grep -cFx -e "$f32brspline" docs/DECISION-LOG.md)
+  f32brsprc=$?
+  [ "$f32brsprc" -le 1 ] || err "F3.2b response authorization full-line check failed (grep exit $f32brsprc)"
+  [ "$f32brspc" = "1" ] || err "F3.2b response authorization line not present exactly once: $f32brspline"
+  f32brspproc=$((f32brspproc + 1))
+done < "$tmpdir/cs.f32brsp.lines"
+[ "$f32brspproc" = "9" ] || err "F3.2b response authorization loop processed $f32brspproc of 9 lines"
 
 # ---------------- OD-08 decision packet (QK-AUTH-OD08-PKT-001)
 # Non-binding decision-input packet: byte-bound to reviewed commit B,
@@ -1045,17 +1094,18 @@ forbid "$PKT uses the stale sole-artifact-preparer wording" \
   -F 'sole artifact preparer' "$PKT"
 forbid "$PKT links the stale signing-commits page instead of signing-tags" \
   -F 'managing-commit-signature-verification/signing-commits' "$PKT"
-# ------------- Host verifier: byte identity and reanchor-only proof
-# The active host verifier must be byte-identical to reviewed B, and
-# its entire e81->B delta must be confined to lines carrying the old
-# or new Decision-Log anchor SHA (exactly 3 removed / 3 added lines).
+# ------------- Host verifier: historical proof plus active B identity
+# Preserve the exact historical F3.2b packet delta check, and require
+# the active host verifier to be byte-identical to response Commit B.
 $GIT show "$C21:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C21"
 $GIT show "$C27:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b27" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C27"
-cmp -s "$tmpdir/cs.hb.b27" tools/verify-host-boundary.sh
+$GIT show "$C30:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.b30" 2>/dev/null \
+  || err "cannot read tools/verify-host-boundary.sh from C30"
+cmp -s "$tmpdir/cs.hb.b30" tools/verify-host-boundary.sh
 pkc=$?
-[ "$pkc" -eq 0 ] || err "tools/verify-host-boundary.sh is not byte-identical to the reviewed C27 (F3.2b B) version (cmp exit $pkc)"
+[ "$pkc" -eq 0 ] || err "tools/verify-host-boundary.sh is not byte-identical to the reviewed C30 (F3.2b response B) version (cmp exit $pkc)"
 # Reanchor-plus-single-file-set proof: the delta from the published
 # C25 host verifier to the reviewed C27 version must equal the exact
 # minimal transcript embedded below — the three Decision-Log-anchor
@@ -1063,7 +1113,7 @@ pkc=$?
 # F3.2b packet, and nothing else.
 $GIT show "$C25:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.base" 2>/dev/null \
   || err "cannot read tools/verify-host-boundary.sh from C25"
-diff "$tmpdir/cs.hb.base" tools/verify-host-boundary.sh > "$tmpdir/cs.hb.d" 2>&1
+diff "$tmpdir/cs.hb.base" "$tmpdir/cs.hb.b27" > "$tmpdir/cs.hb.d" 2>&1
 hbd=$?
 [ "$hbd" -eq 1 ] || err "host-verifier C25 delta diff did not report exactly a difference (diff exit $hbd)"
 cat > "$tmpdir/cs.hb.d.expected" <<'QK_HB_DIFF_EOF' || err "expected host-verifier delta transcript generation failed (fail-closed)"
@@ -1088,8 +1138,10 @@ QK_HB_DIFF_EOF
 cmp -s "$tmpdir/cs.hb.d.expected" "$tmpdir/cs.hb.d"
 hbd=$?
 [ "$hbd" -eq 0 ] || err "host-verifier C25-to-C27 delta is not the exact minimal anchor-advance-plus-file-set transcript (cmp exit $hbd): $(cat "$tmpdir/cs.hb.d")"
-grep -F "show $C26:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
-  || err "host checker Decision-Log anchor is not the F3.2b A commit"
+grep -F "show $C26:docs/DECISION-LOG.md" "$tmpdir/cs.hb.b27" >/dev/null \
+  || err "historical C27 host checker Decision-Log anchor is not the F3.2b packet A commit"
+grep -F "show $C29:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
+  || err "active host checker Decision-Log anchor is not the F3.2b response A commit"
 # ------------------------- SOURCE-REGISTER byte-identical to e81/C19
 $GIT show "$C19:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.c19" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C19"
@@ -1102,6 +1154,7 @@ docs/DECISION-LOG.md
 docs/OD-08-DECISION-PACKET.md
 docs/OD-08-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1117,6 +1170,7 @@ cat > "$tmpdir/cs.rspset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/OD-08-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1127,10 +1181,11 @@ LC_ALL=C sort "$tmpdir/cs.rspset.raw" > "$tmpdir/cs.rspset.act" \
   || err "C22..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.rspset.exp" "$tmpdir/cs.rspset.act" > "$tmpdir/cs.rspset.dd" 2>&1 \
   || err "changes since published C22 differ from the five authorized owner-response and F3.2b chain paths: $(cat "$tmpdir/cs.rspset.dd")"
-# --------- Exact C25..HEAD changed path set (exactly four, this chain)
+# --------- Exact C25..HEAD changed path set (exactly five)
 cat > "$tmpdir/cs.f32bset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
@@ -1140,12 +1195,26 @@ $GIT diff --name-only "$C25" "$head" > "$tmpdir/cs.f32bset.raw" \
 LC_ALL=C sort "$tmpdir/cs.f32bset.raw" > "$tmpdir/cs.f32bset.act" \
   || err "C25..HEAD path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.f32bset.exp" "$tmpdir/cs.f32bset.act" > "$tmpdir/cs.f32bset.dd" 2>&1 \
-  || err "changes since published C25 differ from the four authorized F3.2b chain paths: $(cat "$tmpdir/cs.f32bset.dd")"
-# Every other tracked blob — the PSBT draft, F3 README, wallet-trust
+  || err "changes since published C25 differ from the five authorized F3.2b packet/response paths: $(cat "$tmpdir/cs.f32bset.dd")"
+# --------- Exact C28..HEAD changed path set (exactly four, this chain)
+cat > "$tmpdir/cs.f32brspset.exp" <<'EOF'
+docs/DECISION-LOG.md
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+EOF
+$GIT diff --name-only "$C28" "$head" > "$tmpdir/cs.f32brspset.raw" \
+  || err "git diff C28..HEAD failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.f32brspset.raw" ] || err "git diff C28..HEAD returned no paths (enumeration fail-closed)"
+LC_ALL=C sort "$tmpdir/cs.f32brspset.raw" > "$tmpdir/cs.f32brspset.act" \
+  || err "C28..HEAD path-set sort failed (fail-closed)"
+diff "$tmpdir/cs.f32brspset.exp" "$tmpdir/cs.f32brspset.act" > "$tmpdir/cs.f32brspset.dd" 2>&1 \
+  || err "changes since published C28 differ from the four authorized F3.2b owner-response paths: $(cat "$tmpdir/cs.f32brspset.dd")"
+# Every other tracked blob — the packet, PSBT draft, F3 README, wallet-trust
 # spine, SOURCE-REGISTER, OPEN-DECISIONS, OD-08 docs, architecture,
 # requirements, security docs, gates, limits, tests, evidence, code,
 # manifests/lock, .replit and all the rest — is therefore
-# byte-identical to the published C25 state.
+# byte-identical to the published C28 state.
 # --------------------------------------- Verifier executable modes
 # Fail-closed mode guard: both verifier scripts must be executable in
 # the working tree, and their committed modes at HEAD must be exactly
@@ -1171,6 +1240,24 @@ for modepath in tools/verify-current-stage.sh tools/verify-host-boundary.sh; do
     '') err "committed mode for $modepath is empty or malformed (fail-closed)" ;;
     *) err "committed mode for $modepath is $modeval, expected exactly 100755" ;;
   esac
+done
+# Commit B mode partition: the new response record is exactly 100644
+# and the host verifier remains exactly 100755.
+for bmodepair in \
+  '100644 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md' \
+  '100755 tools/verify-host-boundary.sh'; do
+  bmodeexp=${bmodepair%% *}
+  bmodepath=${bmodepair#* }
+  $GIT ls-tree "$C30" -- "$bmodepath" > "$tmpdir/cs.bmode.raw" \
+    || err "git ls-tree C30 failed for $bmodepath (fail-closed)"
+  [ -s "$tmpdir/cs.bmode.raw" ] || err "C30 mode entry missing for $bmodepath"
+  bmodelines=$(awk 'BEGIN { n = 0 } { n = n + 1 } END { print n }' "$tmpdir/cs.bmode.raw") \
+    || err "C30 mode line count failed for $bmodepath"
+  [ "$bmodelines" = "1" ] || err "C30 mode entry is not unique for $bmodepath (found $bmodelines)"
+  bmodeact=$(awk 'NR == 1 { print $1 }' "$tmpdir/cs.bmode.raw") \
+    || err "C30 mode extraction failed for $bmodepath"
+  [ "$bmodeact" = "$bmodeexp" ] \
+    || err "C30 mode for $bmodepath is $bmodeact, expected $bmodeexp"
 done
 
 # ---------------- OD-08 owner-response record (QK-AUTH-OD08-RSP-001)
@@ -1648,6 +1735,130 @@ forbid "docs/DECISION-LOG.md carries the stale precede-any-response wording" \
 # that claim as false.
 forbid "docs/DECISION-LOG.md carries the rejected owner-explicit-authorization claim" \
   -F 'separately and explicitly authorized' docs/DECISION-LOG.md
+
+# ---------------- F3.2b PSBT owner-response record
+# Direct essentials plus static host-guard presence. Supporting
+# evidence only; neither verifier can authenticate its own semantics.
+F32BRSP=docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
+[ -f "$F32BRSP" ] || err "$F32BRSP missing"
+$GIT show "$C30:$F32BRSP" > "$tmpdir/cs.f32brsp.b" 2>/dev/null \
+  || err "cannot read $F32BRSP from C30"
+cmp -s "$tmpdir/cs.f32brsp.b" "$F32BRSP"
+f32brc=$?
+[ "$f32brc" -eq 0 ] || err "$F32BRSP is not byte-identical to reviewed C30 response Commit B (cmp exit $f32brc)"
+$GIT show "$C28:docs/f3/F3.2B-PSBT-DECISION-PACKET.md" > "$tmpdir/cs.f32brsp.packet.base" 2>/dev/null \
+  || err "cannot read source packet from C28"
+cmp -s "$tmpdir/cs.f32brsp.packet.base" docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+f32brc=$?
+[ "$f32brc" -eq 0 ] || err "source packet is not byte-identical to published C28 (cmp exit $f32brc)"
+$GIT show "$C28:docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md" > "$tmpdir/cs.f32brsp.profile.base" 2>/dev/null \
+  || err "cannot read PSBT profile draft from C28"
+cmp -s "$tmpdir/cs.f32brsp.profile.base" docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
+f32brc=$?
+[ "$f32brc" -eq 0 ] || err "PSBT profile draft is not byte-identical to published C28 (cmp exit $f32brc)"
+f32brspstatus='STATUS: OWNER DIRECTION RECORDED — NON-ENACTING — POLICY DIRECTION ONLY — PROFILE NOT ACCEPTED — D-04 OWNER-OPEN — D-07, D-09, AND D-11 EVIDENCE/CONSTRUCTION-BLOCKED — NO IMPLEMENTATION — NO VECTORS GENERATED OR RUN — NO LICENSE APPLICATION — NO HARDWARE OR SETTINGS CHANGE — LOCAL AND UNPUBLISHED.'
+f32brspc=$(grep -cFx -e "$f32brspstatus" "$F32BRSP")
+f32brc=$?
+[ "$f32brc" -le 1 ] || err "F3.2b response STATUS check failed"
+[ "$f32brspc" = "1" ] || err "$F32BRSP exact STATUS not present exactly once (found $f32brspc)"
+f32brspp=$(grep -c '^STATUS:' "$F32BRSP")
+f32brc=$?
+[ "$f32brc" -le 1 ] || err "F3.2b response STATUS-prefix check failed"
+[ "$f32brspp" = "1" ] || err "$F32BRSP must contain exactly one STATUS line (found $f32brspp)"
+f32brspq=$(awk 'BEGIN { n = 0 } { s = $0
+  while ((i = index(s, "F32B-PSBT-Q-")) > 0) { n = n + 1; s = substr(s, i + 12) } }
+  END { print n }' "$F32BRSP") || err "F3.2b response Q-ID enumeration failed"
+[ "$f32brspq" = "8" ] || err "$F32BRSP must contain exactly 8 Q-ID occurrences (found $f32brspq)"
+grep '^| F32B-PSBT-Q-' "$F32BRSP" > "$tmpdir/cs.f32brsp.rows"
+f32brc=$?
+[ "$f32brc" -le 1 ] || err "F3.2b response-row extraction failed"
+cat > "$tmpdir/cs.f32brsp.rows.expected" <<'QK_F32B_RESPONSE_ROWS_EOF' || err "F3.2b response expected-row generation failed"
+| F32B-PSBT-Q-001 | D-02 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+| F32B-PSBT-Q-002 | present-profile D-05 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+| F32B-PSBT-Q-003 | D-06 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+| F32B-PSBT-Q-004 | D-10 | APPROVE RECOMMENDED DIRECTION (NON-ENACTING) |
+QK_F32B_RESPONSE_ROWS_EOF
+cmp -s "$tmpdir/cs.f32brsp.rows.expected" "$tmpdir/cs.f32brsp.rows"
+f32brc=$?
+[ "$f32brc" -eq 0 ] || err "$F32BRSP exact ordered response rows differ (cmp exit $f32brc)"
+for f32breq in \
+  'bb6601f3b97528a72c55622251a4b475680ec21b' \
+  'docs/f3/F3.2B-PSBT-DECISION-PACKET.md' \
+  '“Approve all four F3.2b directions.”' \
+  'This record is governance provenance, not cryptographic identity proof, audit proof, or profile acceptance.' \
+  'D-00 remains blocked.' \
+  'D-04 remains OWNER-OPEN, with representative coordinator-corpus review required before selection.' \
+  'D-07 remains EVIDENCE/CONSTRUCTION-BLOCKED pending target/human QK-LIM evidence.' \
+  'D-09 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the exact commitment construction.' \
+  'D-11 remains EVIDENCE/CONSTRUCTION-BLOCKED pending the media/write lifecycle.' \
+  'OD-05 remains open.' \
+  'Every QK-LIM remains open.' \
+  'QK-TST and all evidence statuses remain unchanged.' \
+  'complete trio specifically as PSBT_OUT_BIP32_DERIVATION records, one each for A, B, and C' \
+  'The class-3 fallback applies only to missing, coherent-but-incomplete, or unrelated, structurally valid output BIP32-derivation metadata' \
+  'PSBT_OUT_WITNESS_SCRIPT is unnecessary. If present, it is allowed only with a complete D-derived candidate and must byte-match the independently derived witnessScript; otherwise reject.' \
+  'PSBT_GLOBAL_XPUB and external/coordinator labels neither prove ownership nor alone cause rejection.' \
+  'Any pre-existing PSBT_IN_PARTIAL_SIG record, selected or non-selected, or any finalization field makes the PSBT ineligible and rejects at import before private-key/card access.' \
+  'Such a record or field is never validate-counted, preserved into output, overwritten, or stripped; therefore no pre-existing signature or final field can appear in an eligible output.' \
+  'Only accepted pre-existing NON-SIGNATURE key-value encodings are preserved byte-for-byte and in relative order.' \
+  'output has exactly the authorized two new selected-pair PSBT_IN_PARTIAL_SIG records' \
+  'No publication authority is granted.'; do
+  f32breqc=$(grep -cF -e "$f32breq" "$F32BRSP")
+  f32brc=$?
+  [ "$f32brc" -le 1 ] || err "F3.2b response essential count failed: $f32breq"
+  [ "$f32breqc" = "1" ] || err "F3.2b response essential not present exactly once (found $f32breqc): $f32breq"
+done
+forbid "$F32BRSP carries the stale flattened D-item status" \
+  -F 'D-04, D-07, D-09, and D-11 remain open.' "$F32BRSP"
+forbid "$F32BRSP carries the stale allowed-non-selected-signature sentence" \
+  -F 'Any allowed pre-existing non-selected signature remains pre-existing and byte-preserved' "$F32BRSP"
+# Direct actual-byte scan, plus static requirements below that the
+# reviewed host verifier performs the same checked od/tr/grep stages.
+od -An -tx1 "$F32BRSP" > "$tmpdir/cs.f32brsp.bytes.raw" \
+  || err "$F32BRSP byte scan failed (od fail-closed)"
+[ -s "$tmpdir/cs.f32brsp.bytes.raw" ] || err "$F32BRSP byte scan produced no output"
+tr -d '[:space:]' < "$tmpdir/cs.f32brsp.bytes.raw" > "$tmpdir/cs.f32brsp.bytes.hex" \
+  || err "$F32BRSP byte scan normalization failed (tr fail-closed)"
+[ -s "$tmpdir/cs.f32brsp.bytes.hex" ] || err "$F32BRSP normalized byte scan is empty"
+f32bbidi=$(grep -cE 'e280a[abde]|e281a[6-9]' "$tmpdir/cs.f32brsp.bytes.hex")
+f32brc=$?
+[ "$f32brc" -le 1 ] || err "$F32BRSP actual-byte bidi scan failed (grep exit $f32brc)"
+[ "$f32bbidi" = "0" ] || err "$F32BRSP contains an actual UTF-8 bidirectional control sequence"
+# Static requirement that the reviewed host verifier carries the
+# corresponding exact/closed-world and policy-widening guard families.
+for f32bhguard in \
+  'must contain exactly 8 Q-ID occurrences' \
+  'rows are missing, duplicated, reordered, malformed, or extra' \
+  'GLOBAL_XPUB strict match' \
+  'P2TR future-only boundary' \
+  'D-06 branch distinction' \
+  'D-06 complete output-derivation trio' \
+  'D-06 class-3 fallback boundary' \
+  'D-06 witnessScript rule' \
+  'D-06 label neutrality' \
+  'D-06 contradiction rejection' \
+  'D-10 incoming-signature import rejection' \
+  'D-10 incoming-signature non-output boundary' \
+  'D-10 accepted non-signature preservation' \
+  'D-10 exactly-two signatures' \
+  'D-10 finalization prohibition' \
+  'D-11 unresolved boundary' \
+  'Q-003 allows witnessScript fall-through' \
+  'Q-003 rejects solely on an external/coordinator label' \
+  'Q-004 allows incoming non-selected partial signatures' \
+  'Q-004 preserves incoming partial signatures' \
+  'actual-byte bidi scan' \
+  'od -An -tx1' \
+  'r32.bytes.raw' \
+  'r32.bytes.hex' \
+  'e280a[abde]|e281a[6-9]' \
+  'gives GLOBAL_XPUB authoritative force' \
+  'weakens exactly-two signatures to up-to-two' \
+  'claims profile acceptance' \
+  'claims publication'; do
+  grep -F -e "$f32bhguard" tools/verify-host-boundary.sh >/dev/null \
+    || err "active host checker missing F3.2b response guard: $f32bhguard"
+done
 $GIT show "$C16:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.base" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C16"
 cat "$tmpdir/cs.sreg.base" > "$tmpdir/cs.sreg.expected" \
@@ -1886,6 +2097,7 @@ docs/OD-08-OWNER-RESPONSE-RECORD.md
 docs/REQUIREMENTS.md
 docs/SOURCE-REGISTER.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
+docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1923,6 +2135,7 @@ for f in \
   docs/DECISION-LOG.md docs/SOURCE-REGISTER.md docs/BUILD-ROADMAP.md \
   docs/HOST-WORK-AUTHORIZATION.md .gitignore \
   docs/OD-08-DECISION-PACKET.md docs/OD-08-OWNER-RESPONSE-RECORD.md \
+  docs/f3/F3.2B-PSBT-DECISION-PACKET.md docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md \
   tools/verify-foundation.sh tools/verify-f2-preparation.sh \
   tools/verify-host-boundary.sh tools/verify-current-stage.sh
 do
