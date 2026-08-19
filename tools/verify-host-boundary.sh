@@ -69,6 +69,7 @@ git --no-optional-locks ls-files -- host/ docs/f3/ docs/f4/ tools/verify-host-bo
 LC_ALL=C sort "$tmpdir/hostfiles.raw" > "$tmpdir/actual" \
   || err "host-scope file-set sort failed (fail-closed)"
 cat > "$tmpdir/expected" <<'EOF'
+docs/f3/F3.2B-PSBT-DECISION-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1226,7 +1227,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show e29359bd0dac2892f0d3291a9ec4a11b758513f9:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 9e30750ebf85a17884624c0697cc0ef14a7bafe3:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -1371,7 +1372,7 @@ done
 #   55f93844b56e3637468321e1c68638a8138a3a2b  pinned COLDCARD firmware commit (SOURCE-REGISTER row)
 #   1e9dfb9518bd90d4531180d9a3258dd21e54dee3  retired QuietKey laboratory pin (SOURCE-REGISTER row)
 #   8f3154d0e7845ed5a4c69b73b9479821fdf06765  governance manifest-ancestry constant required by this authorized script
-#   e29359bd0dac2892f0d3291a9ec4a11b758513f9  reviewed OD-08 owner-response authorization commit A (Decision-Log byte-identity anchor in this script)
+#   9e30750ebf85a17884624c0697cc0ef14a7bafe3  reviewed F3.2b decision-packet authorization commit A (Decision-Log byte-identity anchor in this script)
 #   a9d1f205cfa879a6f54b8838256d36e469cfed97  published base commit (Source-Register bounded-append anchor in this script)
 {
   printf '%s\n' \
@@ -1381,9 +1382,9 @@ done
     55f93844b56e3637468321e1c68638a8138a3a2b \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
+    9e30750ebf85a17884624c0697cc0ef14a7bafe3 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
-    de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
-    e29359bd0dac2892f0d3291a9ec4a11b758513f9
+    de71c22328b24e0848bbe1bd12ac8974ca83b5b8
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
