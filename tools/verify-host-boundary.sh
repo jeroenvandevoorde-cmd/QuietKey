@@ -1260,7 +1260,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 22114c6741ac653b9c5079b1bfccdb795a88f3df:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 55bd46310606e2df4089d8234a67655c81440bab:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2343,7 +2343,22 @@ for p32eblk in \
   [ "$p32erc" -le 1 ] || err "$PKT32E audit-locator blob scan failed for $p32eblk"
   [ "$p32en" = 1 ] || err "$PKT32E audit-locator blob must occur exactly once: $p32eblk"
 done
-# The source/protected working-tree files themselves must retain those
+# F3.2g intentionally amends the active canonical file, so retain the
+# F3.2e predicate against the exact canonical source at the published
+# F3.2f base rather than weakening or deleting the historical check.
+git --no-optional-locks show 45f2b362994b785d303e91b8e530efc724dc2d81:docs/TEST-ARCHITECTURE.md \
+  > "$tmpdir/p32e.testarch.source" 2> "$tmpdir/p32e.testarch.source.err"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "cannot read the historical F3.2e TEST-ARCHITECTURE source"
+[ -s "$tmpdir/p32e.testarch.source" ] || err "historical F3.2e TEST-ARCHITECTURE source is empty"
+git --no-optional-locks hash-object -- "$tmpdir/p32e.testarch.source" \
+  > "$tmpdir/p32e.testarch.source.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "historical F3.2e TEST-ARCHITECTURE source blob scan failed"
+[ -s "$tmpdir/p32e.testarch.source.act" ] || err "historical F3.2e TEST-ARCHITECTURE source blob scan produced empty output"
+printf '%s\n' f4e127a92fc68243274b7d384e335fa4632e5dd2 \
+  > "$tmpdir/p32e.testarch.source.exp" || err "historical F3.2e TEST-ARCHITECTURE source blob fixture failed"
+cmp -s "$tmpdir/p32e.testarch.source.exp" "$tmpdir/p32e.testarch.source.act"; p32erc=$?
+[ "$p32erc" -eq 0 ] || err "historical F3.2e TEST-ARCHITECTURE source differs from the reviewed blob"
+# Other source/protected working-tree files themselves must retain their
 # reviewed blobs; the packet's printed locators alone are not sufficient.
 while IFS=' ' read -r p32esource p32eexpected; do
   git --no-optional-locks hash-object -- "$p32esource" > "$tmpdir/p32e.source.act"; p32erc=$?
@@ -2354,7 +2369,6 @@ while IFS=' ' read -r p32esource p32eexpected; do
   cmp -s "$tmpdir/p32e.source.exp" "$tmpdir/p32e.source.act"; p32erc=$?
   [ "$p32erc" -eq 0 ] || err "$p32esource differs from the F3.2e reviewed source/protected blob"
 done <<'QK_F32E_SOURCE_BLOBS_EOF'
-docs/TEST-ARCHITECTURE.md f4e127a92fc68243274b7d384e335fa4632e5dd2
 docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
 docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md b4594210975940df71b0e941841320d11defaa4c
 docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md a996a6d7c2bfa3a15109085475868410fe354422
@@ -2637,9 +2651,13 @@ for p32fowner in \
   [ "$p32frc" -le 1 ] || err "$REC32F owner transcript scan failed"
   [ "$p32fn" = 1 ] || err "$REC32F owner transcript line is missing, altered, or duplicated"
 done
+git --no-optional-locks show 45f2b362994b785d303e91b8e530efc724dc2d81:docs/TEST-ARCHITECTURE.md \
+  > "$tmpdir/p32f.testarch.source" 2> "$tmpdir/p32f.testarch.source.err"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "cannot read the historical F3.2f TEST-ARCHITECTURE source"
+[ -s "$tmpdir/p32f.testarch.source" ] || err "historical F3.2f TEST-ARCHITECTURE source is empty"
 for p32fsourcepair in \
   'docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f941bc0537683e' \
-  'docs/TEST-ARCHITECTURE.md f4e127a92fc68243274b7d384e335fa4632e5dd2'; do
+  "$tmpdir/p32f.testarch.source f4e127a92fc68243274b7d384e335fa4632e5dd2"; do
   p32fsource=${p32fsourcepair%% *}
   p32fexpected=${p32fsourcepair#* }
   git --no-optional-locks hash-object -- "$p32fsource" > "$tmpdir/p32f.source.act"; p32frc=$?
@@ -2711,6 +2729,142 @@ LC_ALL=C sort "$tmpdir/p32f.hex.raw" > "$tmpdir/p32f.hex.act"; p32frc=$?
 cmp -s "$tmpdir/p32f.hex.exp" "$tmpdir/p32f.hex.act"; p32frc=$?
 [ "$p32frc" -eq 0 ] || err "$REC32F exact-40-hex multiset differs"
 
+# F3.2g canonical TEST-ARCHITECTURE amendment. Reconstruct the expected
+# document deterministically from the published F3.2f base by replacing
+# exactly one unique complete old row for each target with the complete
+# approved row carried by the pinned F3.2f record. The row-cell checks
+# independently require every non-Plan cell, including Status, to remain
+# byte-identical; the whole-document comparison preserves every other byte.
+TESTARCH32G=docs/TEST-ARCHITECTURE.md
+p32gbase=45f2b362994b785d303e91b8e530efc724dc2d81
+p32gbaseblob=f4e127a92fc68243274b7d384e335fa4632e5dd2
+p32gactiveblob=065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
+git --no-optional-locks show "$p32gbase:$TESTARCH32G" \
+  > "$tmpdir/p32g.testarch.base" 2> "$tmpdir/p32g.testarch.base.err"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G base read failed"
+[ -s "$tmpdir/p32g.testarch.base" ] || err "$TESTARCH32G base read produced empty output"
+git --no-optional-locks hash-object -- "$tmpdir/p32g.testarch.base" \
+  > "$tmpdir/p32g.base.blob.act"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G base blob scan failed"
+[ -s "$tmpdir/p32g.base.blob.act" ] || err "$TESTARCH32G base blob scan produced empty output"
+printf '%s\n' "$p32gbaseblob" > "$tmpdir/p32g.base.blob.exp" \
+  || err "$TESTARCH32G base blob fixture generation failed"
+cmp -s "$tmpdir/p32g.base.blob.exp" "$tmpdir/p32g.base.blob.act"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G base differs from its pinned blob"
+git --no-optional-locks hash-object -- "$TESTARCH32G" \
+  > "$tmpdir/p32g.active.blob.act"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G active blob scan failed"
+[ -s "$tmpdir/p32g.active.blob.act" ] || err "$TESTARCH32G active blob scan produced empty output"
+printf '%s\n' "$p32gactiveblob" > "$tmpdir/p32g.active.blob.exp" \
+  || err "$TESTARCH32G active blob fixture generation failed"
+cmp -s "$tmpdir/p32g.active.blob.exp" "$tmpdir/p32g.active.blob.act"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G differs from the authorized F3.2g blob"
+
+for p32gid in QK-TST-DIFF-002 QK-TST-DIFF-004; do
+  awk -v prefix="| $p32gid |" 'index($0,prefix) == 1 {print}' \
+    "$tmpdir/p32g.testarch.base" > "$tmpdir/p32g.$p32gid.old"; p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gid old-row extraction failed"
+  [ -s "$tmpdir/p32g.$p32gid.old" ] || err "$p32gid old-row extraction produced empty output"
+  p32grows=$(awk 'END {print NR+0}' "$tmpdir/p32g.$p32gid.old"); p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gid old-row count failed"
+  [ "$p32grows" = 1 ] || err "$p32gid old row is not unique in the pinned base"
+  awk -v prefix="| $p32gid |" 'index($0,prefix) == 1 {print}' \
+    "$REC32F" > "$tmpdir/p32g.$p32gid.new"; p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gid approved-row extraction failed"
+  [ -s "$tmpdir/p32g.$p32gid.new" ] || err "$p32gid approved-row extraction produced empty output"
+  p32grows=$(awk 'END {print NR+0}' "$tmpdir/p32g.$p32gid.new"); p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gid approved-row count failed"
+  [ "$p32grows" = 1 ] || err "$p32gid approved row is not unique in the pinned F3.2f record"
+  cat "$tmpdir/p32g.$p32gid.old" "$tmpdir/p32g.$p32gid.new" \
+    > "$tmpdir/p32g.$p32gid.pair"; p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gid old/new row pair generation failed"
+  [ -s "$tmpdir/p32g.$p32gid.pair" ] || err "$p32gid old/new row pair is empty"
+  awk -F '|' '
+    NR == 1 {
+      if (NF != 10) exit 11
+      for (i=1; i<=NF; i++) old[i]=$i
+      next
+    }
+    NR == 2 {
+      if (NF != 10) exit 12
+      if ($4 == old[4]) exit 13
+      for (i=1; i<=NF; i++) if (i != 4 && $i != old[i]) exit 14
+      compared=1
+    }
+    END { if (NR != 2 || compared != 1) exit 15 }
+  ' "$tmpdir/p32g.$p32gid.pair"; p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gid changed a non-Plan cell or did not change exactly the complete Plan / oracle cell (awk exit $p32grc)"
+done
+
+p32gold002=$(cat "$tmpdir/p32g.QK-TST-DIFF-002.old"); p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-DIFF-002 old-row read failed"
+[ -n "$p32gold002" ] || err "QK-TST-DIFF-002 old-row read produced empty output"
+p32gnew002=$(cat "$tmpdir/p32g.QK-TST-DIFF-002.new"); p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-DIFF-002 approved-row read failed"
+[ -n "$p32gnew002" ] || err "QK-TST-DIFF-002 approved-row read produced empty output"
+p32gold004=$(cat "$tmpdir/p32g.QK-TST-DIFF-004.old"); p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-DIFF-004 old-row read failed"
+[ -n "$p32gold004" ] || err "QK-TST-DIFF-004 old-row read produced empty output"
+p32gnew004=$(cat "$tmpdir/p32g.QK-TST-DIFF-004.new"); p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-DIFF-004 approved-row read failed"
+[ -n "$p32gnew004" ] || err "QK-TST-DIFF-004 approved-row read produced empty output"
+awk -v old002="$p32gold002" -v new002="$p32gnew002" \
+    -v old004="$p32gold004" -v new004="$p32gnew004" '
+  $0 == old002 { count002++; print new002; next }
+  $0 == old004 { count004++; print new004; next }
+  { print }
+  END { if (count002 != 1 || count004 != 1) exit 21 }
+' "$tmpdir/p32g.testarch.base" > "$tmpdir/p32g.testarch.expected"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G exact two-row reconstruction failed (awk exit $p32grc)"
+[ -s "$tmpdir/p32g.testarch.expected" ] || err "$TESTARCH32G exact two-row reconstruction produced empty output"
+cmp -s "$tmpdir/p32g.testarch.expected" "$TESTARCH32G"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G is not the exact unique two-Plan-cell transformation of the pinned base"
+
+for p32gsourcepair in \
+  'docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f941bc0537683e' \
+  'docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md a066fc9710371f414d158a3deb9c345f2b00821b'; do
+  p32gsource=${p32gsourcepair%% *}
+  p32gsourceblob=${p32gsourcepair#* }
+  git --no-optional-locks hash-object -- "$p32gsource" \
+    > "$tmpdir/p32g.source.blob.act"; p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gsource protected-blob scan failed"
+  [ -s "$tmpdir/p32g.source.blob.act" ] || err "$p32gsource protected-blob scan produced empty output"
+  printf '%s\n' "$p32gsourceblob" > "$tmpdir/p32g.source.blob.exp" \
+    || err "$p32gsource protected-blob fixture generation failed"
+  cmp -s "$tmpdir/p32g.source.blob.exp" "$tmpdir/p32g.source.blob.act"; p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "$p32gsource differs from its protected blob"
+done
+
+for p32gowner in \
+  'Authorize preparation and independent audit of a docs-only F3.2g canonical TEST-ARCHITECTURE amendment from 45f2b362994b785d303e91b8e530efc724dc2d81, replacing only the complete Plan / oracle cells of QK-TST-DIFF-002 and QK-TST-DIFF-004 with the owner-approved text recorded in the published F3.2f owner-direction record, byte-for-byte. Preserve every other cell and row unchanged, retain QK-TST-REH-004 byte-for-byte, and include only the mechanically necessary Decision Log and verifier bindings.' \
+  'No QK-TST status change or testing/evidence; no F32C-D11-Q-002 through Q-012 answer; no D-11, D-09, QK-LIM, profile, clause, OD-05/06, dependency, corpus, implementation, vector, fixture, media-I/O, hardware, license, settings, credential, release, or publication change.'; do
+  grep -cFx -e "$p32gowner" docs/DECISION-LOG.md > "$tmpdir/p32g.owner.count"; p32grc=$?
+  [ "$p32grc" -le 1 ] || err "F3.2g owner-transcript scan failed"
+  [ -s "$tmpdir/p32g.owner.count" ] || err "F3.2g owner-transcript count produced empty output"
+  p32gownercount=$(cat "$tmpdir/p32g.owner.count"); p32grc=$?
+  [ "$p32grc" -eq 0 ] || err "F3.2g owner-transcript count read failed"
+  [ "$p32gownercount" = 1 ] || err "F3.2g owner-transcript line is missing, altered, or duplicated"
+done
+
+awk -v prefix='| QK-TST-REH-004 |' 'index($0,prefix) == 1 {print}' \
+  "$tmpdir/p32g.testarch.base" > "$tmpdir/p32g.reh.base"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-REH-004 base-row extraction failed"
+[ -s "$tmpdir/p32g.reh.base" ] || err "QK-TST-REH-004 base-row extraction produced empty output"
+awk -v prefix='| QK-TST-REH-004 |' 'index($0,prefix) == 1 {print}' \
+  "$TESTARCH32G" > "$tmpdir/p32g.reh.active"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-REH-004 active-row extraction failed"
+[ -s "$tmpdir/p32g.reh.active" ] || err "QK-TST-REH-004 active-row extraction produced empty output"
+cmp -s "$tmpdir/p32g.reh.base" "$tmpdir/p32g.reh.active"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "QK-TST-REH-004 changed"
+awk -F '|' '
+  index($0,"| QK-TST-") == 1 {
+    rows++
+    if (NF != 10 || $9 != " PLANNED — NOT RUN ") exit 31
+  }
+  END { if (rows == 0) exit 32 }
+' "$TESTARCH32G"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G contains a changed or malformed QK-TST status cell (awk exit $p32grc)"
+
 # G: full changed-content material scan across exactly the ten named
 # protocol/provenance/checker paths listed in the loop below; replit.md
 # is separately bounded elsewhere and is not part of this ten-path
@@ -2755,15 +2909,21 @@ done
 #   22114c6741ac653b9c5079b1bfccdb795a88f3df  F3.2f authorization commit A (Decision Log anchor)
 #   574e790193d45d3f392c64951d319bb5fde11d20  F3.2f source base / published F3.2e C
 #   a066fc9710371f414d158a3deb9c345f2b00821b  F3.2f owner-direction whole-record blob
+#   45f2b362994b785d303e91b8e530efc724dc2d81  F3.2g source base / published F3.2f C
+#   55bd46310606e2df4089d8234a67655c81440bab  F3.2g authorization commit A (Decision Log anchor)
+#   065e20eed4e916c907a244aa3e5ca2e66cbc5d4e  F3.2g amended TEST-ARCHITECTURE blob
 {
   printf '%s\n' \
+    065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     22114c6741ac653b9c5079b1bfccdb795a88f3df \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
+    45f2b362994b785d303e91b8e530efc724dc2d81 \
     4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
+    55bd46310606e2df4089d8234a67655c81440bab \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     574e790193d45d3f392c64951d319bb5fde11d20 \
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
