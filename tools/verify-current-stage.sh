@@ -85,6 +85,9 @@ C36=a4f9e328554cdd77b850a1aa41b9cb9f3849d747    # docs(f3): record non-enacting 
 C37=be4d019e349e15ca575ac64b64f900957283e5e0    # published F3.2e source base / F3.2d commit C
 C38=e57faff4ead69ddf108cf522cb6c3cbfbef8219a    # docs: authorize F3.2e PSBT-output test-alignment packet
 C39=c66793900f62bce9f2fde67483a22fd3b22fab22    # docs(f3): add non-binding PSBT-output test-alignment packet
+C40=574e790193d45d3f392c64951d319bb5fde11d20    # published F3.2f source base / F3.2e commit C
+C41=22114c6741ac653b9c5079b1bfccdb795a88f3df    # docs: authorize F3.2f owner-direction record
+C42=8cf313ea02af2ebf4b065eef207ea5ea909ef2dd    # docs(f3): record non-enacting F3.2f owner directions
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -105,10 +108,13 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 
 # ----------------------------------------------------------- a. Ancestry
 # Exact linear ancestry BASE -> C1 -> ... -> C34 -> C35 -> C36 ->
-# C37 -> C38 -> C39 -> HEAD, no merges. C37 is the published base of
-# the exact three-commit local/unpublished F3.2e alignment chain.
+# C37 -> C38 -> C39 -> C40 -> C41 -> C42 -> HEAD, no merges. C40 is
+# the published base of the exact three-commit local/unpublished F3.2f chain.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_c42=$($GIT rev-parse "$C42^" 2>/dev/null) || err "C42 has no parent"
+p_c41=$($GIT rev-parse "$C41^" 2>/dev/null) || err "C41 has no parent"
+p_c40=$($GIT rev-parse "$C40^" 2>/dev/null) || err "C40 has no parent"
 p_c39=$($GIT rev-parse "$C39^" 2>/dev/null) || err "C39 has no parent"
 p_c38=$($GIT rev-parse "$C38^" 2>/dev/null) || err "C38 has no parent"
 p_c37=$($GIT rev-parse "$C37^" 2>/dev/null) || err "C37 has no parent"
@@ -148,7 +154,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$C39" ] || err "HEAD parent is $p_head, expected $C39"
+[ "$p_head" = "$C42" ] || err "HEAD parent is $p_head, expected $C42"
+[ "$p_c42" = "$C41" ] || err "C42 parent is $p_c42, expected $C41"
+[ "$p_c41" = "$C40" ] || err "C41 parent is $p_c41, expected $C40"
+[ "$p_c40" = "$C39" ] || err "C40 parent is $p_c40, expected $C39"
 [ "$p_c39" = "$C38" ] || err "C39 parent is $p_c39, expected $C38"
 [ "$p_c38" = "$C37" ] || err "C38 parent is $p_c38, expected $C37"
 [ "$p_c37" = "$C36" ] || err "C37 parent is $p_c37, expected $C36"
@@ -189,10 +198,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "40" ] || err "expected exactly 40 commits after base, found $count"
+[ "$count" = "43" ] || err "expected exactly 43 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$C39" "$C38" "$C37" "$C36" "$C35" "$C34" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$C42" "$C41" "$C40" "$C39" "$C38" "$C37" "$C36" "$C35" "$C34" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -236,7 +245,10 @@ check_message() {
 }
 check_message "$C38" "F3.2e commit A" 'docs: authorize F3.2e PSBT-output test-alignment packet'
 check_message "$C39" "F3.2e commit B" 'docs(f3): add non-binding PSBT-output test-alignment packet'
-check_message "$head" "F3.2e commit C" 'chore(verify): bind F3.2e test-alignment packet stage'
+check_message "$C40" "F3.2e commit C" 'chore(verify): bind F3.2e test-alignment packet stage'
+check_message "$C41" "F3.2f commit A" 'docs: authorize F3.2f PSBT-output test owner-direction record'
+check_message "$C42" "F3.2f commit B" 'docs(f3): record non-enacting PSBT-output test owner directions'
+check_message "$head" "F3.2f commit C" 'chore(verify): bind F3.2f test owner-direction stage'
 
 # ------------------------------------------- b/c/d. Per-commit path sets
 check_paths() {
@@ -456,7 +468,20 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 tools/verify-host-boundary.sh
 EOF
 
-check_paths "$head" "f32e-commit-c" <<'EOF'
+check_paths "$C40" "f32e-commit-c" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$C41" "f32f-commit-a" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$C42" "f32f-commit-b" <<'EOF'
+docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$head" "f32f-commit-c" <<'EOF'
 tools/verify-current-stage.sh
 EOF
 
@@ -1282,15 +1307,17 @@ hbd=$?
 [ "$hbd" -eq 0 ] || err "host-verifier C25-to-C27 delta is not the exact minimal anchor-advance-plus-file-set transcript (cmp exit $hbd): $(cat "$tmpdir/cs.hb.d")"
 grep -F "show $C26:docs/DECISION-LOG.md" "$tmpdir/cs.hb.b27" >/dev/null \
   || err "historical C27 host checker Decision-Log anchor is not the F3.2b packet A commit"
-grep -F "show $C38:docs/DECISION-LOG.md" tools/verify-host-boundary.sh >/dev/null \
-  || err "active host checker Decision-Log anchor is not the F3.2e authorization A commit"
+$GIT show "$C40:tools/verify-host-boundary.sh" > "$tmpdir/cs.hb.f32e-stage" 2>/dev/null \
+  || err "cannot read historical F3.2e host checker from C40"
+grep -F "show $C38:docs/DECISION-LOG.md" "$tmpdir/cs.hb.f32e-stage" >/dev/null \
+  || err "historical F3.2e host checker Decision-Log anchor is not the F3.2e authorization A commit"
 # ------------------------- SOURCE-REGISTER byte-identical to e81/C19
 $GIT show "$C19:docs/SOURCE-REGISTER.md" > "$tmpdir/cs.sreg.c19" 2>/dev/null \
   || err "cannot read docs/SOURCE-REGISTER.md from C19"
 cmp -s "$tmpdir/cs.sreg.c19" docs/SOURCE-REGISTER.md
 pkc=$?
 [ "$pkc" -eq 0 ] || err "docs/SOURCE-REGISTER.md is not byte-identical to the published C19 version (cmp exit $pkc)"
-# --------------------- Exact C19..HEAD changed path set (exactly ten)
+# --------------------- Exact historical C19..C40 path set (exactly ten)
 cat > "$tmpdir/cs.od08.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/OD-08-DECISION-PACKET.md
@@ -1303,14 +1330,14 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
-$GIT diff --name-only "$C19" "$head" > "$tmpdir/cs.od08.raw" \
-  || err "git diff C19..HEAD failed (enumeration fail-closed)"
-[ -s "$tmpdir/cs.od08.raw" ] || err "git diff C19..HEAD returned no paths (enumeration fail-closed)"
+$GIT diff --name-only "$C19" "$C40" > "$tmpdir/cs.od08.raw" \
+  || err "git diff C19..C40 failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.od08.raw" ] || err "git diff C19..C40 returned no paths (enumeration fail-closed)"
 LC_ALL=C sort "$tmpdir/cs.od08.raw" > "$tmpdir/cs.od08.act" \
-  || err "C19..HEAD path-set sort failed (fail-closed)"
+  || err "C19..C40 path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.od08.exp" "$tmpdir/cs.od08.act" > "$tmpdir/cs.od08.dd" 2>&1 \
   || err "changes since published C19 differ from the ten authorized OD-08, F3.2b, F3.2c, F3.2d, and F3.2e paths: $(cat "$tmpdir/cs.od08.dd")"
-# ---------- Exact C22..HEAD changed path set (exactly nine)
+# ---------- Exact historical C22..C40 path set (exactly nine)
 cat > "$tmpdir/cs.rspset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/OD-08-OWNER-RESPONSE-RECORD.md
@@ -1322,14 +1349,14 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
-$GIT diff --name-only "$C22" "$head" > "$tmpdir/cs.rspset.raw" \
-  || err "git diff C22..HEAD failed (enumeration fail-closed)"
-[ -s "$tmpdir/cs.rspset.raw" ] || err "git diff C22..HEAD returned no paths (enumeration fail-closed)"
+$GIT diff --name-only "$C22" "$C40" > "$tmpdir/cs.rspset.raw" \
+  || err "git diff C22..C40 failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.rspset.raw" ] || err "git diff C22..C40 returned no paths (enumeration fail-closed)"
 LC_ALL=C sort "$tmpdir/cs.rspset.raw" > "$tmpdir/cs.rspset.act" \
-  || err "C22..HEAD path-set sort failed (fail-closed)"
+  || err "C22..C40 path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.rspset.exp" "$tmpdir/cs.rspset.act" > "$tmpdir/cs.rspset.dd" 2>&1 \
   || err "changes since published C22 differ from the nine authorized owner-response, F3.2b, F3.2c, F3.2d, and F3.2e paths: $(cat "$tmpdir/cs.rspset.dd")"
-# --------- Exact C25..HEAD changed path set (exactly eight)
+# --------- Exact historical C25..C40 path set (exactly eight)
 cat > "$tmpdir/cs.f32bset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/f3/F3.2B-PSBT-DECISION-PACKET.md
@@ -1340,14 +1367,14 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
-$GIT diff --name-only "$C25" "$head" > "$tmpdir/cs.f32bset.raw" \
-  || err "git diff C25..HEAD failed (enumeration fail-closed)"
-[ -s "$tmpdir/cs.f32bset.raw" ] || err "git diff C25..HEAD returned no paths (enumeration fail-closed)"
+$GIT diff --name-only "$C25" "$C40" > "$tmpdir/cs.f32bset.raw" \
+  || err "git diff C25..C40 failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.f32bset.raw" ] || err "git diff C25..C40 returned no paths (enumeration fail-closed)"
 LC_ALL=C sort "$tmpdir/cs.f32bset.raw" > "$tmpdir/cs.f32bset.act" \
-  || err "C25..HEAD path-set sort failed (fail-closed)"
+  || err "C25..C40 path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.f32bset.exp" "$tmpdir/cs.f32bset.act" > "$tmpdir/cs.f32bset.dd" 2>&1 \
   || err "changes since published C25 differ from the eight authorized F3.2b, F3.2c, F3.2d, and F3.2e paths: $(cat "$tmpdir/cs.f32bset.dd")"
-# --------- Exact C28..HEAD changed path set (exactly seven)
+# --------- Exact historical C28..C40 path set (exactly seven)
 cat > "$tmpdir/cs.f32brspset.exp" <<'EOF'
 docs/DECISION-LOG.md
 docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
@@ -1357,14 +1384,14 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 EOF
-$GIT diff --name-only "$C28" "$head" > "$tmpdir/cs.f32brspset.raw" \
-  || err "git diff C28..HEAD failed (enumeration fail-closed)"
-[ -s "$tmpdir/cs.f32brspset.raw" ] || err "git diff C28..HEAD returned no paths (enumeration fail-closed)"
+$GIT diff --name-only "$C28" "$C40" > "$tmpdir/cs.f32brspset.raw" \
+  || err "git diff C28..C40 failed (enumeration fail-closed)"
+[ -s "$tmpdir/cs.f32brspset.raw" ] || err "git diff C28..C40 returned no paths (enumeration fail-closed)"
 LC_ALL=C sort "$tmpdir/cs.f32brspset.raw" > "$tmpdir/cs.f32brspset.act" \
-  || err "C28..HEAD path-set sort failed (fail-closed)"
+  || err "C28..C40 path-set sort failed (fail-closed)"
 diff "$tmpdir/cs.f32brspset.exp" "$tmpdir/cs.f32brspset.act" > "$tmpdir/cs.f32brspset.dd" 2>&1 \
   || err "changes since published C28 differ from the seven authorized F3.2b response, F3.2c, F3.2d, and F3.2e paths: $(cat "$tmpdir/cs.f32brspset.dd")"
-# Every tracked blob outside the seven-path C28..HEAD set above —
+# Every tracked blob outside the seven-path historical C28..C40 set above —
 # including the F3.2b decision packet, the PSBT draft, F3 README,
 # wallet-trust spine, SOURCE-REGISTER, OPEN-DECISIONS, OD-08 docs,
 # architecture, requirements, security docs, gates, limits, tests,
@@ -3134,26 +3161,29 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 QK_CS_F32E_PATHS_EOF
-$GIT diff --name-only "$C37" "$head" > "$tmpdir/cs.f32e.paths.raw"
+$GIT diff --name-only "$C37" "$C40" > "$tmpdir/cs.f32e.paths.raw"
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "F3.2e C37..HEAD path enumeration failed"
-[ -s "$tmpdir/cs.f32e.paths.raw" ] || err "F3.2e C37..HEAD path enumeration is empty"
+[ "$csf32erc" -eq 0 ] || err "F3.2e C37..C40 path enumeration failed"
+[ -s "$tmpdir/cs.f32e.paths.raw" ] || err "F3.2e C37..C40 path enumeration is empty"
 LC_ALL=C sort "$tmpdir/cs.f32e.paths.raw" > "$tmpdir/cs.f32e.paths.act"
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "F3.2e C37..HEAD path sort failed"
+[ "$csf32erc" -eq 0 ] || err "F3.2e C37..C40 path sort failed"
 cmp -s "$tmpdir/cs.f32e.paths.exp" "$tmpdir/cs.f32e.paths.act"
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "F3.2e C37..HEAD path union is not the exact authorized four-path set"
+[ "$csf32erc" -eq 0 ] || err "F3.2e C37..C40 path union is not the exact authorized four-path set"
 
-# Decision Log A must be the exact active file and an exact append to
-# the published C37 source base.
+# Decision Log A is the historical C40-stage binding and an exact append
+# to the published C37 source base.
 $GIT show "$C38:docs/DECISION-LOG.md" > "$tmpdir/cs.f32e.dlog.a" 2>/dev/null
 csf32erc=$?
 [ "$csf32erc" -eq 0 ] || err "cannot read F3.2e Decision Log from C38/A"
 [ -s "$tmpdir/cs.f32e.dlog.a" ] || err "F3.2e C38/A Decision Log is empty"
-cmp -s "$tmpdir/cs.f32e.dlog.a" docs/DECISION-LOG.md
+$GIT show "$C40:docs/DECISION-LOG.md" > "$tmpdir/cs.f32e.dlog.stage" 2>/dev/null
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "active Decision Log is not byte-identical to F3.2e commit A"
+[ "$csf32erc" -eq 0 ] || err "cannot read F3.2e Decision Log from C40 stage"
+cmp -s "$tmpdir/cs.f32e.dlog.a" "$tmpdir/cs.f32e.dlog.stage"
+csf32erc=$?
+[ "$csf32erc" -eq 0 ] || err "F3.2e C40 Decision Log is not byte-identical to F3.2e commit A"
 $GIT show "$C37:docs/DECISION-LOG.md" > "$tmpdir/cs.f32e.dlog.base" 2>/dev/null
 csf32erc=$?
 [ "$csf32erc" -eq 0 ] || err "cannot read F3.2e Decision Log from C37 source base"
@@ -3223,7 +3253,8 @@ cmp -s "$tmpdir/cs.f32e.dlog.owner" "$tmpdir/cs.f32e.packet.owner"
 csf32erc=$?
 [ "$csf32erc" -eq 0 ] || err "F3.2e Decision Log and packet owner transcripts differ"
 
-# Commit B packet and host bytes are exact and remain active at HEAD.
+# Commit B packet remains active; its historical host bytes remain exact
+# through the F3.2e C stage and are rebound only by the later F3.2f B.
 $GIT show "$C39:$F32EPKT" > "$tmpdir/cs.f32e.packet.b" 2>/dev/null
 csf32erc=$?
 [ "$csf32erc" -eq 0 ] || err "cannot read F3.2e packet from C39/B"
@@ -3233,11 +3264,15 @@ csf32erc=$?
 $GIT show "$C39:tools/verify-host-boundary.sh" > "$tmpdir/cs.f32e.host.b" 2>/dev/null
 csf32erc=$?
 [ "$csf32erc" -eq 0 ] || err "cannot read F3.2e host verifier from C39/B"
-cmp -s "$tmpdir/cs.f32e.host.b" tools/verify-host-boundary.sh
+$GIT show "$C40:tools/verify-host-boundary.sh" > "$tmpdir/cs.f32e.host.stage" 2>/dev/null
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "active host verifier is not byte-identical to F3.2e C39/B"
+[ "$csf32erc" -eq 0 ] || err "cannot read F3.2e host verifier from C40 stage"
+cmp -s "$tmpdir/cs.f32e.host.b" "$tmpdir/cs.f32e.host.stage"
+csf32erc=$?
+[ "$csf32erc" -eq 0 ] || err "F3.2e C40 host verifier is not byte-identical to F3.2e C39/B"
 
-# Exact C39 tree modes/blobs and active working-tree blobs.
+# Exact historical C39/B tree modes/blobs for the C39/C40 preservation
+# check.
 for csf32etreepair in \
   "100644 4ffa20afbedeb0b6cfbbe57298f941bc0537683e $F32EPKT" \
   '100755 b1cd5dfe71377913ee283fac17352f41fcc48654 tools/verify-host-boundary.sh'; do
@@ -3261,14 +3296,6 @@ for csf32etreepair in \
   [ "$csf32erc" -eq 0 ] || err "F3.2e C39/B tree blob extraction failed for $csf32etreepath"
   [ "$csf32etreeactmode" = "$csf32etreemode" ] || err "F3.2e C39/B tree mode differs for $csf32etreepath"
   [ "$csf32etreeactblob" = "$csf32etreeblob" ] || err "F3.2e C39/B tree blob differs for $csf32etreepath"
-  $GIT hash-object -- "$csf32etreepath" > "$tmpdir/cs.f32e.active.blob"
-  csf32erc=$?
-  [ "$csf32erc" -eq 0 ] || err "F3.2e active blob scan failed for $csf32etreepath"
-  printf '%s\n' "$csf32etreeblob" > "$tmpdir/cs.f32e.active.blob.exp" \
-    || err "F3.2e expected active blob generation failed for $csf32etreepath"
-  cmp -s "$tmpdir/cs.f32e.active.blob.exp" "$tmpdir/cs.f32e.active.blob"
-  csf32erc=$?
-  [ "$csf32erc" -eq 0 ] || err "F3.2e active blob differs for $csf32etreepath"
 done
 
 # Source and protected documents retain the exact reviewed blobs.
@@ -3371,24 +3398,145 @@ cmp -s "$tmpdir/cs.f32e.effects.exp" "$tmpdir/cs.f32e.effects.act"
 csf32erc=$?
 [ "$csf32erc" -eq 0 ] || err "F3.2e dependencies/non-effects transcript differs"
 
-# Bind the active host's operational F3.2e anchor, file-set entry, packet
-# blob pin, and scan-loop expansion. The strict host is executed later.
-csf32eanchor=$(grep -cF 'git --no-optional-locks show e57faff4ead69ddf108cf522cb6c3cbfbef8219a:docs/DECISION-LOG.md > "$tmpdir/dlog.a"' tools/verify-host-boundary.sh)
+# Bind the historical F3.2e host's operational anchor, file-set entry,
+# packet blob pin, and scan-loop expansion. The active strict host is
+# independently bound below for F3.2f and executed later.
+csf32eanchor=$(grep -cF 'git --no-optional-locks show e57faff4ead69ddf108cf522cb6c3cbfbef8219a:docs/DECISION-LOG.md > "$tmpdir/dlog.a"' "$tmpdir/cs.f32e.host.b")
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "active host F3.2e Decision-Log anchor scan failed"
-[ "$csf32eanchor" = 1 ] || err "active host must contain exactly one F3.2e Decision-Log anchor"
-csf32epath=$(grep -cFx 'docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md' tools/verify-host-boundary.sh)
+[ "$csf32erc" -eq 0 ] || err "historical F3.2e C39/B host Decision-Log anchor scan failed"
+[ "$csf32eanchor" = 1 ] || err "historical F3.2e C39/B host must contain exactly one Decision-Log anchor"
+csf32epath=$(grep -cFx 'docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md' "$tmpdir/cs.f32e.host.b")
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "active host F3.2e file-set scan failed"
-[ "$csf32epath" = 1 ] || err "active host exact file set must contain the F3.2e packet exactly once"
-csf32eblobpin=$(grep -cFx 'p32eblob=4ffa20afbedeb0b6cfbbe57298f941bc0537683e' tools/verify-host-boundary.sh)
+[ "$csf32erc" -eq 0 ] || err "historical F3.2e C39/B host file-set scan failed"
+[ "$csf32epath" = 1 ] || err "historical F3.2e C39/B host exact file set must contain the packet exactly once"
+csf32eblobpin=$(grep -cFx 'p32eblob=4ffa20afbedeb0b6cfbbe57298f941bc0537683e' "$tmpdir/cs.f32e.host.b")
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "active host F3.2e packet-blob pin scan failed"
-[ "$csf32eblobpin" = 1 ] || err "active host must contain exactly one F3.2e packet-blob pin"
-csf32escan=$(grep -cFx 'for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do' tools/verify-host-boundary.sh)
+[ "$csf32erc" -eq 0 ] || err "historical F3.2e C39/B host packet-blob pin scan failed"
+[ "$csf32eblobpin" = 1 ] || err "historical F3.2e C39/B host must contain exactly one packet-blob pin"
+csf32escan=$(grep -cFx 'for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do' "$tmpdir/cs.f32e.host.b")
 csf32erc=$?
-[ "$csf32erc" -eq 0 ] || err "active host F3.2e material-scan binding failed"
-[ "$csf32escan" = 2 ] || err "active host must include the F3.2e packet in both exact material/token scan loops"
+[ "$csf32erc" -eq 0 ] || err "historical F3.2e C39/B host material-scan binding failed"
+[ "$csf32escan" = 2 ] || err "historical F3.2e C39/B host must include the packet in both exact material/token scan loops"
+
+# ----------------------------- F3.2f owner-direction stage exact bindings
+F32FREC=docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
+[ -f "$F32FREC" ] || err "$F32FREC missing"
+cat > "$tmpdir/cs.f32f.paths.exp" <<'QK_CS_F32F_PATHS_EOF' || err "F3.2f path fixture generation failed"
+docs/DECISION-LOG.md
+docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+QK_CS_F32F_PATHS_EOF
+$GIT diff --name-only "$C40" "$head" > "$tmpdir/cs.f32f.paths.raw"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f C40..HEAD path enumeration failed"
+[ -s "$tmpdir/cs.f32f.paths.raw" ] || err "F3.2f C40..HEAD path enumeration is empty"
+LC_ALL=C sort "$tmpdir/cs.f32f.paths.raw" > "$tmpdir/cs.f32f.paths.act"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f C40..HEAD path sort failed"
+cmp -s "$tmpdir/cs.f32f.paths.exp" "$tmpdir/cs.f32f.paths.act"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f C40..HEAD path union is not the exact authorized four-path set"
+
+# A is an append-only Decision Log update and remains the active file.
+$GIT show "$C40:docs/DECISION-LOG.md" > "$tmpdir/cs.f32f.dlog.base" 2>/dev/null
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "cannot read F3.2f base Decision Log"
+$GIT show "$C41:docs/DECISION-LOG.md" > "$tmpdir/cs.f32f.dlog.a" 2>/dev/null
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "cannot read F3.2f A Decision Log"
+cmp -s "$tmpdir/cs.f32f.dlog.a" docs/DECISION-LOG.md
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "active Decision Log is not byte-identical to F3.2f A"
+wc -c < "$tmpdir/cs.f32f.dlog.base" > "$tmpdir/cs.f32f.dlog.bytes.raw"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f base Decision Log byte count failed"
+tr -d '[:space:]' < "$tmpdir/cs.f32f.dlog.bytes.raw" > "$tmpdir/cs.f32f.dlog.bytes"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f Decision Log byte-count normalization failed"
+csf32fbasebytes=$(cat "$tmpdir/cs.f32f.dlog.bytes")
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f Decision Log byte-count read failed"
+case $csf32fbasebytes in ''|*[!0-9]*) err "F3.2f Decision Log byte count is non-numeric" ;; esac
+dd if="$tmpdir/cs.f32f.dlog.a" bs=1 count="$csf32fbasebytes" \
+  > "$tmpdir/cs.f32f.dlog.prefix" 2> "$tmpdir/cs.f32f.dlog.prefix.err"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f Decision Log prefix read failed"
+cmp -s "$tmpdir/cs.f32f.dlog.base" "$tmpdir/cs.f32f.dlog.prefix"
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "F3.2f base Decision Log is not the exact prefix of A"
+
+# Exact A/B modes and blobs, plus active B bytes.
+for csf32ftreepair in \
+  '100644 ffc140296400b9d3d4e892085cf8ca598674e113 docs/DECISION-LOG.md' \
+  '100644 a066fc9710371f414d158a3deb9c345f2b00821b docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md' \
+  '100755 a8e71a5879c8dbb1773ace2b7bf8565554bb16f4 tools/verify-host-boundary.sh'; do
+  csf32fmode=${csf32ftreepair%% *}
+  csf32frest=${csf32ftreepair#* }
+  csf32fblob=${csf32frest%% *}
+  csf32fpath=${csf32frest#* }
+  case $csf32fpath in docs/DECISION-LOG.md) csf32fcommit=$C41 ;; *) csf32fcommit=$C42 ;; esac
+  $GIT ls-tree "$csf32fcommit" -- "$csf32fpath" > "$tmpdir/cs.f32f.tree.raw"
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f tree lookup failed for $csf32fpath"
+  [ -s "$tmpdir/cs.f32f.tree.raw" ] || err "F3.2f tree entry missing for $csf32fpath"
+  csf32factmode=$(awk 'NR == 1 {print $1}' "$tmpdir/cs.f32f.tree.raw")
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f tree mode extraction failed for $csf32fpath"
+  csf32factblob=$(awk 'NR == 1 {print $3}' "$tmpdir/cs.f32f.tree.raw")
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f tree blob extraction failed for $csf32fpath"
+  [ "$csf32factmode" = "$csf32fmode" ] || err "F3.2f mode differs for $csf32fpath"
+  [ "$csf32factblob" = "$csf32fblob" ] || err "F3.2f blob differs for $csf32fpath"
+  $GIT hash-object -- "$csf32fpath" > "$tmpdir/cs.f32f.active.blob"
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f active blob scan failed for $csf32fpath"
+  printf '%s\n' "$csf32fblob" > "$tmpdir/cs.f32f.active.exp" || err "F3.2f active blob fixture failed"
+  cmp -s "$tmpdir/cs.f32f.active.exp" "$tmpdir/cs.f32f.active.blob"
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f active blob differs for $csf32fpath"
+done
+for csf32frecordfixture in \
+  '## Source rows containing approved Plan / oracle directions' \
+  '- `docs/TEST-ARCHITECTURE.md` remains unchanged. Both rows containing the approved Plan / oracle direction cells and the unchanged control remain `PLANNED — NOT RUN`.'; do
+  csf32ffixturecount=$(grep -cFx -e "$csf32frecordfixture" "$F32FREC")
+  csf32frc=$?
+  [ "$csf32frc" -le 1 ] || err "F3.2f changed heading/semantic fixture scan failed"
+  [ "$csf32ffixturecount" = 1 ] || err "F3.2f changed heading/semantic fixture is missing, altered, or duplicated"
+done
+for csf32fprotectedpair in \
+  'docs/TEST-ARCHITECTURE.md f4e127a92fc68243274b7d384e335fa4632e5dd2' \
+  'docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f941bc0537683e'; do
+  csf32fprotected=${csf32fprotectedpair%% *}
+  csf32fprotectedblob=${csf32fprotectedpair#* }
+  $GIT hash-object -- "$csf32fprotected" > "$tmpdir/cs.f32f.protected.act"
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f protected blob scan failed for $csf32fprotected"
+  printf '%s\n' "$csf32fprotectedblob" > "$tmpdir/cs.f32f.protected.exp" || err "F3.2f protected blob fixture failed"
+  cmp -s "$tmpdir/cs.f32f.protected.exp" "$tmpdir/cs.f32f.protected.act"
+  csf32frc=$?
+  [ "$csf32frc" -eq 0 ] || err "F3.2f protected blob differs for $csf32fprotected"
+done
+for csf32fowner in \
+  'Approve, as non-enacting owner directions, the complete proposed Plan / oracle text for QK-TST-DIFF-002 and QK-TST-DIFF-004 exactly as printed in the F3.2e packet at published commit 574e790193d45d3f392c64951d319bb5fde11d20. Approve no change to any other cell. QK-TST-REH-004 remains unchanged.' \
+  'This approval does not amend docs/TEST-ARCHITECTURE.md, change any QK-TST status, authorize testing or evidence, answer F32C-D11-Q-002 through Q-012, or select D-11, D-09, any QK-LIM, the PSBT profile, or any clause.' \
+  'Authorize preparation and independent audit of a non-enacting docs-only F3.2f PSBT-output test owner-direction record from 574e790193d45d3f392c64951d319bb5fde11d20, recording only my approved directions for QK-TST-DIFF-002 and QK-TST-DIFF-004, with QK-TST-REH-004 retained unchanged and only the mechanically necessary verifier bindings.' \
+  'No canonical TEST-ARCHITECTURE edit, test-status change, F32C-D11-Q-002 through Q-012 answer, D-11 or D-09 selection, QK-LIM selection, profile or clause acceptance, implementation, testing, vectors, evidence, media I/O, hardware work, settings changes, or publication.'; do
+  for csf32fownerfile in docs/DECISION-LOG.md "$F32FREC"; do
+    csf32fownercount=$(grep -cFx -e "$csf32fowner" "$csf32fownerfile")
+    csf32frc=$?
+    [ "$csf32frc" -le 1 ] || err "F3.2f owner transcript scan failed in $csf32fownerfile"
+    [ "$csf32fownercount" = 1 ] || err "F3.2f owner transcript differs or duplicates in $csf32fownerfile"
+  done
+done
+csf32fanchor=$(grep -cF 'git --no-optional-locks show 22114c6741ac653b9c5079b1bfccdb795a88f3df:docs/DECISION-LOG.md > "$tmpdir/dlog.a"' tools/verify-host-boundary.sh)
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "active host F3.2f Decision-Log anchor scan failed"
+[ "$csf32fanchor" = 1 ] || err "active host must contain exactly one F3.2f Decision-Log anchor"
+csf32fblobpin=$(grep -cFx 'p32fblob=a066fc9710371f414d158a3deb9c345f2b00821b' tools/verify-host-boundary.sh)
+csf32frc=$?
+[ "$csf32frc" -eq 0 ] || err "active host F3.2f record-blob pin scan failed"
+[ "$csf32fblobpin" = 1 ] || err "active host must contain exactly one F3.2f record-blob pin"
 
 # --------------------------------- e. Historical verifiers byte-identical
 for v in tools/verify-foundation.sh tools/verify-f2-preparation.sh; do
@@ -3416,6 +3564,7 @@ docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
 docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
+docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -3457,6 +3606,7 @@ for f in \
   docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md \
   docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md \
   docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md \
+  docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md \
   tools/verify-foundation.sh tools/verify-f2-preparation.sh \
   tools/verify-host-boundary.sh tools/verify-current-stage.sh
 do
