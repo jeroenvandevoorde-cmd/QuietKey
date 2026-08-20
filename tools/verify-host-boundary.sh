@@ -104,6 +104,7 @@ docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
 docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
+docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1261,7 +1262,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show da55fb4bcd4983140c8fb379cc3322eec99284f0:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show c4e1ed94a02fba5d01f5cebfda4d5b1439222625:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -3094,14 +3095,200 @@ LC_ALL=C sort "$tmpdir/p32h.hex.raw" > "$tmpdir/p32h.hex.act"; p32hrc=$?
 cmp -s "$tmpdir/p32h.hex.exp" "$tmpdir/p32h.hex.act"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "$PKT32H exact-40-hex multiset differs"
 
-# G: full changed-content material scan across exactly the eleven named
+# ---------------- F3.2i QK-LIM-PSBT-027 owner-direction record
+# Non-enacting future direction only. Exact bytes, owner transcript,
+# source history, canonical blobs, and closed selection grammar are
+# fail-closed supporting checks; they enact no canonical amendment.
+REC32I=docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
+[ -f "$REC32I" ] || err "$REC32I missing"
+p32ibase=e36b41e5cd55264b4b745550c96c74968b06eae7
+p32ia=c4e1ed94a02fba5d01f5cebfda4d5b1439222625
+p32irecordblob=2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
+p32ipacketblob=e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5
+
+git --no-optional-locks rev-parse "$p32ibase^{commit}" > "$tmpdir/p32i.base.act" 2>/dev/null
+p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i source base does not resolve as a commit"
+printf '%s\n' "$p32ibase" > "$tmpdir/p32i.base.exp" \
+  || err "F3.2i source-base fixture generation failed"
+cmp -s "$tmpdir/p32i.base.exp" "$tmpdir/p32i.base.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i source base resolution differs"
+git --no-optional-locks rev-parse "$p32ia^{commit}" > "$tmpdir/p32i.a.act" 2>/dev/null
+p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i authorization commit A does not resolve"
+printf '%s\n' "$p32ia" > "$tmpdir/p32i.a.exp" \
+  || err "F3.2i authorization-commit fixture generation failed"
+cmp -s "$tmpdir/p32i.a.exp" "$tmpdir/p32i.a.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i authorization commit resolution differs"
+
+git --no-optional-locks hash-object -- "$REC32I" > "$tmpdir/p32i.record.act"
+p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I whole-record blob scan failed"
+[ -s "$tmpdir/p32i.record.act" ] || err "$REC32I whole-record blob scan produced empty output"
+printf '%s\n' "$p32irecordblob" > "$tmpdir/p32i.record.exp" \
+  || err "$REC32I whole-record blob fixture generation failed"
+cmp -s "$tmpdir/p32i.record.exp" "$tmpdir/p32i.record.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I whole-record bytes differ"
+
+for p32iowner in \
+  'Approve, as a non-enacting owner direction, F32H-LIM-OPT-001 exactly as printed in the published F3.2h packet at commit e36b41e5cd55264b4b745550c96c74968b06eae7: “Under separately authorized later canonical work, preserve ID 027 as a permanent non-reusable tombstone and remove its live links. Never delete, renumber, reuse, or repurpose the ID.” Approve no other disposition.' \
+  'This approval selects only the future disposition direction. It does not declare the current QK-LIM-PSBT-027 row tombstoned or inactive; select any replacement title, Status vocabulary, row syntax, link syntax, or canonical bytes; authorize any value, including zero; or amend any current live link. QK-LIM-PSBT-026 remains unchanged.' \
+  'Authorize preparation and independent audit of a non-enacting docs-only F3.2i QK-LIM-PSBT-027 owner-direction record from e36b41e5cd55264b4b745550c96c74968b06eae7, recording only that approved direction, with only the mechanically necessary Decision Log and verifier bindings.' \
+  'No canonical RESOURCE-BUDGETS, REQUIREMENTS, or TEST-ARCHITECTURE edit; no QK-LIM value, title, status, link, or row change; no QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
+  for p32iownerfile in docs/DECISION-LOG.md "$REC32I"; do
+    p32iownerhits=$(grep -cFx -e "$p32iowner" "$p32iownerfile"); p32irc=$?
+    [ "$p32irc" -le 1 ] || err "F3.2i owner transcript scan failed in $p32iownerfile"
+    [ "$p32iownerhits" = 1 ] || err "F3.2i owner transcript differs or duplicates in $p32iownerfile"
+  done
+done
+sed -n '/^- \*\*Owner words exactly (literal four-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
+  docs/DECISION-LOG.md > "$tmpdir/p32i.owner.dlog.framed"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i Decision Log owner block extraction failed"
+sed '1d;$d' "$tmpdir/p32i.owner.dlog.framed" > "$tmpdir/p32i.owner.dlog"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i Decision Log owner block deframing failed"
+sed -n '/^## Owner words exactly$/,/^## Exact direction map$/p' \
+  "$REC32I" > "$tmpdir/p32i.owner.record.framed"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i record owner block extraction failed"
+sed '1d;$d' "$tmpdir/p32i.owner.record.framed" > "$tmpdir/p32i.owner.record"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i record owner block deframing failed"
+cmp -s "$tmpdir/p32i.owner.dlog" "$tmpdir/p32i.owner.record"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i Decision Log and record owner transcript blocks differ"
+
+grep '^| F32H-LIM-OPT-' "$REC32I" > "$tmpdir/p32i.options.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I option-row extraction failed"
+cat > "$tmpdir/p32i.options.exp" <<'QK_F32I_OPTIONS_EOF' || err "$REC32I option-row fixture generation failed"
+| F32H-LIM-OPT-001 | UNSELECTED — HISTORICAL SOURCE STATE | OWNER DIRECTION APPROVED — NON-ENACTING | NONE — FUTURE DIRECTION ONLY |
+| F32H-LIM-OPT-002 | UNSELECTED — HISTORICAL SOURCE STATE | NOT APPROVED | NONE |
+| F32H-LIM-OPT-003 | UNSELECTED — HISTORICAL SOURCE STATE | NOT APPROVED | NONE |
+| F32H-LIM-OPT-001 | Under separately authorized later canonical work, preserve ID 027 as a permanent non-reusable tombstone and remove its live links. Never delete, renumber, reuse, or repurpose the ID. |
+QK_F32I_OPTIONS_EOF
+cmp -s "$tmpdir/p32i.options.exp" "$tmpdir/p32i.options.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I exact option rows differ"
+awk -F '|' '
+  NR == 1 { if ($2 != " F32H-LIM-OPT-001 " || $3 != " UNSELECTED — HISTORICAL SOURCE STATE " || $4 != " OWNER DIRECTION APPROVED — NON-ENACTING " || $5 != " NONE — FUTURE DIRECTION ONLY ") exit 61; next }
+  NR == 2 { if ($2 != " F32H-LIM-OPT-002 " || $3 != " UNSELECTED — HISTORICAL SOURCE STATE " || $4 != " NOT APPROVED " || $5 != " NONE ") exit 62; next }
+  NR == 3 { if ($2 != " F32H-LIM-OPT-003 " || $3 != " UNSELECTED — HISTORICAL SOURCE STATE " || $4 != " NOT APPROVED " || $5 != " NONE ") exit 63; next }
+  NR == 4 { if ($2 != " F32H-LIM-OPT-001 ") exit 64; next }
+  END { if (NR != 4) exit 65 }
+' "$tmpdir/p32i.options.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I selection grammar differs (awk exit $p32irc)"
+for p32iboundary in \
+  'There is exactly one approved owner direction: `F32H-LIM-OPT-001`. `F32H-LIM-OPT-002` and `F32H-LIM-OPT-003` are not approved.' \
+  '- Its three option rows remain `UNSELECTED` as the historical source state at packet publication. This record does not rewrite, supersede, or misdescribe those historical bytes.' \
+  '- This record does not declare `QK-LIM-PSBT-027` currently `TOMBSTONED` or `INACTIVE`; those words describe no current registry status here.' \
+  '- No replacement title, Status vocabulary, row syntax, link syntax, canonical bytes, or value is selected. No value, including zero, is authorized.' \
+  '- `QK-TST-DIFF-004` remains byte-for-byte unchanged. No Plan / oracle, Links, Milestone, Gate, Evidence artifact, or Status cell changes.'; do
+  p32iboundarycount=$(grep -cFx -e "$p32iboundary" "$REC32I"); p32irc=$?
+  [ "$p32irc" -le 1 ] || err "$REC32I boundary statement scan failed"
+  [ "$p32iboundarycount" = 1 ] || err "$REC32I required boundary statement is missing, altered, or duplicated"
+done
+
+while IFS=' ' read -r p32iprotected p32iprotectedblob; do
+  git --no-optional-locks hash-object -- "$p32iprotected" > "$tmpdir/p32i.protected.act"; p32irc=$?
+  [ "$p32irc" -eq 0 ] || err "F3.2i protected blob scan failed for $p32iprotected"
+  [ -s "$tmpdir/p32i.protected.act" ] || err "F3.2i protected blob scan produced empty output for $p32iprotected"
+  printf '%s\n' "$p32iprotectedblob" > "$tmpdir/p32i.protected.exp" \
+    || err "F3.2i protected blob fixture failed for $p32iprotected"
+  cmp -s "$tmpdir/p32i.protected.exp" "$tmpdir/p32i.protected.act"; p32irc=$?
+  [ "$p32irc" -eq 0 ] || err "F3.2i protected blob differs for $p32iprotected"
+done <<'QK_F32I_PROTECTED_BLOBS_EOF'
+docs/RESOURCE-BUDGETS.md 1ae6494fc24a8e3572464cf45e6d43ea4875e95d
+docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
+docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
+docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f941bc0537683e
+docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md a066fc9710371f414d158a3deb9c345f2b00821b
+docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5
+QK_F32I_PROTECTED_BLOBS_EOF
+
+for p32irow in "$p32hrow026" "$p32hrow027"; do
+  p32irowcount=$(grep -cFx -e "$p32irow" docs/RESOURCE-BUDGETS.md); p32irc=$?
+  [ "$p32irc" -le 1 ] || err "F3.2i canonical source-row scan failed"
+  [ "$p32irowcount" = 1 ] || err "F3.2i canonical QK-LIM row is missing, altered, or duplicated"
+done
+for p32icellpair in \
+  "$tmpdir/p32h.psbt005.source|$p32hpsbt005" \
+  "$tmpdir/p32h.trn007.source|$p32htrn007" \
+  "$tmpdir/p32h.diff004.source|$p32hdiff004"; do
+  p32icellfile=${p32icellpair%%|*}
+  p32icellexpected=${p32icellpair#*|}
+  printf '%s\n' "$p32icellexpected" > "$tmpdir/p32i.cell.exp" \
+    || err "F3.2i canonical-cell fixture generation failed"
+  cmp -s "$tmpdir/p32i.cell.exp" "$p32icellfile"; p32irc=$?
+  [ "$p32irc" -eq 0 ] || err "F3.2i canonical live-link cell differs: $p32icellexpected"
+done
+
+iconv -f UTF-8 -t UTF-8 "$REC32I" > "$tmpdir/p32i.utf8" 2> "$tmpdir/p32i.iconv.err"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I is not strict UTF-8"
+[ -s "$tmpdir/p32i.utf8" ] || err "$REC32I UTF-8 validation produced empty output"
+cmp -s "$REC32I" "$tmpdir/p32i.utf8"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I UTF-8 validation changed bytes"
+tail -c 1 "$REC32I" > "$tmpdir/p32i.last.raw"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I final-byte read failed"
+[ -s "$tmpdir/p32i.last.raw" ] || err "$REC32I final-byte read produced empty output"
+od -An -tuC "$tmpdir/p32i.last.raw" > "$tmpdir/p32i.last.od"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I final-byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32i.last.od" > "$tmpdir/p32i.last.norm"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I final-byte normalization failed"
+p32ilast=$(cat "$tmpdir/p32i.last.norm"); p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I final-byte read-back failed"
+[ "$p32ilast" = 10 ] || err "$REC32I must end in exact LF"
+tail -c 2 "$REC32I" > "$tmpdir/p32i.last2.raw"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I final-two-byte read failed"
+printf '\n\n' > "$tmpdir/p32i.double-lf" || err "$REC32I double-LF fixture generation failed"
+cmp -s "$tmpdir/p32i.double-lf" "$tmpdir/p32i.last2.raw"; p32irc=$?
+[ "$p32irc" -eq 1 ] || err "$REC32I must not end in double LF or the cmp check failed (exit $p32irc)"
+od -An -tx1 "$REC32I" > "$tmpdir/p32i.bytes.raw"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I byte scan failed"
+awk 'BEGIN { bad=0; p2=""; p1="" }
+  {
+    for (i=1; i<=NF; i++) {
+      b=tolower($i)
+      if (b == "00" || b == "0d") bad=bad+1
+      seq=p2 p1 b
+      if (seq == "efbbbf" || seq == "e2808e" || seq == "e2808f" ||
+          seq == "e280aa" || seq == "e280ab" || seq == "e280ac" ||
+          seq == "e280ad" || seq == "e280ae" || seq == "e281a6" ||
+          seq == "e281a7" || seq == "e281a8" || seq == "e281a9") bad=bad+1
+      p2=p1
+      p1=b
+    }
+  }
+  END { print bad+0 }' "$tmpdir/p32i.bytes.raw" > "$tmpdir/p32i.bytes.bad"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I control/bidi byte scan failed"
+p32ibad=$(cat "$tmpdir/p32i.bytes.bad"); p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I control/bidi result read failed"
+[ "$p32ibad" = 0 ] || err "$REC32I contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$REC32I contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$REC32I"
+forbid "$REC32I contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$REC32I"
+forbid "$REC32I contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$REC32I"
+printf '%s\n' \
+  065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+  1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
+  981b1b497102187da66fb4e82ef0725b32c088f7 \
+  c4e1ed94a02fba5d01f5cebfda4d5b1439222625 \
+  e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5 \
+  e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5 \
+  e36b41e5cd55264b4b745550c96c74968b06eae7 \
+  e36b41e5cd55264b4b745550c96c74968b06eae7 \
+  e36b41e5cd55264b4b745550c96c74968b06eae7 > "$tmpdir/p32i.hex.exp" \
+  || err "$REC32I exact-40-hex multiset fixture generation failed"
+awk '{s=$0; while (match(s,/[0-9a-fA-F]+/)) {t=substr(s,RSTART,RLENGTH); if (length(t)==40) print tolower(t); s=substr(s,RSTART+RLENGTH)}}' \
+  "$REC32I" > "$tmpdir/p32i.hex.raw"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I exact-40-hex enumeration failed"
+LC_ALL=C sort "$tmpdir/p32i.hex.raw" > "$tmpdir/p32i.hex.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I exact-40-hex sort failed"
+cmp -s "$tmpdir/p32i.hex.exp" "$tmpdir/p32i.hex.act"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "$REC32I exact-40-hex multiset differs"
+
+# G: full changed-content material scan across exactly the twelve named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this eleven-path
-# scan. Supporting evidence only, never
+# is separately bounded elsewhere and is not part of this twelve-path scan.
+# Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -3112,7 +3299,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same eleven named scan paths; every token must be deliberately
+# across the same twelve named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -3145,7 +3332,10 @@ done
 #   da55fb4bcd4983140c8fb379cc3322eec99284f0  F3.2h authorization commit A
 #   e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc  F3.2h Decision Log A blob
 #   1ae6494fc24a8e3572464cf45e6d43ea4875e95d  F3.2h RESOURCE-BUDGETS source blob
+#   2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5  F3.2i owner-direction whole-record blob
 #   e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5  F3.2h packet blob
+#   c4e1ed94a02fba5d01f5cebfda4d5b1439222625  F3.2i authorization commit A
+#   e36b41e5cd55264b4b745550c96c74968b06eae7  F3.2i source base / published F3.2h C
 {
   printf '%s\n' \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
@@ -3155,6 +3345,7 @@ done
     22114c6741ac653b9c5079b1bfccdb795a88f3df \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
+    2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5 \
     45f2b362994b785d303e91b8e530efc724dc2d81 \
     4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
@@ -3173,9 +3364,11 @@ done
     b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
     be4d019e349e15ca575ac64b64f900957283e5e0 \
+    c4e1ed94a02fba5d01f5cebfda4d5b1439222625 \
     da55fb4bcd4983140c8fb379cc3322eec99284f0 \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
     e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5 \
+    e36b41e5cd55264b4b745550c96c74968b06eae7 \
     e4cdf7771e189fc0f729358334aafd35177048c6 \
     e57faff4ead69ddf108cf522cb6c3cbfbef8219a \
     e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc \
@@ -3184,7 +3377,7 @@ done
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
