@@ -229,3 +229,22 @@ No canonical TEST-ARCHITECTURE edit, test-status change, F32C-D11-Q-002 through 
 - **Explicit exclusions and non-effects:** no canonical document or other cell change; no QK-TST status, test, vector, evidence, gate, STOP-SHIP, implementation, media-I/O, hardware, firmware, setting, credential, remote, branch, tag, release, or publication change; no answer to F32C-D11-Q-002 through F32C-D11-Q-012; no D-11, D-09, QK-LIM, profile, or clause selection or acceptance. Every dependency, open question, QK-LIM title/link, and existing `PLANNED — NOT RUN` status remains unchanged.
 - **Later canonical amendment:** this record is non-enacting. Canonical amendment requires a separate explicit owner authorization after this direction record; this authorization does not amend `docs/TEST-ARCHITECTURE.md`.
 - **Later publication:** publication requires a separate explicit owner instruction naming the exact independently audited 40-hex commit; this authorization alone does not authorize publication.
+
+### QK-AUTH-F3.2G-PSBT-TST-ARCH-AMD-001 — F3.2g canonical TEST-ARCHITECTURE amendment authorization
+
+- **ID:** QK-AUTH-F3.2G-PSBT-TST-ARCH-AMD-001
+- **Date:** 2026-08-20
+- **Approver:** Project owner
+- **Owner words exactly:**
+
+Authorize preparation and independent audit of a docs-only F3.2g canonical TEST-ARCHITECTURE amendment from 45f2b362994b785d303e91b8e530efc724dc2d81, replacing only the complete Plan / oracle cells of QK-TST-DIFF-002 and QK-TST-DIFF-004 with the owner-approved text recorded in the published F3.2f owner-direction record, byte-for-byte. Preserve every other cell and row unchanged, retain QK-TST-REH-004 byte-for-byte, and include only the mechanically necessary Decision Log and verifier bindings.
+
+No QK-TST status change or testing/evidence; no F32C-D11-Q-002 through Q-012 answer; no D-11, D-09, QK-LIM, profile, clause, OD-05/06, dependency, corpus, implementation, vector, fixture, media-I/O, hardware, license, settings, credential, release, or publication change.
+
+- **Published parent and source locators:** `45f2b362994b785d303e91b8e530efc724dc2d81`; published F3.2f owner-direction record blob `a066fc9710371f414d158a3deb9c345f2b00821b`; F3.2e alignment-packet blob `4ffa20afbedeb0b6cfbbe57298f941bc0537683e`; canonical `docs/TEST-ARCHITECTURE.md` base blob `f4e127a92fc68243274b7d384e335fa4632e5dd2`. These hashes are supporting byte-identity audit locators only, not authentication or proof.
+- **Exact commit/path map:** Commit A changes only `docs/DECISION-LOG.md`; Commit B changes only `docs/TEST-ARCHITECTURE.md` and `tools/verify-host-boundary.sh`; Commit C changes only `tools/verify-current-stage.sh`. The chain is exactly three linear one-parent commits with no merge and cumulative changes to only those four paths; documentation modes remain `100644` and verifier modes remain `100755`.
+- **Least-authority scope:** locally enact exactly the two owner-approved complete Plan / oracle cells for `QK-TST-DIFF-002` and `QK-TST-DIFF-004`, byte-for-byte from the published F3.2f record, plus only the mechanically necessary Decision Log and verifier bindings and independent read-only audit.
+- **Preserved cells, rows, and sources:** each target row's ID, Method, Links, Milestone, Gate, Evidence artifact, and Status cells remain byte-for-byte unchanged; every other `docs/TEST-ARCHITECTURE.md` byte and row remains unchanged; `QK-TST-REH-004` remains byte-for-byte unchanged; the published F3.2e packet and F3.2f record remain unchanged.
+- **Explicit exclusions and non-effects:** no QK-TST status, testing, evidence, gate, STOP-SHIP, F32C-D11-Q-002 through F32C-D11-Q-012 answer, D-11 or D-09 selection, QK-LIM value/title/link, profile or clause acceptance, OD-05/06 resolution, dependency, corpus, implementation, vector, fixture, media-I/O, hardware, license, setting, credential, remote, other branch, tag, release, or publication change. The known `QK-LIM-PSBT-027` title/link inconsistency remains untouched. All QK-TST statuses remain `PLANNED — NOT RUN`.
+- **Effect:** this authorization canonically enacts exactly the two approved complete Plan / oracle cells and nothing else. It does not authenticate or audit its own output, establish test evidence, or authorize publication.
+- **Later publication:** publication requires a separate explicit owner instruction naming the exact independently audited 40-hex commit; this authorization alone does not authorize publication.
