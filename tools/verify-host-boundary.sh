@@ -1264,7 +1264,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the latest reviewed A commit.
-git --no-optional-locks show 2abf7092adff3b0e27f754c6021c3d852db638f8:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 4af6166dc23eed7285a3d65b339924cda7b07962:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2365,7 +2365,7 @@ cmp -s "$tmpdir/p32e.testarch.source.exp" "$tmpdir/p32e.testarch.source.act"; p3
 # Other source/protected working-tree files themselves must retain their
 # reviewed blobs; the packet's printed locators alone are not sufficient.
 while IFS=' ' read -r p32esource p32eexpected; do
-  git --no-optional-locks hash-object -- "$p32esource" > "$tmpdir/p32e.source.act"; p32erc=$?
+  git --no-optional-locks rev-parse "45f2b362994b785d303e91b8e530efc724dc2d81:$p32esource" > "$tmpdir/p32e.source.act" 2>/dev/null; p32erc=$?
   [ "$p32erc" -eq 0 ] || err "$p32esource source/protected blob scan failed (exit $p32erc)"
   [ -s "$tmpdir/p32e.source.act" ] || err "$p32esource source/protected blob scan produced empty output"
   printf '%s\n' "$p32eexpected" > "$tmpdir/p32e.source.exp" \
@@ -2741,6 +2741,7 @@ cmp -s "$tmpdir/p32f.hex.exp" "$tmpdir/p32f.hex.act"; p32frc=$?
 # byte-identical; the whole-document comparison preserves every other byte.
 TESTARCH32G=docs/TEST-ARCHITECTURE.md
 p32gbase=45f2b362994b785d303e91b8e530efc724dc2d81
+p32gstage=a64399dd35aef8d6daa05171f1da30c8026f6d1f
 p32gbaseblob=f4e127a92fc68243274b7d384e335fa4632e5dd2
 p32gactiveblob=065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
 git --no-optional-locks show "$p32gbase:$TESTARCH32G" \
@@ -2755,7 +2756,10 @@ printf '%s\n' "$p32gbaseblob" > "$tmpdir/p32g.base.blob.exp" \
   || err "$TESTARCH32G base blob fixture generation failed"
 cmp -s "$tmpdir/p32g.base.blob.exp" "$tmpdir/p32g.base.blob.act"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "$TESTARCH32G base differs from its pinned blob"
-git --no-optional-locks hash-object -- "$TESTARCH32G" \
+git --no-optional-locks show "$p32gstage:$TESTARCH32G" > "$tmpdir/p32g.testarch.frozen" 2> "$tmpdir/p32g.testarch.frozen.err"; p32grc=$?
+[ "$p32grc" -eq 0 ] || err "$TESTARCH32G frozen-stage read failed"
+[ -s "$tmpdir/p32g.testarch.frozen" ] || err "$TESTARCH32G frozen-stage read produced empty output"
+git --no-optional-locks hash-object -- "$tmpdir/p32g.testarch.frozen" \
   > "$tmpdir/p32g.active.blob.act"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "$TESTARCH32G active blob scan failed"
 [ -s "$tmpdir/p32g.active.blob.act" ] || err "$TESTARCH32G active blob scan produced empty output"
@@ -2821,7 +2825,7 @@ awk -v old002="$p32gold002" -v new002="$p32gnew002" \
 ' "$tmpdir/p32g.testarch.base" > "$tmpdir/p32g.testarch.expected"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "$TESTARCH32G exact two-row reconstruction failed (awk exit $p32grc)"
 [ -s "$tmpdir/p32g.testarch.expected" ] || err "$TESTARCH32G exact two-row reconstruction produced empty output"
-cmp -s "$tmpdir/p32g.testarch.expected" "$TESTARCH32G"; p32grc=$?
+cmp -s "$tmpdir/p32g.testarch.expected" "$tmpdir/p32g.testarch.frozen"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "$TESTARCH32G is not the exact unique two-Plan-cell transformation of the pinned base"
 
 for p32gsourcepair in \
@@ -2855,7 +2859,7 @@ awk -v prefix='| QK-TST-REH-004 |' 'index($0,prefix) == 1 {print}' \
 [ "$p32grc" -eq 0 ] || err "QK-TST-REH-004 base-row extraction failed"
 [ -s "$tmpdir/p32g.reh.base" ] || err "QK-TST-REH-004 base-row extraction produced empty output"
 awk -v prefix='| QK-TST-REH-004 |' 'index($0,prefix) == 1 {print}' \
-  "$TESTARCH32G" > "$tmpdir/p32g.reh.active"; p32grc=$?
+  "$tmpdir/p32g.testarch.frozen" > "$tmpdir/p32g.reh.active"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "QK-TST-REH-004 active-row extraction failed"
 [ -s "$tmpdir/p32g.reh.active" ] || err "QK-TST-REH-004 active-row extraction produced empty output"
 cmp -s "$tmpdir/p32g.reh.base" "$tmpdir/p32g.reh.active"; p32grc=$?
@@ -2866,7 +2870,7 @@ awk -F '|' '
     if (NF != 10 || $9 != " PLANNED — NOT RUN ") exit 31
   }
   END { if (rows == 0) exit 32 }
-' "$TESTARCH32G"; p32grc=$?
+' "$tmpdir/p32g.testarch.frozen"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "$TESTARCH32G contains a changed or malformed QK-TST status cell (awk exit $p32grc)"
 
 # F3.2h non-binding QK-LIM-PSBT-027 cross-document alignment packet.
@@ -2878,6 +2882,7 @@ PKT32H=docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 [ -f "$PKT32H" ] || err "$PKT32H missing"
 p32hbase=a64399dd35aef8d6daa05171f1da30c8026f6d1f
 p32ha=da55fb4bcd4983140c8fb379cc3322eec99284f0
+p32hstage=e36b41e5cd55264b4b745550c96c74968b06eae7
 p32hdlogblob=e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc
 p32hblob=e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5
 p32hparent=$(git --no-optional-locks rev-parse "$p32ha^" 2>/dev/null); p32hrc=$?
@@ -2968,7 +2973,7 @@ cmp -s "$tmpdir/p32h.owner.dlog" "$tmpdir/p32h.owner.packet"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log and packet owner transcript blocks differ"
 
 while IFS=' ' read -r p32hsource p32hsourceblob; do
-  git --no-optional-locks hash-object -- "$p32hsource" > "$tmpdir/p32h.source.act"; p32hrc=$?
+  git --no-optional-locks rev-parse "$p32hstage:$p32hsource" > "$tmpdir/p32h.source.act" 2>/dev/null; p32hrc=$?
   [ "$p32hrc" -eq 0 ] || err "F3.2h source/protected blob scan failed for $p32hsource"
   [ -s "$tmpdir/p32h.source.act" ] || err "F3.2h source/protected blob scan produced empty output for $p32hsource"
   printf '%s\n' "$p32hsourceblob" > "$tmpdir/p32h.source.exp" \
@@ -2983,10 +2988,16 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f94
 docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md a066fc9710371f414d158a3deb9c345f2b00821b
 QK_F32H_SOURCE_BLOBS_EOF
 
+git --no-optional-locks show "$p32hstage:docs/RESOURCE-BUDGETS.md" > "$tmpdir/p32h.resource.frozen" 2>/dev/null; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h frozen RESOURCE-BUDGETS read failed"
+git --no-optional-locks show "$p32hstage:docs/REQUIREMENTS.md" > "$tmpdir/p32h.requirements.frozen" 2>/dev/null; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h frozen REQUIREMENTS read failed"
+git --no-optional-locks show "$p32hstage:docs/TEST-ARCHITECTURE.md" > "$tmpdir/p32h.test.frozen" 2>/dev/null; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h frozen TEST-ARCHITECTURE read failed"
 p32hrow026='| QK-LIM-PSBT-026 | Signed PSBT output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |'
 p32hrow027='| QK-LIM-PSBT-027 | Raw final-transaction output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |'
 for p32hrow in "$p32hrow026" "$p32hrow027"; do
-  p32hsourcen=$(grep -cFx -e "$p32hrow" docs/RESOURCE-BUDGETS.md); p32hrc=$?
+  p32hsourcen=$(grep -cFx -e "$p32hrow" "$tmpdir/p32h.resource.frozen"); p32hrc=$?
   [ "$p32hrc" -le 1 ] || err "F3.2h RESOURCE-BUDGETS source-row scan failed"
   [ "$p32hsourcen" = 1 ] || err "F3.2h required RESOURCE-BUDGETS source row is missing, altered, or duplicated"
   p32hpacketn=$(grep -cFx -e "$p32hrow" "$PKT32H"); p32hrc=$?
@@ -2997,13 +3008,13 @@ p32hpsbt005='QK-LIM-PSBT-001, QK-LIM-PSBT-002, QK-LIM-PSBT-003, QK-LIM-PSBT-004,
 p32htrn007='QK-LIM-SD-004, QK-LIM-PSBT-026, QK-LIM-PSBT-027'
 p32hdiff004='QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026, QK-LIM-PSBT-027'
 awk -F '|' '$2 == " QK-REQ-PSBT-005 " {x=$6; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
-  docs/REQUIREMENTS.md > "$tmpdir/p32h.psbt005.source"; p32hrc=$?
+  "$tmpdir/p32h.requirements.frozen" > "$tmpdir/p32h.psbt005.source"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "F3.2h QK-REQ-PSBT-005 Lim extraction failed"
 awk -F '|' '$2 == " QK-REQ-TRN-007 " {x=$6; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
-  docs/REQUIREMENTS.md > "$tmpdir/p32h.trn007.source"; p32hrc=$?
+  "$tmpdir/p32h.requirements.frozen" > "$tmpdir/p32h.trn007.source"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "F3.2h QK-REQ-TRN-007 Lim extraction failed"
 awk -F '|' '$2 == " QK-TST-DIFF-004 " {x=$5; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
-  docs/TEST-ARCHITECTURE.md > "$tmpdir/p32h.diff004.source"; p32hrc=$?
+  "$tmpdir/p32h.test.frozen" > "$tmpdir/p32h.diff004.source"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "F3.2h QK-TST-DIFF-004 Links extraction failed"
 for p32hcellpair in \
   "$tmpdir/p32h.psbt005.source|$p32hpsbt005" \
@@ -3108,6 +3119,7 @@ REC32I=docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 [ -f "$REC32I" ] || err "$REC32I missing"
 p32ibase=e36b41e5cd55264b4b745550c96c74968b06eae7
 p32ia=c4e1ed94a02fba5d01f5cebfda4d5b1439222625
+p32istage=878b23be4690bb778a615bfe1a6ef108e7a94008
 p32irecordblob=2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
 p32ipacketblob=e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5
 
@@ -3192,7 +3204,7 @@ for p32iboundary in \
 done
 
 while IFS=' ' read -r p32iprotected p32iprotectedblob; do
-  git --no-optional-locks hash-object -- "$p32iprotected" > "$tmpdir/p32i.protected.act"; p32irc=$?
+  git --no-optional-locks rev-parse "$p32istage:$p32iprotected" > "$tmpdir/p32i.protected.act" 2>/dev/null; p32irc=$?
   [ "$p32irc" -eq 0 ] || err "F3.2i protected blob scan failed for $p32iprotected"
   [ -s "$tmpdir/p32i.protected.act" ] || err "F3.2i protected blob scan produced empty output for $p32iprotected"
   printf '%s\n' "$p32iprotectedblob" > "$tmpdir/p32i.protected.exp" \
@@ -3208,15 +3220,30 @@ docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md a066fc9710371f414d158a3
 docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5
 QK_F32I_PROTECTED_BLOBS_EOF
 
+git --no-optional-locks show "$p32istage:docs/RESOURCE-BUDGETS.md" > "$tmpdir/p32i.resource.frozen" 2>/dev/null; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i frozen RESOURCE-BUDGETS read failed"
+git --no-optional-locks show "$p32istage:docs/REQUIREMENTS.md" > "$tmpdir/p32i.requirements.frozen" 2>/dev/null; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i frozen REQUIREMENTS read failed"
+git --no-optional-locks show "$p32istage:docs/TEST-ARCHITECTURE.md" > "$tmpdir/p32i.test.frozen" 2>/dev/null; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i frozen TEST-ARCHITECTURE read failed"
 for p32irow in "$p32hrow026" "$p32hrow027"; do
-  p32irowcount=$(grep -cFx -e "$p32irow" docs/RESOURCE-BUDGETS.md); p32irc=$?
+  p32irowcount=$(grep -cFx -e "$p32irow" "$tmpdir/p32i.resource.frozen"); p32irc=$?
   [ "$p32irc" -le 1 ] || err "F3.2i canonical source-row scan failed"
   [ "$p32irowcount" = 1 ] || err "F3.2i canonical QK-LIM row is missing, altered, or duplicated"
 done
+awk -F '|' '$2 == " QK-REQ-PSBT-005 " {x=$6; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
+  "$tmpdir/p32i.requirements.frozen" > "$tmpdir/p32i.psbt005.source"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i QK-REQ-PSBT-005 Lim extraction failed"
+awk -F '|' '$2 == " QK-REQ-TRN-007 " {x=$6; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
+  "$tmpdir/p32i.requirements.frozen" > "$tmpdir/p32i.trn007.source"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i QK-REQ-TRN-007 Lim extraction failed"
+awk -F '|' '$2 == " QK-TST-DIFF-004 " {x=$5; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
+  "$tmpdir/p32i.test.frozen" > "$tmpdir/p32i.diff004.source"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i QK-TST-DIFF-004 Links extraction failed"
 for p32icellpair in \
-  "$tmpdir/p32h.psbt005.source|$p32hpsbt005" \
-  "$tmpdir/p32h.trn007.source|$p32htrn007" \
-  "$tmpdir/p32h.diff004.source|$p32hdiff004"; do
+  "$tmpdir/p32i.psbt005.source|$p32hpsbt005" \
+  "$tmpdir/p32i.trn007.source|$p32htrn007" \
+  "$tmpdir/p32i.diff004.source|$p32hdiff004"; do
   p32icellfile=${p32icellpair%%|*}
   p32icellexpected=${p32icellpair#*|}
   printf '%s\n' "$p32icellexpected" > "$tmpdir/p32i.cell.exp" \
@@ -3297,8 +3324,11 @@ PKT32J=docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 [ -f "$PKT32J" ] || err "$PKT32J missing"
 p32jbase=878b23be4690bb778a615bfe1a6ef108e7a94008
 p32ja=336956ec866ca3aa93791ffcb76f30e79e17dd31
+p32jstage=0d2115de9c322bf221f5a5008d91e7b7b48363e6
 p32jdlogblob=0e366c1acc5579e541dfe3f94a099db9b887064b
 p32jpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+git --no-optional-locks show "$p32ja:docs/DECISION-LOG.md" > "$tmpdir/p32j.dlog.a" 2>/dev/null; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j authorization Decision Log read failed"
 
 git --no-optional-locks rev-parse "$p32jbase^{commit}" > "$tmpdir/p32j.base.act" 2>/dev/null
 p32jrc=$?
@@ -3352,14 +3382,14 @@ for p32jowner in \
   'Authorize preparation and independent audit of a non-binding, non-enacting docs-only F3.2j QK-LIM-PSBT-027 exact tombstone-construction packet from published commit 878b23be4690bb778a615bfe1a6ef108e7a94008, with only the mechanically necessary Decision Log and verifier bindings.' \
   'Limit the packet to exactly one recommended, byte-complete candidate, F32J-LIM-CON-001, explicitly PROPOSED — UNSELECTED. Print the exact current and proposed canonical bytes for: the minimum QK-LIM-PSBT-027-specific RESOURCE-BUDGETS preamble, invariant, and append-only-ID-note corrections needed for a permanent no-value tombstone; every cell of row 027; removal of 027 from the QK-REQ-PSBT-005 and QK-REQ-TRN-007 Lim cells; and removal of 027 from the QK-TST-DIFF-004 Links cell. Preserve the historical dimension name and ID, make every former row relationship non-operative, define any proposed Value-cell text as a non-value sentinel rather than zero or an authorized QK-LIM value, and never delete, renumber, reuse, repurpose, or reopen ID 027. Introduce no general tombstone transition for another row. Keep QK-LIM-PSBT-026 and every other canonical and historical byte unchanged.' \
   'No owner selection of F32J-LIM-CON-001 and no canonical edit; no current tombstone or inactive declaration; no actual QK-LIM value, title, status, link, row, vocabulary, or syntax change; no QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, dependency, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
-  for p32jownerfile in docs/DECISION-LOG.md "$PKT32J"; do
+  for p32jownerfile in "$tmpdir/p32j.dlog.a" "$PKT32J"; do
     p32jownerhits=$(grep -cFx -e "$p32jowner" "$p32jownerfile"); p32jrc=$?
     [ "$p32jrc" -le 1 ] || err "F3.2j owner transcript scan failed in $p32jownerfile"
     [ "$p32jownerhits" = 1 ] || err "F3.2j owner transcript differs or duplicates in $p32jownerfile"
   done
 done
 sed -n '/^### QK-AUTH-F3.2J-QK-LIM-PSBT-027-CONSTRUCT-001 /,$p' \
-  docs/DECISION-LOG.md > "$tmpdir/p32j.dlog.section"; p32jrc=$?
+  "$tmpdir/p32j.dlog.a" > "$tmpdir/p32j.dlog.section"; p32jrc=$?
 [ "$p32jrc" -eq 0 ] || err "F3.2j Decision Log section extraction failed"
 sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
   "$tmpdir/p32j.dlog.section" > "$tmpdir/p32j.owner.dlog.framed"; p32jrc=$?
@@ -3413,7 +3443,7 @@ for p32jtranscript in \
 done
 
 while IFS=' ' read -r p32jprotected p32jprotectedblob; do
-  git --no-optional-locks hash-object -- "$p32jprotected" > "$tmpdir/p32j.protected.act"; p32jrc=$?
+  git --no-optional-locks rev-parse "$p32jstage:$p32jprotected" > "$tmpdir/p32j.protected.act" 2>/dev/null; p32jrc=$?
   [ "$p32jrc" -eq 0 ] || err "F3.2j protected blob scan failed for $p32jprotected"
   printf '%s\n' "$p32jprotectedblob" > "$tmpdir/p32j.protected.exp" \
     || err "F3.2j protected blob fixture generation failed for $p32jprotected"
@@ -3425,8 +3455,10 @@ docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
 docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md 2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
 QK_F32J_PROTECTED_BLOBS_EOF
+git --no-optional-locks show "$p32jstage:docs/RESOURCE-BUDGETS.md" > "$tmpdir/p32j.resource.frozen" 2>/dev/null; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j frozen RESOURCE-BUDGETS read failed"
 for p32jrow in "$p32hrow026" "$p32hrow027"; do
-  p32jrowhits=$(grep -cFx -e "$p32jrow" docs/RESOURCE-BUDGETS.md); p32jrc=$?
+  p32jrowhits=$(grep -cFx -e "$p32jrow" "$tmpdir/p32j.resource.frozen"); p32jrc=$?
   [ "$p32jrc" -le 1 ] || err "F3.2j canonical source-row scan failed"
   [ "$p32jrowhits" = 1 ] || err "F3.2j protected canonical row is missing, altered, or duplicated"
 done
@@ -3501,9 +3533,12 @@ REC32K=docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.m
 [ -f "$REC32K" ] || err "$REC32K missing"
 p32kbase=0d2115de9c322bf221f5a5008d91e7b7b48363e6
 p32ka=2abf7092adff3b0e27f754c6021c3d852db638f8
+p32kstage=49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf
 p32kdlogblob=ac43ddd8a83d5be95e11d8208a0a998925b1027b
 p32krecordblob=5b05d62776c65bfaf5ec41ab39108bc0531b7944
 p32kpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+git --no-optional-locks show "$p32ka:docs/DECISION-LOG.md" > "$tmpdir/p32k.dlog.a" 2>/dev/null; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k authorization Decision Log read failed"
 
 git --no-optional-locks rev-parse "$p32kbase^{commit}" > "$tmpdir/p32k.base.act" 2>/dev/null
 p32krc=$?
@@ -3532,7 +3567,7 @@ for p32kpair in \
   "$PKT32J|$p32kpacketblob"; do
   p32kpath=${p32kpair%%|*}
   p32kexpected=${p32kpair#*|}
-  git --no-optional-locks hash-object -- "$p32kpath" > "$tmpdir/p32k.blob.act"; p32krc=$?
+  git --no-optional-locks rev-parse "$p32kstage:$p32kpath" > "$tmpdir/p32k.blob.act" 2>/dev/null; p32krc=$?
   [ "$p32krc" -eq 0 ] || err "F3.2k blob scan failed for $p32kpath"
   [ -s "$tmpdir/p32k.blob.act" ] || err "F3.2k blob scan empty for $p32kpath"
   printf '%s\n' "$p32kexpected" > "$tmpdir/p32k.blob.exp" || err "F3.2k blob fixture failed"
@@ -3545,13 +3580,13 @@ for p32kowner in \
   'This approval selects only the exact future construction. It does not enact those bytes, amend any canonical document, or declare QK-LIM-PSBT-027 currently tombstoned or inactive. The current row remains OPEN with its current live links until separately authorized canonical work. The proposed Value-cell text remains a non-value sentinel, never zero or an authorized QK-LIM value. Preserve the historical ID and dimension name, QK-LIM-PSBT-026, ALL GATES OPEN, and every other canonical and historical byte. OD-05 and QK-THR-016 remain unresolved or unchanged globally; only their future row-027 relationships become non-operative. Introduce no general tombstone vocabulary or transition for another row.' \
   'Authorize preparation and independent audit of a non-enacting docs-only F3.2k QK-LIM-PSBT-027 exact-construction owner-direction record from published commit 0d2115de9c322bf221f5a5008d91e7b7b48363e6, recording only this exact approval and reproducing the selected future bytes byte-for-byte, with only the mechanically necessary Decision Log and verifier bindings.' \
   'No canonical RESOURCE-BUDGETS, REQUIREMENTS, or TEST-ARCHITECTURE edit; no current QK-LIM value, title, Status, link, row, vocabulary, or syntax change; no current QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, dependency, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
-  for p32kownerfile in docs/DECISION-LOG.md "$REC32K"; do
+  for p32kownerfile in "$tmpdir/p32k.dlog.a" "$REC32K"; do
     p32kownerhits=$(grep -cFx -e "$p32kowner" "$p32kownerfile"); p32krc=$?
     [ "$p32krc" -le 1 ] || err "F3.2k owner transcript scan failed in $p32kownerfile"
     [ "$p32kownerhits" = 1 ] || err "F3.2k owner transcript differs or duplicates in $p32kownerfile"
   done
 done
-sed -n '/^### QK-AUTH-F3.2K-QK-LIM-PSBT-027-EXACT-CON-DIR-REC-001 /,$p' docs/DECISION-LOG.md > "$tmpdir/p32k.dlog.section"; p32krc=$?
+sed -n '/^### QK-AUTH-F3.2K-QK-LIM-PSBT-027-EXACT-CON-DIR-REC-001 /,$p' "$tmpdir/p32k.dlog.a" > "$tmpdir/p32k.dlog.section"; p32krc=$?
 [ "$p32krc" -eq 0 ] || err "F3.2k Decision Log section extraction failed"
 sed -n '/^- \*\*Owner words exactly (literal four-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' "$tmpdir/p32k.dlog.section" > "$tmpdir/p32k.owner.dlog.framed"; p32krc=$?
 [ "$p32krc" -eq 0 ] || err "F3.2k Decision Log owner framing failed"
@@ -3654,7 +3689,7 @@ for p32kheading in \
 done
 
 while IFS=' ' read -r p32kprotected p32kprotectedblob; do
-  git --no-optional-locks hash-object -- "$p32kprotected" > "$tmpdir/p32k.protected.act"; p32krc=$?
+  git --no-optional-locks rev-parse "$p32kstage:$p32kprotected" > "$tmpdir/p32k.protected.act" 2>/dev/null; p32krc=$?
   [ "$p32krc" -eq 0 ] || err "F3.2k protected blob scan failed for $p32kprotected"
   printf '%s\n' "$p32kprotectedblob" > "$tmpdir/p32k.protected.exp" || err "F3.2k protected fixture failed"
   cmp -s "$tmpdir/p32k.protected.exp" "$tmpdir/p32k.protected.act"; p32krc=$?
@@ -3666,8 +3701,10 @@ docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md 2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md b1c2153f5f89a0e1d44d62a09921251e225c0d87
 QK_F32K_PROTECTED_EOF
+git --no-optional-locks show "$p32kstage:docs/RESOURCE-BUDGETS.md" > "$tmpdir/p32k.resource.frozen" 2>/dev/null; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k frozen RESOURCE-BUDGETS read failed"
 for p32krow in "$p32hrow026" "$p32hrow027"; do
-  p32krowhits=$(grep -cFx -e "$p32krow" docs/RESOURCE-BUDGETS.md); p32krc=$?
+  p32krowhits=$(grep -cFx -e "$p32krow" "$tmpdir/p32k.resource.frozen"); p32krc=$?
   [ "$p32krc" -le 1 ] || err "F3.2k current-row scan failed"
   [ "$p32krowhits" = 1 ] || err "F3.2k current row missing, altered, or duplicated"
 done
@@ -3724,6 +3761,294 @@ LC_ALL=C sort "$tmpdir/p32k.hex.raw" > "$tmpdir/p32k.hex.act"; p32krc=$?
 [ "$p32krc" -eq 0 ] || err "$REC32K exact-40-hex sort failed"
 cmp -s "$tmpdir/p32k.hex.exp" "$tmpdir/p32k.hex.act"; p32krc=$?
 [ "$p32krc" -eq 0 ] || err "$REC32K exact-40-hex multiset differs"
+
+# ---------------- F3.2l QK-LIM-PSBT-027 canonical tombstone amendment
+# The published F3.2k stage is the immutable source. This active local stage
+# enacts all and only the seven previously selected canonical payloads.
+p32lbase=49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf
+p32la=4af6166dc23eed7285a3d65b339924cda7b07962
+p32ldlogblob=7d03656d245786f3a17eb4dbae689ef03b172b75
+p32lresourcepost=09815b0a75c26a118f80c5cec008e695d319900b
+p32lrequirementspost=2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84
+p32ltestpost=ecb3867ca2842f6d011288d3dcd94d2b1997e516
+p32lkrecordblob=5b05d62776c65bfaf5ec41ab39108bc0531b7944
+p32ljpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+
+p32lbranch=$(git --no-optional-locks symbolic-ref --quiet --short HEAD 2>/dev/null); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l checked-out branch cannot be resolved"
+[ "$p32lbranch" = main ] || err "F3.2l checked-out branch is $p32lbranch, expected main"
+p32lhead=$(git --no-optional-locks rev-parse HEAD 2>/dev/null); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l HEAD cannot be resolved"
+p32lahead=$(git --no-optional-locks rev-list --count "$p32lbase..$p32lhead"); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l base-to-HEAD count failed"
+p32lbehind=$(git --no-optional-locks rev-list --count "$p32lhead..$p32lbase"); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l HEAD-to-base count failed"
+[ "$p32lahead" = 3 ] || err "F3.2l HEAD is $p32lahead commits above its base, expected exactly 3"
+[ "$p32lbehind" = 0 ] || err "F3.2l base is $p32lbehind commits above HEAD, expected exactly 0"
+p32lc=$p32lhead
+p32lb=$(git --no-optional-locks rev-parse "$p32lc^" 2>/dev/null); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l C parent lookup failed"
+p32laact=$(git --no-optional-locks rev-parse "$p32lb^" 2>/dev/null); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l B parent lookup failed"
+p32lbaseact=$(git --no-optional-locks rev-parse "$p32laact^" 2>/dev/null); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l A parent lookup failed"
+[ "$p32laact" = "$p32la" ] || err "F3.2l derived A differs"
+[ "$p32lbaseact" = "$p32lbase" ] || err "F3.2l A parent differs"
+
+while IFS='|' read -r p32lmsgcommit p32lmsglabel p32lmsgexpected; do
+  git --no-optional-locks log -1 --format=%B "$p32lmsgcommit" > "$tmpdir/p32l.msg.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l $p32lmsglabel message read failed"
+  printf '%s\n\n' "$p32lmsgexpected" > "$tmpdir/p32l.msg.exp" || err "F3.2l $p32lmsglabel message fixture failed"
+  cmp -s "$tmpdir/p32l.msg.exp" "$tmpdir/p32l.msg.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l $p32lmsglabel message differs or has a body"
+done <<QK_F32L_MESSAGES_EOF
+$p32la|A|docs: authorize F3.2l QK-LIM-PSBT-027 canonical tombstone amendment
+$p32lb|B|docs(limits): enact QK-LIM-PSBT-027 permanent tombstone
+$p32lc|C|chore(verify): bind F3.2l QK-LIM-PSBT-027 canonical amendment stage
+QK_F32L_MESSAGES_EOF
+
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32l.a.paths.exp" || err "F3.2l A path fixture failed"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32la" > "$tmpdir/p32l.a.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l A path enumeration failed"
+cmp -s "$tmpdir/p32l.a.paths.exp" "$tmpdir/p32l.a.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l A path set differs"
+cat > "$tmpdir/p32l.b.paths.exp" <<'QK_F32L_B_PATHS_EOF' || err "F3.2l B path fixture failed"
+docs/REQUIREMENTS.md
+docs/RESOURCE-BUDGETS.md
+docs/TEST-ARCHITECTURE.md
+tools/verify-host-boundary.sh
+QK_F32L_B_PATHS_EOF
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32lb" > "$tmpdir/p32l.b.paths.raw"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l B path enumeration failed"
+LC_ALL=C sort "$tmpdir/p32l.b.paths.raw" > "$tmpdir/p32l.b.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l B path sort failed"
+cmp -s "$tmpdir/p32l.b.paths.exp" "$tmpdir/p32l.b.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l B path set differs"
+printf '%s\n' tools/verify-current-stage.sh > "$tmpdir/p32l.c.paths.exp" || err "F3.2l C path fixture failed"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32lc" > "$tmpdir/p32l.c.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l C path enumeration failed"
+cmp -s "$tmpdir/p32l.c.paths.exp" "$tmpdir/p32l.c.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l C path set differs"
+cat > "$tmpdir/p32l.paths.exp" <<'QK_F32L_PATHS_EOF' || err "F3.2l cumulative path fixture failed"
+docs/DECISION-LOG.md
+docs/REQUIREMENTS.md
+docs/RESOURCE-BUDGETS.md
+docs/TEST-ARCHITECTURE.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+QK_F32L_PATHS_EOF
+git --no-optional-locks diff --name-only "$p32lbase" "$p32lc" > "$tmpdir/p32l.paths.raw"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l cumulative path enumeration failed"
+LC_ALL=C sort "$tmpdir/p32l.paths.raw" > "$tmpdir/p32l.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l cumulative path sort failed"
+cmp -s "$tmpdir/p32l.paths.exp" "$tmpdir/p32l.paths.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l cumulative path set differs"
+
+while IFS='|' read -r p32ltreecommit p32ltreemode p32ltreeblob p32ltreepath; do
+  git --no-optional-locks ls-tree "$p32ltreecommit" -- "$p32ltreepath" > "$tmpdir/p32l.tree.raw"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l tree lookup failed for $p32ltreepath"
+  [ -s "$tmpdir/p32l.tree.raw" ] || err "F3.2l tree entry missing for $p32ltreepath"
+  p32ltreelines=$(awk 'END {print NR+0}' "$tmpdir/p32l.tree.raw"); p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l tree line count failed for $p32ltreepath"
+  [ "$p32ltreelines" = 1 ] || err "F3.2l tree entry is not unique for $p32ltreepath"
+  p32ltreeactmode=$(awk 'NR == 1 {print $1}' "$tmpdir/p32l.tree.raw"); p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l tree mode read failed for $p32ltreepath"
+  p32ltreeactblob=$(awk 'NR == 1 {print $3}' "$tmpdir/p32l.tree.raw"); p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l tree blob read failed for $p32ltreepath"
+  [ "$p32ltreeactmode" = "$p32ltreemode" ] || err "F3.2l mode differs for $p32ltreepath"
+  if [ "$p32ltreeblob" != "-" ]; then
+    [ "$p32ltreeactblob" = "$p32ltreeblob" ] || err "F3.2l tree blob differs for $p32ltreepath"
+  fi
+done <<QK_F32L_TREE_EOF
+$p32la|100644|$p32ldlogblob|docs/DECISION-LOG.md
+$p32lb|100644|$p32lresourcepost|docs/RESOURCE-BUDGETS.md
+$p32lb|100644|$p32lrequirementspost|docs/REQUIREMENTS.md
+$p32lb|100644|$p32ltestpost|docs/TEST-ARCHITECTURE.md
+$p32lb|100755|-|tools/verify-host-boundary.sh
+$p32lc|100755|-|tools/verify-current-stage.sh
+QK_F32L_TREE_EOF
+
+git --no-optional-locks show "$p32lbase:docs/DECISION-LOG.md" > "$tmpdir/p32l.dlog.base" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l base Decision Log read failed"
+git --no-optional-locks show "$p32la:docs/DECISION-LOG.md" > "$tmpdir/p32l.dlog.a" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l A Decision Log read failed"
+cmp -s "$tmpdir/p32l.dlog.a" docs/DECISION-LOG.md; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l active Decision Log differs from A"
+wc -c < "$tmpdir/p32l.dlog.base" > "$tmpdir/p32l.dlog.bytes.raw"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log base byte count failed"
+tr -d '[:space:]' < "$tmpdir/p32l.dlog.bytes.raw" > "$tmpdir/p32l.dlog.bytes"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log byte-count normalization failed"
+p32lbasebytes=$(cat "$tmpdir/p32l.dlog.bytes"); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log byte-count read failed"
+case $p32lbasebytes in ''|*[!0-9]*) err "F3.2l Decision Log base byte count is non-numeric" ;; esac
+dd if="$tmpdir/p32l.dlog.a" bs=1 count="$p32lbasebytes" > "$tmpdir/p32l.dlog.prefix" 2> "$tmpdir/p32l.dlog.dd.err"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log prefix read failed"
+cmp -s "$tmpdir/p32l.dlog.base" "$tmpdir/p32l.dlog.prefix"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log is not an exact append"
+p32lauthhits=$(grep -cFx -e '### QK-AUTH-F3.2L-QK-LIM-PSBT-027-CANONICAL-AMEND-001 — F3.2l QK-LIM-PSBT-027 canonical permanent-tombstone amendment authorization' docs/DECISION-LOG.md); p32lrc=$?
+[ "$p32lrc" -le 1 ] || err "F3.2l authorization heading scan failed"
+[ "$p32lauthhits" = 1 ] || err "F3.2l authorization heading differs or duplicates"
+sed -n '/^### QK-AUTH-F3.2L-QK-LIM-PSBT-027-CANONICAL-AMEND-001 /,$p' docs/DECISION-LOG.md > "$tmpdir/p32l.dlog.section"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log section extraction failed"
+sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' "$tmpdir/p32l.dlog.section" > "$tmpdir/p32l.owner.framed"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l owner block framing failed"
+sed '1,2d;$d' "$tmpdir/p32l.owner.framed" > "$tmpdir/p32l.owner.with-tail"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l owner block first deframing failed"
+sed '$d' "$tmpdir/p32l.owner.with-tail" > "$tmpdir/p32l.owner.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l owner block final deframing failed"
+cat > "$tmpdir/p32l.owner.exp" <<'QK_F32L_OWNER_EOF' || err "F3.2l owner fixture failed"
+Authorize preparation and independent audit of a docs-only F3.2l canonical QK-LIM-PSBT-027 permanent-tombstone amendment from published commit 49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf. Enact, as one indivisible byte-for-byte construction, all and only the seven owner-approved future canonical payloads for F32J-LIM-CON-001 reproduced in the published F3.2k owner-direction record at blob 5b05d62776c65bfaf5ec41ab39108bc0531b7944 and sourced from the immutable F3.2j packet at blob b1c2153f5f89a0e1d44d62a09921251e225c0d87. Stop on any missing, duplicated, or mismatched source span; permit no alternative, subset, paraphrase, normalization, substitution, reformatting, or additional byte.
+
+Replace exactly once: in docs/RESOURCE-BUDGETS.md, only the approved preamble, invariant, append-only-ID note, and complete QK-LIM-PSBT-027 row; in docs/REQUIREMENTS.md, only the Lim cells of QK-REQ-PSBT-005 and QK-REQ-TRN-007; and in docs/TEST-ARCHITECTURE.md, only the Links cell of QK-TST-DIFF-004. This enactment makes QK-LIM-PSBT-027 the sole permanent, non-reusable canonical tombstone. Preserve its historical ID and dimension name, QK-LIM-PSBT-026, ALL GATES OPEN, and every other canonical and historical byte. Its Value text is a non-value sentinel, never zero or an authorized QK-LIM value. Never delete, renumber, reuse, repurpose, or reopen ID 027. Introduce no general tombstone vocabulary or transition for another row. OD-05 remains unresolved globally and QK-THR-016 remains unchanged globally; only their row-027 relationships become non-operative.
+
+Use exactly three linear single-parent commits: Commit A appends only docs/DECISION-LOG.md; Commit B changes only docs/RESOURCE-BUDGETS.md, docs/REQUIREMENTS.md, docs/TEST-ARCHITECTURE.md, and tools/verify-host-boundary.sh; Commit C changes only tools/verify-current-stage.sh. Include only the mechanically necessary Decision Log and verifier bindings. No other RESOURCE-BUDGETS row or byte, Requirement text or cell, or QK-TST Plan / oracle, Milestone, Gate, Evidence artifact, Status, or other cell change. No answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, other QK-LIM value, profile, clause, or dependency selection; no implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, remote, or other change. Stop locally after independent audit; publication requires separate exact-commit authority.
+QK_F32L_OWNER_EOF
+cmp -s "$tmpdir/p32l.owner.exp" "$tmpdir/p32l.owner.act"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l literal owner block differs"
+p32lhistoricalhits=$(grep -cFx -e '- **Historical source disposition:** the immutable F3.2j packet remains `PROPOSED — UNSELECTED` as its historical source state, and the immutable F3.2k record remains `OWNER DIRECTION APPROVED — NON-ENACTING` as its historical selection state. Their former `LOCAL AND UNPUBLISHED` text remains byte-identical historical wording; both historical stages are now published.' docs/DECISION-LOG.md); p32lrc=$?
+[ "$p32lrc" -le 1 ] || err "F3.2l historical publication statement scan failed"
+[ "$p32lhistoricalhits" = 1 ] || err "F3.2l historical publication statement differs or duplicates"
+
+for p32lsourcepair in \
+  "$REC32K|$p32lkrecordblob" \
+  "$PKT32J|$p32ljpacketblob"; do
+  p32lsourcepath=${p32lsourcepair%%|*}
+  p32lsourceexpected=${p32lsourcepair#*|}
+  git --no-optional-locks hash-object -- "$p32lsourcepath" > "$tmpdir/p32l.source.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l source blob scan failed for $p32lsourcepath"
+  printf '%s\n' "$p32lsourceexpected" > "$tmpdir/p32l.source.exp" || err "F3.2l source blob fixture failed"
+  cmp -s "$tmpdir/p32l.source.exp" "$tmpdir/p32l.source.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l immutable source blob differs for $p32lsourcepath"
+done
+awk -v d="$tmpdir" '
+  NR == 37 { print > (d "/p32l.1.old") }
+  NR == 41 { print > (d "/p32l.1.new") }
+  NR == 49 { print > (d "/p32l.2.old") }
+  NR == 53 { print > (d "/p32l.2.new") }
+  NR == 61 { print > (d "/p32l.3.old") }
+  NR == 65 { print > (d "/p32l.3.new") }
+  NR == 73 { print > (d "/p32l.4.old") }
+  NR == 77 { print > (d "/p32l.4.new") }
+  NR == 101 { print > (d "/p32l.5.old") }
+  NR == 105 { print > (d "/p32l.5.new") }
+  NR == 111 { print > (d "/p32l.6.old") }
+  NR == 115 { print > (d "/p32l.6.new") }
+  NR == 121 { print > (d "/p32l.7.old") }
+  NR == 125 { print > (d "/p32l.7.new") }' "$PKT32J"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l packet payload extraction failed"
+awk -v d="$tmpdir" '
+  NR == 44 { print > (d "/p32l.1.record") }
+  NR == 52 { print > (d "/p32l.2.record") }
+  NR == 60 { print > (d "/p32l.3.record") }
+  NR == 68 { print > (d "/p32l.4.record") }
+  NR == 76 { print > (d "/p32l.5.record") }
+  NR == 84 { print > (d "/p32l.6.record") }
+  NR == 92 { print > (d "/p32l.7.record") }' "$REC32K"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l record payload extraction failed"
+p32lnum=1
+while [ "$p32lnum" -le 7 ]; do
+  [ -s "$tmpdir/p32l.$p32lnum.old" ] || err "F3.2l old payload $p32lnum is empty"
+  [ -s "$tmpdir/p32l.$p32lnum.new" ] || err "F3.2l new payload $p32lnum is empty"
+  cmp -s "$tmpdir/p32l.$p32lnum.new" "$tmpdir/p32l.$p32lnum.record"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l payload $p32lnum differs between packet and record"
+  p32lnum=$((p32lnum + 1))
+done
+
+git --no-optional-locks show "$p32lbase:docs/RESOURCE-BUDGETS.md" > "$tmpdir/p32l.resource.0" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l base RESOURCE-BUDGETS read failed"
+git --no-optional-locks show "$p32lbase:docs/REQUIREMENTS.md" > "$tmpdir/p32l.requirements.0" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l base REQUIREMENTS read failed"
+git --no-optional-locks show "$p32lbase:docs/TEST-ARCHITECTURE.md" > "$tmpdir/p32l.test.0" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l base TEST-ARCHITECTURE read failed"
+cat > "$tmpdir/p32l.replace.awk" <<'QK_F32L_REPLACE_AWK_EOF' || err "F3.2l replacement program fixture failed"
+BEGIN { count = 0 }
+{
+  pos = index($0, old)
+  if (pos > 0) {
+    rest = substr($0, pos + length(old))
+    if (index(rest, old) > 0) exit 93
+    print substr($0, 1, pos - 1) new rest
+    count++
+    next
+  }
+  print
+}
+END { if (count != 1) exit 92 }
+QK_F32L_REPLACE_AWK_EOF
+p32l_replace_exact() {
+  p32lreplacein=$1
+  p32lreplaceout=$2
+  p32lreplaceoldfile=$3
+  p32lreplacenewfile=$4
+  p32lreplaceold=$(cat "$p32lreplaceoldfile"); p32lreplacerc=$?
+  [ "$p32lreplacerc" -eq 0 ] || err "F3.2l old replacement payload read failed"
+  p32lreplacenew=$(cat "$p32lreplacenewfile"); p32lreplacerc=$?
+  [ "$p32lreplacerc" -eq 0 ] || err "F3.2l new replacement payload read failed"
+  awk -v old="$p32lreplaceold" -v new="$p32lreplacenew" -f "$tmpdir/p32l.replace.awk" "$p32lreplacein" > "$p32lreplaceout"
+  p32lreplacerc=$?
+  [ "$p32lreplacerc" -eq 0 ] || err "F3.2l exact-once replacement failed for $p32lreplaceoldfile"
+}
+p32l_replace_exact "$tmpdir/p32l.resource.0" "$tmpdir/p32l.resource.1" "$tmpdir/p32l.1.old" "$tmpdir/p32l.1.new"
+p32l_replace_exact "$tmpdir/p32l.resource.1" "$tmpdir/p32l.resource.2" "$tmpdir/p32l.2.old" "$tmpdir/p32l.2.new"
+p32l_replace_exact "$tmpdir/p32l.resource.2" "$tmpdir/p32l.resource.3" "$tmpdir/p32l.3.old" "$tmpdir/p32l.3.new"
+p32l_replace_exact "$tmpdir/p32l.resource.3" "$tmpdir/p32l.resource.4" "$tmpdir/p32l.4.old" "$tmpdir/p32l.4.new"
+p32l_replace_exact "$tmpdir/p32l.requirements.0" "$tmpdir/p32l.requirements.1" "$tmpdir/p32l.5.old" "$tmpdir/p32l.5.new"
+p32l_replace_exact "$tmpdir/p32l.requirements.1" "$tmpdir/p32l.requirements.2" "$tmpdir/p32l.6.old" "$tmpdir/p32l.6.new"
+p32l_replace_exact "$tmpdir/p32l.test.0" "$tmpdir/p32l.test.1" "$tmpdir/p32l.7.old" "$tmpdir/p32l.7.new"
+cmp -s "$tmpdir/p32l.resource.4" docs/RESOURCE-BUDGETS.md; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l RESOURCE-BUDGETS is not the exact four-payload reconstruction"
+cmp -s "$tmpdir/p32l.requirements.2" docs/REQUIREMENTS.md; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l REQUIREMENTS is not the exact two-payload reconstruction"
+cmp -s "$tmpdir/p32l.test.1" docs/TEST-ARCHITECTURE.md; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l TEST-ARCHITECTURE is not the exact one-payload reconstruction"
+for p32lpostpair in \
+  "docs/RESOURCE-BUDGETS.md|$p32lresourcepost" \
+  "docs/REQUIREMENTS.md|$p32lrequirementspost" \
+  "docs/TEST-ARCHITECTURE.md|$p32ltestpost"; do
+  p32lpostpath=${p32lpostpair%%|*}
+  p32lpostexpected=${p32lpostpair#*|}
+  git --no-optional-locks hash-object -- "$p32lpostpath" > "$tmpdir/p32l.post.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l post-enactment blob scan failed for $p32lpostpath"
+  printf '%s\n' "$p32lpostexpected" > "$tmpdir/p32l.post.exp" || err "F3.2l post-enactment blob fixture failed"
+  cmp -s "$tmpdir/p32l.post.exp" "$tmpdir/p32l.post.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l post-enactment blob differs for $p32lpostpath"
+done
+
+p32lrow026hits=$(grep -cFx -e "$p32hrow026" docs/RESOURCE-BUDGETS.md); p32lrc=$?
+[ "$p32lrc" -le 1 ] || err "F3.2l QK-LIM-PSBT-026 scan failed"
+[ "$p32lrow026hits" = 1 ] || err "F3.2l changed or duplicated QK-LIM-PSBT-026"
+p32lgatehits=$(grep -cF -e 'ALL GATES OPEN' docs/RESOURCE-BUDGETS.md); p32lrc=$?
+[ "$p32lrc" -le 1 ] || err "F3.2l ALL GATES OPEN scan failed"
+[ "$p32lgatehits" = 1 ] || err "F3.2l ALL GATES OPEN state differs or duplicates"
+for p32lglobalpath in docs/OPEN-DECISIONS.md docs/THREAT-MODEL.md; do
+  git --no-optional-locks rev-parse "$p32lbase:$p32lglobalpath" > "$tmpdir/p32l.global.exp" 2>/dev/null; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l base global-state blob lookup failed for $p32lglobalpath"
+  git --no-optional-locks hash-object -- "$p32lglobalpath" > "$tmpdir/p32l.global.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l active global-state blob scan failed for $p32lglobalpath"
+  cmp -s "$tmpdir/p32l.global.exp" "$tmpdir/p32l.global.act"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l global OD/threat state differs for $p32lglobalpath"
+done
+for p32lcf in docs/DECISION-LOG.md docs/RESOURCE-BUDGETS.md docs/REQUIREMENTS.md docs/TEST-ARCHITECTURE.md; do
+  iconv -f UTF-8 -t UTF-8 "$p32lcf" > "$tmpdir/p32l.utf8" 2> "$tmpdir/p32l.iconv.err"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l changed document is not strict UTF-8: $p32lcf"
+  cmp -s "$p32lcf" "$tmpdir/p32l.utf8"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l UTF-8 round trip changed bytes: $p32lcf"
+  tail -c 1 "$p32lcf" > "$tmpdir/p32l.last"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte read failed: $p32lcf"
+  od -An -tuC "$tmpdir/p32l.last" > "$tmpdir/p32l.last.od"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte scan failed: $p32lcf"
+  p32llast=$(tr -d '[:space:]' < "$tmpdir/p32l.last.od"); p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte normalization failed: $p32lcf"
+  [ "$p32llast" = 10 ] || err "F3.2l changed document lacks exact final LF: $p32lcf"
+  od -An -tx1 "$p32lcf" > "$tmpdir/p32l.bytes"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l byte scan failed: $p32lcf"
+  awk 'BEGIN {bad=0; p2=""; p1=""} {for(i=1;i<=NF;i++){b=tolower($i); if(b=="00"||b=="0d")bad++; seq=p2 p1 b; if(seq=="efbbbf"||seq=="e2808e"||seq=="e2808f"||seq=="e280aa"||seq=="e280ab"||seq=="e280ac"||seq=="e280ad"||seq=="e280ae"||seq=="e281a6"||seq=="e281a7"||seq=="e281a8"||seq=="e281a9")bad++; p2=p1; p1=b}} END {print bad+0}' "$tmpdir/p32l.bytes" > "$tmpdir/p32l.bad"; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l control/bidi scan failed: $p32lcf"
+  p32lbad=$(cat "$tmpdir/p32l.bad"); p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l control/bidi result read failed: $p32lcf"
+  [ "$p32lbad" = 0 ] || err "F3.2l changed document contains BOM, NUL, CR, LRM/RLM, or bidi controls: $p32lcf"
+  forbid "F3.2l changed document contains a tab or trailing whitespace: $p32lcf" -E '	|[[:blank:]]$' "$p32lcf"
+done
 
 # G: full changed-content material scan across exactly the fourteen named
 # protocol/provenance/checker paths listed in the loop below; replit.md
@@ -3788,9 +4113,16 @@ done
 #   2abf7092adff3b0e27f754c6021c3d852db638f8  F3.2k authorization commit A
 #   5b05d62776c65bfaf5ec41ab39108bc0531b7944  F3.2k owner-direction record blob
 #   ac43ddd8a83d5be95e11d8208a0a998925b1027b  F3.2k Decision Log A blob
+#   49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf  F3.2l source base / published F3.2k C
+#   4af6166dc23eed7285a3d65b339924cda7b07962  F3.2l authorization commit A
+#   7d03656d245786f3a17eb4dbae689ef03b172b75  F3.2l Decision Log A blob
+#   09815b0a75c26a118f80c5cec008e695d319900b  F3.2l RESOURCE-BUDGETS post-enactment blob
+#   2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84  F3.2l REQUIREMENTS post-enactment blob
+#   ecb3867ca2842f6d011288d3dcd94d2b1997e516  F3.2l TEST-ARCHITECTURE post-enactment blob
 {
   printf '%s\n' \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+    09815b0a75c26a118f80c5cec008e695d319900b \
     0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
     0e366c1acc5579e541dfe3f94a099db9b887064b \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
@@ -3800,15 +4132,19 @@ done
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
     2abf7092adff3b0e27f754c6021c3d852db638f8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
+    2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84 \
     2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5 \
     336956ec866ca3aa93791ffcb76f30e79e17dd31 \
     45f2b362994b785d303e91b8e530efc724dc2d81 \
+    49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf \
+    4af6166dc23eed7285a3d65b339924cda7b07962 \
     4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55bd46310606e2df4089d8234a67655c81440bab \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     574e790193d45d3f392c64951d319bb5fde11d20 \
     5b05d62776c65bfaf5ec41ab39108bc0531b7944 \
+    7d03656d245786f3a17eb4dbae689ef03b172b75 \
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     877866e5a3636bdfb7015d715e048ccfad63d939 \
@@ -3832,6 +4168,7 @@ done
     e4cdf7771e189fc0f729358334aafd35177048c6 \
     e57faff4ead69ddf108cf522cb6c3cbfbef8219a \
     e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc \
+    ecb3867ca2842f6d011288d3dcd94d2b1997e516 \
     f4e127a92fc68243274b7d384e335fa4632e5dd2
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
