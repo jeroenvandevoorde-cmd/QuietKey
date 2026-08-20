@@ -106,6 +106,7 @@ docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
+docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1263,7 +1264,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the latest reviewed A commit.
-git --no-optional-locks show 336956ec866ca3aa93791ffcb76f30e79e17dd31:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 2abf7092adff3b0e27f754c6021c3d852db638f8:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -3145,8 +3146,11 @@ for p32iowner in \
     [ "$p32iownerhits" = 1 ] || err "F3.2i owner transcript differs or duplicates in $p32iownerfile"
   done
 done
+sed -n '/^### QK-AUTH-F3.2I-QK-LIM-PSBT-027-DIR-REC-001 /,/^### QK-AUTH-F3.2J-QK-LIM-PSBT-027-CONSTRUCT-001 /p' \
+  docs/DECISION-LOG.md > "$tmpdir/p32i.dlog.section"; p32irc=$?
+[ "$p32irc" -eq 0 ] || err "F3.2i Decision Log section extraction failed"
 sed -n '/^- \*\*Owner words exactly (literal four-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
-  docs/DECISION-LOG.md > "$tmpdir/p32i.owner.dlog.framed"; p32irc=$?
+  "$tmpdir/p32i.dlog.section" > "$tmpdir/p32i.owner.dlog.framed"; p32irc=$?
 [ "$p32irc" -eq 0 ] || err "F3.2i Decision Log owner block extraction failed"
 sed '1d;$d' "$tmpdir/p32i.owner.dlog.framed" > "$tmpdir/p32i.owner.dlog"; p32irc=$?
 [ "$p32irc" -eq 0 ] || err "F3.2i Decision Log owner block deframing failed"
@@ -3322,8 +3326,15 @@ printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32j.a.paths.exp" \
 cmp -s "$tmpdir/p32j.a.paths.exp" "$tmpdir/p32j.a.paths.act"; p32jrc=$?
 [ "$p32jrc" -eq 0 ] || err "F3.2j authorization commit changes a path other than docs/DECISION-LOG.md"
 
+git --no-optional-locks rev-parse "$p32ja:docs/DECISION-LOG.md" > "$tmpdir/p32j.dlog.blob.act" 2>/dev/null
+p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j historical Decision Log blob lookup failed"
+printf '%s\n' "$p32jdlogblob" > "$tmpdir/p32j.dlog.blob.exp" \
+  || err "F3.2j historical Decision Log blob fixture generation failed"
+cmp -s "$tmpdir/p32j.dlog.blob.exp" "$tmpdir/p32j.dlog.blob.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j historical Decision Log A blob differs"
+
 for p32jblobpair in \
-  "docs/DECISION-LOG.md|$p32jdlogblob" \
   "$PKT32J|$p32jpacketblob"; do
   p32jblobpath=${p32jblobpair%%|*}
   p32jblobexpected=${p32jblobpair#*|}
@@ -3483,14 +3494,245 @@ LC_ALL=C sort "$tmpdir/p32j.hex.raw" > "$tmpdir/p32j.hex.act"; p32jrc=$?
 cmp -s "$tmpdir/p32j.hex.exp" "$tmpdir/p32j.hex.act"; p32jrc=$?
 [ "$p32jrc" -eq 0 ] || err "$PKT32J exact-40-hex multiset differs"
 
-# G: full changed-content material scan across exactly the thirteen named
+# ---------------- F3.2k exact-construction owner-direction record
+# Later owner direction only: the source packet remains historical and
+# present canonical effect remains NONE.
+REC32K=docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+[ -f "$REC32K" ] || err "$REC32K missing"
+p32kbase=0d2115de9c322bf221f5a5008d91e7b7b48363e6
+p32ka=2abf7092adff3b0e27f754c6021c3d852db638f8
+p32kdlogblob=ac43ddd8a83d5be95e11d8208a0a998925b1027b
+p32krecordblob=5b05d62776c65bfaf5ec41ab39108bc0531b7944
+p32kpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+
+git --no-optional-locks rev-parse "$p32kbase^{commit}" > "$tmpdir/p32k.base.act" 2>/dev/null
+p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k source base does not resolve"
+printf '%s\n' "$p32kbase" > "$tmpdir/p32k.base.exp" || err "F3.2k source-base fixture failed"
+cmp -s "$tmpdir/p32k.base.exp" "$tmpdir/p32k.base.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k source base differs"
+git --no-optional-locks rev-parse "$p32ka^{commit}" > "$tmpdir/p32k.a.act" 2>/dev/null
+p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A does not resolve"
+printf '%s\n' "$p32ka" > "$tmpdir/p32k.a.exp" || err "F3.2k A fixture failed"
+cmp -s "$tmpdir/p32k.a.exp" "$tmpdir/p32k.a.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A differs"
+p32kaparent=$(git --no-optional-locks rev-parse "$p32ka^" 2>/dev/null); p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A parent lookup failed"
+[ "$p32kaparent" = "$p32kbase" ] || err "F3.2k A parent differs"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32ka" > "$tmpdir/p32k.a.paths.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A path enumeration failed"
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32k.a.paths.exp" || err "F3.2k A path fixture failed"
+cmp -s "$tmpdir/p32k.a.paths.exp" "$tmpdir/p32k.a.paths.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A path set differs"
+
+for p32kpair in \
+  "docs/DECISION-LOG.md|$p32kdlogblob" \
+  "$REC32K|$p32krecordblob" \
+  "$PKT32J|$p32kpacketblob"; do
+  p32kpath=${p32kpair%%|*}
+  p32kexpected=${p32kpair#*|}
+  git --no-optional-locks hash-object -- "$p32kpath" > "$tmpdir/p32k.blob.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k blob scan failed for $p32kpath"
+  [ -s "$tmpdir/p32k.blob.act" ] || err "F3.2k blob scan empty for $p32kpath"
+  printf '%s\n' "$p32kexpected" > "$tmpdir/p32k.blob.exp" || err "F3.2k blob fixture failed"
+  cmp -s "$tmpdir/p32k.blob.exp" "$tmpdir/p32k.blob.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k active blob differs for $p32kpath"
+done
+
+for p32kowner in \
+  'Approve, as a non-enacting owner direction for separately authorized later canonical work, the complete, indivisible, byte-for-byte candidate F32J-LIM-CON-001 exactly as printed in the published F3.2j packet at commit 0d2115de9c322bf221f5a5008d91e7b7b48363e6, packet blob b1c2153f5f89a0e1d44d62a09921251e225c0d87. Approve all and only its proposed future canonical bytes. Approve no alternative, subset, paraphrase, normalization, substitution, or additional change.' \
+  'This approval selects only the exact future construction. It does not enact those bytes, amend any canonical document, or declare QK-LIM-PSBT-027 currently tombstoned or inactive. The current row remains OPEN with its current live links until separately authorized canonical work. The proposed Value-cell text remains a non-value sentinel, never zero or an authorized QK-LIM value. Preserve the historical ID and dimension name, QK-LIM-PSBT-026, ALL GATES OPEN, and every other canonical and historical byte. OD-05 and QK-THR-016 remain unresolved or unchanged globally; only their future row-027 relationships become non-operative. Introduce no general tombstone vocabulary or transition for another row.' \
+  'Authorize preparation and independent audit of a non-enacting docs-only F3.2k QK-LIM-PSBT-027 exact-construction owner-direction record from published commit 0d2115de9c322bf221f5a5008d91e7b7b48363e6, recording only this exact approval and reproducing the selected future bytes byte-for-byte, with only the mechanically necessary Decision Log and verifier bindings.' \
+  'No canonical RESOURCE-BUDGETS, REQUIREMENTS, or TEST-ARCHITECTURE edit; no current QK-LIM value, title, Status, link, row, vocabulary, or syntax change; no current QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, dependency, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
+  for p32kownerfile in docs/DECISION-LOG.md "$REC32K"; do
+    p32kownerhits=$(grep -cFx -e "$p32kowner" "$p32kownerfile"); p32krc=$?
+    [ "$p32krc" -le 1 ] || err "F3.2k owner transcript scan failed in $p32kownerfile"
+    [ "$p32kownerhits" = 1 ] || err "F3.2k owner transcript differs or duplicates in $p32kownerfile"
+  done
+done
+sed -n '/^### QK-AUTH-F3.2K-QK-LIM-PSBT-027-EXACT-CON-DIR-REC-001 /,$p' docs/DECISION-LOG.md > "$tmpdir/p32k.dlog.section"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k Decision Log section extraction failed"
+sed -n '/^- \*\*Owner words exactly (literal four-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' "$tmpdir/p32k.dlog.section" > "$tmpdir/p32k.owner.dlog.framed"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k Decision Log owner framing failed"
+sed '1d;$d' "$tmpdir/p32k.owner.dlog.framed" > "$tmpdir/p32k.owner.dlog"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k Decision Log owner deframing failed"
+sed -n '/^## Owner words exactly$/,/^## Exact direction map$/p' "$REC32K" > "$tmpdir/p32k.owner.record.framed"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k record owner framing failed"
+sed '1d;$d' "$tmpdir/p32k.owner.record.framed" > "$tmpdir/p32k.owner.record"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k record owner deframing failed"
+cmp -s "$tmpdir/p32k.owner.dlog" "$tmpdir/p32k.owner.record"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k owner transcript blocks differ"
+
+grep '^| F32J-LIM-CON-' "$REC32K" > "$tmpdir/p32k.direction.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k direction-row extraction failed"
+cat > "$tmpdir/p32k.direction.exp" <<'QK_F32K_DIRECTION_EOF' || err "F3.2k direction fixture failed"
+| F32J-LIM-CON-001 | PROPOSED — UNSELECTED — HISTORICAL SOURCE STATE | OWNER DIRECTION APPROVED — NON-ENACTING — COMPLETE INDIVISIBLE CONSTRUCTION ONLY | NONE — FUTURE CONSTRUCTION ONLY |
+QK_F32K_DIRECTION_EOF
+cmp -s "$tmpdir/p32k.direction.exp" "$tmpdir/p32k.direction.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k one-construction direction map differs"
+p32kstatushits=$(grep -cFx -e 'STATUS: OWNER DIRECTION APPROVED — NON-ENACTING — F32J-LIM-CON-001 ONLY — COMPLETE INDIVISIBLE BYTE-FOR-BYTE FUTURE CONSTRUCTION SELECTED — NO ALTERNATIVE, SUBSET, PARAPHRASE, NORMALIZATION, SUBSTITUTION, OR ADDITIONAL CHANGE APPROVED — F3.2J PROPOSED — UNSELECTED STATE PRESERVED AS HISTORICAL — NO CANONICAL EDIT — CURRENT QK-LIM-PSBT-027 REMAINS OPEN WITH CURRENT LIVE LINKS — QK-LIM-PSBT-026 AND ALL CANONICAL SOURCES UNCHANGED — LOCAL AND UNPUBLISHED.' "$REC32K"); p32krc=$?
+[ "$p32krc" -le 1 ] || err "F3.2k status scan failed"
+[ "$p32kstatushits" = 1 ] || err "F3.2k exact status differs or duplicates"
+for p32kboundary in \
+  'complete, indivisible, byte-for-byte `F32J-LIM-CON-001` future construction' \
+  'No alternative, subset, paraphrase, normalization, substitution, explanatory packet prose, or added change is approved.' \
+  'Present canonical effect is exactly `NONE`.' \
+  'does not declare current row 027 `TOMBSTONED` or `INACTIVE`' \
+  'literal non-value sentinel `NOT A VALUE — PERMANENT TOMBSTONE SENTINEL`' \
+  'OD-05 remains unresolved globally and QK-THR-016 remains unchanged globally' \
+  'creates no current or general tombstone vocabulary or transition'; do
+  p32kboundaryhits=$(grep -cF -e "$p32kboundary" "$REC32K"); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k semantic-boundary scan failed"
+  [ "$p32kboundaryhits" = 1 ] || err "F3.2k semantic boundary missing or duplicated: $p32kboundary"
+done
+
+p32knum=1
+while [ "$p32knum" -le 7 ]; do
+  case $p32knum in
+    1)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS preamble bytes$/,/^## Exact current and proposed RESOURCE-BUDGETS invariant bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k preamble region extraction failed"
+      sed -n '/^### Proposed exact future canonical bytes$/,/^The proposed preamble /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    2)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS invariant bytes$/,/^## Exact current and proposed RESOURCE-BUDGETS append-only-ID-note bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k invariant region extraction failed"
+      sed -n '/^### Proposed exact future canonical bytes$/,/^The proposed invariant /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    3)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS append-only-ID-note bytes$/,/^## Exact current and proposed RESOURCE-BUDGETS row bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k append-note region extraction failed"
+      sed -n '/^### Proposed exact future canonical bytes$/,/^The proposed note /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    4)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS row bytes$/,/^## Exact current and proposed consumer-cell bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k row region extraction failed"
+      sed -n '/^### Proposed exact future canonical row$/,/^### Every row cell, current and proposed$/p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    5)
+      sed -n '/^### QK-REQ-PSBT-005 Lim cell$/,/^### QK-REQ-TRN-007 Lim cell$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k PSBT-005 region extraction failed"
+      sed -n '/^Proposed exact future canonical bytes:$/,/^### QK-REQ-TRN-007 Lim cell$/p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    6)
+      sed -n '/^### QK-REQ-TRN-007 Lim cell$/,/^### QK-TST-DIFF-004 Links cell$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k TRN-007 region extraction failed"
+      sed -n '/^Proposed exact future canonical bytes:$/,/^### QK-TST-DIFF-004 Links cell$/p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    7)
+      sed -n '/^### QK-TST-DIFF-004 Links cell$/,/^## Protected bytes and non-effects$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k DIFF-004 region extraction failed"
+      sed -n '/^Proposed exact future canonical bytes:$/,/^These are exactly three /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+  esac
+  p32krc=$?; [ "$p32krc" -eq 0 ] || err "F3.2k packet payload $p32knum framing failed"
+  sed '1d;$d' "$tmpdir/p32k.packet.framed" > "$tmpdir/p32k.packet.payload"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k packet payload $p32knum deframing failed"
+  sed -n "/^### Exact selected future bytes — $p32knum\$/,/^### End selected future payload $p32knum\$/p" "$REC32K" > "$tmpdir/p32k.record.framed"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k record payload $p32knum framing failed"
+  sed '1d;$d' "$tmpdir/p32k.record.framed" > "$tmpdir/p32k.record.payload"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k record payload $p32knum deframing failed"
+  [ -s "$tmpdir/p32k.packet.payload" ] || err "F3.2k packet payload $p32knum empty"
+  [ -s "$tmpdir/p32k.record.payload" ] || err "F3.2k record payload $p32knum empty"
+  p32kplines=$(awk 'END {print NR+0}' "$tmpdir/p32k.packet.payload"); p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k packet payload line count failed"
+  p32krlines=$(awk 'END {print NR+0}' "$tmpdir/p32k.record.payload"); p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k record payload line count failed"
+  [ "$p32kplines" = 3 ] || err "F3.2k packet payload $p32knum cardinality differs"
+  [ "$p32krlines" = 3 ] || err "F3.2k record payload $p32knum cardinality differs"
+  cmp -s "$tmpdir/p32k.packet.payload" "$tmpdir/p32k.record.payload"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k payload $p32knum differs byte-for-byte from F3.2j"
+  p32kpayline=$(sed -n '2p' "$tmpdir/p32k.record.payload"); p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k payload $p32knum read failed"
+  [ -n "$p32kpayline" ] || err "F3.2k payload $p32knum content empty"
+  p32kpayhits=$(grep -cFx -e "$p32kpayline" "$REC32K"); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k payload $p32knum uniqueness scan failed"
+  [ "$p32kpayhits" = 1 ] || err "F3.2k payload $p32knum is missing or duplicated"
+  p32knum=$((p32knum + 1))
+done
+for p32kheading in \
+  '^## Selected future payload [1-7] — ' \
+  '^### Exact selected future bytes — [1-7]$' \
+  '^### End selected future payload [1-7]$'; do
+  p32kheadinghits=$(grep -c "$p32kheading" "$REC32K"); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k payload heading count failed"
+  [ "$p32kheadinghits" = 7 ] || err "F3.2k payload heading cardinality differs"
+done
+
+while IFS=' ' read -r p32kprotected p32kprotectedblob; do
+  git --no-optional-locks hash-object -- "$p32kprotected" > "$tmpdir/p32k.protected.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k protected blob scan failed for $p32kprotected"
+  printf '%s\n' "$p32kprotectedblob" > "$tmpdir/p32k.protected.exp" || err "F3.2k protected fixture failed"
+  cmp -s "$tmpdir/p32k.protected.exp" "$tmpdir/p32k.protected.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k protected blob differs for $p32kprotected"
+done <<'QK_F32K_PROTECTED_EOF'
+docs/RESOURCE-BUDGETS.md 1ae6494fc24a8e3572464cf45e6d43ea4875e95d
+docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
+docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
+docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md 2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
+docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md b1c2153f5f89a0e1d44d62a09921251e225c0d87
+QK_F32K_PROTECTED_EOF
+for p32krow in "$p32hrow026" "$p32hrow027"; do
+  p32krowhits=$(grep -cFx -e "$p32krow" docs/RESOURCE-BUDGETS.md); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k current-row scan failed"
+  [ "$p32krowhits" = 1 ] || err "F3.2k current row missing, altered, or duplicated"
+done
+p32kcandidatehits=$(grep -cFx -e '| F32J-LIM-CON-001 | PROPOSED — UNSELECTED | RECOMMENDED — NOT SELECTED | NONE — FUTURE CONSTRUCTION ONLY |' "$PKT32J"); p32krc=$?
+[ "$p32krc" -le 1 ] || err "F3.2k historical candidate scan failed"
+[ "$p32kcandidatehits" = 1 ] || err "F3.2j PROPOSED — UNSELECTED state differs"
+
+iconv -f UTF-8 -t UTF-8 "$REC32K" > "$tmpdir/p32k.utf8" 2> "$tmpdir/p32k.iconv.err"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K is not strict UTF-8"
+[ -s "$tmpdir/p32k.utf8" ] || err "$REC32K UTF-8 validation empty"
+cmp -s "$REC32K" "$tmpdir/p32k.utf8"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K UTF-8 validation changed bytes"
+tail -c 1 "$REC32K" > "$tmpdir/p32k.last"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K final-byte read failed"
+od -An -tuC "$tmpdir/p32k.last" > "$tmpdir/p32k.last.od"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K final-byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32k.last.od" > "$tmpdir/p32k.last.norm"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K final-byte normalization failed"
+p32klast=$(cat "$tmpdir/p32k.last.norm"); p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K final-byte result read failed"
+[ "$p32klast" = 10 ] || err "$REC32K must end in exact LF"
+tail -c 2 "$REC32K" > "$tmpdir/p32k.last2"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K final-two-byte read failed"
+printf '\n\n' > "$tmpdir/p32k.double" || err "$REC32K double-LF fixture failed"
+cmp -s "$tmpdir/p32k.double" "$tmpdir/p32k.last2"; p32krc=$?
+[ "$p32krc" -eq 1 ] || err "$REC32K must not end in double LF or cmp failed (exit $p32krc)"
+od -An -tx1 "$REC32K" > "$tmpdir/p32k.bytes"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K byte scan failed"
+awk 'BEGIN {bad=0; p2=""; p1=""} {for(i=1;i<=NF;i++){b=tolower($i); if(b=="00"||b=="0d")bad++; seq=p2 p1 b; if(seq=="efbbbf"||seq=="e2808e"||seq=="e2808f"||seq=="e280aa"||seq=="e280ab"||seq=="e280ac"||seq=="e280ad"||seq=="e280ae"||seq=="e281a6"||seq=="e281a7"||seq=="e281a8"||seq=="e281a9")bad++; p2=p1; p1=b}} END {print bad+0}' "$tmpdir/p32k.bytes" > "$tmpdir/p32k.bad"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K control/bidi scan failed"
+p32kbad=$(cat "$tmpdir/p32k.bad"); p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K control/bidi result read failed"
+[ "$p32kbad" = 0 ] || err "$REC32K contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$REC32K contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$REC32K"
+forbid "$REC32K contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$REC32K"
+forbid "$REC32K contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$REC32K"
+forbid "$REC32K contains a standalone numeric zero that could be mistaken for a value" -E '(^|[^[:alnum:]_])0([^[:alnum:]_]|$)' "$REC32K"
+printf '%s\n' \
+  065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+  0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
+  0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
+  0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
+  1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
+  2abf7092adff3b0e27f754c6021c3d852db638f8 \
+  2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5 \
+  981b1b497102187da66fb4e82ef0725b32c088f7 \
+  b1c2153f5f89a0e1d44d62a09921251e225c0d87 \
+  b1c2153f5f89a0e1d44d62a09921251e225c0d87 \
+  b1c2153f5f89a0e1d44d62a09921251e225c0d87 > "$tmpdir/p32k.hex.exp" || err "$REC32K exact-40-hex fixture failed"
+awk '{s=$0; while(match(s,/[0-9a-fA-F]+/)){t=substr(s,RSTART,RLENGTH); if(length(t)==40)print tolower(t); s=substr(s,RSTART+RLENGTH)}}' "$REC32K" > "$tmpdir/p32k.hex.raw"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K exact-40-hex enumeration failed"
+LC_ALL=C sort "$tmpdir/p32k.hex.raw" > "$tmpdir/p32k.hex.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K exact-40-hex sort failed"
+cmp -s "$tmpdir/p32k.hex.exp" "$tmpdir/p32k.hex.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "$REC32K exact-40-hex multiset differs"
+
+# G: full changed-content material scan across exactly the fourteen named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this thirteen-path scan.
+# is separately bounded elsewhere and is not part of this fourteen-path scan.
 # Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -3501,7 +3743,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same thirteen named scan paths; every token must be deliberately
+# across the same fourteen named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -3536,21 +3778,27 @@ done
 #   1ae6494fc24a8e3572464cf45e6d43ea4875e95d  F3.2h RESOURCE-BUDGETS source blob
 #   2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5  F3.2i owner-direction whole-record blob
 #   336956ec866ca3aa93791ffcb76f30e79e17dd31  F3.2j authorization commit A
+#   0d2115de9c322bf221f5a5008d91e7b7b48363e6  F3.2k source base / published F3.2j C
 #   0e366c1acc5579e541dfe3f94a099db9b887064b  F3.2j Decision Log A blob
 #   e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5  F3.2h packet blob
 #   c4e1ed94a02fba5d01f5cebfda4d5b1439222625  F3.2i authorization commit A
 #   e36b41e5cd55264b4b745550c96c74968b06eae7  F3.2i source base / published F3.2h C
 #   878b23be4690bb778a615bfe1a6ef108e7a94008  F3.2j source base / published F3.2i C
 #   b1c2153f5f89a0e1d44d62a09921251e225c0d87  F3.2j packet blob
+#   2abf7092adff3b0e27f754c6021c3d852db638f8  F3.2k authorization commit A
+#   5b05d62776c65bfaf5ec41ab39108bc0531b7944  F3.2k owner-direction record blob
+#   ac43ddd8a83d5be95e11d8208a0a998925b1027b  F3.2k Decision Log A blob
 {
   printf '%s\n' \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+    0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
     0e366c1acc5579e541dfe3f94a099db9b887064b \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     22114c6741ac653b9c5079b1bfccdb795a88f3df \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
+    2abf7092adff3b0e27f754c6021c3d852db638f8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
     2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5 \
     336956ec866ca3aa93791ffcb76f30e79e17dd31 \
@@ -3560,6 +3808,7 @@ done
     55bd46310606e2df4089d8234a67655c81440bab \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     574e790193d45d3f392c64951d319bb5fde11d20 \
+    5b05d62776c65bfaf5ec41ab39108bc0531b7944 \
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     877866e5a3636bdfb7015d715e048ccfad63d939 \
@@ -3570,6 +3819,7 @@ done
     a64399dd35aef8d6daa05171f1da30c8026f6d1f \
     a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
+    ac43ddd8a83d5be95e11d8208a0a998925b1027b \
     b1c2153f5f89a0e1d44d62a09921251e225c0d87 \
     b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
@@ -3587,7 +3837,7 @@ done
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
