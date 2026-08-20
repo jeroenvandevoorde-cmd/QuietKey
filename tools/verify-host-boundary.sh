@@ -102,6 +102,7 @@ docs/f3/F3.2B-PSBT-OWNER-RESPONSE-RECORD.md
 docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
 docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
+docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1259,7 +1260,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show e57faff4ead69ddf108cf522cb6c3cbfbef8219a:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show 22114c6741ac653b9c5079b1bfccdb795a88f3df:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2559,14 +2560,165 @@ LC_ALL=C sort -u "$tmpdir/p32e.hex.raw" > "$tmpdir/p32e.hex.act"; p32erc=$?
 cmp -s "$tmpdir/p32e.hex.exp" "$tmpdir/p32e.hex.act"; p32erc=$?
 [ "$p32erc" -eq 0 ] || err "$PKT32E contains a missing, altered, or extra exact-40-hex token"
 
-# G: full changed-content material scan across exactly the nine named
+# F3.2f PSBT-output owner-direction record. The whole-record blob is the
+# decisive closed-world invariant; the checks below also bind its
+# source rows, owner-direction map, encoding, and non-enacting boundary.
+REC32F=docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
+[ -f "$REC32F" ] || err "$REC32F missing"
+p32fblob=a066fc9710371f414d158a3deb9c345f2b00821b
+git --no-optional-locks hash-object -- "$REC32F" > "$tmpdir/p32f.blob.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F git hash-object audit-locator scan failed"
+[ -s "$tmpdir/p32f.blob.act" ] || err "$REC32F git hash-object audit-locator scan produced empty output"
+printf '%s\n' "$p32fblob" > "$tmpdir/p32f.blob.exp" || err "$REC32F blob fixture generation failed"
+cmp -s "$tmpdir/p32f.blob.exp" "$tmpdir/p32f.blob.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F differs from its pinned whole-record blob"
+p32ftitle='# QK-F3.2f — PSBT-Output TEST-ARCHITECTURE Owner-Direction Record'
+p32fstatus='STATUS: OWNER DIRECTIONS RECORDED — NON-ENACTING — COMPLETE PROPOSED PLAN / ORACLE TEXT FOR QK-TST-DIFF-002 AND QK-TST-DIFF-004 APPROVED EXACTLY AS PRINTED — NO CHANGE TO ANY OTHER CELL APPROVED — QK-TST-REH-004 RETAINED UNCHANGED — CANONICAL TEST-ARCHITECTURE UNCHANGED — ALL QK-TST STATUSES UNCHANGED — PLANNED — NOT RUN — F32C-D11-Q-002 THROUGH Q-012 UNANSWERED — D-11 AND D-09 NOT SELECTED — EVERY QK-LIM OPEN — PSBT PROFILE AND EVERY CLAUSE NOT ACCEPTED — NO IMPLEMENTATION, TESTING, VECTORS, EVIDENCE, OR MEDIA I/O — NO EVIDENCE OR GATE CHANGE — LOCAL AND UNPUBLISHED.'
+p32fend='END OF OWNER-DIRECTION RECORD — TWO NON-ENACTING PLAN / ORACLE DIRECTIONS RECORDED — QK-TST-REH-004 UNCHANGED — CANONICAL TEST-ARCHITECTURE AND ALL QK-TST STATUSES UNCHANGED — F32C-D11-Q-002 THROUGH Q-012 UNANSWERED — D-11 AND D-09 NOT SELECTED — LOCAL AND UNPUBLISHED.'
+sed -n '1p' "$REC32F" > "$tmpdir/p32f.title.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F title read failed"
+printf '%s\n' "$p32ftitle" > "$tmpdir/p32f.title.exp" || err "$REC32F title fixture generation failed"
+cmp -s "$tmpdir/p32f.title.exp" "$tmpdir/p32f.title.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F exact title differs"
+grep '^STATUS:' "$REC32F" > "$tmpdir/p32f.status.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F STATUS extraction failed"
+printf '%s\n' "$p32fstatus" > "$tmpdir/p32f.status.exp" || err "$REC32F STATUS fixture generation failed"
+cmp -s "$tmpdir/p32f.status.exp" "$tmpdir/p32f.status.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F exact STATUS differs"
+p32fstatusany=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$REC32F"); p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F global STATUS scan failed"
+[ "$p32fstatusany" = 1 ] || err "$REC32F must contain exactly one STATUS occurrence"
+tail -n 1 "$REC32F" > "$tmpdir/p32f.end.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F terminal line read failed"
+printf '%s\n' "$p32fend" > "$tmpdir/p32f.end.exp" || err "$REC32F terminal fixture generation failed"
+cmp -s "$tmpdir/p32f.end.exp" "$tmpdir/p32f.end.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F exact terminal line differs"
+cat > "$tmpdir/p32f.headings.exp" <<'QK_F32F_HEADINGS_EOF' || err "$REC32F heading fixture generation failed"
+# QK-F3.2f — PSBT-Output TEST-ARCHITECTURE Owner-Direction Record
+## Standing and source boundary
+## Owner approval words exactly
+## Owner preparation authority words exactly
+## Exact direction map
+## Source rows containing approved Plan / oracle directions
+## Unchanged external-finalization control
+## Historical and source honesty
+## Dependencies and non-effects
+QK_F32F_HEADINGS_EOF
+grep '^#' "$REC32F" > "$tmpdir/p32f.headings.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F heading extraction failed"
+cmp -s "$tmpdir/p32f.headings.exp" "$tmpdir/p32f.headings.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F heading set differs"
+for p32fline in \
+  '| F32F-TST-DIR-001 | QK-TST-DIFF-002 | Plan / oracle only | COMPLETE PROPOSED PLAN / ORACLE TEXT APPROVED AS OWNER DIRECTION — NON-ENACTING — CANONICAL ROW AND STATUS UNCHANGED. |' \
+  '| F32F-TST-DIR-002 | QK-TST-DIFF-004 | Plan / oracle only | COMPLETE PROPOSED PLAN / ORACLE TEXT APPROVED AS OWNER DIRECTION — NON-ENACTING — CANONICAL ROW AND STATUS UNCHANGED. |' \
+  'There are exactly two owner directions. QK-TST-REH-004 is a separate unchanged external-finalization control, not a third approval.' \
+  'QK-TST-REH-004 receives no candidate edit or owner direction and remains PLANNED — NOT RUN. Its finalization remains external and its existing OD-02 dependency remains unchanged.'; do
+  p32fn=$(grep -cFx -e "$p32fline" "$REC32F"); p32frc=$?
+  [ "$p32frc" -le 1 ] || err "$REC32F exact direction/control scan failed"
+  [ "$p32fn" = 1 ] || err "$REC32F required direction/control line is missing, altered, or duplicated"
+done
+grep '^| QK-TST-DIFF-' "$PKT32E" > "$tmpdir/p32f.source.diff.all"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$PKT32E proposed-row source extraction failed"
+sed -n '3,4p' "$tmpdir/p32f.source.diff.all" > "$tmpdir/p32f.source.diff"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$PKT32E proposed-row source selection failed"
+grep '^| QK-TST-DIFF-' "$REC32F" > "$tmpdir/p32f.record.diff"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F source-row carrying approved Plan / oracle extraction failed"
+cmp -s "$tmpdir/p32f.source.diff" "$tmpdir/p32f.record.diff"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F DIFF source rows carrying the approved Plan / oracle cells are not byte-exact from F3.2e"
+p32freh=$(grep -cFx -e "$p32ereh004" "$REC32F"); p32frc=$?
+[ "$p32frc" -le 1 ] || err "$REC32F REH-004 control scan failed"
+[ "$p32freh" = 1 ] || err "$REC32F REH-004 control row is missing, altered, or duplicated"
+for p32fowner in \
+  'Approve, as non-enacting owner directions, the complete proposed Plan / oracle text for QK-TST-DIFF-002 and QK-TST-DIFF-004 exactly as printed in the F3.2e packet at published commit 574e790193d45d3f392c64951d319bb5fde11d20. Approve no change to any other cell. QK-TST-REH-004 remains unchanged.' \
+  'This approval does not amend docs/TEST-ARCHITECTURE.md, change any QK-TST status, authorize testing or evidence, answer F32C-D11-Q-002 through Q-012, or select D-11, D-09, any QK-LIM, the PSBT profile, or any clause.' \
+  'Authorize preparation and independent audit of a non-enacting docs-only F3.2f PSBT-output test owner-direction record from 574e790193d45d3f392c64951d319bb5fde11d20, recording only my approved directions for QK-TST-DIFF-002 and QK-TST-DIFF-004, with QK-TST-REH-004 retained unchanged and only the mechanically necessary verifier bindings.' \
+  'No canonical TEST-ARCHITECTURE edit, test-status change, F32C-D11-Q-002 through Q-012 answer, D-11 or D-09 selection, QK-LIM selection, profile or clause acceptance, implementation, testing, vectors, evidence, media I/O, hardware work, settings changes, or publication.'; do
+  p32fn=$(grep -cFx -e "$p32fowner" "$REC32F"); p32frc=$?
+  [ "$p32frc" -le 1 ] || err "$REC32F owner transcript scan failed"
+  [ "$p32fn" = 1 ] || err "$REC32F owner transcript line is missing, altered, or duplicated"
+done
+for p32fsourcepair in \
+  'docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f941bc0537683e' \
+  'docs/TEST-ARCHITECTURE.md f4e127a92fc68243274b7d384e335fa4632e5dd2'; do
+  p32fsource=${p32fsourcepair%% *}
+  p32fexpected=${p32fsourcepair#* }
+  git --no-optional-locks hash-object -- "$p32fsource" > "$tmpdir/p32f.source.act"; p32frc=$?
+  [ "$p32frc" -eq 0 ] || err "$p32fsource source blob scan failed"
+  printf '%s\n' "$p32fexpected" > "$tmpdir/p32f.source.exp" || err "$p32fsource source blob fixture failed"
+  cmp -s "$tmpdir/p32f.source.exp" "$tmpdir/p32f.source.act"; p32frc=$?
+  [ "$p32frc" -eq 0 ] || err "$p32fsource differs from the F3.2f reviewed source blob"
+done
+iconv -f UTF-8 -t UTF-8 "$REC32F" > "$tmpdir/p32f.utf8" 2> "$tmpdir/p32f.iconv.err"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F is not strict UTF-8"
+[ -s "$tmpdir/p32f.utf8" ] || err "$REC32F UTF-8 stage produced empty output"
+cmp -s "$REC32F" "$tmpdir/p32f.utf8"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F UTF-8 round trip changed bytes"
+p32f_final_lf_ok() {
+  p32flffile=$1
+  p32flftag=$2
+  tail -c 1 "$p32flffile" > "$tmpdir/p32f.$p32flftag.last.raw" || return 2
+  [ -s "$tmpdir/p32f.$p32flftag.last.raw" ] || return 1
+  od -An -tuC "$tmpdir/p32f.$p32flftag.last.raw" > "$tmpdir/p32f.$p32flftag.last.od" || return 2
+  tr -d '[:space:]' < "$tmpdir/p32f.$p32flftag.last.od" > "$tmpdir/p32f.$p32flftag.last.norm" || return 2
+  [ -s "$tmpdir/p32f.$p32flftag.last.norm" ] || return 1
+  p32flflast=$(cat "$tmpdir/p32f.$p32flftag.last.norm") || return 2
+  case $p32flflast in ''|*[!0-9]*) return 1 ;; esac
+  [ "$p32flflast" = 10 ] || return 1
+  tail -c 2 "$p32flffile" > "$tmpdir/p32f.$p32flftag.last2.raw" || return 2
+  cmp -s "$tmpdir/p32f.lf.double" "$tmpdir/p32f.$p32flftag.last2.raw"
+  p32flfrc=$?
+  case $p32flfrc in 0) return 1 ;; 1) : ;; *) return 2 ;; esac
+  cmp -s "$tmpdir/p32f.lf.crlf" "$tmpdir/p32f.$p32flftag.last2.raw"
+  p32flfrc=$?
+  case $p32flfrc in 0) return 1 ;; 1) return 0 ;; *) return 2 ;; esac
+}
+printf '\n\n' > "$tmpdir/p32f.lf.double" || err "$REC32F double-final-LF fixture generation failed"
+printf '\r\n' > "$tmpdir/p32f.lf.crlf" || err "$REC32F CRLF fixture generation failed"
+printf 'qk\n' > "$tmpdir/p32f.lf.valid" || err "$REC32F valid-final-LF fixture generation failed"
+printf 'qk' > "$tmpdir/p32f.lf.missing" || err "$REC32F missing-final-LF fixture generation failed"
+printf 'qk\n\n' > "$tmpdir/p32f.lf.doubled" || err "$REC32F doubled-final-LF fixture generation failed"
+printf 'qk\r\n' > "$tmpdir/p32f.lf.crlfinput" || err "$REC32F CRLF input fixture generation failed"
+printf 'qkn' > "$tmpdir/p32f.lf.asciin" || err "$REC32F ASCII-n fixture generation failed"
+p32f_final_lf_ok "$tmpdir/p32f.lf.valid" valid; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F final-LF predicate rejected the focused valid-LF control"
+for p32flfinvalid in missing doubled crlfinput asciin; do
+  p32f_final_lf_ok "$tmpdir/p32f.lf.$p32flfinvalid" "$p32flfinvalid"; p32frc=$?
+  [ "$p32frc" -eq 1 ] || err "$REC32F final-LF predicate failed its focused $p32flfinvalid rejection control (exit $p32frc)"
+done
+p32f_final_lf_ok "$REC32F" record; p32frc=$?
+case $p32frc in
+  0) : ;;
+  1) err "$REC32F must end in exact decimal byte 10, without double final LF or CRLF" ;;
+  *) err "$REC32F final-LF evidence producer or normalization failed (exit $p32frc)" ;;
+esac
+forbid "$REC32F contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$REC32F"
+forbid "$REC32F contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$REC32F"
+printf '%s\n' \
+  22114c6741ac653b9c5079b1bfccdb795a88f3df \
+  4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
+  574e790193d45d3f392c64951d319bb5fde11d20 \
+  574e790193d45d3f392c64951d319bb5fde11d20 \
+  574e790193d45d3f392c64951d319bb5fde11d20 \
+  574e790193d45d3f392c64951d319bb5fde11d20 \
+  f4e127a92fc68243274b7d384e335fa4632e5dd2 > "$tmpdir/p32f.hex.exp" \
+  || err "$REC32F exact-40-hex multiset fixture generation failed"
+awk '{s=$0; while (match(s,/[0-9a-fA-F]+/)) {t=substr(s,RSTART,RLENGTH); if (length(t)==40) print tolower(t); s=substr(s,RSTART+RLENGTH)}}' \
+  "$REC32F" > "$tmpdir/p32f.hex.raw"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F exact-40-hex multiset enumeration failed"
+LC_ALL=C sort "$tmpdir/p32f.hex.raw" > "$tmpdir/p32f.hex.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F exact-40-hex multiset sort failed"
+cmp -s "$tmpdir/p32f.hex.exp" "$tmpdir/p32f.hex.act"; p32frc=$?
+[ "$p32frc" -eq 0 ] || err "$REC32F exact-40-hex multiset differs"
+
+# G: full changed-content material scan across exactly the ten named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this nine-path
+# is separately bounded elsewhere and is not part of this ten-path
 # scan. Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -2577,7 +2729,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same nine named scan paths; every token must be deliberately
+# across the same ten named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -2600,20 +2752,26 @@ done
 #   be4d019e349e15ca575ac64b64f900957283e5e0  F3.2e source base
 #   e57faff4ead69ddf108cf522cb6c3cbfbef8219a  F3.2e authorization commit A (Decision Log anchor)
 #   f4e127a92fc68243274b7d384e335fa4632e5dd2  TEST-ARCHITECTURE blob (F3.2e audit locator)
+#   22114c6741ac653b9c5079b1bfccdb795a88f3df  F3.2f authorization commit A (Decision Log anchor)
+#   574e790193d45d3f392c64951d319bb5fde11d20  F3.2f source base / published F3.2e C
+#   a066fc9710371f414d158a3deb9c345f2b00821b  F3.2f owner-direction whole-record blob
 {
   printf '%s\n' \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
+    22114c6741ac653b9c5079b1bfccdb795a88f3df \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
     4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55f93844b56e3637468321e1c68638a8138a3a2b \
+    574e790193d45d3f392c64951d319bb5fde11d20 \
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     877866e5a3636bdfb7015d715e048ccfad63d939 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
     981b1b497102187da66fb4e82ef0725b32c088f7 \
+    a066fc9710371f414d158a3deb9c345f2b00821b \
     a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
     b4594210975940df71b0e941841320d11defaa4c \
@@ -2627,7 +2785,7 @@ done
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
