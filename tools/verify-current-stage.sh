@@ -100,6 +100,9 @@ F32I_B=f9219cda64c3df575928592ac304469d5a75801c # docs(f3): record non-enacting 
 F32I_C=878b23be4690bb778a615bfe1a6ef108e7a94008 # published F3.2j source base / F3.2i commit C
 F32J_A=336956ec866ca3aa93791ffcb76f30e79e17dd31 # docs: authorize F3.2j construction packet
 F32J_B=cbe8d15cac15ea99e6ddbc43cf76f831802bf292 # docs(f3): add F3.2j construction packet
+F32J_C=0d2115de9c322bf221f5a5008d91e7b7b48363e6 # published F3.2k source base / F3.2j commit C
+F32K_A=2abf7092adff3b0e27f754c6021c3d852db638f8 # docs: authorize F3.2k exact direction
+F32K_B=17d190a98465411aafba88a186b531728e2c8c9b # docs(f3): record F3.2k exact direction
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -122,10 +125,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 # Exact linear ancestry BASE -> C1 -> ... -> C34 -> C35 -> C36 ->
 # C37 -> C38 -> C39 -> C40 -> C41 -> C42 -> C43 -> C44 -> C45 ->
 # F32G_C -> C46 -> C47 -> F32H_C -> F32I_A -> F32I_B -> F32I_C ->
-# F32J_A -> F32J_B -> HEAD, no merges. F32I_C is the published base of
-# the exact three-commit local/unpublished F3.2j chain.
+# F32J_A -> F32J_B -> F32J_C -> F32K_A -> F32K_B -> HEAD, no
+# merges. F32J_C is the unchanged published base of the exact three-commit
+# local/unpublished F3.2k chain; F3.2j remains frozen as historical.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_f32k_b=$($GIT rev-parse "$F32K_B^" 2>/dev/null) || err "F32K_B has no parent"
+p_f32k_a=$($GIT rev-parse "$F32K_A^" 2>/dev/null) || err "F32K_A has no parent"
+p_f32j_c=$($GIT rev-parse "$F32J_C^" 2>/dev/null) || err "F32J_C has no parent"
 p_f32j_b=$($GIT rev-parse "$F32J_B^" 2>/dev/null) || err "F32J_B has no parent"
 p_f32j_a=$($GIT rev-parse "$F32J_A^" 2>/dev/null) || err "F32J_A has no parent"
 p_f32i_c=$($GIT rev-parse "$F32I_C^" 2>/dev/null) || err "F32I_C has no parent"
@@ -180,7 +187,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$F32J_B" ] || err "HEAD parent is $p_head, expected $F32J_B"
+[ "$p_head" = "$F32K_B" ] || err "HEAD parent is $p_head, expected $F32K_B"
+[ "$p_f32k_b" = "$F32K_A" ] || err "F32K_B parent is $p_f32k_b, expected $F32K_A"
+[ "$p_f32k_a" = "$F32J_C" ] || err "F32K_A parent is $p_f32k_a, expected $F32J_C"
+[ "$p_f32j_c" = "$F32J_B" ] || err "F32J_C parent is $p_f32j_c, expected $F32J_B"
 [ "$p_f32j_b" = "$F32J_A" ] || err "F32J_B parent is $p_f32j_b, expected $F32J_A"
 [ "$p_f32j_a" = "$F32I_C" ] || err "F32J_A parent is $p_f32j_a, expected $F32I_C"
 [ "$p_f32i_c" = "$F32I_B" ] || err "F32I_C parent is $p_f32i_c, expected $F32I_B"
@@ -236,10 +246,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "55" ] || err "expected exactly 55 commits after base, found $count"
+[ "$count" = "58" ] || err "expected exactly 58 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$F32J_B" "$F32J_A" "$F32I_C" "$F32I_B" "$F32I_A" "$F32H_C" "$C47" "$C46" "$F32G_C" "$C45" "$C44" "$C43" "$C42" "$C41" "$C40" "$C39" "$C38" "$C37" "$C36" "$C35" "$C34" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$F32K_B" "$F32K_A" "$F32J_C" "$F32J_B" "$F32J_A" "$F32I_C" "$F32I_B" "$F32I_A" "$F32H_C" "$C47" "$C46" "$F32G_C" "$C45" "$C44" "$C43" "$C42" "$C41" "$C40" "$C39" "$C38" "$C37" "$C36" "$C35" "$C34" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -298,7 +308,10 @@ check_message "$F32I_B" "F3.2i commit B" 'docs(f3): record non-enacting QK-LIM-P
 check_message "$F32I_C" "F3.2i commit C" 'chore(verify): bind F3.2i QK-LIM-PSBT-027 owner-direction stage'
 check_message "$F32J_A" "F3.2j commit A" 'docs: authorize F3.2j QK-LIM-PSBT-027 construction packet'
 check_message "$F32J_B" "F3.2j commit B" 'docs(f3): add non-binding QK-LIM-PSBT-027 tombstone construction packet'
-check_message "$head" "F3.2j commit C" 'chore(verify): bind F3.2j QK-LIM-PSBT-027 construction stage'
+check_message "$F32J_C" "F3.2j commit C" 'chore(verify): bind F3.2j QK-LIM-PSBT-027 construction stage'
+check_message "$F32K_A" "F3.2k commit A" 'docs: authorize F3.2k QK-LIM-PSBT-027 exact-construction owner direction'
+check_message "$F32K_B" "F3.2k commit B" 'docs(f3): record non-enacting QK-LIM-PSBT-027 exact construction direction'
+check_message "$head" "F3.2k commit C" 'chore(verify): bind F3.2k QK-LIM-PSBT-027 owner-direction stage'
 
 # ------------------------------------------- b/c/d. Per-commit path sets
 check_paths() {
@@ -583,7 +596,20 @@ docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 tools/verify-host-boundary.sh
 EOF
 
-check_paths "$head" "f32j-commit-c" <<'EOF'
+check_paths "$F32J_C" "f32j-commit-c" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$F32K_A" "f32k-commit-a" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$F32K_B" "f32k-commit-b" <<'EOF'
+docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$head" "f32k-commit-c" <<'EOF'
 tools/verify-current-stage.sh
 EOF
 
@@ -1666,7 +1692,7 @@ for f32jmodepair in \
   "$F32J_A 100644 docs/DECISION-LOG.md" \
   "$F32J_B 100644 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md" \
   "$F32J_B 100755 tools/verify-host-boundary.sh" \
-  "$head 100755 tools/verify-current-stage.sh"; do
+  "$F32J_C 100755 tools/verify-current-stage.sh"; do
   f32jmodecommit=${f32jmodepair%% *}
   f32jmoderest=${f32jmodepair#* }
   f32jmodeexp=${f32jmoderest%% *}
@@ -1681,6 +1707,27 @@ for f32jmodepair in \
     || err "F3.2j mode extraction failed for $f32jmodepath"
   [ "$f32jmodeact" = "$f32jmodeexp" ] \
     || err "F3.2j mode for $f32jmodepath is $f32jmodeact, expected $f32jmodeexp"
+done
+# F3.2k exact 1/2/1 path-mode matrix above the frozen F32J_C source base.
+for f32kmodepair in \
+  "$F32K_A 100644 docs/DECISION-LOG.md" \
+  "$F32K_B 100644 docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md" \
+  "$F32K_B 100755 tools/verify-host-boundary.sh" \
+  "$head 100755 tools/verify-current-stage.sh"; do
+  f32kmodecommit=${f32kmodepair%% *}
+  f32kmoderest=${f32kmodepair#* }
+  f32kmodeexp=${f32kmoderest%% *}
+  f32kmodepath=${f32kmoderest#* }
+  $GIT ls-tree "$f32kmodecommit" -- "$f32kmodepath" > "$tmpdir/cs.f32k.mode.raw" \
+    || err "F3.2k ls-tree failed for $f32kmodepath"
+  [ -s "$tmpdir/cs.f32k.mode.raw" ] || err "F3.2k mode entry missing for $f32kmodepath"
+  f32kmodelines=$(awk 'END {print NR+0}' "$tmpdir/cs.f32k.mode.raw") \
+    || err "F3.2k mode line count failed for $f32kmodepath"
+  [ "$f32kmodelines" = 1 ] || err "F3.2k mode entry is not unique for $f32kmodepath"
+  f32kmodeact=$(awk 'NR == 1 {print $1}' "$tmpdir/cs.f32k.mode.raw") \
+    || err "F3.2k mode extraction failed for $f32kmodepath"
+  [ "$f32kmodeact" = "$f32kmodeexp" ] \
+    || err "F3.2k mode for $f32kmodepath is $f32kmodeact, expected $f32kmodeexp"
 done
 # F3.2c Commit B mode partition: packet exactly 100644 and active host
 # verifier exactly 100755, each represented by one unique tree entry.
@@ -4421,25 +4468,20 @@ for csf32ihostfixture in \
   [ "$csf32ihostcount" = 1 ] || err "frozen host F3.2i mechanism is missing or duplicated: $csf32ihostfixture"
 done
 
-# ----------- F3.2j QK-LIM-PSBT-027 exact construction packet stage
-# This active stage is local, unpublished, non-binding, and non-enacting.
-# It contains exactly one PROPOSED — UNSELECTED candidate and changes no
-# canonical or historical byte.
+# -------- F3.2j QK-LIM-PSBT-027 exact construction historical stage
+# This frozen published stage remains non-binding and non-enacting.
+# Its sole candidate remains historically PROPOSED — UNSELECTED.
 F32JPKT=docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 [ -f "$F32JPKT" ] || err "$F32JPKT missing"
 
-branch=$($GIT symbolic-ref --quiet --short HEAD 2>/dev/null)
+ahead=$($GIT rev-list --count "$F32I_C..$F32J_C")
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "F3.2j checked-out branch cannot be resolved"
-[ "$branch" = main ] || err "F3.2j checked-out branch is $branch, expected main"
-ahead=$($GIT rev-list --count "$F32I_C..$head")
+[ "$csf32jrc" -eq 0 ] || err "F3.2j frozen-base ahead count failed"
+behind=$($GIT rev-list --count "$F32J_C..$F32I_C")
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "F3.2j constant-base ahead count failed"
-behind=$($GIT rev-list --count "$head..$F32I_C")
-csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "F3.2j constant-base behind count failed"
-[ "$ahead" = 3 ] || err "F3.2j HEAD is $ahead commits above the authorized base, expected exactly 3"
-[ "$behind" = 0 ] || err "F3.2j authorized base is $behind commits ahead of HEAD, expected exactly 0"
+[ "$csf32jrc" -eq 0 ] || err "F3.2j frozen-base behind count failed"
+[ "$ahead" = 3 ] || err "F3.2j frozen stage is $ahead commits above its base, expected exactly 3"
+[ "$behind" = 0 ] || err "F3.2j base is $behind commits ahead of frozen stage, expected exactly 0"
 
 cat > "$tmpdir/cs.f32j.paths.exp" <<'QK_CS_F32J_PATHS_EOF' || err "F3.2j path fixture generation failed"
 docs/DECISION-LOG.md
@@ -4447,28 +4489,31 @@ docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 tools/verify-current-stage.sh
 tools/verify-host-boundary.sh
 QK_CS_F32J_PATHS_EOF
-$GIT diff --name-only "$F32I_C" "$head" > "$tmpdir/cs.f32j.paths.raw"
+$GIT diff --name-only "$F32I_C" "$F32J_C" > "$tmpdir/cs.f32j.paths.raw"
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "F3.2j F32I_C..HEAD path enumeration failed"
-[ -s "$tmpdir/cs.f32j.paths.raw" ] || err "F3.2j F32I_C..HEAD path enumeration is empty"
+[ "$csf32jrc" -eq 0 ] || err "F3.2j F32I_C..F32J_C path enumeration failed"
+[ -s "$tmpdir/cs.f32j.paths.raw" ] || err "F3.2j F32I_C..F32J_C path enumeration is empty"
 LC_ALL=C sort "$tmpdir/cs.f32j.paths.raw" > "$tmpdir/cs.f32j.paths.act"
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "F3.2j F32I_C..HEAD path sort failed"
+[ "$csf32jrc" -eq 0 ] || err "F3.2j F32I_C..F32J_C path sort failed"
 cmp -s "$tmpdir/cs.f32j.paths.exp" "$tmpdir/cs.f32j.paths.act"
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "F3.2j F32I_C..HEAD path union is not the exact authorized four-path set"
+[ "$csf32jrc" -eq 0 ] || err "F3.2j F32I_C..F32J_C path union is not the exact authorized four-path set"
 
-# Commit A is one exact append-only Decision Log update and remains active.
-# Commit B packet and host bytes remain exact and active.
+# Commit A is one exact append-only Decision Log update in the frozen stage.
+# Commit B packet and host bytes remain exact at frozen F32J_C.
 $GIT show "$F32I_C:docs/DECISION-LOG.md" > "$tmpdir/cs.f32j.dlog.base" 2>/dev/null
 csf32jrc=$?
 [ "$csf32jrc" -eq 0 ] || err "cannot read F3.2j base Decision Log"
 $GIT show "$F32J_A:docs/DECISION-LOG.md" > "$tmpdir/cs.f32j.dlog.a" 2>/dev/null
 csf32jrc=$?
 [ "$csf32jrc" -eq 0 ] || err "cannot read F3.2j A Decision Log"
-cmp -s "$tmpdir/cs.f32j.dlog.a" docs/DECISION-LOG.md
+$GIT show "$F32J_C:docs/DECISION-LOG.md" > "$tmpdir/cs.f32j.dlog.frozen" 2>/dev/null
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "active Decision Log is not byte-identical to F3.2j A"
+[ "$csf32jrc" -eq 0 ] || err "cannot read frozen F3.2j Decision Log"
+cmp -s "$tmpdir/cs.f32j.dlog.a" "$tmpdir/cs.f32j.dlog.frozen"
+csf32jrc=$?
+[ "$csf32jrc" -eq 0 ] || err "frozen F3.2j Decision Log is not byte-identical to A"
 wc -c < "$tmpdir/cs.f32j.dlog.base" > "$tmpdir/cs.f32j.dlog.bytes.raw"
 csf32jrc=$?
 [ "$csf32jrc" -eq 0 ] || err "F3.2j base Decision Log byte count failed"
@@ -4513,27 +4558,36 @@ for csf32jtreepair in \
   [ "$csf32jrc" -eq 0 ] || err "F3.2j tree blob extraction failed for $csf32jtreepath"
   [ "$csf32jtreeactmode" = "$csf32jtreemode" ] || err "F3.2j mode differs for $csf32jtreepath"
   [ "$csf32jtreeactblob" = "$csf32jtreeblob" ] || err "F3.2j tree blob differs for $csf32jtreepath"
-  $GIT hash-object -- "$csf32jtreepath" > "$tmpdir/cs.f32j.active.blob"
+  $GIT rev-parse "$F32J_C:$csf32jtreepath" > "$tmpdir/cs.f32j.frozen.blob" 2>/dev/null
   csf32jrc=$?
-  [ "$csf32jrc" -eq 0 ] || err "F3.2j active blob scan failed for $csf32jtreepath"
-  printf '%s\n' "$csf32jtreeblob" > "$tmpdir/cs.f32j.active.exp" \
-    || err "F3.2j active blob fixture failed"
-  cmp -s "$tmpdir/cs.f32j.active.exp" "$tmpdir/cs.f32j.active.blob"
+  [ "$csf32jrc" -eq 0 ] || err "F3.2j frozen blob lookup failed for $csf32jtreepath"
+  printf '%s\n' "$csf32jtreeblob" > "$tmpdir/cs.f32j.frozen.exp" \
+    || err "F3.2j frozen blob fixture failed"
+  cmp -s "$tmpdir/cs.f32j.frozen.exp" "$tmpdir/cs.f32j.frozen.blob"
   csf32jrc=$?
-  [ "$csf32jrc" -eq 0 ] || err "F3.2j active blob differs for $csf32jtreepath"
+  [ "$csf32jrc" -eq 0 ] || err "F3.2j frozen blob differs for $csf32jtreepath"
 done
 $GIT show "$F32J_B:$F32JPKT" > "$tmpdir/cs.f32j.packet.b" 2>/dev/null
 csf32jrc=$?
 [ "$csf32jrc" -eq 0 ] || err "cannot read F3.2j packet from B"
-cmp -s "$tmpdir/cs.f32j.packet.b" "$F32JPKT"
+$GIT show "$F32J_C:$F32JPKT" > "$tmpdir/cs.f32j.packet.frozen" 2>/dev/null
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "active F3.2j packet is not byte-identical to B"
+[ "$csf32jrc" -eq 0 ] || err "cannot read frozen F3.2j packet"
+cmp -s "$tmpdir/cs.f32j.packet.b" "$tmpdir/cs.f32j.packet.frozen"
+csf32jrc=$?
+[ "$csf32jrc" -eq 0 ] || err "frozen F3.2j packet is not byte-identical to B"
+cmp -s "$tmpdir/cs.f32j.packet.frozen" "$F32JPKT"
+csf32jrc=$?
+[ "$csf32jrc" -eq 0 ] || err "active F3.2j packet differs from frozen packet"
 $GIT show "$F32J_B:tools/verify-host-boundary.sh" > "$tmpdir/cs.f32j.host.b" 2>/dev/null
 csf32jrc=$?
 [ "$csf32jrc" -eq 0 ] || err "cannot read F3.2j host verifier from B"
-cmp -s "$tmpdir/cs.f32j.host.b" tools/verify-host-boundary.sh
+$GIT show "$F32J_C:tools/verify-host-boundary.sh" > "$tmpdir/cs.f32j.host.frozen" 2>/dev/null
 csf32jrc=$?
-[ "$csf32jrc" -eq 0 ] || err "active host verifier is not byte-identical to F3.2j B"
+[ "$csf32jrc" -eq 0 ] || err "cannot read frozen F3.2j host verifier"
+cmp -s "$tmpdir/cs.f32j.host.b" "$tmpdir/cs.f32j.host.frozen"
+csf32jrc=$?
+[ "$csf32jrc" -eq 0 ] || err "frozen F3.2j host verifier is not byte-identical to B"
 
 # Canonical sources and the published F3.2i historical record remain exact.
 while IFS=' ' read -r csf32jprotected csf32jprotectedblob; do
@@ -4558,7 +4612,7 @@ for csf32jowner in \
   'Authorize preparation and independent audit of a non-binding, non-enacting docs-only F3.2j QK-LIM-PSBT-027 exact tombstone-construction packet from published commit 878b23be4690bb778a615bfe1a6ef108e7a94008, with only the mechanically necessary Decision Log and verifier bindings.' \
   'Limit the packet to exactly one recommended, byte-complete candidate, F32J-LIM-CON-001, explicitly PROPOSED — UNSELECTED. Print the exact current and proposed canonical bytes for: the minimum QK-LIM-PSBT-027-specific RESOURCE-BUDGETS preamble, invariant, and append-only-ID-note corrections needed for a permanent no-value tombstone; every cell of row 027; removal of 027 from the QK-REQ-PSBT-005 and QK-REQ-TRN-007 Lim cells; and removal of 027 from the QK-TST-DIFF-004 Links cell. Preserve the historical dimension name and ID, make every former row relationship non-operative, define any proposed Value-cell text as a non-value sentinel rather than zero or an authorized QK-LIM value, and never delete, renumber, reuse, repurpose, or reopen ID 027. Introduce no general tombstone transition for another row. Keep QK-LIM-PSBT-026 and every other canonical and historical byte unchanged.' \
   'No owner selection of F32J-LIM-CON-001 and no canonical edit; no current tombstone or inactive declaration; no actual QK-LIM value, title, status, link, row, vocabulary, or syntax change; no QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, dependency, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
-  for csf32jownerfile in docs/DECISION-LOG.md "$F32JPKT"; do
+  for csf32jownerfile in "$tmpdir/cs.f32j.dlog.a" "$F32JPKT"; do
     csf32jownercount=$(grep -cFx -e "$csf32jowner" "$csf32jownerfile")
     csf32jrc=$?
     [ "$csf32jrc" -le 1 ] || err "F3.2j owner transcript scan failed in $csf32jownerfile"
@@ -4566,7 +4620,7 @@ for csf32jowner in \
   done
 done
 sed -n '/^### QK-AUTH-F3.2J-QK-LIM-PSBT-027-CONSTRUCT-001 /,$p' \
-  docs/DECISION-LOG.md > "$tmpdir/cs.f32j.dlog.section"
+  "$tmpdir/cs.f32j.dlog.a" > "$tmpdir/cs.f32j.dlog.section"
 csf32jrc=$?
 [ "$csf32jrc" -eq 0 ] || err "F3.2j Decision Log section extraction failed"
 sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
@@ -4608,8 +4662,8 @@ for csf32jboundary in \
   [ "$csf32jboundarycount" = 1 ] || err "F3.2j required boundary statement is missing, altered, or duplicated"
 done
 
-# Bind the operative F3.2j host mechanisms independently before invoking
-# the strict host verifier below.
+# Bind the frozen F3.2j host mechanisms independently. Active F3.2k
+# mechanisms and strict host invocation are checked below.
 for csf32jhostfixture in \
   '336956ec866ca3aa93791ffcb76f30e79e17dd31:docs/DECISION-LOG.md' \
   'p32jbase=878b23be4690bb778a615bfe1a6ef108e7a94008' \
@@ -4624,10 +4678,328 @@ for csf32jhostfixture in \
   'standalone numeric zero that could be mistaken for a value' \
   'thirteen-path scan' \
   '$PKT32J exact-40-hex multiset differs'; do
-  csf32jhostcount=$(grep -cF -e "$csf32jhostfixture" tools/verify-host-boundary.sh)
+  csf32jhostcount=$(grep -cF -e "$csf32jhostfixture" "$tmpdir/cs.f32j.host.b")
   csf32jrc=$?
-  [ "$csf32jrc" -le 1 ] || err "active host F3.2j mechanism scan failed"
-  [ "$csf32jhostcount" = 1 ] || err "active host F3.2j mechanism is missing or duplicated: $csf32jhostfixture"
+  [ "$csf32jrc" -le 1 ] || err "frozen host F3.2j mechanism scan failed"
+  [ "$csf32jhostcount" = 1 ] || err "frozen host F3.2j mechanism is missing or duplicated: $csf32jhostfixture"
+done
+
+# ------------ F3.2k exact-construction owner-direction active stage
+# This local/unpublished stage records a later owner direction only. It does
+# not enact the selected future construction; present canonical effect is NONE.
+REC32K=docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+PKT32J=$F32JPKT
+branch=$($GIT symbolic-ref --quiet --short HEAD 2>/dev/null)
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k checked-out branch cannot be resolved"
+[ "$branch" = main ] || err "F3.2k checked-out branch is $branch, expected main"
+ahead=$($GIT rev-list --count "$F32J_C..$head")
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k constant-base ahead count failed"
+behind=$($GIT rev-list --count "$head..$F32J_C")
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k constant-base behind count failed"
+[ "$ahead" = 3 ] || err "F3.2k HEAD is $ahead commits above the authorized base, expected exactly 3"
+[ "$behind" = 0 ] || err "F3.2k authorized base is $behind commits ahead of HEAD, expected exactly 0"
+
+cat > "$tmpdir/cs.f32k.paths.exp" <<'QK_CS_F32K_PATHS_EOF' || err "F3.2k path fixture generation failed"
+docs/DECISION-LOG.md
+docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+QK_CS_F32K_PATHS_EOF
+$GIT diff --name-only "$F32J_C" "$head" > "$tmpdir/cs.f32k.paths.raw"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k F32J_C..HEAD path enumeration failed"
+[ -s "$tmpdir/cs.f32k.paths.raw" ] || err "F3.2k F32J_C..HEAD path enumeration is empty"
+LC_ALL=C sort "$tmpdir/cs.f32k.paths.raw" > "$tmpdir/cs.f32k.paths.act"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k F32J_C..HEAD path sort failed"
+cmp -s "$tmpdir/cs.f32k.paths.exp" "$tmpdir/cs.f32k.paths.act"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k F32J_C..HEAD path union is not the exact authorized four-path set"
+
+$GIT show "$F32J_C:docs/DECISION-LOG.md" > "$tmpdir/cs.f32k.dlog.base" 2>/dev/null
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "cannot read F3.2k base Decision Log"
+$GIT show "$F32K_A:docs/DECISION-LOG.md" > "$tmpdir/cs.f32k.dlog.a" 2>/dev/null
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "cannot read F3.2k A Decision Log"
+cmp -s "$tmpdir/cs.f32k.dlog.a" docs/DECISION-LOG.md
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "active Decision Log is not byte-identical to F3.2k A"
+wc -c < "$tmpdir/cs.f32k.dlog.base" > "$tmpdir/cs.f32k.dlog.bytes.raw"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k base Decision Log byte count failed"
+tr -d '[:space:]' < "$tmpdir/cs.f32k.dlog.bytes.raw" > "$tmpdir/cs.f32k.dlog.bytes"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k Decision Log byte-count normalization failed"
+csf32kbasebytes=$(cat "$tmpdir/cs.f32k.dlog.bytes")
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k Decision Log byte-count read failed"
+case $csf32kbasebytes in ''|*[!0-9]*) err "F3.2k Decision Log byte count is non-numeric" ;; esac
+dd if="$tmpdir/cs.f32k.dlog.a" bs=1 count="$csf32kbasebytes" \
+  > "$tmpdir/cs.f32k.dlog.prefix" 2> "$tmpdir/cs.f32k.dlog.prefix.err"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k Decision Log prefix read failed"
+cmp -s "$tmpdir/cs.f32k.dlog.base" "$tmpdir/cs.f32k.dlog.prefix"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k base Decision Log is not the exact prefix of A"
+
+# Independently bind B's exact parent, two-path set, modes, and blobs.
+p32kb=17d190a98465411aafba88a186b531728e2c8c9b
+p32khostblob=a8254ab4d78800f1714f91967cb461123d9275ad
+$GIT rev-parse "$p32kb^{commit}" > "$tmpdir/cs.f32k.b.act" 2>/dev/null
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k B does not resolve"
+printf '%s\n' "$p32kb" > "$tmpdir/cs.f32k.b.exp" || err "F3.2k B fixture failed"
+cmp -s "$tmpdir/cs.f32k.b.exp" "$tmpdir/cs.f32k.b.act"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k B differs"
+p32kbparent=$($GIT rev-parse "$p32kb^" 2>/dev/null)
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k B parent lookup failed"
+[ "$p32kbparent" = "$F32K_A" ] || err "F3.2k B parent differs"
+printf '%s\n' "$REC32K" tools/verify-host-boundary.sh > "$tmpdir/cs.f32k.b.paths.exp" || err "F3.2k B path fixture failed"
+$GIT diff-tree --no-commit-id --name-only -r "$p32kb" > "$tmpdir/cs.f32k.b.paths.act"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k B path enumeration failed"
+cmp -s "$tmpdir/cs.f32k.b.paths.exp" "$tmpdir/cs.f32k.b.paths.act"
+csf32krc=$?
+[ "$csf32krc" -eq 0 ] || err "F3.2k B path set differs"
+for csf32ktreepair in \
+  "$p32kb 100644 5b05d62776c65bfaf5ec41ab39108bc0531b7944 $REC32K" \
+  "$p32kb 100755 $p32khostblob tools/verify-host-boundary.sh"; do
+  csf32ktreecommit=${csf32ktreepair%% *}
+  csf32ktreerest=${csf32ktreepair#* }
+  csf32ktreemode=${csf32ktreerest%% *}
+  csf32ktreerest=${csf32ktreerest#* }
+  csf32ktreeblob=${csf32ktreerest%% *}
+  csf32ktreepath=${csf32ktreerest#* }
+  $GIT ls-tree "$csf32ktreecommit" -- "$csf32ktreepath" > "$tmpdir/cs.f32k.tree.raw"
+  csf32krc=$?
+  [ "$csf32krc" -eq 0 ] || err "F3.2k tree lookup failed for $csf32ktreepath"
+  [ -s "$tmpdir/cs.f32k.tree.raw" ] || err "F3.2k tree entry missing for $csf32ktreepath"
+  csf32ktreeactmode=$(awk 'NR == 1 {print $1}' "$tmpdir/cs.f32k.tree.raw")
+  csf32krc=$?
+  [ "$csf32krc" -eq 0 ] || err "F3.2k tree mode extraction failed for $csf32ktreepath"
+  csf32ktreeactblob=$(awk 'NR == 1 {print $3}' "$tmpdir/cs.f32k.tree.raw")
+  csf32krc=$?
+  [ "$csf32krc" -eq 0 ] || err "F3.2k tree blob extraction failed for $csf32ktreepath"
+  [ "$csf32ktreeactmode" = "$csf32ktreemode" ] || err "F3.2k mode differs for $csf32ktreepath"
+  [ "$csf32ktreeactblob" = "$csf32ktreeblob" ] || err "F3.2k tree blob differs for $csf32ktreepath"
+  $GIT hash-object -- "$csf32ktreepath" > "$tmpdir/cs.f32k.active.blob"
+  csf32krc=$?
+  [ "$csf32krc" -eq 0 ] || err "F3.2k active blob scan failed for $csf32ktreepath"
+  printf '%s\n' "$csf32ktreeblob" > "$tmpdir/cs.f32k.active.exp" || err "F3.2k active blob fixture failed"
+  cmp -s "$tmpdir/cs.f32k.active.exp" "$tmpdir/cs.f32k.active.blob"
+  csf32krc=$?
+  [ "$csf32krc" -eq 0 ] || err "F3.2k active blob differs for $csf32ktreepath"
+done
+
+# ---------------- F3.2k exact-construction owner-direction record
+# Later owner direction only: the source packet remains historical and
+# present canonical effect remains NONE.
+REC32K=docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+[ -f "$REC32K" ] || err "$REC32K missing"
+p32kbase=0d2115de9c322bf221f5a5008d91e7b7b48363e6
+p32ka=2abf7092adff3b0e27f754c6021c3d852db638f8
+p32kdlogblob=ac43ddd8a83d5be95e11d8208a0a998925b1027b
+p32krecordblob=5b05d62776c65bfaf5ec41ab39108bc0531b7944
+p32kpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+
+$GIT rev-parse "$p32kbase^{commit}" > "$tmpdir/p32k.base.act" 2>/dev/null
+p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k source base does not resolve"
+printf '%s\n' "$p32kbase" > "$tmpdir/p32k.base.exp" || err "F3.2k source-base fixture failed"
+cmp -s "$tmpdir/p32k.base.exp" "$tmpdir/p32k.base.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k source base differs"
+$GIT rev-parse "$p32ka^{commit}" > "$tmpdir/p32k.a.act" 2>/dev/null
+p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A does not resolve"
+printf '%s\n' "$p32ka" > "$tmpdir/p32k.a.exp" || err "F3.2k A fixture failed"
+cmp -s "$tmpdir/p32k.a.exp" "$tmpdir/p32k.a.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A differs"
+p32kaparent=$($GIT rev-parse "$p32ka^" 2>/dev/null); p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A parent lookup failed"
+[ "$p32kaparent" = "$p32kbase" ] || err "F3.2k A parent differs"
+$GIT diff-tree --no-commit-id --name-only -r "$p32ka" > "$tmpdir/p32k.a.paths.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A path enumeration failed"
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32k.a.paths.exp" || err "F3.2k A path fixture failed"
+cmp -s "$tmpdir/p32k.a.paths.exp" "$tmpdir/p32k.a.paths.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k A path set differs"
+
+for p32kpair in \
+  "docs/DECISION-LOG.md|$p32kdlogblob" \
+  "$REC32K|$p32krecordblob" \
+  "$PKT32J|$p32kpacketblob"; do
+  p32kpath=${p32kpair%%|*}
+  p32kexpected=${p32kpair#*|}
+  $GIT hash-object -- "$p32kpath" > "$tmpdir/p32k.blob.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k blob scan failed for $p32kpath"
+  [ -s "$tmpdir/p32k.blob.act" ] || err "F3.2k blob scan empty for $p32kpath"
+  printf '%s\n' "$p32kexpected" > "$tmpdir/p32k.blob.exp" || err "F3.2k blob fixture failed"
+  cmp -s "$tmpdir/p32k.blob.exp" "$tmpdir/p32k.blob.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k active blob differs for $p32kpath"
+done
+
+for p32kowner in \
+  'Approve, as a non-enacting owner direction for separately authorized later canonical work, the complete, indivisible, byte-for-byte candidate F32J-LIM-CON-001 exactly as printed in the published F3.2j packet at commit 0d2115de9c322bf221f5a5008d91e7b7b48363e6, packet blob b1c2153f5f89a0e1d44d62a09921251e225c0d87. Approve all and only its proposed future canonical bytes. Approve no alternative, subset, paraphrase, normalization, substitution, or additional change.' \
+  'This approval selects only the exact future construction. It does not enact those bytes, amend any canonical document, or declare QK-LIM-PSBT-027 currently tombstoned or inactive. The current row remains OPEN with its current live links until separately authorized canonical work. The proposed Value-cell text remains a non-value sentinel, never zero or an authorized QK-LIM value. Preserve the historical ID and dimension name, QK-LIM-PSBT-026, ALL GATES OPEN, and every other canonical and historical byte. OD-05 and QK-THR-016 remain unresolved or unchanged globally; only their future row-027 relationships become non-operative. Introduce no general tombstone vocabulary or transition for another row.' \
+  'Authorize preparation and independent audit of a non-enacting docs-only F3.2k QK-LIM-PSBT-027 exact-construction owner-direction record from published commit 0d2115de9c322bf221f5a5008d91e7b7b48363e6, recording only this exact approval and reproducing the selected future bytes byte-for-byte, with only the mechanically necessary Decision Log and verifier bindings.' \
+  'No canonical RESOURCE-BUDGETS, REQUIREMENTS, or TEST-ARCHITECTURE edit; no current QK-LIM value, title, Status, link, row, vocabulary, or syntax change; no current QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, dependency, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
+  for p32kownerfile in docs/DECISION-LOG.md "$REC32K"; do
+    p32kownerhits=$(grep -cFx -e "$p32kowner" "$p32kownerfile"); p32krc=$?
+    [ "$p32krc" -le 1 ] || err "F3.2k owner transcript scan failed in $p32kownerfile"
+    [ "$p32kownerhits" = 1 ] || err "F3.2k owner transcript differs or duplicates in $p32kownerfile"
+  done
+done
+sed -n '/^### QK-AUTH-F3.2K-QK-LIM-PSBT-027-EXACT-CON-DIR-REC-001 /,$p' docs/DECISION-LOG.md > "$tmpdir/p32k.dlog.section"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k Decision Log section extraction failed"
+sed -n '/^- \*\*Owner words exactly (literal four-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' "$tmpdir/p32k.dlog.section" > "$tmpdir/p32k.owner.dlog.framed"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k Decision Log owner framing failed"
+sed '1d;$d' "$tmpdir/p32k.owner.dlog.framed" > "$tmpdir/p32k.owner.dlog"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k Decision Log owner deframing failed"
+sed -n '/^## Owner words exactly$/,/^## Exact direction map$/p' "$REC32K" > "$tmpdir/p32k.owner.record.framed"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k record owner framing failed"
+sed '1d;$d' "$tmpdir/p32k.owner.record.framed" > "$tmpdir/p32k.owner.record"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k record owner deframing failed"
+cmp -s "$tmpdir/p32k.owner.dlog" "$tmpdir/p32k.owner.record"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k owner transcript blocks differ"
+
+grep '^| F32J-LIM-CON-' "$REC32K" > "$tmpdir/p32k.direction.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k direction-row extraction failed"
+cat > "$tmpdir/p32k.direction.exp" <<'QK_F32K_DIRECTION_EOF' || err "F3.2k direction fixture failed"
+| F32J-LIM-CON-001 | PROPOSED — UNSELECTED — HISTORICAL SOURCE STATE | OWNER DIRECTION APPROVED — NON-ENACTING — COMPLETE INDIVISIBLE CONSTRUCTION ONLY | NONE — FUTURE CONSTRUCTION ONLY |
+QK_F32K_DIRECTION_EOF
+cmp -s "$tmpdir/p32k.direction.exp" "$tmpdir/p32k.direction.act"; p32krc=$?
+[ "$p32krc" -eq 0 ] || err "F3.2k one-construction direction map differs"
+p32kstatushits=$(grep -cFx -e 'STATUS: OWNER DIRECTION APPROVED — NON-ENACTING — F32J-LIM-CON-001 ONLY — COMPLETE INDIVISIBLE BYTE-FOR-BYTE FUTURE CONSTRUCTION SELECTED — NO ALTERNATIVE, SUBSET, PARAPHRASE, NORMALIZATION, SUBSTITUTION, OR ADDITIONAL CHANGE APPROVED — F3.2J PROPOSED — UNSELECTED STATE PRESERVED AS HISTORICAL — NO CANONICAL EDIT — CURRENT QK-LIM-PSBT-027 REMAINS OPEN WITH CURRENT LIVE LINKS — QK-LIM-PSBT-026 AND ALL CANONICAL SOURCES UNCHANGED — LOCAL AND UNPUBLISHED.' "$REC32K"); p32krc=$?
+[ "$p32krc" -le 1 ] || err "F3.2k status scan failed"
+[ "$p32kstatushits" = 1 ] || err "F3.2k exact status differs or duplicates"
+for p32kboundary in \
+  'complete, indivisible, byte-for-byte `F32J-LIM-CON-001` future construction' \
+  'No alternative, subset, paraphrase, normalization, substitution, explanatory packet prose, or added change is approved.' \
+  'Present canonical effect is exactly `NONE`.' \
+  'does not declare current row 027 `TOMBSTONED` or `INACTIVE`' \
+  'literal non-value sentinel `NOT A VALUE — PERMANENT TOMBSTONE SENTINEL`' \
+  'OD-05 remains unresolved globally and QK-THR-016 remains unchanged globally' \
+  'creates no current or general tombstone vocabulary or transition'; do
+  p32kboundaryhits=$(grep -cF -e "$p32kboundary" "$REC32K"); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k semantic-boundary scan failed"
+  [ "$p32kboundaryhits" = 1 ] || err "F3.2k semantic boundary missing or duplicated: $p32kboundary"
+done
+
+p32knum=1
+while [ "$p32knum" -le 7 ]; do
+  case $p32knum in
+    1)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS preamble bytes$/,/^## Exact current and proposed RESOURCE-BUDGETS invariant bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k preamble region extraction failed"
+      sed -n '/^### Proposed exact future canonical bytes$/,/^The proposed preamble /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    2)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS invariant bytes$/,/^## Exact current and proposed RESOURCE-BUDGETS append-only-ID-note bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k invariant region extraction failed"
+      sed -n '/^### Proposed exact future canonical bytes$/,/^The proposed invariant /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    3)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS append-only-ID-note bytes$/,/^## Exact current and proposed RESOURCE-BUDGETS row bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k append-note region extraction failed"
+      sed -n '/^### Proposed exact future canonical bytes$/,/^The proposed note /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    4)
+      sed -n '/^## Exact current and proposed RESOURCE-BUDGETS row bytes$/,/^## Exact current and proposed consumer-cell bytes$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k row region extraction failed"
+      sed -n '/^### Proposed exact future canonical row$/,/^### Every row cell, current and proposed$/p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    5)
+      sed -n '/^### QK-REQ-PSBT-005 Lim cell$/,/^### QK-REQ-TRN-007 Lim cell$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k PSBT-005 region extraction failed"
+      sed -n '/^Proposed exact future canonical bytes:$/,/^### QK-REQ-TRN-007 Lim cell$/p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    6)
+      sed -n '/^### QK-REQ-TRN-007 Lim cell$/,/^### QK-TST-DIFF-004 Links cell$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k TRN-007 region extraction failed"
+      sed -n '/^Proposed exact future canonical bytes:$/,/^### QK-TST-DIFF-004 Links cell$/p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+    7)
+      sed -n '/^### QK-TST-DIFF-004 Links cell$/,/^## Protected bytes and non-effects$/p' "$PKT32J" > "$tmpdir/p32k.region"; p32krc=$?
+      [ "$p32krc" -eq 0 ] || err "F3.2k DIFF-004 region extraction failed"
+      sed -n '/^Proposed exact future canonical bytes:$/,/^These are exactly three /p' "$tmpdir/p32k.region" > "$tmpdir/p32k.packet.framed" ;;
+  esac
+  p32krc=$?; [ "$p32krc" -eq 0 ] || err "F3.2k packet payload $p32knum framing failed"
+  sed '1d;$d' "$tmpdir/p32k.packet.framed" > "$tmpdir/p32k.packet.payload"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k packet payload $p32knum deframing failed"
+  sed -n "/^### Exact selected future bytes — $p32knum\$/,/^### End selected future payload $p32knum\$/p" "$REC32K" > "$tmpdir/p32k.record.framed"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k record payload $p32knum framing failed"
+  sed '1d;$d' "$tmpdir/p32k.record.framed" > "$tmpdir/p32k.record.payload"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k record payload $p32knum deframing failed"
+  [ -s "$tmpdir/p32k.packet.payload" ] || err "F3.2k packet payload $p32knum empty"
+  [ -s "$tmpdir/p32k.record.payload" ] || err "F3.2k record payload $p32knum empty"
+  p32kplines=$(awk 'END {print NR+0}' "$tmpdir/p32k.packet.payload"); p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k packet payload line count failed"
+  p32krlines=$(awk 'END {print NR+0}' "$tmpdir/p32k.record.payload"); p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k record payload line count failed"
+  [ "$p32kplines" = 3 ] || err "F3.2k packet payload $p32knum cardinality differs"
+  [ "$p32krlines" = 3 ] || err "F3.2k record payload $p32knum cardinality differs"
+  cmp -s "$tmpdir/p32k.packet.payload" "$tmpdir/p32k.record.payload"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k payload $p32knum differs byte-for-byte from F3.2j"
+  p32kpayline=$(sed -n '2p' "$tmpdir/p32k.record.payload"); p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k payload $p32knum read failed"
+  [ -n "$p32kpayline" ] || err "F3.2k payload $p32knum content empty"
+  p32kpayhits=$(grep -cFx -e "$p32kpayline" "$REC32K"); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k payload $p32knum uniqueness scan failed"
+  [ "$p32kpayhits" = 1 ] || err "F3.2k payload $p32knum is missing or duplicated"
+  p32knum=$((p32knum + 1))
+done
+for p32kheading in \
+  '^## Selected future payload [1-7] — ' \
+  '^### Exact selected future bytes — [1-7]$' \
+  '^### End selected future payload [1-7]$'; do
+  p32kheadinghits=$(grep -c "$p32kheading" "$REC32K"); p32krc=$?
+  [ "$p32krc" -le 1 ] || err "F3.2k payload heading count failed"
+  [ "$p32kheadinghits" = 7 ] || err "F3.2k payload heading cardinality differs"
+done
+
+while IFS=' ' read -r p32kprotected p32kprotectedblob; do
+  $GIT hash-object -- "$p32kprotected" > "$tmpdir/p32k.protected.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k protected blob scan failed for $p32kprotected"
+  printf '%s\n' "$p32kprotectedblob" > "$tmpdir/p32k.protected.exp" || err "F3.2k protected fixture failed"
+  cmp -s "$tmpdir/p32k.protected.exp" "$tmpdir/p32k.protected.act"; p32krc=$?
+  [ "$p32krc" -eq 0 ] || err "F3.2k protected blob differs for $p32kprotected"
+done <<'QK_F32K_PROTECTED_EOF'
+docs/RESOURCE-BUDGETS.md 1ae6494fc24a8e3572464cf45e6d43ea4875e95d
+docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
+docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
+docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md 2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
+docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md b1c2153f5f89a0e1d44d62a09921251e225c0d87
+QK_F32K_PROTECTED_EOF
+
+# The source packet remains historical and keeps its one candidate unselected.
+csf32kcandidatehits=$(grep -cFx -e '| F32J-LIM-CON-001 | PROPOSED — UNSELECTED | RECOMMENDED — NOT SELECTED | NONE — FUTURE CONSTRUCTION ONLY |' "$F32JPKT")
+csf32krc=$?
+[ "$csf32krc" -le 1 ] || err "F3.2k historical candidate scan failed"
+[ "$csf32kcandidatehits" = 1 ] || err "F3.2j PROPOSED — UNSELECTED historical state differs"
+
+# Bind the active F3.2k host mechanisms independently before invoking the
+# complete strict host verifier below.
+for csf32khostfixture in \
+  '2abf7092adff3b0e27f754c6021c3d852db638f8:docs/DECISION-LOG.md' \
+  'p32kbase=0d2115de9c322bf221f5a5008d91e7b7b48363e6' \
+  'p32ka=2abf7092adff3b0e27f754c6021c3d852db638f8' \
+  'p32kdlogblob=ac43ddd8a83d5be95e11d8208a0a998925b1027b' \
+  'p32krecordblob=5b05d62776c65bfaf5ec41ab39108bc0531b7944' \
+  'p32kpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87' \
+  'cmp -s "$tmpdir/p32k.owner.dlog" "$tmpdir/p32k.owner.record"' \
+  'one-construction direction map differs' \
+  'exact status differs or duplicates' \
+  'payload $p32knum differs byte-for-byte from F3.2j' \
+  'payload heading cardinality differs' \
+  'F3.2k protected blob differs' \
+  '[ "$p32krc" -eq 1 ] || err "$REC32K must not end in double LF or cmp failed (exit $p32krc)"' \
+  'forbid "$REC32K contains a standalone numeric zero that could be mistaken for a value"' \
+  'fourteen-path scan' \
+  '$REC32K exact-40-hex multiset differs' \
+  'docs/DECISION-LOG.md > "$tmpdir/p32i.dlog.section"; p32irc=$?'; do
+  csf32khostcount=$(grep -cF -e "$csf32khostfixture" tools/verify-host-boundary.sh)
+  csf32krc=$?
+  [ "$csf32krc" -le 1 ] || err "active host F3.2k mechanism scan failed"
+  [ "$csf32khostcount" = 1 ] || err "active host F3.2k mechanism is missing or duplicated: $csf32khostfixture"
 done
 
 # --------------------------------- e. Historical verifiers byte-identical
@@ -4661,6 +5033,7 @@ docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
+docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -4706,6 +5079,7 @@ for f in \
   docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md \
   docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md \
   docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md \
+  docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md \
   tools/verify-foundation.sh tools/verify-f2-preparation.sh \
   tools/verify-host-boundary.sh tools/verify-current-stage.sh
 do
