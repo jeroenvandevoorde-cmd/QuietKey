@@ -205,3 +205,27 @@ Authorize preparation and independent audit of a non-binding docs-only F3.2e PSB
 - **Explicit exclusions:** no canonical `docs/TEST-ARCHITECTURE.md`, `docs/REQUIREMENTS.md`, `docs/TRACEABILITY.md`, `docs/RESOURCE-BUDGETS.md`, prior F3.2b/c/d record or packet, PSBT profile, `docs/OPEN-DECISIONS.md`, `ARCHITECTURE.md`, `docs/MATURITY-GATES.md`, `docs/SOURCE-REGISTER.md`, `docs/f3/README.md`, `README.md`, `.replit`, code, manifest, dependency, license, hardware, firmware, remote, branch, tag, release, setting, credential, or publication change; no Q-002 through Q-012 answer; no D-09 or D-11 selection; no QK-LIM value or link change; no profile or clause acceptance; no implementation, testing, vector, fixture, specimen, corpus, payload, media I/O, evidence, gate, or STOP-SHIP change.
 - **Non-effects:** the packet is alignment input only and selects or enacts no correction. `QK-TST-DIFF-002` and `QK-TST-DIFF-004` remain `PLANNED — NOT RUN`; `QK-TST-REH-004` remains unchanged; every QK-TST status remains unchanged; D-09, D-11, Q-002 through Q-012, every QK-LIM, profile acceptance, tests, evidence, gates, and STOP-SHIP remain open or unchanged exactly as before. Verifier results and independent review are supporting evidence only, never authentication, audit proof, correction selection, canonical amendment, or publication authority.
 - **Later publication:** publication requires a separate explicit owner instruction naming the exact independently audited 40-hex commit; this authorization alone does not authorize publication.
+
+### QK-AUTH-F3.2F-PSBT-TST-DIR-REC-001 — F3.2f PSBT-output test owner-direction record preparation authorization
+
+- **ID:** QK-AUTH-F3.2F-PSBT-TST-DIR-REC-001
+- **Date:** 2026-08-20
+- **Approver:** Project owner
+- **Owner approval words exactly:**
+
+Approve, as non-enacting owner directions, the complete proposed Plan / oracle text for QK-TST-DIFF-002 and QK-TST-DIFF-004 exactly as printed in the F3.2e packet at published commit 574e790193d45d3f392c64951d319bb5fde11d20. Approve no change to any other cell. QK-TST-REH-004 remains unchanged.
+
+This approval does not amend docs/TEST-ARCHITECTURE.md, change any QK-TST status, authorize testing or evidence, answer F32C-D11-Q-002 through Q-012, or select D-11, D-09, any QK-LIM, the PSBT profile, or any clause.
+
+- **Owner preparation authority words exactly:**
+
+Authorize preparation and independent audit of a non-enacting docs-only F3.2f PSBT-output test owner-direction record from 574e790193d45d3f392c64951d319bb5fde11d20, recording only my approved directions for QK-TST-DIFF-002 and QK-TST-DIFF-004, with QK-TST-REH-004 retained unchanged and only the mechanically necessary verifier bindings.
+
+No canonical TEST-ARCHITECTURE edit, test-status change, F32C-D11-Q-002 through Q-012 answer, D-11 or D-09 selection, QK-LIM selection, profile or clause acceptance, implementation, testing, vectors, evidence, media I/O, hardware work, settings changes, or publication.
+
+- **Published parent and source locators:** `574e790193d45d3f392c64951d319bb5fde11d20`; `docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md` blob `4ffa20afbedeb0b6cfbbe57298f941bc0537683e`; `docs/TEST-ARCHITECTURE.md` blob `f4e127a92fc68243274b7d384e335fa4632e5dd2`. These are supporting byte-identity audit locators only, not authentication or proof.
+- **Exact commit/path map:** Commit A changes only `docs/DECISION-LOG.md`; Commit B adds only `docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md` and changes only `tools/verify-host-boundary.sh`; Commit C changes only `tools/verify-current-stage.sh`. The chain is exactly three linear one-parent commits with no merge and cumulative changes to only those four paths.
+- **Scope:** records only the two non-enacting owner directions attached to the complete proposed Plan / oracle cells for `QK-TST-DIFF-002` and `QK-TST-DIFF-004` as printed in the F3.2e source packet. `QK-TST-REH-004` remains the unchanged external-finalization control and receives no direction.
+- **Explicit exclusions and non-effects:** no canonical document or other cell change; no QK-TST status, test, vector, evidence, gate, STOP-SHIP, implementation, media-I/O, hardware, firmware, setting, credential, remote, branch, tag, release, or publication change; no answer to F32C-D11-Q-002 through F32C-D11-Q-012; no D-11, D-09, QK-LIM, profile, or clause selection or acceptance. Every dependency, open question, QK-LIM title/link, and existing `PLANNED — NOT RUN` status remains unchanged.
+- **Later canonical amendment:** this record is non-enacting. Canonical amendment requires a separate explicit owner authorization after this direction record; this authorization does not amend `docs/TEST-ARCHITECTURE.md`.
+- **Later publication:** publication requires a separate explicit owner instruction naming the exact independently audited 40-hex commit; this authorization alone does not authorize publication.
