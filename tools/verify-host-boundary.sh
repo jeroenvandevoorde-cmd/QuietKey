@@ -103,6 +103,7 @@ docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md
 docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
+docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1260,7 +1261,7 @@ forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
 # docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show 55bd46310606e2df4089d8234a67655c81440bab:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+git --no-optional-locks show da55fb4bcd4983140c8fb379cc3322eec99284f0:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2865,14 +2866,242 @@ awk -F '|' '
 ' "$TESTARCH32G"; p32grc=$?
 [ "$p32grc" -eq 0 ] || err "$TESTARCH32G contains a changed or malformed QK-TST status cell (awk exit $p32grc)"
 
-# G: full changed-content material scan across exactly the ten named
+# F3.2h non-binding QK-LIM-PSBT-027 cross-document alignment packet.
+# The whole-packet blob is decisive; the checks below independently bind
+# the exact source graph, owner transcript, canonical inventory, one
+# unanswered question, three ordered unselected options, recommendation
+# boundary, source/protected blobs, encoding, and non-enacting scope.
+PKT32H=docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
+[ -f "$PKT32H" ] || err "$PKT32H missing"
+p32hbase=a64399dd35aef8d6daa05171f1da30c8026f6d1f
+p32ha=da55fb4bcd4983140c8fb379cc3322eec99284f0
+p32hdlogblob=e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc
+p32hblob=e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5
+p32hparent=$(git --no-optional-locks rev-parse "$p32ha^" 2>/dev/null); p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A parent resolution failed"
+[ -n "$p32hparent" ] || err "F3.2h commit A parent resolution produced empty output"
+[ "$p32hparent" = "$p32hbase" ] || err "F3.2h commit A parent is $p32hparent, expected $p32hbase"
+git --no-optional-locks show -s --format=%B "$p32ha" > "$tmpdir/p32h.a.msg.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A message read failed"
+printf '%s\n\n' 'docs: authorize F3.2h QK-LIM-PSBT-027 alignment packet' \
+  > "$tmpdir/p32h.a.msg.exp" || err "F3.2h commit A message fixture generation failed"
+cmp -s "$tmpdir/p32h.a.msg.exp" "$tmpdir/p32h.a.msg.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A full message differs"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32ha" \
+  > "$tmpdir/p32h.a.paths.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A path enumeration failed"
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32h.a.paths.exp" \
+  || err "F3.2h commit A path fixture generation failed"
+cmp -s "$tmpdir/p32h.a.paths.exp" "$tmpdir/p32h.a.paths.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A changes a path other than docs/DECISION-LOG.md"
+git --no-optional-locks ls-tree "$p32ha" -- docs/DECISION-LOG.md \
+  > "$tmpdir/p32h.a.tree"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A Decision Log tree lookup failed"
+[ -s "$tmpdir/p32h.a.tree" ] || err "F3.2h commit A Decision Log tree entry is missing"
+p32hatreelines=$(awk 'END {print NR+0}' "$tmpdir/p32h.a.tree"); p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A Decision Log tree count failed"
+[ "$p32hatreelines" = 1 ] || err "F3.2h commit A Decision Log tree entry is not unique"
+p32hamode=$(awk 'NR == 1 {print $1}' "$tmpdir/p32h.a.tree"); p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A Decision Log mode extraction failed"
+p32hablob=$(awk 'NR == 1 {print $3}' "$tmpdir/p32h.a.tree"); p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h commit A Decision Log blob extraction failed"
+[ "$p32hamode" = 100644 ] || err "F3.2h commit A Decision Log mode is $p32hamode, expected 100644"
+[ "$p32hablob" = "$p32hdlogblob" ] || err "F3.2h commit A Decision Log blob differs"
+
+git --no-optional-locks hash-object -- "$PKT32H" > "$tmpdir/p32h.blob.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H blob scan failed"
+[ -s "$tmpdir/p32h.blob.act" ] || err "$PKT32H blob scan produced empty output"
+printf '%s\n' "$p32hblob" > "$tmpdir/p32h.blob.exp" \
+  || err "$PKT32H blob fixture generation failed"
+cmp -s "$tmpdir/p32h.blob.exp" "$tmpdir/p32h.blob.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H differs from its pinned whole-packet blob"
+
+p32htitle='# QK-F3.2h — QK-LIM-PSBT-027 Cross-Document Alignment Packet (Non-Binding)'
+p32hstatus='STATUS: OWNER-AUTHORIZED ALIGNMENT INPUT ONLY — NON-BINDING — NON-NORMATIVE — ONE QUESTION — THREE DISPOSITIONS — ALL UNSELECTED — OPTION 1 RECOMMENDED AS ANALYSIS ONLY, NOT SELECTED — NO OWNER SELECTION — NO CANONICAL EDIT — QK-LIM-PSBT-026 AND QK-LIM-PSBT-027 UNCHANGED — NO QK-LIM VALUE, TITLE, STATUS, LINK, OR ROW CHANGE — NO QK-TST PLAN / ORACLE OR STATUS CHANGE — LOCAL AND UNPUBLISHED.'
+p32hend='END OF PACKET — F3.2h QK-LIM-PSBT-027 CROSS-DOCUMENT ALIGNMENT INPUT ONLY — ONE QUESTION — THREE DISPOSITIONS — ALL UNSELECTED — OPTION 1 RECOMMENDED AS ANALYSIS ONLY, NOT SELECTED — NO CANONICAL EDIT — QK-LIM-PSBT-026 AND QK-LIM-PSBT-027 UNCHANGED — LOCAL AND UNPUBLISHED.'
+sed -n '1p' "$PKT32H" > "$tmpdir/p32h.title.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H title read failed"
+printf '%s\n' "$p32htitle" > "$tmpdir/p32h.title.exp" || err "$PKT32H title fixture generation failed"
+cmp -s "$tmpdir/p32h.title.exp" "$tmpdir/p32h.title.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H exact title is not first"
+grep '^STATUS:' "$PKT32H" > "$tmpdir/p32h.status.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H STATUS extraction failed"
+printf '%s\n' "$p32hstatus" > "$tmpdir/p32h.status.exp" || err "$PKT32H STATUS fixture generation failed"
+cmp -s "$tmpdir/p32h.status.exp" "$tmpdir/p32h.status.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H exact STATUS differs"
+p32hstatusany=$(awk '{s=$0; while (match(s,/STATUS:/)) {c++; s=substr(s,RSTART+RLENGTH)}} END {print c+0}' "$PKT32H"); p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H global STATUS scan failed"
+[ "$p32hstatusany" = 1 ] || err "$PKT32H must contain exactly one STATUS occurrence"
+tail -n 1 "$PKT32H" > "$tmpdir/p32h.end.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H terminal-line read failed"
+printf '%s\n' "$p32hend" > "$tmpdir/p32h.end.exp" || err "$PKT32H terminal fixture generation failed"
+cmp -s "$tmpdir/p32h.end.exp" "$tmpdir/p32h.end.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H exact terminal line differs"
+
+for p32howner in \
+  'Authorize preparation and independent audit of a non-binding docs-only F3.2h QK-LIM-PSBT-027 cross-document alignment packet from a64399dd35aef8d6daa05171f1da30c8026f6d1f, with only the mechanically necessary Decision Log and verifier bindings. Limit scope to the stale “Raw final-transaction output bytes” dimension and its live links in docs/RESOURCE-BUDGETS.md, docs/REQUIREMENTS.md, and the QK-TST-DIFF-004 Links cell of docs/TEST-ARCHITECTURE.md.' \
+  'Present exactly three unselected dispositions: recommended permanent tombstoning, unlinking, and non-reuse of ID 027; preservation as an inactive future contingency with no current links or value; or deferral with the known inconsistency retained. Reject deletion, renumbering, reuse, or repurposing of ID 027. Keep QK-LIM-PSBT-026 and all historical records unchanged.' \
+  'No owner selection or canonical edit; no QK-LIM value, title, status, link, or row change; no QK-TST Plan / oracle or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, release, publication, or remote change.'; do
+  for p32hownerfile in docs/DECISION-LOG.md "$PKT32H"; do
+    p32hownerhits=$(grep -cFx -e "$p32howner" "$p32hownerfile"); p32hrc=$?
+    [ "$p32hrc" -le 1 ] || err "F3.2h owner transcript scan failed in $p32hownerfile"
+    [ "$p32hownerhits" = 1 ] || err "F3.2h owner transcript differs or duplicates in $p32hownerfile"
+  done
+done
+sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
+  docs/DECISION-LOG.md > "$tmpdir/p32h.owner.dlog.framed"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log owner block extraction failed"
+sed '1d;$d' "$tmpdir/p32h.owner.dlog.framed" > "$tmpdir/p32h.owner.dlog"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log owner block deframing failed"
+sed -n '/^## Owner words exactly$/,/^## Exact current canonical inventory$/p' \
+  "$PKT32H" > "$tmpdir/p32h.owner.packet.framed"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h packet owner block extraction failed"
+sed '1d;$d' "$tmpdir/p32h.owner.packet.framed" > "$tmpdir/p32h.owner.packet"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h packet owner block deframing failed"
+cmp -s "$tmpdir/p32h.owner.dlog" "$tmpdir/p32h.owner.packet"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log and packet owner transcript blocks differ"
+
+while IFS=' ' read -r p32hsource p32hsourceblob; do
+  git --no-optional-locks hash-object -- "$p32hsource" > "$tmpdir/p32h.source.act"; p32hrc=$?
+  [ "$p32hrc" -eq 0 ] || err "F3.2h source/protected blob scan failed for $p32hsource"
+  [ -s "$tmpdir/p32h.source.act" ] || err "F3.2h source/protected blob scan produced empty output for $p32hsource"
+  printf '%s\n' "$p32hsourceblob" > "$tmpdir/p32h.source.exp" \
+    || err "F3.2h source/protected blob fixture failed for $p32hsource"
+  cmp -s "$tmpdir/p32h.source.exp" "$tmpdir/p32h.source.act"; p32hrc=$?
+  [ "$p32hrc" -eq 0 ] || err "F3.2h source/protected blob differs for $p32hsource"
+done <<'QK_F32H_SOURCE_BLOBS_EOF'
+docs/RESOURCE-BUDGETS.md 1ae6494fc24a8e3572464cf45e6d43ea4875e95d
+docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
+docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
+docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md 4ffa20afbedeb0b6cfbbe57298f941bc0537683e
+docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md a066fc9710371f414d158a3deb9c345f2b00821b
+QK_F32H_SOURCE_BLOBS_EOF
+
+p32hrow026='| QK-LIM-PSBT-026 | Signed PSBT output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |'
+p32hrow027='| QK-LIM-PSBT-027 | Raw final-transaction output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |'
+for p32hrow in "$p32hrow026" "$p32hrow027"; do
+  p32hsourcen=$(grep -cFx -e "$p32hrow" docs/RESOURCE-BUDGETS.md); p32hrc=$?
+  [ "$p32hrc" -le 1 ] || err "F3.2h RESOURCE-BUDGETS source-row scan failed"
+  [ "$p32hsourcen" = 1 ] || err "F3.2h required RESOURCE-BUDGETS source row is missing, altered, or duplicated"
+  p32hpacketn=$(grep -cFx -e "$p32hrow" "$PKT32H"); p32hrc=$?
+  [ "$p32hrc" -le 1 ] || err "F3.2h packet source-row scan failed"
+  [ "$p32hpacketn" = 1 ] || err "F3.2h required RESOURCE-BUDGETS row reproduction is missing, altered, or duplicated"
+done
+p32hpsbt005='QK-LIM-PSBT-001, QK-LIM-PSBT-002, QK-LIM-PSBT-003, QK-LIM-PSBT-004, QK-LIM-PSBT-005, QK-LIM-PSBT-006, QK-LIM-PSBT-007, QK-LIM-PSBT-008, QK-LIM-PSBT-009, QK-LIM-PSBT-010, QK-LIM-PSBT-011, QK-LIM-PSBT-012, QK-LIM-PSBT-013, QK-LIM-PSBT-014, QK-LIM-PSBT-015, QK-LIM-PSBT-016, QK-LIM-PSBT-017, QK-LIM-PSBT-018, QK-LIM-PSBT-019, QK-LIM-PSBT-020, QK-LIM-PSBT-021, QK-LIM-PSBT-022, QK-LIM-PSBT-023, QK-LIM-PSBT-024, QK-LIM-PSBT-025, QK-LIM-PSBT-026, QK-LIM-PSBT-027'
+p32htrn007='QK-LIM-SD-004, QK-LIM-PSBT-026, QK-LIM-PSBT-027'
+p32hdiff004='QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026, QK-LIM-PSBT-027'
+awk -F '|' '$2 == " QK-REQ-PSBT-005 " {x=$6; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
+  docs/REQUIREMENTS.md > "$tmpdir/p32h.psbt005.source"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h QK-REQ-PSBT-005 Lim extraction failed"
+awk -F '|' '$2 == " QK-REQ-TRN-007 " {x=$6; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
+  docs/REQUIREMENTS.md > "$tmpdir/p32h.trn007.source"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h QK-REQ-TRN-007 Lim extraction failed"
+awk -F '|' '$2 == " QK-TST-DIFF-004 " {x=$5; sub(/^ /,"",x); sub(/ $/,"",x); print x}' \
+  docs/TEST-ARCHITECTURE.md > "$tmpdir/p32h.diff004.source"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h QK-TST-DIFF-004 Links extraction failed"
+for p32hcellpair in \
+  "$tmpdir/p32h.psbt005.source|$p32hpsbt005" \
+  "$tmpdir/p32h.trn007.source|$p32htrn007" \
+  "$tmpdir/p32h.diff004.source|$p32hdiff004"; do
+  p32hcellfile=${p32hcellpair%%|*}
+  p32hcellexpected=${p32hcellpair#*|}
+  printf '%s\n' "$p32hcellexpected" > "$tmpdir/p32h.cell.exp" \
+    || err "F3.2h canonical-cell fixture generation failed"
+  cmp -s "$tmpdir/p32h.cell.exp" "$p32hcellfile"; p32hrc=$?
+  [ "$p32hrc" -eq 0 ] || err "F3.2h canonical source cell differs: $p32hcellexpected"
+  p32hcellcount=$(grep -cFx -e "$p32hcellexpected" "$PKT32H"); p32hrc=$?
+  [ "$p32hrc" -le 1 ] || err "F3.2h packet canonical-cell scan failed"
+  [ "$p32hcellcount" = 1 ] || err "F3.2h packet canonical-cell reproduction is missing, altered, or duplicated"
+done
+
+p32hquestioncount=$(grep -c '^### F32H-LIM-Q-[0-9][0-9][0-9] — ' "$PKT32H"); p32hrc=$?
+[ "$p32hrc" -le 1 ] || err "$PKT32H owner-question heading scan failed"
+[ "$p32hquestioncount" = 1 ] || err "$PKT32H must contain exactly one owner-question heading"
+grep '^| F32H-LIM-OPT-' "$PKT32H" > "$tmpdir/p32h.options.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H option-row extraction failed"
+cat > "$tmpdir/p32h.options.exp" <<'QK_F32H_OPTIONS_EOF' || err "$PKT32H option-row fixture generation failed"
+| F32H-LIM-OPT-001 | UNSELECTED | RECOMMENDED — NOT SELECTED | Under separately authorized later canonical work, preserve ID 027 as a permanent non-reusable tombstone and remove its live links. Never delete, renumber, reuse, or repurpose the ID. |
+| F32H-LIM-OPT-002 | UNSELECTED | NOT RECOMMENDED | Under separately authorized later canonical work, preserve ID 027 as an inactive same-semantic future contingency for raw final-transaction output bytes, with no current links and no value. Activation would require separate future authority. |
+| F32H-LIM-OPT-003 | UNSELECTED | NOT RECOMMENDED | Defer; retain the complete current QK-LIM-PSBT-027 row and all four current canonical locations unchanged, with the known inconsistency still live. |
+QK_F32H_OPTIONS_EOF
+cmp -s "$tmpdir/p32h.options.exp" "$tmpdir/p32h.options.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H does not contain exactly the three ordered authorized option rows"
+awk -F '|' '
+  NR == 1 { if ($2 != " F32H-LIM-OPT-001 " || $3 != " UNSELECTED " || $4 != " RECOMMENDED — NOT SELECTED ") exit 51; next }
+  NR == 2 { if ($2 != " F32H-LIM-OPT-002 " || $3 != " UNSELECTED " || $4 != " NOT RECOMMENDED ") exit 52; next }
+  NR == 3 { if ($2 != " F32H-LIM-OPT-003 " || $3 != " UNSELECTED " || $4 != " NOT RECOMMENDED ") exit 53; next }
+  END { if (NR != 3) exit 54 }
+' "$tmpdir/p32h.options.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H option order, selection, or recommendation grammar differs (awk exit $p32hrc)"
+for p32hboundary in \
+  'There is exactly one owner question and exactly three ordered dispositions. All three dispositions are UNSELECTED. Option 1 alone is recommended, and that recommendation is analysis only, not an owner selection or canonical direction.' \
+  '- “Permanent non-reusable tombstone” and “inactive same-semantic future contingency” describe unselected future disposition concepts only. `TOMBSTONED` and `INACTIVE` are not asserted or invented as current RESOURCE-BUDGETS Status vocabulary.' \
+  '- No option deletes, renumbers, reuses, or repurposes ID 027. Under every option, the identifier remains permanently attributable to the “Raw final-transaction output bytes” history and may never identify a different dimension.' \
+  '- No option selects or proposes any numeric QK-LIM value, including `0`.' \
+  '- QK-LIM-PSBT-026 and QK-LIM-PSBT-027 remain byte-for-byte unchanged, including their titles, boundaries, threats, links, evidence-needed text, values, statuses, and open-decision cells.' \
+  '- QK-TST-DIFF-004 remains byte-for-byte unchanged. No Plan / oracle, Links, Milestone, Gate, Evidence artifact, or Status cell changes.'; do
+  p32hboundarycount=$(grep -cFx -e "$p32hboundary" "$PKT32H"); p32hrc=$?
+  [ "$p32hrc" -le 1 ] || err "$PKT32H boundary statement scan failed"
+  [ "$p32hboundarycount" = 1 ] || err "$PKT32H required boundary statement is missing, altered, or duplicated"
+done
+
+iconv -f UTF-8 -t UTF-8 "$PKT32H" > "$tmpdir/p32h.utf8" 2> "$tmpdir/p32h.iconv.err"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H is not strict UTF-8"
+[ -s "$tmpdir/p32h.utf8" ] || err "$PKT32H UTF-8 validation produced empty output"
+cmp -s "$PKT32H" "$tmpdir/p32h.utf8"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H UTF-8 validation changed bytes"
+tail -c 1 "$PKT32H" > "$tmpdir/p32h.last.raw"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H final-byte read failed"
+[ -s "$tmpdir/p32h.last.raw" ] || err "$PKT32H final-byte read produced empty output"
+od -An -tuC "$tmpdir/p32h.last.raw" > "$tmpdir/p32h.last.od"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H final-byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32h.last.od" > "$tmpdir/p32h.last.norm"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H final-byte normalization failed"
+p32hlast=$(cat "$tmpdir/p32h.last.norm"); p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H final-byte read-back failed"
+[ "$p32hlast" = 10 ] || err "$PKT32H must end in exact LF"
+tail -c 2 "$PKT32H" > "$tmpdir/p32h.last2.raw"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H final-two-byte read failed"
+printf '\n\n' > "$tmpdir/p32h.double-lf" || err "$PKT32H double-LF fixture generation failed"
+cmp -s "$tmpdir/p32h.double-lf" "$tmpdir/p32h.last2.raw"; p32hrc=$?
+[ "$p32hrc" -eq 1 ] || err "$PKT32H must not end in double LF or the cmp check failed (exit $p32hrc)"
+od -An -tx1 "$PKT32H" > "$tmpdir/p32h.bytes.raw"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32h.bytes.raw" > "$tmpdir/p32h.bytes.hex"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H byte normalization failed"
+p32hbad=$(grep -cE '(^efbbbf)|00|0d|e2808[ef]|e280a[a-e]|e281a[6-9]' "$tmpdir/p32h.bytes.hex"); p32hrc=$?
+[ "$p32hrc" -le 1 ] || err "$PKT32H control/bidi byte scan failed"
+[ "$p32hbad" = 0 ] || err "$PKT32H contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$PKT32H contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$PKT32H"
+forbid "$PKT32H contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$PKT32H"
+forbid "$PKT32H contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$PKT32H"
+printf '%s\n' \
+  065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+  1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
+  4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
+  981b1b497102187da66fb4e82ef0725b32c088f7 \
+  a066fc9710371f414d158a3deb9c345f2b00821b \
+  a64399dd35aef8d6daa05171f1da30c8026f6d1f \
+  a64399dd35aef8d6daa05171f1da30c8026f6d1f \
+  da55fb4bcd4983140c8fb379cc3322eec99284f0 > "$tmpdir/p32h.hex.exp" \
+  || err "$PKT32H exact-40-hex multiset fixture generation failed"
+awk '{s=$0; while (match(s,/[0-9a-fA-F]+/)) {t=substr(s,RSTART,RLENGTH); if (length(t)==40) print tolower(t); s=substr(s,RSTART+RLENGTH)}}' \
+  "$PKT32H" > "$tmpdir/p32h.hex.raw"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H exact-40-hex enumeration failed"
+LC_ALL=C sort "$tmpdir/p32h.hex.raw" > "$tmpdir/p32h.hex.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H exact-40-hex sort failed"
+cmp -s "$tmpdir/p32h.hex.exp" "$tmpdir/p32h.hex.act"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "$PKT32H exact-40-hex multiset differs"
+
+# G: full changed-content material scan across exactly the eleven named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this ten-path
+# is separately bounded elsewhere and is not part of this eleven-path
 # scan. Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -2883,7 +3112,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" docs/
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same ten named scan paths; every token must be deliberately
+# across the same eleven named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -2912,10 +3141,16 @@ done
 #   45f2b362994b785d303e91b8e530efc724dc2d81  F3.2g source base / published F3.2f C
 #   55bd46310606e2df4089d8234a67655c81440bab  F3.2g authorization commit A (Decision Log anchor)
 #   065e20eed4e916c907a244aa3e5ca2e66cbc5d4e  F3.2g amended TEST-ARCHITECTURE blob
+#   a64399dd35aef8d6daa05171f1da30c8026f6d1f  F3.2h source base / published F3.2g C
+#   da55fb4bcd4983140c8fb379cc3322eec99284f0  F3.2h authorization commit A
+#   e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc  F3.2h Decision Log A blob
+#   1ae6494fc24a8e3572464cf45e6d43ea4875e95d  F3.2h RESOURCE-BUDGETS source blob
+#   e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5  F3.2h packet blob
 {
   printf '%s\n' \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
+    1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
     22114c6741ac653b9c5079b1bfccdb795a88f3df \
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
@@ -2932,20 +3167,24 @@ done
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
     981b1b497102187da66fb4e82ef0725b32c088f7 \
     a066fc9710371f414d158a3deb9c345f2b00821b \
+    a64399dd35aef8d6daa05171f1da30c8026f6d1f \
     a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
     b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
     be4d019e349e15ca575ac64b64f900957283e5e0 \
+    da55fb4bcd4983140c8fb379cc3322eec99284f0 \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
+    e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5 \
     e4cdf7771e189fc0f729358334aafd35177048c6 \
     e57faff4ead69ddf108cf522cb6c3cbfbef8219a \
+    e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc \
     f4e127a92fc68243274b7d384e335fa4632e5dd2
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
