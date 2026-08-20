@@ -105,6 +105,7 @@ docs/f3/F3.2E-PSBT-OUTPUT-TEST-ALIGNMENT-PACKET.md
 docs/f3/F3.2F-PSBT-OUTPUT-TEST-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
+docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1261,8 +1262,8 @@ forbid "$WTS claims an ACCEPTED profile" \
 forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
-# docs/DECISION-LOG.md must be byte-identical to the reviewed A commit.
-git --no-optional-locks show c4e1ed94a02fba5d01f5cebfda4d5b1439222625:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
+# docs/DECISION-LOG.md must be byte-identical to the latest reviewed A commit.
+git --no-optional-locks show 336956ec866ca3aa93791ffcb76f30e79e17dd31:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
   || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
 cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
 dlrc=$?
@@ -2949,8 +2950,11 @@ for p32howner in \
     [ "$p32hownerhits" = 1 ] || err "F3.2h owner transcript differs or duplicates in $p32hownerfile"
   done
 done
+sed -n '/^### QK-AUTH-F3.2H-QK-LIM-PSBT-027-ALIGN-PKT-001 /,/^### QK-AUTH-F3.2I-QK-LIM-PSBT-027-DIR-REC-001 /p' \
+  docs/DECISION-LOG.md > "$tmpdir/p32h.dlog.section"; p32hrc=$?
+[ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log section extraction failed"
 sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
-  docs/DECISION-LOG.md > "$tmpdir/p32h.owner.dlog.framed"; p32hrc=$?
+  "$tmpdir/p32h.dlog.section" > "$tmpdir/p32h.owner.dlog.framed"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log owner block extraction failed"
 sed '1d;$d' "$tmpdir/p32h.owner.dlog.framed" > "$tmpdir/p32h.owner.dlog"; p32hrc=$?
 [ "$p32hrc" -eq 0 ] || err "F3.2h Decision Log owner block deframing failed"
@@ -3281,14 +3285,212 @@ LC_ALL=C sort "$tmpdir/p32i.hex.raw" > "$tmpdir/p32i.hex.act"; p32irc=$?
 cmp -s "$tmpdir/p32i.hex.exp" "$tmpdir/p32i.hex.act"; p32irc=$?
 [ "$p32irc" -eq 0 ] || err "$REC32I exact-40-hex multiset differs"
 
-# G: full changed-content material scan across exactly the twelve named
+# ---------------- F3.2j QK-LIM-PSBT-027 exact construction packet
+# Non-binding and non-enacting. The exact one-candidate closed world,
+# current/proposed transcripts, protected sources, and material boundaries
+# are supporting checks only and perform no canonical amendment.
+PKT32J=docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
+[ -f "$PKT32J" ] || err "$PKT32J missing"
+p32jbase=878b23be4690bb778a615bfe1a6ef108e7a94008
+p32ja=336956ec866ca3aa93791ffcb76f30e79e17dd31
+p32jdlogblob=0e366c1acc5579e541dfe3f94a099db9b887064b
+p32jpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+
+git --no-optional-locks rev-parse "$p32jbase^{commit}" > "$tmpdir/p32j.base.act" 2>/dev/null
+p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j source base does not resolve as a commit"
+printf '%s\n' "$p32jbase" > "$tmpdir/p32j.base.exp" \
+  || err "F3.2j source-base fixture generation failed"
+cmp -s "$tmpdir/p32j.base.exp" "$tmpdir/p32j.base.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j source base resolution differs"
+git --no-optional-locks rev-parse "$p32ja^{commit}" > "$tmpdir/p32j.a.act" 2>/dev/null
+p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j authorization commit A does not resolve"
+printf '%s\n' "$p32ja" > "$tmpdir/p32j.a.exp" \
+  || err "F3.2j authorization-commit fixture generation failed"
+cmp -s "$tmpdir/p32j.a.exp" "$tmpdir/p32j.a.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j authorization commit resolution differs"
+p32japarent=$(git --no-optional-locks rev-parse "$p32ja^" 2>/dev/null)
+p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j authorization commit parent cannot be resolved"
+[ "$p32japarent" = "$p32jbase" ] || err "F3.2j authorization commit parent differs"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32ja" > "$tmpdir/p32j.a.paths.act"
+p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j authorization commit path enumeration failed"
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32j.a.paths.exp" \
+  || err "F3.2j authorization path fixture generation failed"
+cmp -s "$tmpdir/p32j.a.paths.exp" "$tmpdir/p32j.a.paths.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j authorization commit changes a path other than docs/DECISION-LOG.md"
+
+for p32jblobpair in \
+  "docs/DECISION-LOG.md|$p32jdlogblob" \
+  "$PKT32J|$p32jpacketblob"; do
+  p32jblobpath=${p32jblobpair%%|*}
+  p32jblobexpected=${p32jblobpair#*|}
+  git --no-optional-locks hash-object -- "$p32jblobpath" > "$tmpdir/p32j.blob.act"
+  p32jrc=$?
+  [ "$p32jrc" -eq 0 ] || err "F3.2j blob scan failed for $p32jblobpath"
+  [ -s "$tmpdir/p32j.blob.act" ] || err "F3.2j blob scan produced empty output for $p32jblobpath"
+  printf '%s\n' "$p32jblobexpected" > "$tmpdir/p32j.blob.exp" \
+    || err "F3.2j blob fixture generation failed for $p32jblobpath"
+  cmp -s "$tmpdir/p32j.blob.exp" "$tmpdir/p32j.blob.act"; p32jrc=$?
+  [ "$p32jrc" -eq 0 ] || err "F3.2j active blob differs for $p32jblobpath"
+done
+
+for p32jowner in \
+  'Authorize preparation and independent audit of a non-binding, non-enacting docs-only F3.2j QK-LIM-PSBT-027 exact tombstone-construction packet from published commit 878b23be4690bb778a615bfe1a6ef108e7a94008, with only the mechanically necessary Decision Log and verifier bindings.' \
+  'Limit the packet to exactly one recommended, byte-complete candidate, F32J-LIM-CON-001, explicitly PROPOSED — UNSELECTED. Print the exact current and proposed canonical bytes for: the minimum QK-LIM-PSBT-027-specific RESOURCE-BUDGETS preamble, invariant, and append-only-ID-note corrections needed for a permanent no-value tombstone; every cell of row 027; removal of 027 from the QK-REQ-PSBT-005 and QK-REQ-TRN-007 Lim cells; and removal of 027 from the QK-TST-DIFF-004 Links cell. Preserve the historical dimension name and ID, make every former row relationship non-operative, define any proposed Value-cell text as a non-value sentinel rather than zero or an authorized QK-LIM value, and never delete, renumber, reuse, repurpose, or reopen ID 027. Introduce no general tombstone transition for another row. Keep QK-LIM-PSBT-026 and every other canonical and historical byte unchanged.' \
+  'No owner selection of F32J-LIM-CON-001 and no canonical edit; no current tombstone or inactive declaration; no actual QK-LIM value, title, status, link, row, vocabulary, or syntax change; no QK-TST Plan / oracle, Links, or status change; no answer to F32C-D11-Q-002 through Q-012; no D-11, D-09, OD-05/06, profile, clause, dependency, implementation, testing, corpus, vector, fixture, evidence, media-I/O, hardware, license, gate, STOP-SHIP, setting, credential, other-branch, tag, release, publication, or remote change.'; do
+  for p32jownerfile in docs/DECISION-LOG.md "$PKT32J"; do
+    p32jownerhits=$(grep -cFx -e "$p32jowner" "$p32jownerfile"); p32jrc=$?
+    [ "$p32jrc" -le 1 ] || err "F3.2j owner transcript scan failed in $p32jownerfile"
+    [ "$p32jownerhits" = 1 ] || err "F3.2j owner transcript differs or duplicates in $p32jownerfile"
+  done
+done
+sed -n '/^### QK-AUTH-F3.2J-QK-LIM-PSBT-027-CONSTRUCT-001 /,$p' \
+  docs/DECISION-LOG.md > "$tmpdir/p32j.dlog.section"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j Decision Log section extraction failed"
+sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
+  "$tmpdir/p32j.dlog.section" > "$tmpdir/p32j.owner.dlog.framed"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j Decision Log owner block extraction failed"
+sed '1d;$d' "$tmpdir/p32j.owner.dlog.framed" > "$tmpdir/p32j.owner.dlog"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j Decision Log owner block deframing failed"
+sed -n '/^## Owner words exactly$/,/^## Exact one-candidate closed world$/p' \
+  "$PKT32J" > "$tmpdir/p32j.owner.packet.framed"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j packet owner block extraction failed"
+sed '1d;$d' "$tmpdir/p32j.owner.packet.framed" > "$tmpdir/p32j.owner.packet"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j packet owner block deframing failed"
+cmp -s "$tmpdir/p32j.owner.dlog" "$tmpdir/p32j.owner.packet"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "F3.2j Decision Log and packet owner transcript blocks differ"
+
+grep '^| F32J-LIM-CON-' "$PKT32J" > "$tmpdir/p32j.candidates.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J candidate-row extraction failed"
+cat > "$tmpdir/p32j.candidates.exp" <<'QK_F32J_CANDIDATES_EOF' || err "$PKT32J candidate fixture generation failed"
+| F32J-LIM-CON-001 | PROPOSED — UNSELECTED | RECOMMENDED — NOT SELECTED | NONE — FUTURE CONSTRUCTION ONLY |
+QK_F32J_CANDIDATES_EOF
+cmp -s "$tmpdir/p32j.candidates.exp" "$tmpdir/p32j.candidates.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J one-candidate closed world differs"
+for p32jboundary in \
+  'STATUS: NON-BINDING — NON-ENACTING — ONE RECOMMENDED BYTE-COMPLETE CANDIDATE — PROPOSED — UNSELECTED — NO CANONICAL EDIT — LOCAL AND UNPUBLISHED.' \
+  'There is exactly one candidate: `F32J-LIM-CON-001`. It is recommended analysis only and remains `PROPOSED — UNSELECTED`. No owner selection is recorded or inferred.' \
+  'The proposed Value cell is a literal non-value sentinel. It is not zero, a numeric value, a candidate value, a default, an approved limit, or authorization to choose any QK-LIM value. Every former row relationship is explicitly non-operative.' \
+  '- This packet does not declare `QK-LIM-PSBT-027` currently tombstoned or inactive and does not introduce any current title, Status vocabulary, row syntax, link syntax, value, or canonical byte.' \
+  '- The candidate creates no general tombstone vocabulary or transition for another row.'; do
+  p32jboundaryhits=$(grep -cFx -e "$p32jboundary" "$PKT32J"); p32jrc=$?
+  [ "$p32jrc" -le 1 ] || err "$PKT32J boundary statement scan failed"
+  [ "$p32jboundaryhits" = 1 ] || err "$PKT32J required boundary statement is missing, altered, or duplicated"
+done
+
+for p32jtranscript in \
+  '**OWNER-APPROVED F1 BASELINE — IMPLEMENTATION EVIDENCE NONE — ALL GATES OPEN**' \
+  '**OWNER-APPROVED F1 BASELINE — IMPLEMENTATION EVIDENCE NONE — ALL GATES OPEN — QK-LIM-PSBT-027 PERMANENT TOMBSTONE**' \
+  'Every row is one atomic limit: one metric, one unit, one scope, one enforcement point, one future value. This registry deliberately contains **no numeric values, no examples, no defaults, no candidate values, and no recommendations**. Every Value cell is exactly `OPEN — VALUE NOT AUTHORIZED IN F1` and every Status cell is exactly `OPEN`. Values may be authorized only by an explicit owner decision that consumes measurement evidence; no single project phase can freeze them by itself, and F2 measurement alone is insufficient. Instrumented, non-production prototypes may run before values are authorized only under explicit conservative temporary caps that appear in no normative document. No provisional number may appear in any normative document.' \
+  'Every live row is one atomic limit: one metric, one unit, one scope, one enforcement point, one future value. This registry deliberately contains **no numeric values, no examples, no defaults, no candidate values, and no recommendations**. Every live-row Value cell is exactly `OPEN — VALUE NOT AUTHORIZED IN F1` and every live-row Status cell is exactly `OPEN`. The retained `QK-LIM-PSBT-027` row is the sole permanent tombstone and is not a live limit row: it preserves the historical dimension name and ID, carries no operative metric, unit, scope, enforcement point, future value, threat, link, evidence, or open-decision relationship, and can never be reopened. Its Value cell is exactly `NOT A VALUE — PERMANENT TOMBSTONE SENTINEL` and its Status cell is exactly `TOMBSTONED — PERMANENT — NON-REUSABLE`; neither cell authorizes or represents zero, a numeric value, a candidate value, a default, or an approved QK-LIM value. This row-specific representation creates no general tombstone vocabulary or transition for another row. Values for live rows may be authorized only by an explicit owner decision that consumes measurement evidence; no single project phase can freeze them by itself, and F2 measurement alone is insufficient. Instrumented, non-production prototypes may run before live-row values are authorized only under explicit conservative temporary caps that appear in no normative document. No provisional number may appear in any normative document.' \
+  'Append-only ID note: formerly grouped rows were narrowed to a single atomic dimension while keeping their original IDs; the split-out dimensions were appended as new IDs (F1 audit-correction pass and F1 semantic audit-correction pass). No ID was renumbered or reused.' \
+  'Append-only ID note: formerly grouped rows were narrowed to a single atomic dimension while keeping their original IDs; the split-out dimensions were appended as new IDs (F1 audit-correction pass and F1 semantic audit-correction pass). No ID was renumbered or reused. QK-LIM-PSBT-027 is retained with its historical dimension name and ID as a permanent non-reusable tombstone; it is never deleted, renumbered, reused, repurposed, or reopened. No other RESOURCE-BUDGETS ID or row is changed by this row-specific tombstone construction.' \
+  '| QK-LIM-PSBT-027 | Raw final-transaction output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |' \
+  '| QK-LIM-PSBT-027 | Raw final-transaction output bytes | NONE — FORMER BOUNDARY RELATIONSHIP NON-OPERATIVE | HISTORICAL ONLY — FORMER QK-THR-016 RELATIONSHIP NON-OPERATIVE | NONE — FORMER REQUIREMENT AND TEST RELATIONSHIPS REMOVED | NONE — FORMER EVIDENCE RELATIONSHIP NON-OPERATIVE | NOT A VALUE — PERMANENT TOMBSTONE SENTINEL | TOMBSTONED — PERMANENT — NON-REUSABLE | NONE — FORMER OD-05 RELATIONSHIP NON-OPERATIVE |' \
+  'QK-LIM-PSBT-001, QK-LIM-PSBT-002, QK-LIM-PSBT-003, QK-LIM-PSBT-004, QK-LIM-PSBT-005, QK-LIM-PSBT-006, QK-LIM-PSBT-007, QK-LIM-PSBT-008, QK-LIM-PSBT-009, QK-LIM-PSBT-010, QK-LIM-PSBT-011, QK-LIM-PSBT-012, QK-LIM-PSBT-013, QK-LIM-PSBT-014, QK-LIM-PSBT-015, QK-LIM-PSBT-016, QK-LIM-PSBT-017, QK-LIM-PSBT-018, QK-LIM-PSBT-019, QK-LIM-PSBT-020, QK-LIM-PSBT-021, QK-LIM-PSBT-022, QK-LIM-PSBT-023, QK-LIM-PSBT-024, QK-LIM-PSBT-025, QK-LIM-PSBT-026, QK-LIM-PSBT-027' \
+  'QK-LIM-PSBT-001, QK-LIM-PSBT-002, QK-LIM-PSBT-003, QK-LIM-PSBT-004, QK-LIM-PSBT-005, QK-LIM-PSBT-006, QK-LIM-PSBT-007, QK-LIM-PSBT-008, QK-LIM-PSBT-009, QK-LIM-PSBT-010, QK-LIM-PSBT-011, QK-LIM-PSBT-012, QK-LIM-PSBT-013, QK-LIM-PSBT-014, QK-LIM-PSBT-015, QK-LIM-PSBT-016, QK-LIM-PSBT-017, QK-LIM-PSBT-018, QK-LIM-PSBT-019, QK-LIM-PSBT-020, QK-LIM-PSBT-021, QK-LIM-PSBT-022, QK-LIM-PSBT-023, QK-LIM-PSBT-024, QK-LIM-PSBT-025, QK-LIM-PSBT-026' \
+  'QK-LIM-SD-004, QK-LIM-PSBT-026, QK-LIM-PSBT-027' \
+  'QK-LIM-SD-004, QK-LIM-PSBT-026' \
+  'QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026, QK-LIM-PSBT-027' \
+  'QK-REQ-TRN-007; QK-THR-006; QK-LIM-PSBT-026'; do
+  p32jtranscripthits=$(grep -cFx -e "$p32jtranscript" "$PKT32J"); p32jrc=$?
+  [ "$p32jrc" -le 1 ] || err "$PKT32J exact transcript scan failed"
+  [ "$p32jtranscripthits" = 1 ] || err "$PKT32J exact current/proposed transcript is missing, altered, or duplicated"
+done
+
+while IFS=' ' read -r p32jprotected p32jprotectedblob; do
+  git --no-optional-locks hash-object -- "$p32jprotected" > "$tmpdir/p32j.protected.act"; p32jrc=$?
+  [ "$p32jrc" -eq 0 ] || err "F3.2j protected blob scan failed for $p32jprotected"
+  printf '%s\n' "$p32jprotectedblob" > "$tmpdir/p32j.protected.exp" \
+    || err "F3.2j protected blob fixture generation failed for $p32jprotected"
+  cmp -s "$tmpdir/p32j.protected.exp" "$tmpdir/p32j.protected.act"; p32jrc=$?
+  [ "$p32jrc" -eq 0 ] || err "F3.2j protected blob differs for $p32jprotected"
+done <<'QK_F32J_PROTECTED_BLOBS_EOF'
+docs/RESOURCE-BUDGETS.md 1ae6494fc24a8e3572464cf45e6d43ea4875e95d
+docs/REQUIREMENTS.md 981b1b497102187da66fb4e82ef0725b32c088f7
+docs/TEST-ARCHITECTURE.md 065e20eed4e916c907a244aa3e5ca2e66cbc5d4e
+docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md 2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5
+QK_F32J_PROTECTED_BLOBS_EOF
+for p32jrow in "$p32hrow026" "$p32hrow027"; do
+  p32jrowhits=$(grep -cFx -e "$p32jrow" docs/RESOURCE-BUDGETS.md); p32jrc=$?
+  [ "$p32jrc" -le 1 ] || err "F3.2j canonical source-row scan failed"
+  [ "$p32jrowhits" = 1 ] || err "F3.2j protected canonical row is missing, altered, or duplicated"
+done
+
+iconv -f UTF-8 -t UTF-8 "$PKT32J" > "$tmpdir/p32j.utf8" 2> "$tmpdir/p32j.iconv.err"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J is not strict UTF-8"
+[ -s "$tmpdir/p32j.utf8" ] || err "$PKT32J UTF-8 validation produced empty output"
+cmp -s "$PKT32J" "$tmpdir/p32j.utf8"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J UTF-8 validation changed bytes"
+tail -c 1 "$PKT32J" > "$tmpdir/p32j.last.raw"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J final-byte read failed"
+od -An -tuC "$tmpdir/p32j.last.raw" > "$tmpdir/p32j.last.od"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J final-byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32j.last.od" > "$tmpdir/p32j.last.norm"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J final-byte normalization failed"
+p32jlast=$(cat "$tmpdir/p32j.last.norm"); p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J final-byte read-back failed"
+[ "$p32jlast" = 10 ] || err "$PKT32J must end in exact LF"
+tail -c 2 "$PKT32J" > "$tmpdir/p32j.last2.raw"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J final-two-byte read failed"
+printf '\n\n' > "$tmpdir/p32j.double-lf" || err "$PKT32J double-LF fixture generation failed"
+cmp -s "$tmpdir/p32j.double-lf" "$tmpdir/p32j.last2.raw"; p32jrc=$?
+[ "$p32jrc" -eq 1 ] || err "$PKT32J must not end in double LF or the cmp check failed (exit $p32jrc)"
+od -An -tx1 "$PKT32J" > "$tmpdir/p32j.bytes.raw"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J byte scan failed"
+awk 'BEGIN { bad=0; p2=""; p1="" }
+  {
+    for (i=1; i<=NF; i++) {
+      b=tolower($i)
+      if (b == "00" || b == "0d") bad=bad+1
+      seq=p2 p1 b
+      if (seq == "efbbbf" || seq == "e2808e" || seq == "e2808f" ||
+          seq == "e280aa" || seq == "e280ab" || seq == "e280ac" ||
+          seq == "e280ad" || seq == "e280ae" || seq == "e281a6" ||
+          seq == "e281a7" || seq == "e281a8" || seq == "e281a9") bad=bad+1
+      p2=p1
+      p1=b
+    }
+  }
+  END { print bad+0 }' "$tmpdir/p32j.bytes.raw" > "$tmpdir/p32j.bytes.bad"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J control/bidi byte scan failed"
+p32jbad=$(cat "$tmpdir/p32j.bytes.bad"); p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J control/bidi result read failed"
+[ "$p32jbad" = 0 ] || err "$PKT32J contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$PKT32J contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$PKT32J"
+forbid "$PKT32J contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$PKT32J"
+forbid "$PKT32J contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$PKT32J"
+forbid "$PKT32J contains a standalone numeric zero that could be mistaken for a value" \
+  -E '(^|[^[:alnum:]_])0([^[:alnum:]_]|$)' "$PKT32J"
+printf '%s\n' \
+  065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+  1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
+  2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5 \
+  336956ec866ca3aa93791ffcb76f30e79e17dd31 \
+  878b23be4690bb778a615bfe1a6ef108e7a94008 \
+  878b23be4690bb778a615bfe1a6ef108e7a94008 \
+  981b1b497102187da66fb4e82ef0725b32c088f7 > "$tmpdir/p32j.hex.exp" \
+  || err "$PKT32J exact-40-hex multiset fixture generation failed"
+awk '{s=$0; while (match(s,/[0-9a-fA-F]+/)) {t=substr(s,RSTART,RLENGTH); if (length(t)==40) print tolower(t); s=substr(s,RSTART+RLENGTH)}}' \
+  "$PKT32J" > "$tmpdir/p32j.hex.raw"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J exact-40-hex enumeration failed"
+LC_ALL=C sort "$tmpdir/p32j.hex.raw" > "$tmpdir/p32j.hex.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J exact-40-hex sort failed"
+cmp -s "$tmpdir/p32j.hex.exp" "$tmpdir/p32j.hex.act"; p32jrc=$?
+[ "$p32jrc" -eq 0 ] || err "$PKT32J exact-40-hex multiset differs"
+
+# G: full changed-content material scan across exactly the thirteen named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this twelve-path scan.
+# is separately bounded elsewhere and is not part of this thirteen-path scan.
 # Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -3299,7 +3501,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same twelve named scan paths; every token must be deliberately
+# across the same thirteen named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -3333,12 +3535,17 @@ done
 #   e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc  F3.2h Decision Log A blob
 #   1ae6494fc24a8e3572464cf45e6d43ea4875e95d  F3.2h RESOURCE-BUDGETS source blob
 #   2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5  F3.2i owner-direction whole-record blob
+#   336956ec866ca3aa93791ffcb76f30e79e17dd31  F3.2j authorization commit A
+#   0e366c1acc5579e541dfe3f94a099db9b887064b  F3.2j Decision Log A blob
 #   e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5  F3.2h packet blob
 #   c4e1ed94a02fba5d01f5cebfda4d5b1439222625  F3.2i authorization commit A
 #   e36b41e5cd55264b4b745550c96c74968b06eae7  F3.2i source base / published F3.2h C
+#   878b23be4690bb778a615bfe1a6ef108e7a94008  F3.2j source base / published F3.2i C
+#   b1c2153f5f89a0e1d44d62a09921251e225c0d87  F3.2j packet blob
 {
   printf '%s\n' \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
+    0e366c1acc5579e541dfe3f94a099db9b887064b \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
@@ -3346,6 +3553,7 @@ done
     26e075704cdd172fce62b9b7cd38b4035db384d8 \
     2c6d1152f09730661b2cadd86d2374c755191128 \
     2f4bc0f5cb8e861b45f515fb7c4c5dbc764784c5 \
+    336956ec866ca3aa93791ffcb76f30e79e17dd31 \
     45f2b362994b785d303e91b8e530efc724dc2d81 \
     4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
@@ -3355,12 +3563,14 @@ done
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     877866e5a3636bdfb7015d715e048ccfad63d939 \
+    878b23be4690bb778a615bfe1a6ef108e7a94008 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
     981b1b497102187da66fb4e82ef0725b32c088f7 \
     a066fc9710371f414d158a3deb9c345f2b00821b \
     a64399dd35aef8d6daa05171f1da30c8026f6d1f \
     a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
+    b1c2153f5f89a0e1d44d62a09921251e225c0d87 \
     b4594210975940df71b0e941841320d11defaa4c \
     bb6601f3b97528a72c55622251a4b475680ec21b \
     be4d019e349e15ca575ac64b64f900957283e5e0 \
@@ -3377,7 +3587,7 @@ done
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
