@@ -108,6 +108,7 @@ docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+docs/f3/F3.2N-D11-Q002-SD-ATTACHMENT-EPOCH-OWNER-DIRECTION-RECORD.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -4069,8 +4070,9 @@ for p32lcfpair in \
 done
 
 # ---------------- F3.2m D-11 Q-002 SD attachment-epoch decision packet
-# The exact F3.2l C snapshot is published and immutable. F3.2m is a
-# local/unpublished, non-binding, non-enacting decision input only.
+# The exact F3.2l C snapshot and F3.2m C stage are published and immutable.
+# F3.2m remains non-binding and non-enacting; its LOCAL AND UNPUBLISHED
+# packet wording is preserved only as historical preparation-time text.
 PKT32M=docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
 [ -f "$PKT32M" ] || err "$PKT32M missing"
 p32mbase=1408fa98961e62ba6316515b1e277b6952a96e18
@@ -4115,8 +4117,8 @@ cmp -s "$tmpdir/p32m.a.paths.exp" "$tmpdir/p32m.a.paths.act"; p32mrc=$?
 p32mbranch=$(git --no-optional-locks symbolic-ref --quiet --short HEAD 2>/dev/null); p32mrc=$?
 [ "$p32mrc" -eq 0 ] || err "F3.2m checked-out branch cannot be resolved"
 [ "$p32mbranch" = main ] || err "F3.2m checked-out branch is not main"
-p32mhead=$(git --no-optional-locks rev-parse "HEAD^{commit}" 2>/dev/null); p32mrc=$?
-[ "$p32mrc" -eq 0 ] || err "F3.2m HEAD does not resolve as a commit"
+p32mhead=$(git --no-optional-locks rev-parse "f41e26799d0c4522b91e1de72d27cf473116b3ab^{commit}" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m published C does not resolve as a commit"
 git --no-optional-locks log -1 --format=%B "$p32mhead" > "$tmpdir/p32m.head.msg.act"; p32mrc=$?
 [ "$p32mrc" -eq 0 ] || err "F3.2m HEAD message read failed"
 printf '%s\n\n' 'docs(f3): add non-binding F3.2m D-11 Q-002 SD attachment-epoch decision packet' \
@@ -4287,11 +4289,11 @@ git --no-optional-locks show "$p32mbase:docs/DECISION-LOG.md" > "$tmpdir/p32m.dl
 [ "$p32mrc" -eq 0 ] || err "F3.2m base Decision Log read failed"
 git --no-optional-locks show "$p32ma:docs/DECISION-LOG.md" > "$tmpdir/p32m.dlog.a" 2>/dev/null; p32mrc=$?
 [ "$p32mrc" -eq 0 ] || err "F3.2m A Decision Log read failed"
-git --no-optional-locks hash-object -- docs/DECISION-LOG.md > "$tmpdir/p32m.dlog.active.blob"; p32mrc=$?
-[ "$p32mrc" -eq 0 ] || err "F3.2m active Decision Log blob scan failed"
+git --no-optional-locks rev-parse "$p32ma:docs/DECISION-LOG.md" > "$tmpdir/p32m.dlog.active.blob" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m historical A Decision Log blob lookup failed"
 printf '%s\n' "$p32mdlogablob" > "$tmpdir/p32m.dlog.a.blob.exp" || err "F3.2m A Decision Log blob fixture failed"
 cmp -s "$tmpdir/p32m.dlog.a.blob.exp" "$tmpdir/p32m.dlog.active.blob"; p32mrc=$?
-[ "$p32mrc" -eq 0 ] || err "F3.2m active Decision Log is not the exact A blob"
+[ "$p32mrc" -eq 0 ] || err "F3.2m historical A Decision Log is not the exact A blob"
 wc -c < "$tmpdir/p32m.dlog.base" > "$tmpdir/p32m.dlog.bytes.raw"; p32mrc=$?
 [ "$p32mrc" -eq 0 ] || err "F3.2m base Decision Log byte count failed"
 tr -d '[:space:]' < "$tmpdir/p32m.dlog.bytes.raw" > "$tmpdir/p32m.dlog.bytes"; p32mrc=$?
@@ -4502,14 +4504,328 @@ forbid "$PKT32M contains a tab, trailing whitespace, HTML comment, hidden link d
 forbid "$PKT32M contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$PKT32M"
 forbid "$PKT32M contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$PKT32M"
 
-# G: full changed-content material scan across exactly the fifteen named
+# F3.2n D-11 Q-002 physical SD attachment-epoch owner-direction record.
+# F3.2m is frozen above at its exact published C. This is the sole
+# HEAD-driven stage block and accepts only the exact finite B or C state.
+REC32N=docs/f3/F3.2N-D11-Q002-SD-ATTACHMENT-EPOCH-OWNER-DIRECTION-RECORD.md
+[ -f "$REC32N" ] || err "$REC32N missing"
+p32nbase=f41e26799d0c4522b91e1de72d27cf473116b3ab
+p32ntree=9ae24ea3278252b0a0f6703d2cbc381d59859dcf
+p32na=d3a4f3bec5902d2e2155647a27ffe34bfa233bee
+p32ndlogbaseblob=99384f6cd5eedd37488e0c12d865737217f88b6c
+p32ndlogablob=84f8fd26b311fe3e084b01c932ae3ee7469c49a3
+p32nrecordblob=01f7fb3140bcf69c31719a996c7a4c7ddd2394ab
+p32npacketblob=11714544ea89b3475d65a8a5634b7fdab65f5972
+
+p32nprovenanceblocks=$(awk '
+  /^# The exact F3[.]2l C snapshot and F3[.]2m C stage are published and immutable[.]$/ { state=1; next }
+  state == 1 && /^# F3[.]2m remains non-binding and non-enacting; its LOCAL AND UNPUBLISHED$/ { state=2; next }
+  state == 2 && /^# packet wording is preserved only as historical preparation-time text[.]$/ { found++; state=0; next }
+  { state=0 }
+  END { print found+0 }' tools/verify-host-boundary.sh); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n F3.2m provenance-block scan failed"
+[ "$p32nprovenanceblocks" = 1 ] || err "F3.2n truthful F3.2m provenance block differs, duplicates, or is non-contiguous"
+forbid "F3.2n host verifier restores stale F3.2m present-tense provenance wording" \
+  -E '^# The exact F3[.]2l C snapshot is published and immutable[.] F3[.]2m is a$' tools/verify-host-boundary.sh
+forbid "F3.2n host verifier restores stale F3.2m local/unpublished provenance wording" \
+  -E '^# local[/]unpublished, non-binding, non-enacting decision input only[.]$' tools/verify-host-boundary.sh
+
+p32nbranch=$(git --no-optional-locks symbolic-ref --quiet --short HEAD 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n checked-out branch cannot be resolved"
+[ "$p32nbranch" = main ] || err "F3.2n checked-out branch is not main"
+p32nhead=$(git --no-optional-locks rev-parse "HEAD^{commit}" 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n HEAD does not resolve as a commit"
+git --no-optional-locks log -1 --format=%B "$p32nhead" > "$tmpdir/p32n.head.msg.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n HEAD message read failed"
+printf '%s\n\n' 'docs(f3): record non-enacting F3.2n D-11 Q-002 physical SD attachment-epoch direction' \
+  > "$tmpdir/p32n.b.msg.exp" || err "F3.2n B message fixture failed"
+printf '%s\n\n' 'chore(verify): bind F3.2n D-11 Q-002 physical SD attachment-epoch owner-direction stage' \
+  > "$tmpdir/p32n.c.msg.exp" || err "F3.2n C message fixture failed"
+cmp -s "$tmpdir/p32n.b.msg.exp" "$tmpdir/p32n.head.msg.act"; p32nbheadrc=$?
+cmp -s "$tmpdir/p32n.c.msg.exp" "$tmpdir/p32n.head.msg.act"; p32ncheadrc=$?
+p32nstage=invalid
+p32nb=$p32nhead
+p32nc=$p32nhead
+case "$p32nbheadrc:$p32ncheadrc" in
+  0:1)
+    p32nstage=b
+    p32nb=$p32nhead
+    ;;
+  1:0)
+    p32nstage=c
+    p32nc=$p32nhead
+    p32nb=$(git --no-optional-locks rev-parse "$p32nc^" 2>/dev/null); p32nrc=$?
+    [ "$p32nrc" -eq 0 ] || err "F3.2n final C parent cannot be derived as B"
+    ;;
+  *)
+    err "F3.2n HEAD is neither exact intermediate B nor exact final C by bodyless message"
+    ;;
+esac
+
+p32n_single_parent() {
+  p32nspcommit=$1
+  p32nsplabel=$2
+  git --no-optional-locks rev-list --no-walk --parents "$p32nspcommit" \
+    > "$tmpdir/p32n.single-parent"; p32nsprc=$?
+  [ "$p32nsprc" -eq 0 ] || err "F3.2n $p32nsplabel parent enumeration failed"
+  p32nspfields=$(awk 'NR == 1 {print NF+0} END {if (NR != 1) exit 1}' \
+    "$tmpdir/p32n.single-parent"); p32nsprc=$?
+  [ "$p32nsprc" -eq 0 ] || err "F3.2n $p32nsplabel parent count failed"
+  [ "$p32nspfields" = 2 ] || err "F3.2n $p32nsplabel is not a single-parent commit"
+}
+
+p32n_single_parent "$p32na" "A"
+p32naparent=$(git --no-optional-locks rev-parse "$p32na^" 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A parent cannot be resolved"
+[ "$p32naparent" = "$p32nbase" ] || err "F3.2n A parent differs from exact published base"
+git --no-optional-locks log -1 --format=%B "$p32na" > "$tmpdir/p32n.a.msg.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A message read failed"
+printf '%s\n\n' 'docs: authorize F3.2n D-11 Q-002 physical SD attachment-epoch owner direction' \
+  > "$tmpdir/p32n.a.msg.exp" || err "F3.2n A message fixture failed"
+cmp -s "$tmpdir/p32n.a.msg.exp" "$tmpdir/p32n.a.msg.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A full message differs or contains a body"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32na" > "$tmpdir/p32n.a.paths.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A path enumeration failed"
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32n.a.paths.exp" || err "F3.2n A path fixture failed"
+cmp -s "$tmpdir/p32n.a.paths.exp" "$tmpdir/p32n.a.paths.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A changes a path other than docs/DECISION-LOG.md"
+
+p32n_single_parent "$p32nb" "B"
+p32nbparent=$(git --no-optional-locks rev-parse "$p32nb^" 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B parent cannot be resolved"
+[ "$p32nbparent" = "$p32na" ] || err "F3.2n B parent differs from exact A"
+git --no-optional-locks log -1 --format=%B "$p32nb" > "$tmpdir/p32n.b.msg.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B message read failed"
+cmp -s "$tmpdir/p32n.b.msg.exp" "$tmpdir/p32n.b.msg.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B full message differs or contains a body"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32nb" > "$tmpdir/p32n.b.paths.raw"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B path enumeration failed"
+LC_ALL=C sort "$tmpdir/p32n.b.paths.raw" > "$tmpdir/p32n.b.paths.act" || err "F3.2n B path sort failed"
+cat > "$tmpdir/p32n.b.paths.exp" <<'QK_HOST_F32N_B_PATHS_EOF'
+docs/f3/F3.2N-D11-Q002-SD-ATTACHMENT-EPOCH-OWNER-DIRECTION-RECORD.md
+tools/verify-host-boundary.sh
+QK_HOST_F32N_B_PATHS_EOF
+cmp -s "$tmpdir/p32n.b.paths.exp" "$tmpdir/p32n.b.paths.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B path set differs from exact record/host pair"
+
+if [ "$p32nstage" = c ]; then
+  p32n_single_parent "$p32nc" "C"
+  p32ncparent=$(git --no-optional-locks rev-parse "$p32nc^" 2>/dev/null); p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C parent cannot be resolved"
+  [ "$p32ncparent" = "$p32nb" ] || err "F3.2n C parent differs from exact B"
+  git --no-optional-locks log -1 --format=%B "$p32nc" > "$tmpdir/p32n.c.msg.act"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C message read failed"
+  cmp -s "$tmpdir/p32n.c.msg.exp" "$tmpdir/p32n.c.msg.act"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C full message differs or contains a body"
+  git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32nc" > "$tmpdir/p32n.c.paths.act"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C path enumeration failed"
+  printf '%s\n' tools/verify-current-stage.sh > "$tmpdir/p32n.c.paths.exp" || err "F3.2n C path fixture failed"
+  cmp -s "$tmpdir/p32n.c.paths.exp" "$tmpdir/p32n.c.paths.act"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C changes a path other than tools/verify-current-stage.sh"
+fi
+
+p32nahead=$(git --no-optional-locks rev-list --count "$p32nbase..$p32nhead" 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n ahead-count failed"
+p32nbehind=$(git --no-optional-locks rev-list --count "$p32nhead..$p32nbase" 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n behind-count failed"
+[ "$p32nbehind" = 0 ] || err "F3.2n HEAD is behind or diverged from exact base"
+case "$p32nstage:$p32nahead" in
+  b:2|c:3) : ;;
+  *) err "F3.2n stage/ahead count differs: stage=$p32nstage ahead=$p32nahead" ;;
+esac
+p32nmerges=$(git --no-optional-locks rev-list --merges "$p32nbase..$p32nhead" 2>/dev/null); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n merge enumeration failed"
+[ -z "$p32nmerges" ] || err "F3.2n chain contains a merge commit"
+
+git --no-optional-locks diff --name-only "$p32nbase" "$p32nhead" > "$tmpdir/p32n.paths.raw"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n cumulative path enumeration failed"
+LC_ALL=C sort "$tmpdir/p32n.paths.raw" > "$tmpdir/p32n.paths.act" || err "F3.2n cumulative path sort failed"
+if [ "$p32nstage" = b ]; then
+  cat > "$tmpdir/p32n.paths.exp" <<'QK_HOST_F32N_STAGE_B_PATHS_EOF'
+docs/DECISION-LOG.md
+docs/f3/F3.2N-D11-Q002-SD-ATTACHMENT-EPOCH-OWNER-DIRECTION-RECORD.md
+tools/verify-host-boundary.sh
+QK_HOST_F32N_STAGE_B_PATHS_EOF
+else
+  cat > "$tmpdir/p32n.paths.exp" <<'QK_HOST_F32N_STAGE_C_PATHS_EOF'
+docs/DECISION-LOG.md
+docs/f3/F3.2N-D11-Q002-SD-ATTACHMENT-EPOCH-OWNER-DIRECTION-RECORD.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+QK_HOST_F32N_STAGE_C_PATHS_EOF
+fi
+cmp -s "$tmpdir/p32n.paths.exp" "$tmpdir/p32n.paths.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n cumulative path set differs from exact stage partition"
+
+git --no-optional-locks rev-parse "$p32nbase^{tree}" > "$tmpdir/p32n.base.tree.act" 2>/dev/null; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n base tree lookup failed"
+printf '%s\n' "$p32ntree" > "$tmpdir/p32n.base.tree.exp" || err "F3.2n base tree fixture failed"
+cmp -s "$tmpdir/p32n.base.tree.exp" "$tmpdir/p32n.base.tree.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n base tree differs"
+for p32ntreecheck in \
+  "$p32na|100644|$p32ndlogablob|docs/DECISION-LOG.md" \
+  "$p32nb|100644|$p32nrecordblob|$REC32N"; do
+  p32ntreecommit=${p32ntreecheck%%|*}
+  p32ntreerest=${p32ntreecheck#*|}
+  p32ntreemode=${p32ntreerest%%|*}
+  p32ntreerest=${p32ntreerest#*|}
+  p32ntreeblob=${p32ntreerest%%|*}
+  p32ntreepath=${p32ntreerest#*|}
+  git --no-optional-locks ls-tree "$p32ntreecommit" -- "$p32ntreepath" > "$tmpdir/p32n.tree.act"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n tree lookup failed for $p32ntreepath"
+  printf '%s blob %s\t%s\n' "$p32ntreemode" "$p32ntreeblob" "$p32ntreepath" > "$tmpdir/p32n.tree.exp" \
+    || err "F3.2n tree fixture failed for $p32ntreepath"
+  cmp -s "$tmpdir/p32n.tree.exp" "$tmpdir/p32n.tree.act"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n tree entry differs for $p32ntreepath"
+done
+git --no-optional-locks ls-tree "$p32nb" -- tools/verify-host-boundary.sh > "$tmpdir/p32n.host.tree"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B host-verifier tree lookup failed"
+p32nhostmode=$(awk 'NR == 1 {print $1} END {if (NR != 1) exit 1}' "$tmpdir/p32n.host.tree"); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n B host-verifier mode read failed"
+[ "$p32nhostmode" = 100755 ] || err "F3.2n B host-verifier mode differs"
+if [ "$p32nstage" = c ]; then
+  git --no-optional-locks ls-tree "$p32nc" -- tools/verify-current-stage.sh > "$tmpdir/p32n.current.tree"; p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C current-stage tree lookup failed"
+  p32ncurrentmode=$(awk 'NR == 1 {print $1} END {if (NR != 1) exit 1}' "$tmpdir/p32n.current.tree"); p32nrc=$?
+  [ "$p32nrc" -eq 0 ] || err "F3.2n C current-stage mode read failed"
+  [ "$p32ncurrentmode" = 100755 ] || err "F3.2n C current-stage mode differs"
+fi
+
+git --no-optional-locks rev-parse "$p32nbase:docs/DECISION-LOG.md" > "$tmpdir/p32n.dlog.base.blob.act" 2>/dev/null; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n base Decision Log blob lookup failed"
+printf '%s\n' "$p32ndlogbaseblob" > "$tmpdir/p32n.dlog.base.blob.exp" || err "F3.2n base Decision Log blob fixture failed"
+cmp -s "$tmpdir/p32n.dlog.base.blob.exp" "$tmpdir/p32n.dlog.base.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n base Decision Log blob differs"
+git --no-optional-locks rev-parse "$p32na:docs/DECISION-LOG.md" > "$tmpdir/p32n.dlog.a.blob.act" 2>/dev/null; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A Decision Log blob lookup failed"
+printf '%s\n' "$p32ndlogablob" > "$tmpdir/p32n.dlog.a.blob.exp" || err "F3.2n A Decision Log blob fixture failed"
+cmp -s "$tmpdir/p32n.dlog.a.blob.exp" "$tmpdir/p32n.dlog.a.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A Decision Log blob differs"
+git --no-optional-locks rev-parse "$p32nhead:docs/DECISION-LOG.md" > "$tmpdir/p32n.dlog.head.blob.act" 2>/dev/null; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n HEAD Decision Log blob lookup failed"
+cmp -s "$tmpdir/p32n.dlog.a.blob.exp" "$tmpdir/p32n.dlog.head.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log changed after exact A"
+git --no-optional-locks show "$p32nbase:docs/DECISION-LOG.md" > "$tmpdir/p32n.dlog.base" 2>/dev/null; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n base Decision Log read failed"
+git --no-optional-locks show "$p32na:docs/DECISION-LOG.md" > "$tmpdir/p32n.dlog.a" 2>/dev/null; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n A Decision Log read failed"
+wc -c < "$tmpdir/p32n.dlog.base" > "$tmpdir/p32n.dlog.bytes.raw"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n base Decision Log byte count failed"
+tr -d '[:space:]' < "$tmpdir/p32n.dlog.bytes.raw" > "$tmpdir/p32n.dlog.bytes"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log byte-count normalization failed"
+p32nbasebytes=$(cat "$tmpdir/p32n.dlog.bytes"); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log byte-count read failed"
+case $p32nbasebytes in ''|*[!0-9]*) err "F3.2n Decision Log base byte count is non-numeric" ;; esac
+dd if="$tmpdir/p32n.dlog.a" bs=1 count="$p32nbasebytes" > "$tmpdir/p32n.dlog.prefix" 2> "$tmpdir/p32n.dlog.dd.err"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log prefix read failed"
+cmp -s "$tmpdir/p32n.dlog.base" "$tmpdir/p32n.dlog.prefix"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log is not an exact append"
+p32nauthhits=$(grep -cFx -e '### QK-AUTH-F3.2N-D11-Q002-SD-ATTACHMENT-EPOCH-DIR-REC-001 — F3.2n D-11 Q-002 physical SD attachment-epoch owner-direction record preparation authorization' "$tmpdir/p32n.dlog.a"); p32nrc=$?
+[ "$p32nrc" -le 1 ] || err "F3.2n authorization heading scan failed"
+[ "$p32nauthhits" = 1 ] || err "F3.2n authorization heading differs or duplicates"
+
+git --no-optional-locks hash-object -- "$REC32N" > "$tmpdir/p32n.record.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n record blob scan failed"
+printf '%s\n' "$p32nrecordblob" > "$tmpdir/p32n.record.blob.exp" || err "F3.2n record blob fixture failed"
+cmp -s "$tmpdir/p32n.record.blob.exp" "$tmpdir/p32n.record.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n record whole blob differs"
+git --no-optional-locks hash-object -- "$PKT32M" > "$tmpdir/p32n.packet.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n source packet blob scan failed"
+printf '%s\n' "$p32npacketblob" > "$tmpdir/p32n.packet.blob.exp" || err "F3.2n source packet blob fixture failed"
+cmp -s "$tmpdir/p32n.packet.blob.exp" "$tmpdir/p32n.packet.blob.act"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n immutable F3.2m source packet differs"
+
+sed -n '/^### QK-AUTH-F3\.2N-D11-Q002-SD-ATTACHMENT-EPOCH-DIR-REC-001 /,$p' "$tmpdir/p32n.dlog.a" > "$tmpdir/p32n.dlog.section"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log section extraction failed"
+sed -n '/^- \*\*Owner words exactly (literal six-paragraph block follows):\*\*$/,/^- \*\*Published source boundary:\*\*/p' \
+  "$tmpdir/p32n.dlog.section" > "$tmpdir/p32n.dlog.owner.framed"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log owner block extraction failed"
+sed -n '/^## Owner words exactly$/,/^## Exact direction map$/p' "$REC32N" > "$tmpdir/p32n.record.owner.framed"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n record owner block extraction failed"
+[ "$(awk 'END {print NR+0}' "$tmpdir/p32n.dlog.owner.framed")" = 15 ] \
+  || err "F3.2n Decision Log owner block framing or paragraph breaks differ"
+[ "$(awk 'END {print NR+0}' "$tmpdir/p32n.record.owner.framed")" = 15 ] \
+  || err "F3.2n record owner block framing or paragraph breaks differ"
+sed -n '3,13p' "$tmpdir/p32n.dlog.owner.framed" > "$tmpdir/p32n.dlog.owner"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n Decision Log owner transcript deframing failed"
+sed -n '3,13p' "$tmpdir/p32n.record.owner.framed" > "$tmpdir/p32n.record.owner"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n record owner transcript deframing failed"
+cmp -s "$tmpdir/p32n.dlog.owner" "$tmpdir/p32n.record.owner"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n six-paragraph owner transcript differs between exact A and record"
+
+sed -n 's/^| F32M-D11-Q002-OPT-001 | PROPOSED — UNSELECTED | RECOMMENDED — NOT SELECTED | \(.*\) |$/\1/p' \
+  "$PKT32M" > "$tmpdir/p32n.selected.packet"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n selected source-cell extraction failed"
+[ "$(awk 'END {print NR+0}' "$tmpdir/p32n.selected.packet")" = 1 ] \
+  || err "F3.2n selected source-cell extraction is not exactly one line"
+sed -n '/^## Selected option text exactly$/,/^## Conditional future direction$/p' "$REC32N" \
+  > "$tmpdir/p32n.selected.record.framed"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n selected-text block extraction failed"
+[ "$(awk 'END {print NR+0}' "$tmpdir/p32n.selected.record.framed")" = 5 ] \
+  || err "F3.2n selected-text block framing differs"
+sed -n '3p' "$tmpdir/p32n.selected.record.framed" > "$tmpdir/p32n.selected.record"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n selected-text deframing failed"
+cmp -s "$tmpdir/p32n.selected.packet" "$tmpdir/p32n.selected.record"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "F3.2n selected text differs from exact unquoted F3.2m OPT-001 disposition cell"
+
+for p32nrequiredline in \
+  '| F32M-D11-Q002-OPT-001 | PROPOSED — UNSELECTED — HISTORICAL SOURCE STATE | OWNER ANSWER AND DIRECTION APPROVED — NON-ENACTING — ALL AND ONLY THIS DISPOSITION | NONE — SEPARATELY AUTHORIZED LATER WORK ONLY |' \
+  '| F32M-D11-Q002-OPT-002 | PROPOSED — UNSELECTED — HISTORICAL SOURCE STATE | NOT APPROVED — NO SELECTION | NONE |' \
+  '| F32M-D11-Q002-OPT-003 | PROPOSED — UNSELECTED — HISTORICAL SOURCE STATE | NOT APPROVED — NO SELECTION | NONE |' \
+  'There is exactly one approved direction: all and only `F32M-D11-Q002-OPT-001`. No alternative, hybrid, subset, paraphrase, normalization, substitution, implied default, packet recommendation, or additional change is approved.' \
+  '- No continuation or substitute-media output is permitted under that approval.' \
+  '- Unchanged-epoch retry remains open under `F32C-D11-Q-005`; this record selects no unchanged-epoch retry policy. The published F3.2d Q-001 clarification remains byte-identical and unchanged.' \
+  '- `F32C-D11-Q-003` through `F32C-D11-Q-012` remain unanswered.' \
+  '- Present canonical effect is exactly `NONE`. No canonical source is amended by this record.' \
+  '- `QK-REQ-BND-003` remains byte-identical and unchanged.'; do
+  p32nlinehits=$(grep -cFx -e "$p32nrequiredline" "$REC32N"); p32nrc=$?
+  [ "$p32nrc" -le 1 ] || err "F3.2n exact semantic-line scan failed"
+  [ "$p32nlinehits" = 1 ] || err "F3.2n exact semantic line differs or duplicates: $p32nrequiredline"
+done
+forbid "F3.2n record restores stale substitute-medium wording" \
+  -F 'substitute-medium output' "$REC32N"
+forbid "F3.2n record restores the overbroad stale retry-policy wording" \
+  -F 'selects no retry, continuation, fallback, or re-signing policy.' "$REC32N"
+
+iconv -f UTF-8 -t UTF-8 "$REC32N" > "$tmpdir/p32n.utf8" 2> "$tmpdir/p32n.iconv.err"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N is not strict UTF-8"
+[ -s "$tmpdir/p32n.utf8" ] || err "$REC32N UTF-8 validation produced empty output"
+cmp -s "$REC32N" "$tmpdir/p32n.utf8"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N UTF-8 validation changed bytes"
+tail -c 1 "$REC32N" > "$tmpdir/p32n.last.raw"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N final-byte read failed"
+od -An -tuC "$tmpdir/p32n.last.raw" > "$tmpdir/p32n.last.od"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N final-byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32n.last.od" > "$tmpdir/p32n.last.norm"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N final-byte normalization failed"
+p32nlast=$(cat "$tmpdir/p32n.last.norm"); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N final-byte read-back failed"
+[ "$p32nlast" = 10 ] || err "$REC32N must end in exact LF"
+tail -c 2 "$REC32N" > "$tmpdir/p32n.last2.raw"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N final-two-byte read failed"
+printf '\n\n' > "$tmpdir/p32n.double-lf" || err "$REC32N double-LF fixture generation failed"
+cmp -s "$tmpdir/p32n.double-lf" "$tmpdir/p32n.last2.raw"; p32nrc=$?
+[ "$p32nrc" -eq 1 ] || err "$REC32N must not end in double LF or cmp failed (exit $p32nrc)"
+od -An -tx1 "$REC32N" > "$tmpdir/p32n.bytes.raw"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N byte scan failed"
+tr 'A-F' 'a-f' < "$tmpdir/p32n.bytes.raw" > "$tmpdir/p32n.bytes"; p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N byte normalization failed"
+p32nbad=$(awk 'BEGIN {bad=0; p2=""; p1=""} {for(i=1;i<=NF;i++){b=$i; if(b=="00"||b=="0d")bad++; seq=p2 p1 b; if(seq=="efbbbf"||seq=="e2808e"||seq=="e2808f"||seq=="e280aa"||seq=="e280ab"||seq=="e280ac"||seq=="e280ad"||seq=="e280ae"||seq=="e281a6"||seq=="e281a7"||seq=="e281a8"||seq=="e281a9")bad++; p2=p1; p1=b}} END {print bad+0}' "$tmpdir/p32n.bytes"); p32nrc=$?
+[ "$p32nrc" -eq 0 ] || err "$REC32N control/bidi byte scan failed"
+[ "$p32nbad" = 0 ] || err "$REC32N contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$REC32N contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$REC32N"
+forbid "$REC32N contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$REC32N"
+forbid "$REC32N contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$REC32N"
+
+# G: full changed-content material scan across exactly the sixteen named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this fifteen-path scan.
+# is separately bounded elsewhere and is not part of this sixteen-path scan.
 # Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" "$PKT32M" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" "$PKT32M" "$REC32N" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -4520,7 +4836,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same fifteen named scan paths; every token must be deliberately
+# across the same sixteen named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -4581,8 +4897,14 @@ done
 #   11714544ea89b3475d65a8a5634b7fdab65f5972  F3.2m packet whole-file blob
 #   ee144c20c76283d8565d7d031145be372bae5375  F3.2m base current-stage-verifier blob
 #   9bb66dc93d452e04284e13026814ed7322fb25b0  F3.2m protected THREAT-MODEL blob
+#   f41e26799d0c4522b91e1de72d27cf473116b3ab  F3.2n source base / published F3.2m C
+#   9ae24ea3278252b0a0f6703d2cbc381d59859dcf  F3.2n published source-base tree
+#   d3a4f3bec5902d2e2155647a27ffe34bfa233bee  F3.2n authorization commit A
+#   84f8fd26b311fe3e084b01c932ae3ee7469c49a3  F3.2n Decision Log A blob
+#   01f7fb3140bcf69c31719a996c7a4c7ddd2394ab  F3.2n owner-direction record blob
 {
   printf '%s\n' \
+    01f7fb3140bcf69c31719a996c7a4c7ddd2394ab \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
     09815b0a75c26a118f80c5cec008e695d319900b \
     0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
@@ -4615,12 +4937,14 @@ done
     75c5e69cf5154b1936b86a6f0795f615a4d6ab3d \
     7d03656d245786f3a17eb4dbae689ef03b172b75 \
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
+    84f8fd26b311fe3e084b01c932ae3ee7469c49a3 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
     877866e5a3636bdfb7015d715e048ccfad63d939 \
     878b23be4690bb778a615bfe1a6ef108e7a94008 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
     981b1b497102187da66fb4e82ef0725b32c088f7 \
     99384f6cd5eedd37488e0c12d865737217f88b6c \
+    9ae24ea3278252b0a0f6703d2cbc381d59859dcf \
     9bb66dc93d452e04284e13026814ed7322fb25b0 \
     a066fc9710371f414d158a3deb9c345f2b00821b \
     a292d97308ae9a36d5bb5c4c48a83905bb06c073 \
@@ -4633,6 +4957,7 @@ done
     bb6601f3b97528a72c55622251a4b475680ec21b \
     be4d019e349e15ca575ac64b64f900957283e5e0 \
     c4e1ed94a02fba5d01f5cebfda4d5b1439222625 \
+    d3a4f3bec5902d2e2155647a27ffe34bfa233bee \
     da55fb4bcd4983140c8fb379cc3322eec99284f0 \
     de71c22328b24e0848bbe1bd12ac8974ca83b5b8 \
     e18ba6b4a5c2ee5fc5b7d1a464b656c631b526d5 \
@@ -4642,12 +4967,13 @@ done
     e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc \
     ecb3867ca2842f6d011288d3dcd94d2b1997e516 \
     ee144c20c76283d8565d7d031145be372bae5375 \
+    f41e26799d0c4522b91e1de72d27cf473116b3ab \
     f4e127a92fc68243274b7d384e335fa4632e5dd2
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" "$PKT32M" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" "$PKT32M" "$REC32N" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
