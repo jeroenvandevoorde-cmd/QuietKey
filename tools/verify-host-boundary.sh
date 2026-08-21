@@ -107,6 +107,7 @@ docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
@@ -1263,12 +1264,14 @@ forbid "$WTS claims an ACCEPTED profile" \
 forbid "$WTS claims vectors were generated or run" \
   -E '(vectors? (were|have been|are) (GENERATED|RUN|generated|run))' "$WTS"
 # Exact bounded append content (not prefix-only), via checked stages.
-# docs/DECISION-LOG.md must be byte-identical to the latest reviewed A commit.
+# The earlier F3.2l Decision Log predicate is frozen at its published C.
 git --no-optional-locks show 4af6166dc23eed7285a3d65b339924cda7b07962:docs/DECISION-LOG.md > "$tmpdir/dlog.a" 2>/dev/null \
-  || err "cannot read docs/DECISION-LOG.md from the reviewed A commit"
-cmp -s "$tmpdir/dlog.a" docs/DECISION-LOG.md
+  || err "cannot read docs/DECISION-LOG.md from the reviewed F3.2l A"
+git --no-optional-locks show 1408fa98961e62ba6316515b1e277b6952a96e18:docs/DECISION-LOG.md > "$tmpdir/dlog.frozen" 2>/dev/null \
+  || err "cannot read docs/DECISION-LOG.md from the published F3.2l C"
+cmp -s "$tmpdir/dlog.a" "$tmpdir/dlog.frozen"
 dlrc=$?
-[ "$dlrc" -eq 0 ] || err "docs/DECISION-LOG.md is not byte-identical to the reviewed A commit (cmp exit $dlrc): extra or altered governance text"
+[ "$dlrc" -eq 0 ] || err "F3.2l published Decision Log differs from the reviewed A (cmp exit $dlrc): extra or altered governance text"
 # docs/SOURCE-REGISTER.md must equal the exact published-base bytes
 # plus exactly the seven authorized F3.2a rows in declared order.
 git --no-optional-locks show a9d1f205cfa879a6f54b8838256d36e469cfed97:docs/SOURCE-REGISTER.md > "$tmpdir/sreg.base" 2>/dev/null \
@@ -3763,10 +3766,11 @@ cmp -s "$tmpdir/p32k.hex.exp" "$tmpdir/p32k.hex.act"; p32krc=$?
 [ "$p32krc" -eq 0 ] || err "$REC32K exact-40-hex multiset differs"
 
 # ---------------- F3.2l QK-LIM-PSBT-027 canonical tombstone amendment
-# The published F3.2k stage is the immutable source. This active local stage
-# enacts all and only the seven previously selected canonical payloads.
+# The published F3.2k stage is the immutable source. The exact published
+# F3.2l snapshot enacts all and only the seven selected canonical payloads.
 p32lbase=49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf
 p32la=4af6166dc23eed7285a3d65b339924cda7b07962
+p32lc=1408fa98961e62ba6316515b1e277b6952a96e18
 p32ldlogblob=7d03656d245786f3a17eb4dbae689ef03b172b75
 p32lresourcepost=09815b0a75c26a118f80c5cec008e695d319900b
 p32lrequirementspost=2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84
@@ -3777,15 +3781,15 @@ p32ljpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
 p32lbranch=$(git --no-optional-locks symbolic-ref --quiet --short HEAD 2>/dev/null); p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l checked-out branch cannot be resolved"
 [ "$p32lbranch" = main ] || err "F3.2l checked-out branch is $p32lbranch, expected main"
-p32lhead=$(git --no-optional-locks rev-parse HEAD 2>/dev/null); p32lrc=$?
-[ "$p32lrc" -eq 0 ] || err "F3.2l HEAD cannot be resolved"
+p32lhead=$(git --no-optional-locks rev-parse "$p32lc^{commit}" 2>/dev/null); p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l published C cannot be resolved"
+[ "$p32lhead" = "$p32lc" ] || err "F3.2l published C resolution differs"
 p32lahead=$(git --no-optional-locks rev-list --count "$p32lbase..$p32lhead"); p32lrc=$?
-[ "$p32lrc" -eq 0 ] || err "F3.2l base-to-HEAD count failed"
+[ "$p32lrc" -eq 0 ] || err "F3.2l base-to-published-C count failed"
 p32lbehind=$(git --no-optional-locks rev-list --count "$p32lhead..$p32lbase"); p32lrc=$?
-[ "$p32lrc" -eq 0 ] || err "F3.2l HEAD-to-base count failed"
-[ "$p32lahead" = 3 ] || err "F3.2l HEAD is $p32lahead commits above its base, expected exactly 3"
-[ "$p32lbehind" = 0 ] || err "F3.2l base is $p32lbehind commits above HEAD, expected exactly 0"
-p32lc=$p32lhead
+[ "$p32lrc" -eq 0 ] || err "F3.2l published-C-to-base count failed"
+[ "$p32lahead" = 3 ] || err "F3.2l published C is $p32lahead commits above its base, expected exactly 3"
+[ "$p32lbehind" = 0 ] || err "F3.2l base is $p32lbehind commits above published C, expected exactly 0"
 p32lb=$(git --no-optional-locks rev-parse "$p32lc^" 2>/dev/null); p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l C parent lookup failed"
 p32laact=$(git --no-optional-locks rev-parse "$p32lb^" 2>/dev/null); p32lrc=$?
@@ -3872,8 +3876,10 @@ git --no-optional-locks show "$p32lbase:docs/DECISION-LOG.md" > "$tmpdir/p32l.dl
 [ "$p32lrc" -eq 0 ] || err "F3.2l base Decision Log read failed"
 git --no-optional-locks show "$p32la:docs/DECISION-LOG.md" > "$tmpdir/p32l.dlog.a" 2>/dev/null; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l A Decision Log read failed"
-cmp -s "$tmpdir/p32l.dlog.a" docs/DECISION-LOG.md; p32lrc=$?
-[ "$p32lrc" -eq 0 ] || err "F3.2l active Decision Log differs from A"
+git --no-optional-locks show "$p32lc:docs/DECISION-LOG.md" > "$tmpdir/p32l.dlog.frozen" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l published Decision Log read failed"
+cmp -s "$tmpdir/p32l.dlog.a" "$tmpdir/p32l.dlog.frozen"; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l published Decision Log differs from A"
 wc -c < "$tmpdir/p32l.dlog.base" > "$tmpdir/p32l.dlog.bytes.raw"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log base byte count failed"
 tr -d '[:space:]' < "$tmpdir/p32l.dlog.bytes.raw" > "$tmpdir/p32l.dlog.bytes"; p32lrc=$?
@@ -3885,10 +3891,10 @@ dd if="$tmpdir/p32l.dlog.a" bs=1 count="$p32lbasebytes" > "$tmpdir/p32l.dlog.pre
 [ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log prefix read failed"
 cmp -s "$tmpdir/p32l.dlog.base" "$tmpdir/p32l.dlog.prefix"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log is not an exact append"
-p32lauthhits=$(grep -cFx -e '### QK-AUTH-F3.2L-QK-LIM-PSBT-027-CANONICAL-AMEND-001 — F3.2l QK-LIM-PSBT-027 canonical permanent-tombstone amendment authorization' docs/DECISION-LOG.md); p32lrc=$?
+p32lauthhits=$(grep -cFx -e '### QK-AUTH-F3.2L-QK-LIM-PSBT-027-CANONICAL-AMEND-001 — F3.2l QK-LIM-PSBT-027 canonical permanent-tombstone amendment authorization' "$tmpdir/p32l.dlog.frozen"); p32lrc=$?
 [ "$p32lrc" -le 1 ] || err "F3.2l authorization heading scan failed"
 [ "$p32lauthhits" = 1 ] || err "F3.2l authorization heading differs or duplicates"
-sed -n '/^### QK-AUTH-F3.2L-QK-LIM-PSBT-027-CANONICAL-AMEND-001 /,$p' docs/DECISION-LOG.md > "$tmpdir/p32l.dlog.section"; p32lrc=$?
+sed -n '/^### QK-AUTH-F3.2L-QK-LIM-PSBT-027-CANONICAL-AMEND-001 /,$p' "$tmpdir/p32l.dlog.frozen" > "$tmpdir/p32l.dlog.section"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l Decision Log section extraction failed"
 sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' "$tmpdir/p32l.dlog.section" > "$tmpdir/p32l.owner.framed"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l owner block framing failed"
@@ -3914,7 +3920,7 @@ for p32lsourcepair in \
   "$PKT32J|$p32ljpacketblob"; do
   p32lsourcepath=${p32lsourcepair%%|*}
   p32lsourceexpected=${p32lsourcepair#*|}
-  git --no-optional-locks hash-object -- "$p32lsourcepath" > "$tmpdir/p32l.source.act"; p32lrc=$?
+  git --no-optional-locks rev-parse "$p32lc:$p32lsourcepath" > "$tmpdir/p32l.source.act" 2>/dev/null; p32lrc=$?
   [ "$p32lrc" -eq 0 ] || err "F3.2l source blob scan failed for $p32lsourcepath"
   printf '%s\n' "$p32lsourceexpected" > "$tmpdir/p32l.source.exp" || err "F3.2l source blob fixture failed"
   cmp -s "$tmpdir/p32l.source.exp" "$tmpdir/p32l.source.act"; p32lrc=$?
@@ -3995,11 +4001,17 @@ p32l_replace_exact "$tmpdir/p32l.resource.3" "$tmpdir/p32l.resource.4" "$tmpdir/
 p32l_replace_exact "$tmpdir/p32l.requirements.0" "$tmpdir/p32l.requirements.1" "$tmpdir/p32l.5.old" "$tmpdir/p32l.5.new"
 p32l_replace_exact "$tmpdir/p32l.requirements.1" "$tmpdir/p32l.requirements.2" "$tmpdir/p32l.6.old" "$tmpdir/p32l.6.new"
 p32l_replace_exact "$tmpdir/p32l.test.0" "$tmpdir/p32l.test.1" "$tmpdir/p32l.7.old" "$tmpdir/p32l.7.new"
-cmp -s "$tmpdir/p32l.resource.4" docs/RESOURCE-BUDGETS.md; p32lrc=$?
+git --no-optional-locks show "$p32lc:docs/RESOURCE-BUDGETS.md" > "$tmpdir/p32l.resource.frozen" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l published RESOURCE-BUDGETS read failed"
+git --no-optional-locks show "$p32lc:docs/REQUIREMENTS.md" > "$tmpdir/p32l.requirements.frozen" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l published REQUIREMENTS read failed"
+git --no-optional-locks show "$p32lc:docs/TEST-ARCHITECTURE.md" > "$tmpdir/p32l.test.frozen" 2>/dev/null; p32lrc=$?
+[ "$p32lrc" -eq 0 ] || err "F3.2l published TEST-ARCHITECTURE read failed"
+cmp -s "$tmpdir/p32l.resource.4" "$tmpdir/p32l.resource.frozen"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l RESOURCE-BUDGETS is not the exact four-payload reconstruction"
-cmp -s "$tmpdir/p32l.requirements.2" docs/REQUIREMENTS.md; p32lrc=$?
+cmp -s "$tmpdir/p32l.requirements.2" "$tmpdir/p32l.requirements.frozen"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l REQUIREMENTS is not the exact two-payload reconstruction"
-cmp -s "$tmpdir/p32l.test.1" docs/TEST-ARCHITECTURE.md; p32lrc=$?
+cmp -s "$tmpdir/p32l.test.1" "$tmpdir/p32l.test.frozen"; p32lrc=$?
 [ "$p32lrc" -eq 0 ] || err "F3.2l TEST-ARCHITECTURE is not the exact one-payload reconstruction"
 for p32lpostpair in \
   "docs/RESOURCE-BUDGETS.md|$p32lresourcepost" \
@@ -4007,57 +4019,497 @@ for p32lpostpair in \
   "docs/TEST-ARCHITECTURE.md|$p32ltestpost"; do
   p32lpostpath=${p32lpostpair%%|*}
   p32lpostexpected=${p32lpostpair#*|}
-  git --no-optional-locks hash-object -- "$p32lpostpath" > "$tmpdir/p32l.post.act"; p32lrc=$?
+  git --no-optional-locks rev-parse "$p32lc:$p32lpostpath" > "$tmpdir/p32l.post.act" 2>/dev/null; p32lrc=$?
   [ "$p32lrc" -eq 0 ] || err "F3.2l post-enactment blob scan failed for $p32lpostpath"
   printf '%s\n' "$p32lpostexpected" > "$tmpdir/p32l.post.exp" || err "F3.2l post-enactment blob fixture failed"
   cmp -s "$tmpdir/p32l.post.exp" "$tmpdir/p32l.post.act"; p32lrc=$?
   [ "$p32lrc" -eq 0 ] || err "F3.2l post-enactment blob differs for $p32lpostpath"
 done
 
-p32lrow026hits=$(grep -cFx -e "$p32hrow026" docs/RESOURCE-BUDGETS.md); p32lrc=$?
+p32lrow026hits=$(grep -cFx -e "$p32hrow026" "$tmpdir/p32l.resource.frozen"); p32lrc=$?
 [ "$p32lrc" -le 1 ] || err "F3.2l QK-LIM-PSBT-026 scan failed"
 [ "$p32lrow026hits" = 1 ] || err "F3.2l changed or duplicated QK-LIM-PSBT-026"
-p32lgatehits=$(grep -cF -e 'ALL GATES OPEN' docs/RESOURCE-BUDGETS.md); p32lrc=$?
+p32lgatehits=$(grep -cF -e 'ALL GATES OPEN' "$tmpdir/p32l.resource.frozen"); p32lrc=$?
 [ "$p32lrc" -le 1 ] || err "F3.2l ALL GATES OPEN scan failed"
 [ "$p32lgatehits" = 1 ] || err "F3.2l ALL GATES OPEN state differs or duplicates"
 for p32lglobalpath in docs/OPEN-DECISIONS.md docs/THREAT-MODEL.md; do
   git --no-optional-locks rev-parse "$p32lbase:$p32lglobalpath" > "$tmpdir/p32l.global.exp" 2>/dev/null; p32lrc=$?
   [ "$p32lrc" -eq 0 ] || err "F3.2l base global-state blob lookup failed for $p32lglobalpath"
-  git --no-optional-locks hash-object -- "$p32lglobalpath" > "$tmpdir/p32l.global.act"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l active global-state blob scan failed for $p32lglobalpath"
+  git --no-optional-locks rev-parse "$p32lc:$p32lglobalpath" > "$tmpdir/p32l.global.act" 2>/dev/null; p32lrc=$?
+  [ "$p32lrc" -eq 0 ] || err "F3.2l published global-state blob scan failed for $p32lglobalpath"
   cmp -s "$tmpdir/p32l.global.exp" "$tmpdir/p32l.global.act"; p32lrc=$?
   [ "$p32lrc" -eq 0 ] || err "F3.2l global OD/threat state differs for $p32lglobalpath"
 done
-for p32lcf in docs/DECISION-LOG.md docs/RESOURCE-BUDGETS.md docs/REQUIREMENTS.md docs/TEST-ARCHITECTURE.md; do
+for p32lcfpair in \
+  "docs/DECISION-LOG.md|$tmpdir/p32l.dlog.frozen" \
+  "docs/RESOURCE-BUDGETS.md|$tmpdir/p32l.resource.frozen" \
+  "docs/REQUIREMENTS.md|$tmpdir/p32l.requirements.frozen" \
+  "docs/TEST-ARCHITECTURE.md|$tmpdir/p32l.test.frozen"; do
+  p32lcfname=${p32lcfpair%%|*}
+  p32lcf=${p32lcfpair#*|}
   iconv -f UTF-8 -t UTF-8 "$p32lcf" > "$tmpdir/p32l.utf8" 2> "$tmpdir/p32l.iconv.err"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l changed document is not strict UTF-8: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l published document is not strict UTF-8: $p32lcfname"
   cmp -s "$p32lcf" "$tmpdir/p32l.utf8"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l UTF-8 round trip changed bytes: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l UTF-8 round trip changed bytes: $p32lcfname"
   tail -c 1 "$p32lcf" > "$tmpdir/p32l.last"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte read failed: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte read failed: $p32lcfname"
   od -An -tuC "$tmpdir/p32l.last" > "$tmpdir/p32l.last.od"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte scan failed: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte scan failed: $p32lcfname"
   p32llast=$(tr -d '[:space:]' < "$tmpdir/p32l.last.od"); p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte normalization failed: $p32lcf"
-  [ "$p32llast" = 10 ] || err "F3.2l changed document lacks exact final LF: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l final-byte normalization failed: $p32lcfname"
+  [ "$p32llast" = 10 ] || err "F3.2l published document lacks exact final LF: $p32lcfname"
   od -An -tx1 "$p32lcf" > "$tmpdir/p32l.bytes"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l byte scan failed: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l byte scan failed: $p32lcfname"
   awk 'BEGIN {bad=0; p2=""; p1=""} {for(i=1;i<=NF;i++){b=tolower($i); if(b=="00"||b=="0d")bad++; seq=p2 p1 b; if(seq=="efbbbf"||seq=="e2808e"||seq=="e2808f"||seq=="e280aa"||seq=="e280ab"||seq=="e280ac"||seq=="e280ad"||seq=="e280ae"||seq=="e281a6"||seq=="e281a7"||seq=="e281a8"||seq=="e281a9")bad++; p2=p1; p1=b}} END {print bad+0}' "$tmpdir/p32l.bytes" > "$tmpdir/p32l.bad"; p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l control/bidi scan failed: $p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l control/bidi scan failed: $p32lcfname"
   p32lbad=$(cat "$tmpdir/p32l.bad"); p32lrc=$?
-  [ "$p32lrc" -eq 0 ] || err "F3.2l control/bidi result read failed: $p32lcf"
-  [ "$p32lbad" = 0 ] || err "F3.2l changed document contains BOM, NUL, CR, LRM/RLM, or bidi controls: $p32lcf"
-  forbid "F3.2l changed document contains a tab or trailing whitespace: $p32lcf" -E '	|[[:blank:]]$' "$p32lcf"
+  [ "$p32lrc" -eq 0 ] || err "F3.2l control/bidi result read failed: $p32lcfname"
+  [ "$p32lbad" = 0 ] || err "F3.2l published document contains BOM, NUL, CR, LRM/RLM, or bidi controls: $p32lcfname"
+  forbid "F3.2l published document contains a tab or trailing whitespace: $p32lcfname" -E '	|[[:blank:]]$' "$p32lcf"
 done
 
-# G: full changed-content material scan across exactly the fourteen named
+# ---------------- F3.2m D-11 Q-002 SD attachment-epoch decision packet
+# The exact F3.2l C snapshot is published and immutable. F3.2m is a
+# local/unpublished, non-binding, non-enacting decision input only.
+PKT32M=docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+[ -f "$PKT32M" ] || err "$PKT32M missing"
+p32mbase=1408fa98961e62ba6316515b1e277b6952a96e18
+p32mbasetree=75c5e69cf5154b1936b86a6f0795f615a4d6ab3d
+p32ma=59008528885259ad8b93be1f0ece136930fd445d
+p32mdlogbaseblob=7d03656d245786f3a17eb4dbae689ef03b172b75
+p32mdlogablob=99384f6cd5eedd37488e0c12d865737217f88b6c
+p32mpacketblob=11714544ea89b3475d65a8a5634b7fdab65f5972
+
+git --no-optional-locks rev-parse "$p32mbase^{commit}" > "$tmpdir/p32m.base.act" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m published base does not resolve as a commit"
+printf '%s\n' "$p32mbase" > "$tmpdir/p32m.base.exp" || err "F3.2m base fixture generation failed"
+cmp -s "$tmpdir/p32m.base.exp" "$tmpdir/p32m.base.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m published base resolution differs"
+git --no-optional-locks rev-parse "$p32mbase^{tree}" > "$tmpdir/p32m.tree.act" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m published base tree cannot be resolved"
+printf '%s\n' "$p32mbasetree" > "$tmpdir/p32m.tree.exp" || err "F3.2m base-tree fixture generation failed"
+cmp -s "$tmpdir/p32m.tree.exp" "$tmpdir/p32m.tree.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m published base tree differs"
+git --no-optional-locks rev-parse "$p32ma^{commit}" > "$tmpdir/p32m.a.act" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A does not resolve"
+printf '%s\n' "$p32ma" > "$tmpdir/p32m.a.exp" || err "F3.2m A fixture generation failed"
+cmp -s "$tmpdir/p32m.a.exp" "$tmpdir/p32m.a.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A resolution differs"
+p32maparent=$(git --no-optional-locks rev-parse "$p32ma^" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A parent cannot be resolved"
+[ "$p32maparent" = "$p32mbase" ] || err "F3.2m authorization commit A parent differs"
+git --no-optional-locks log -1 --format=%B "$p32ma" > "$tmpdir/p32m.a.msg.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A message read failed"
+printf '%s\n\n' 'docs: authorize F3.2m D-11 Q-002 SD attachment-epoch decision packet' > "$tmpdir/p32m.a.msg.exp" \
+  || err "F3.2m authorization commit A message fixture failed"
+cmp -s "$tmpdir/p32m.a.msg.exp" "$tmpdir/p32m.a.msg.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A message differs or has a body"
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32ma" > "$tmpdir/p32m.a.paths.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A path enumeration failed"
+printf '%s\n' docs/DECISION-LOG.md > "$tmpdir/p32m.a.paths.exp" || err "F3.2m A path fixture failed"
+cmp -s "$tmpdir/p32m.a.paths.exp" "$tmpdir/p32m.a.paths.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m authorization commit A changes a path other than docs/DECISION-LOG.md"
+
+# The host verifier is committed in B, so it must verify either its exact
+# intermediate B graph or the exact final C graph without self-pinning B/C.
+p32mbranch=$(git --no-optional-locks symbolic-ref --quiet --short HEAD 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m checked-out branch cannot be resolved"
+[ "$p32mbranch" = main ] || err "F3.2m checked-out branch is not main"
+p32mhead=$(git --no-optional-locks rev-parse "HEAD^{commit}" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m HEAD does not resolve as a commit"
+git --no-optional-locks log -1 --format=%B "$p32mhead" > "$tmpdir/p32m.head.msg.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m HEAD message read failed"
+printf '%s\n\n' 'docs(f3): add non-binding F3.2m D-11 Q-002 SD attachment-epoch decision packet' \
+  > "$tmpdir/p32m.b.msg.exp" || err "F3.2m B message fixture failed"
+printf '%s\n\n' 'chore(verify): bind F3.2m D-11 Q-002 decision-packet stage' \
+  > "$tmpdir/p32m.c.msg.exp" || err "F3.2m C message fixture failed"
+cmp -s "$tmpdir/p32m.b.msg.exp" "$tmpdir/p32m.head.msg.act"; p32mbheadrc=$?
+cmp -s "$tmpdir/p32m.c.msg.exp" "$tmpdir/p32m.head.msg.act"; p32mcheadrc=$?
+p32mstage=invalid
+p32mb=$p32mhead
+p32mc=$p32mhead
+case "$p32mbheadrc:$p32mcheadrc" in
+  0:1)
+    p32mstage=b
+    p32mb=$p32mhead
+    ;;
+  1:0)
+    p32mstage=c
+    p32mc=$p32mhead
+    p32mb=$(git --no-optional-locks rev-parse "$p32mc^" 2>/dev/null); p32mrc=$?
+    [ "$p32mrc" -eq 0 ] || err "F3.2m final C parent cannot be derived as B"
+    ;;
+  *)
+    err "F3.2m HEAD is neither exact intermediate B nor exact final C by bodyless message"
+    ;;
+esac
+
+p32m_single_parent() {
+  p32mspcommit=$1
+  p32msplabel=$2
+  git --no-optional-locks rev-list --no-walk --parents "$p32mspcommit" \
+    > "$tmpdir/p32m.single-parent"; p32msprc=$?
+  [ "$p32msprc" -eq 0 ] || err "F3.2m $p32msplabel parent enumeration failed"
+  p32mspfields=$(awk 'NR == 1 {print NF+0} END {if (NR != 1) exit 1}' \
+    "$tmpdir/p32m.single-parent"); p32msprc=$?
+  [ "$p32msprc" -eq 0 ] || err "F3.2m $p32msplabel parent count failed"
+  [ "$p32mspfields" = 2 ] || err "F3.2m $p32msplabel is not a single-parent commit"
+}
+
+p32m_single_parent "$p32mb" "B"
+p32mbparent=$(git --no-optional-locks rev-parse "$p32mb^" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m B parent cannot be resolved"
+[ "$p32mbparent" = "$p32ma" ] || err "F3.2m B parent differs from exact A"
+git --no-optional-locks log -1 --format=%B "$p32mb" > "$tmpdir/p32m.b.msg.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m B message read failed"
+cmp -s "$tmpdir/p32m.b.msg.exp" "$tmpdir/p32m.b.msg.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m B full message differs or contains a body"
+
+if [ "$p32mstage" = c ]; then
+  p32m_single_parent "$p32mc" "C"
+  p32mcparent=$(git --no-optional-locks rev-parse "$p32mc^" 2>/dev/null); p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m final C parent cannot be resolved"
+  [ "$p32mcparent" = "$p32mb" ] || err "F3.2m final C parent differs from derived B"
+  git --no-optional-locks log -1 --format=%B "$p32mc" > "$tmpdir/p32m.c.msg.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m C message read failed"
+  cmp -s "$tmpdir/p32m.c.msg.exp" "$tmpdir/p32m.c.msg.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m C full message differs or contains a body"
+fi
+
+p32mahead=$(git --no-optional-locks rev-list --count "$p32mbase..$p32mhead" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m ahead-count enumeration failed"
+case "$p32mahead" in ''|*[!0-9]*) err "F3.2m ahead count is non-numeric" ;; esac
+p32mbehind=$(git --no-optional-locks rev-list --count "$p32mhead..$p32mbase" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m behind-count enumeration failed"
+case "$p32mbehind" in ''|*[!0-9]*) err "F3.2m behind count is non-numeric" ;; esac
+[ "$p32mbehind" = 0 ] || err "F3.2m HEAD is behind or diverged from the exact base"
+if [ "$p32mstage" = b ]; then
+  [ "$p32mahead" = 2 ] || err "F3.2m intermediate B must be exactly two commits above base"
+elif [ "$p32mstage" = c ]; then
+  [ "$p32mahead" = 3 ] || err "F3.2m final C must be exactly three commits above base"
+fi
+p32mmerges=$(git --no-optional-locks rev-list --merges "$p32mbase..$p32mhead" 2>/dev/null); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m merge enumeration failed"
+[ -z "$p32mmerges" ] || err "F3.2m graph contains a merge commit"
+
+git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32mb" \
+  > "$tmpdir/p32m.b.paths.raw"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m B path enumeration failed"
+[ -s "$tmpdir/p32m.b.paths.raw" ] || err "F3.2m B path enumeration produced no paths"
+LC_ALL=C sort "$tmpdir/p32m.b.paths.raw" > "$tmpdir/p32m.b.paths.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m B path sort failed"
+cat > "$tmpdir/p32m.b.paths.exp" <<'QK_F32M_B_PATHS_EOF' || err "F3.2m B path fixture failed"
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+tools/verify-host-boundary.sh
+QK_F32M_B_PATHS_EOF
+cmp -s "$tmpdir/p32m.b.paths.exp" "$tmpdir/p32m.b.paths.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m B path set differs"
+
+if [ "$p32mstage" = c ]; then
+  git --no-optional-locks diff-tree --no-commit-id --name-only -r "$p32mc" \
+    > "$tmpdir/p32m.c.paths.raw"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m C path enumeration failed"
+  [ -s "$tmpdir/p32m.c.paths.raw" ] || err "F3.2m C path enumeration produced no paths"
+  LC_ALL=C sort "$tmpdir/p32m.c.paths.raw" > "$tmpdir/p32m.c.paths.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m C path sort failed"
+  printf '%s\n' tools/verify-current-stage.sh > "$tmpdir/p32m.c.paths.exp" \
+    || err "F3.2m C path fixture failed"
+  cmp -s "$tmpdir/p32m.c.paths.exp" "$tmpdir/p32m.c.paths.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m C path set differs"
+fi
+
+git --no-optional-locks diff --name-only "$p32mbase" "$p32mhead" \
+  > "$tmpdir/p32m.cumulative.raw"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m cumulative path enumeration failed"
+LC_ALL=C sort "$tmpdir/p32m.cumulative.raw" > "$tmpdir/p32m.cumulative.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m cumulative path sort failed"
+if [ "$p32mstage" = b ]; then
+  cat > "$tmpdir/p32m.cumulative.exp" <<'QK_F32M_B_CUMULATIVE_EOF' || err "F3.2m B cumulative fixture failed"
+docs/DECISION-LOG.md
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+tools/verify-host-boundary.sh
+QK_F32M_B_CUMULATIVE_EOF
+  p32mcumulativeerr="F3.2m intermediate B cumulative path set differs"
+elif [ "$p32mstage" = c ]; then
+  cat > "$tmpdir/p32m.cumulative.exp" <<'QK_F32M_C_CUMULATIVE_EOF' || err "F3.2m C cumulative fixture failed"
+docs/DECISION-LOG.md
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+QK_F32M_C_CUMULATIVE_EOF
+  p32mcumulativeerr="F3.2m final C cumulative path set differs"
+else
+  : > "$tmpdir/p32m.cumulative.exp" || err "F3.2m invalid-stage cumulative fixture failed"
+  p32mcumulativeerr="F3.2m invalid-stage cumulative path set differs"
+fi
+cmp -s "$tmpdir/p32m.cumulative.exp" "$tmpdir/p32m.cumulative.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$p32mcumulativeerr"
+
+while IFS='|' read -r p32mtreecommit p32mtreemode p32mtreeblob p32mtreepath; do
+  git --no-optional-locks ls-tree "$p32mtreecommit" -- "$p32mtreepath" > "$tmpdir/p32m.tree.entry"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m tree lookup failed for $p32mtreepath"
+  [ -s "$tmpdir/p32m.tree.entry" ] || err "F3.2m tree entry missing for $p32mtreepath"
+  p32mtreelines=$(awk 'END {print NR+0}' "$tmpdir/p32m.tree.entry"); p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m tree-entry count failed for $p32mtreepath"
+  [ "$p32mtreelines" = 1 ] || err "F3.2m tree entry is not unique for $p32mtreepath"
+  p32mtreeactmode=$(awk 'NR == 1 {print $1}' "$tmpdir/p32m.tree.entry"); p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m tree mode read failed for $p32mtreepath"
+  p32mtreeactblob=$(awk 'NR == 1 {print $3}' "$tmpdir/p32m.tree.entry"); p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m tree blob read failed for $p32mtreepath"
+  [ "$p32mtreeactmode" = "$p32mtreemode" ] || err "F3.2m mode differs for $p32mtreepath"
+  [ "$p32mtreeactblob" = "$p32mtreeblob" ] || err "F3.2m blob differs for $p32mtreepath"
+done <<QK_F32M_TREE_EOF
+$p32ma|100644|$p32mdlogablob|docs/DECISION-LOG.md
+$p32mb|100644|$p32mpacketblob|$PKT32M
+QK_F32M_TREE_EOF
+git --no-optional-locks ls-tree "$p32mb" -- tools/verify-host-boundary.sh > "$tmpdir/p32m.host.tree"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m active host-verifier tree lookup failed"
+[ -s "$tmpdir/p32m.host.tree" ] || err "F3.2m active host-verifier tree entry missing"
+p32mhostmode=$(awk 'NR == 1 {print $1}' "$tmpdir/p32m.host.tree"); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m active host-verifier mode read failed"
+[ "$p32mhostmode" = 100755 ] || err "F3.2m active host-verifier mode differs"
+if [ "$p32mstage" = c ]; then
+  git --no-optional-locks ls-tree "$p32mc" -- tools/verify-current-stage.sh \
+    > "$tmpdir/p32m.current.tree"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m current-stage-verifier tree lookup failed"
+  [ -s "$tmpdir/p32m.current.tree" ] || err "F3.2m current-stage-verifier tree entry missing"
+  p32mcurrentmode=$(awk 'NR == 1 {print $1}' "$tmpdir/p32m.current.tree"); p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m current-stage-verifier mode read failed"
+  [ "$p32mcurrentmode" = 100755 ] || err "F3.2m current-stage-verifier mode differs"
+fi
+
+git --no-optional-locks rev-parse "$p32mbase:docs/DECISION-LOG.md" > "$tmpdir/p32m.dlog.base.blob.act" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m base Decision Log blob lookup failed"
+printf '%s\n' "$p32mdlogbaseblob" > "$tmpdir/p32m.dlog.base.blob.exp" || err "F3.2m base Decision Log blob fixture failed"
+cmp -s "$tmpdir/p32m.dlog.base.blob.exp" "$tmpdir/p32m.dlog.base.blob.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m base Decision Log blob differs"
+git --no-optional-locks show "$p32mbase:docs/DECISION-LOG.md" > "$tmpdir/p32m.dlog.base" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m base Decision Log read failed"
+git --no-optional-locks show "$p32ma:docs/DECISION-LOG.md" > "$tmpdir/p32m.dlog.a" 2>/dev/null; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m A Decision Log read failed"
+git --no-optional-locks hash-object -- docs/DECISION-LOG.md > "$tmpdir/p32m.dlog.active.blob"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m active Decision Log blob scan failed"
+printf '%s\n' "$p32mdlogablob" > "$tmpdir/p32m.dlog.a.blob.exp" || err "F3.2m A Decision Log blob fixture failed"
+cmp -s "$tmpdir/p32m.dlog.a.blob.exp" "$tmpdir/p32m.dlog.active.blob"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m active Decision Log is not the exact A blob"
+wc -c < "$tmpdir/p32m.dlog.base" > "$tmpdir/p32m.dlog.bytes.raw"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m base Decision Log byte count failed"
+tr -d '[:space:]' < "$tmpdir/p32m.dlog.bytes.raw" > "$tmpdir/p32m.dlog.bytes"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log byte-count normalization failed"
+p32mbasebytes=$(cat "$tmpdir/p32m.dlog.bytes"); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log byte-count read failed"
+case $p32mbasebytes in ''|*[!0-9]*) err "F3.2m Decision Log base byte count is non-numeric" ;; esac
+dd if="$tmpdir/p32m.dlog.a" bs=1 count="$p32mbasebytes" > "$tmpdir/p32m.dlog.prefix" 2> "$tmpdir/p32m.dlog.dd.err"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log prefix read failed"
+cmp -s "$tmpdir/p32m.dlog.base" "$tmpdir/p32m.dlog.prefix"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log is not an exact append"
+p32mauthhits=$(grep -cFx -e '### QK-AUTH-F3.2M-D11-Q002-PKT-001 — F3.2m D-11 Q-002 SD attachment-epoch decision-packet preparation authorization' "$tmpdir/p32m.dlog.a"); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m authorization heading scan failed"
+[ "$p32mauthhits" = 1 ] || err "F3.2m authorization heading differs or duplicates"
+
+git --no-optional-locks hash-object -- "$PKT32M" > "$tmpdir/p32m.packet.blob.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m packet blob scan failed"
+printf '%s\n' "$p32mpacketblob" > "$tmpdir/p32m.packet.blob.exp" || err "F3.2m packet blob fixture failed"
+cmp -s "$tmpdir/p32m.packet.blob.exp" "$tmpdir/p32m.packet.blob.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m packet whole blob differs"
+
+for p32mowner in \
+  'Authorize preparation and independent audit of a non-binding, non-enacting docs-only F3.2m D-11 Q-002 SD attachment-epoch decision packet from published commit 1408fa98961e62ba6316515b1e277b6952a96e18, with only the mechanically necessary Decision Log and verifier bindings.' \
+  'Limit the packet to F32C-D11-Q-002 only. Preserve and inventory the exact current QK-REQ-BND-003 requirement, the F3.2c Q-002, analysis-only sd_attachment_epoch, bounded read-only preflight, state-transition, and F32C-D11-F-017 material, the published F3.2d Q-001 clarification, and the published F3.2l canonical state. Present exactly three finite, mutually exclusive dispositions, all explicitly PROPOSED — UNSELECTED: F32M-D11-Q002-OPT-001, recommended conditional physical attachment-epoch binding whenever a later-selected export plan includes SD, with bounded read-only preflight before review and approval, the session-scoped non-authenticating epoch and exact reviewed preflight facts approval-bound, removal or replacement ending the epoch and the active attempt, no continuation or substitute-media output under that approval, and a new medium requiring a new plan and full review and approval while unchanged-epoch retry remains Q-005-open; F32M-D11-Q002-OPT-002, non-recommended logical SD-route binding with deferred physical insertion only after signing, subject to an explicit reconciliation with QK-REQ-BND-003, with any pre-signing media change still invalidating approval, no replacement continuation or silent approval carry-over, and retry remaining Q-005-open; or F32M-D11-Q002-OPT-003, deferral with Q-002 unresolved. State that recommendation is analysis only, not an owner answer or selection. Select no identifier, hash, serialization, authenticator, filename, collision policy, media-identity mechanism, filesystem, commit primitive, or target behavior.' \
+  'No owner selection or canonical or historical edit; no answer to F32C-D11-Q-003 through Q-012 and no change to the recorded Q-001 clarification; no route-set or completion rule, retry rule, same-versus-distinct input/output media rule, filename/collision rule, visibility/commit/orphan rule, QR self-check rule, signature-insertion rule, or D-09 semantic-field rule; no D-11, D-09, OD-05/06, profile, clause, dependency, QK-LIM, QK-TST, evidence, gate, or STOP-SHIP change. Preserve QK-LIM-PSBT-027 as the sole permanent non-reusable tombstone, QK-LIM-PSBT-026, ALL GATES OPEN, and every other canonical and historical byte. No implementation, testing, corpus, vector, fixture, evidence, media I/O, hardware, firmware, license, setting, credential, other-branch, tag, release, publication, remote, or other change.'; do
+  for p32mownerfile in "$tmpdir/p32m.dlog.a" "$PKT32M"; do
+    p32mownerhits=$(grep -cFx -e "$p32mowner" "$p32mownerfile"); p32mrc=$?
+    [ "$p32mrc" -le 1 ] || err "F3.2m owner transcript scan failed in $p32mownerfile"
+    [ "$p32mownerhits" = 1 ] || err "F3.2m owner transcript differs or duplicates in $p32mownerfile"
+  done
+done
+sed -n '/^### QK-AUTH-F3.2M-D11-Q002-PKT-001 /,$p' "$tmpdir/p32m.dlog.a" > "$tmpdir/p32m.dlog.section"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log section extraction failed"
+sed -n '/^- \*\*Owner words exactly (literal three-paragraph block follows):\*\*$/,/^- \*\*Published parent and source locators:\*\*/p' \
+  "$tmpdir/p32m.dlog.section" > "$tmpdir/p32m.owner.dlog.framed"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log owner-block extraction failed"
+sed '1d;$d' "$tmpdir/p32m.owner.dlog.framed" > "$tmpdir/p32m.owner.dlog"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log owner-block deframing failed"
+sed -n '/^## Owner words exactly$/,/^## Exact current source inventory$/p' \
+  "$PKT32M" > "$tmpdir/p32m.owner.packet.framed"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m packet owner-block extraction failed"
+sed '1d;$d' "$tmpdir/p32m.owner.packet.framed" > "$tmpdir/p32m.owner.packet"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m packet owner-block deframing failed"
+cmp -s "$tmpdir/p32m.owner.dlog" "$tmpdir/p32m.owner.packet"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m Decision Log and packet owner transcript blocks differ"
+
+grep '^## ' "$PKT32M" > "$tmpdir/p32m.sections.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m ordered-section extraction failed"
+cat > "$tmpdir/p32m.sections.exp" <<'QK_F32M_SECTIONS_EOF' || err "F3.2m ordered-section fixture failed"
+## Standing/source boundary
+## Supporting audit locators
+## Owner words exactly
+## Exact current source inventory
+## Reconciliation analysis without selection
+## F32C-D11-Q-002 owner question — UNANSWERED
+## Exactly three dispositions
+## Mutual exclusivity and guardrails
+## Preserved state/non-effects
+## Exact terminal marker
+QK_F32M_SECTIONS_EOF
+cmp -s "$tmpdir/p32m.sections.exp" "$tmpdir/p32m.sections.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m section order or closed grammar differs"
+p32mtitlehits=$(grep -cFx -e '# QK-F3.2m — D-11 Q-002 SD Attachment-Epoch Decision Packet (Non-Binding)' "$PKT32M"); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m title scan failed"
+[ "$p32mtitlehits" = 1 ] || err "F3.2m title differs or duplicates"
+p32mwarninghits=$(grep -cFx -e 'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' "$PKT32M"); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m safety-warning scan failed"
+[ "$p32mwarninghits" = 1 ] || err "F3.2m safety warning differs or duplicates"
+p32mquestionheadings=$(grep -cFx -e '## F32C-D11-Q-002 owner question — UNANSWERED' "$PKT32M"); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m question-heading scan failed"
+[ "$p32mquestionheadings" = 1 ] || err "F3.2m must contain exactly one owner-question heading"
+p32moptionheaders=$(grep -cFx -e '| Option ID | Selection | Recommendation | Disposition |' "$PKT32M"); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m option-table header scan failed"
+[ "$p32moptionheaders" = 1 ] || err "F3.2m must contain exactly one option table"
+grep '^| F32M-D11-Q002-OPT-' "$PKT32M" > "$tmpdir/p32m.options.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m option-row extraction failed"
+cat > "$tmpdir/p32m.options.exp" <<'QK_F32M_OPTIONS_EOF' || err "F3.2m option fixture generation failed"
+| F32M-D11-Q002-OPT-001 | PROPOSED — UNSELECTED | RECOMMENDED — NOT SELECTED | If separately selected later, whenever a later-selected export plan includes SD, require the exact physical SD attachment epoch to be present: perform bounded read-only preflight before review and approval; bind the session-scoped non-authenticating epoch and exact reviewed preflight facts to approval; removal or replacement ends that epoch and, where an active attempt exists, ends that attempt; permit no continuation or substitute-media output under that approval; and require a new medium to receive a new plan and full review and approval. Retry under an unchanged attachment epoch remains F32C-D11-Q-005-open. This disposition selects no media-identity mechanism and does not define the content of any filename or collision fact. |
+| F32M-D11-Q002-OPT-002 | PROPOSED — UNSELECTED | NOT RECOMMENDED | If separately selected later, bind only the logical SD route and defer physical insertion until after signing. Any pre-signing media change still invalidates approval under QK-REQ-BND-003. Acquisition of postapproval media or preflight facts remains an explicit unresolved conflict requiring separately authorized QK-REQ-BND-003 reconciliation; temporal sequencing does not reconcile it. On removal or replacement after insertion, the epoch and any active attempt end; no replacement may continue the active attempt, no approval may silently carry over, and retry remains F32C-D11-Q-005-open. This disposition selects no media-identity mechanism, filename, collision policy, filesystem, commit primitive, or target behavior. |
+| F32M-D11-Q002-OPT-003 | PROPOSED — UNSELECTED | NOT RECOMMENDED | Defer. F32C-D11-Q-002 remains unresolved; neither attachment-epoch binding nor logical-route binding is selected. |
+QK_F32M_OPTIONS_EOF
+cmp -s "$tmpdir/p32m.options.exp" "$tmpdir/p32m.options.act"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m exact three-option content, order, selection, or recommendation differs"
+p32moptionrows=$(awk 'END {print NR+0}' "$tmpdir/p32m.options.act"); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m option-row count failed"
+[ "$p32moptionrows" = 3 ] || err "F3.2m must contain exactly three option rows"
+
+for p32msource in \
+  '| QK-REQ-BND-003 | Any intervening input, card, media, session, or state change after approval SHALL invalidate that approval before signing. | QK-DEC-009, QK-DEC-010 | QK-THR-017, QK-THR-019 | NONE (TOCTOU invariant) | QK-TST-PROP-006, QK-TST-PWR-004 | property, power-cut | Gate C |' \
+  '- INHERITED FIXED REQUIREMENT: QK-REQ-BND-003 requires that any intervening input, card, media, session, or state change after approval invalidates approval before signing.' \
+  '| F32C-D11-Q-002 | Must exact physical SD attachment epoch be present/approval-bound, or may logical SD route accept later insertion/replacement; reconcile broad media-change invalidation. | OWNER QUESTION — UNANSWERED — NO RESPONSE REQUESTED — NOT READY FOR SELECTION |' \
+  '| F32C-D11-F-009 | short write or removal during write | end attempt and attachment epoch; residue may remain; Q-001 remains unresolved | no commit or completion; no continue after reinsertion | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |' \
+  '| F32C-D11-F-017 | media replacement | attachment epoch ends; Q-002 decides attempt-versus-approval invalidation | never treat replacement as the same medium | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |' \
+  '| F32C-D11-F-019 | retry request | same frozen bytes only if later selected; cross-attempt QR accumulation remains evidence-relevant | never re-sign or change plan | PROPOSED — UNSELECTED — TARGET EVIDENCE REQUIRED |' \
+  'F32C-D11-Q-001 DISPOSITION: OWNER CLARIFICATION RECORDED — NON-ENACTING — D-11 NOT SELECTED.' \
+  '- A later failure permits no automatic fallback, retry, or re-signing.' \
+  '- The published F3.2d Q-001 clarification remains current and unchanged. Before route output begins, failure releases nothing; after output begins, a later failure stops further output, permits no complete-artifact, delivery, receipt, finalization, broadcast, atomicity, or durability claim, and permits no automatic fallback, retry, or re-signing. No route-output-begins boundary is selected.' \
+  'This clarification defines no route-output-begins boundary and selects no D-11 construction, state, route, or route set.' \
+  '- Its Q-001-unanswered wording records its historical status at the source base. This later record supplies the current owner clarification without editing or superseding the source packet.' \
+  '- F32C-D11-Q-002 — Must exact physical SD attachment epoch be present/approval-bound, or may logical SD route accept later insertion/replacement; reconcile broad media-change invalidation. — UNANSWERED — NO RESPONSE RECORDED — NOT READY FOR SELECTION' \
+  'The Q-001 “no retry” clarification does not answer Q-005 future-new-attempt policy. The Q-001 “no automatic fallback” clarification does not answer Q-003 or Q-004 route cardinality or outcomes.' \
+  '| QK-LIM-PSBT-026 | Signed PSBT output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |' \
+  '| QK-LIM-PSBT-027 | Raw final-transaction output bytes | NONE — FORMER BOUNDARY RELATIONSHIP NON-OPERATIVE | HISTORICAL ONLY — FORMER QK-THR-016 RELATIONSHIP NON-OPERATIVE | NONE — FORMER REQUIREMENT AND TEST RELATIONSHIPS REMOVED | NONE — FORMER EVIDENCE RELATIONSHIP NON-OPERATIVE | NOT A VALUE — PERMANENT TOMBSTONE SENTINEL | TOMBSTONED — PERMANENT — NON-REUSABLE | NONE — FORMER OD-05 RELATIONSHIP NON-OPERATIVE |'; do
+  p32msourcehits=$(grep -cFx -e "$p32msource" "$PKT32M"); p32mrc=$?
+  [ "$p32mrc" -le 1 ] || err "F3.2m exact source-inventory scan failed"
+  [ "$p32msourcehits" = 1 ] || err "F3.2m exact source-inventory line is missing, altered, or duplicated"
+done
+
+for p32mboundary in \
+  'STATUS: OWNER-AUTHORIZED DECISION INPUT ONLY — NON-BINDING — NON-ENACTING — F32C-D11-Q-002 ONLY AND UNANSWERED — EXACTLY THREE DISPOSITIONS PROPOSED — UNSELECTED — OPTION 1 RECOMMENDED AS ANALYSIS ONLY — NOT SELECTED — F3.2D Q-001 CLARIFICATION PRESERVED — F32C-D11-Q-003 THROUGH Q-012 UNANSWERED — D-11 EVIDENCE/CONSTRUCTION-BLOCKED AND NOT SELECTED — PSBT PROFILE NOT ACCEPTED — QK-LIM-PSBT-027 SOLE PERMANENT NON-REUSABLE TOMBSTONE — QK-LIM-PSBT-026 LIVE AND OPEN — ALL GATES OPEN — NO IMPLEMENTATION OR MEDIA I/O — LOCAL AND UNPUBLISHED.' \
+  'The recommendation is analysis only, not an owner answer or selection.' \
+  'The three dispositions are finite and mutually exclusive at approval time: physical attachment epoch bound, no physical attachment epoch bound with first insertion after signing, or no disposition. Recommendation is analysis only. There is no hybrid, fourth option, implicit default, answer, approval, or selection.' \
+  'Preflight facts are observations, not selected filenames, collision policy, authentication, authority, or stable physical-media identity. No stable physical-media identity, identifier, hash, serialization, authenticator, filename, collision resolution, media-identity mechanism, filesystem, writer, commit primitive, target behavior, atomicity, durability, receipt, or residue-absence claim is selected or defined.' \
+  '`F32M-D11-Q002-OPT-002` does not reconcile, waive, or amend `QK-REQ-BND-003`. Neither option answers unchanged-epoch retry or `F32C-D11-Q-005`, `F32C-D11-Q-003` through `F32C-D11-Q-012`, D-09, or any other excluded item.' \
+  'Under F32M-D11-Q002-OPT-001 or F32M-D11-Q002-OPT-002, removal or replacement cannot continue an active attempt, and no replacement medium receives silent approval carry-over. F32M-D11-Q002-OPT-003 selects neither rule because it defers F32C-D11-Q-002. Nothing in this packet selects same-versus-distinct input/output media, route set, completion, retry, filename/collision, visibility/commit/orphan, QR self-check, signature insertion, serialization, hashing, authentication, writer, atomicity, durability, receipt, or residue policy.' \
+  'END OF PACKET — F3.2m D-11 Q-002 DECISION INPUT ONLY — NON-BINDING — NON-ENACTING — F32C-D11-Q-002 UNANSWERED — EXACTLY THREE DISPOSITIONS PROPOSED — UNSELECTED — NO OWNER SELECTION — D-11 NOT SELECTED — LOCAL AND UNPUBLISHED.'; do
+  p32mboundaryhits=$(grep -cFx -e "$p32mboundary" "$PKT32M"); p32mrc=$?
+  [ "$p32mrc" -le 1 ] || err "F3.2m boundary statement scan failed"
+  [ "$p32mboundaryhits" = 1 ] || err "F3.2m required boundary statement is missing, altered, or duplicated"
+done
+forbid "F3.2m packet reintroduces an overbroad all-dispositions attempt rule" \
+  -F 'under any disposition' "$PKT32M"
+forbid "F3.2m packet conflates prohibited actions with a retry/re-signing claim" \
+  -F 'retry, or re-signing claim' "$PKT32M"
+
+while IFS=' ' read -r p32mprotected p32mprotectedblob; do
+  git --no-optional-locks rev-parse "$p32mbase:$p32mprotected" > "$tmpdir/p32m.protected.base.act" 2>/dev/null; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m protected base blob lookup failed for $p32mprotected"
+  printf '%s\n' "$p32mprotectedblob" > "$tmpdir/p32m.protected.exp" || err "F3.2m protected blob fixture failed"
+  cmp -s "$tmpdir/p32m.protected.exp" "$tmpdir/p32m.protected.base.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m protected base blob differs for $p32mprotected"
+  git --no-optional-locks hash-object -- "$p32mprotected" > "$tmpdir/p32m.protected.active.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m active protected blob scan failed for $p32mprotected"
+  cmp -s "$tmpdir/p32m.protected.exp" "$tmpdir/p32m.protected.active.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m active protected blob differs for $p32mprotected"
+done <<'QK_F32M_PROTECTED_BLOBS_EOF'
+ARCHITECTURE.md 71e3f95adf541560ff5d067030f78dfd088d1ec1
+docs/MATURITY-GATES.md 5b6b67b7ec44f1460f31a02803e6f6db4f9386d1
+docs/OPEN-DECISIONS.md a292d97308ae9a36d5bb5c4c48a83905bb06c073
+docs/REQUIREMENTS.md 2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84
+docs/RESOURCE-BUDGETS.md 09815b0a75c26a118f80c5cec008e695d319900b
+docs/TEST-ARCHITECTURE.md ecb3867ca2842f6d011288d3dcd94d2b1997e516
+docs/THREAT-MODEL.md 9bb66dc93d452e04284e13026814ed7322fb25b0
+docs/f3/F3.2C-D11-MEDIA-WRITE-LIFECYCLE-CONSTRUCTION-PACKET.md b4594210975940df71b0e941841320d11defaa4c
+docs/f3/F3.2D-D11-Q001-OWNER-CLARIFICATION-RECORD.md a996a6d7c2bfa3a15109085475868410fe354422
+docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md b1c2153f5f89a0e1d44d62a09921251e225c0d87
+docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md 5b05d62776c65bfaf5ec41ab39108bc0531b7944
+docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md 877866e5a3636bdfb7015d715e048ccfad63d939
+QK_F32M_PROTECTED_BLOBS_EOF
+for p32mbaseverifier in \
+  "tools/verify-host-boundary.sh|4d5041591bd28c665c717ddbdfc0dc54ef345680" \
+  "tools/verify-current-stage.sh|ee144c20c76283d8565d7d031145be372bae5375"; do
+  p32mverifierpath=${p32mbaseverifier%%|*}
+  p32mverifierblob=${p32mbaseverifier#*|}
+  git --no-optional-locks rev-parse "$p32mbase:$p32mverifierpath" > "$tmpdir/p32m.verifier.base.act" 2>/dev/null; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m base verifier blob lookup failed for $p32mverifierpath"
+  printf '%s\n' "$p32mverifierblob" > "$tmpdir/p32m.verifier.base.exp" || err "F3.2m base verifier fixture failed"
+  cmp -s "$tmpdir/p32m.verifier.base.exp" "$tmpdir/p32m.verifier.base.act"; p32mrc=$?
+  [ "$p32mrc" -eq 0 ] || err "F3.2m base verifier blob differs for $p32mverifierpath"
+done
+
+p32mtombstones=$(grep -cF -e '| TOMBSTONED — PERMANENT — NON-REUSABLE |' docs/RESOURCE-BUDGETS.md); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m tombstone-row count failed"
+[ "$p32mtombstones" = 1 ] || err "F3.2m must preserve exactly one permanent non-reusable tombstone"
+p32mrow026hits=$(grep -cFx -e '| QK-LIM-PSBT-026 | Signed PSBT output bytes | qk-core output serialization | QK-THR-016 unbounded output | QK-REQ-PSBT-005, QK-REQ-TRN-007; QK-TST-DIFF-004 | Output size distribution; transport ceilings | OPEN — VALUE NOT AUTHORIZED IN F1 | OPEN | OD-05 |' docs/RESOURCE-BUDGETS.md); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m QK-LIM-PSBT-026 scan failed"
+[ "$p32mrow026hits" = 1 ] || err "F3.2m changed or duplicated live OPEN QK-LIM-PSBT-026"
+p32mdiffstatus=$(grep -cF -e '| QK-TST-DIFF-004 ' docs/TEST-ARCHITECTURE.md); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m QK-TST-DIFF-004 row scan failed"
+[ "$p32mdiffstatus" = 1 ] || err "F3.2m changed or duplicated QK-TST-DIFF-004"
+p32mplanned=$(grep -F -e '| QK-TST-DIFF-004 ' docs/TEST-ARCHITECTURE.md > "$tmpdir/p32m.diff004"); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "F3.2m QK-TST-DIFF-004 extraction failed"
+p32mplannedhits=$(grep -cF -e '| PLANNED — NOT RUN |' "$tmpdir/p32m.diff004"); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m QK-TST-DIFF-004 status scan failed"
+[ "$p32mplannedhits" = 1 ] || err "F3.2m QK-TST-DIFF-004 is not PLANNED — NOT RUN"
+p32mgatehits=$(grep -cF -e 'ALL GATES OPEN' docs/RESOURCE-BUDGETS.md); p32mrc=$?
+[ "$p32mrc" -le 1 ] || err "F3.2m ALL GATES OPEN scan failed"
+[ "$p32mgatehits" = 1 ] || err "F3.2m ALL GATES OPEN state differs or duplicates"
+
+iconv -f UTF-8 -t UTF-8 "$PKT32M" > "$tmpdir/p32m.utf8" 2> "$tmpdir/p32m.iconv.err"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M is not strict UTF-8"
+[ -s "$tmpdir/p32m.utf8" ] || err "$PKT32M UTF-8 validation produced empty output"
+cmp -s "$PKT32M" "$tmpdir/p32m.utf8"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M UTF-8 validation changed bytes"
+tail -c 1 "$PKT32M" > "$tmpdir/p32m.last.raw"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M final-byte read failed"
+od -An -tuC "$tmpdir/p32m.last.raw" > "$tmpdir/p32m.last.od"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M final-byte scan failed"
+tr -d '[:space:]' < "$tmpdir/p32m.last.od" > "$tmpdir/p32m.last.norm"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M final-byte normalization failed"
+p32mlast=$(cat "$tmpdir/p32m.last.norm"); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M final-byte read-back failed"
+[ "$p32mlast" = 10 ] || err "$PKT32M must end in exact LF"
+tail -c 2 "$PKT32M" > "$tmpdir/p32m.last2.raw"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M final-two-byte read failed"
+printf '\n\n' > "$tmpdir/p32m.double-lf" || err "$PKT32M double-LF fixture generation failed"
+cmp -s "$tmpdir/p32m.double-lf" "$tmpdir/p32m.last2.raw"; p32mrc=$?
+[ "$p32mrc" -eq 1 ] || err "$PKT32M must not end in double LF or cmp failed (exit $p32mrc)"
+od -An -tx1 "$PKT32M" > "$tmpdir/p32m.bytes.raw"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M byte scan failed"
+tr 'A-F' 'a-f' < "$tmpdir/p32m.bytes.raw" > "$tmpdir/p32m.bytes"; p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M byte normalization failed"
+p32mbad=$(awk 'BEGIN {bad=0; p2=""; p1=""} {for(i=1;i<=NF;i++){b=$i; if(b=="00"||b=="0d")bad++; seq=p2 p1 b; if(seq=="efbbbf"||seq=="e2808e"||seq=="e2808f"||seq=="e280aa"||seq=="e280ab"||seq=="e280ac"||seq=="e280ad"||seq=="e280ae"||seq=="e281a6"||seq=="e281a7"||seq=="e281a8"||seq=="e281a9")bad++; p2=p1; p1=b}} END {print bad+0}' "$tmpdir/p32m.bytes"); p32mrc=$?
+[ "$p32mrc" -eq 0 ] || err "$PKT32M control/bidi byte scan failed"
+[ "$p32mbad" = 0 ] || err "$PKT32M contains BOM, NUL, CR, LRM/RLM, or bidi controls"
+forbid "$PKT32M contains a tab, trailing whitespace, HTML comment, hidden link definition, fence, blockquote, URL, or email material" \
+  -E '	|[[:blank:]]$|<!--|-->|^\[[^]]+\]:|^```|^[[:space:]]*>|https?://|[[:alnum:]_.+-]+@[[:alnum:].-]+' "$PKT32M"
+forbid "$PKT32M contains PSBT or key payload material" -E '[7]0736274|[c]HNidP|[x]pub|[x]prv' "$PKT32M"
+forbid "$PKT32M contains suspicious 41+ hex material" -E '[0-9a-fA-F]{41,}' "$PKT32M"
+
+# G: full changed-content material scan across exactly the fifteen named
 # protocol/provenance/checker paths listed in the loop below; replit.md
-# is separately bounded elsewhere and is not part of this fourteen-path scan.
+# is separately bounded elsewhere and is not part of this fifteen-path scan.
 # Supporting evidence only, never
 # proof of absence. Patterns are
 # written self-scan-safe (bracketed first character) so the literals in
 # this authorized script do not match themselves.
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" "$PKT32M" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   [ -f "$cf" ] || err "content-scan target missing: $cf"
   forbid "$cf contains PSBT magic hex" -E '[7]0736274' "$cf"
   forbid "$cf contains PSBT base64 magic" -E '[c]HNidP' "$cf"
@@ -4068,7 +4520,7 @@ for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT
   forbid "$cf contains suspicious 41+ hex run" -E '[0-9a-fA-F]{41,}' "$cf"
 done
 # G: exact 40-hex token allowlist. Enumerate every exact-40-hex token
-# across the same fourteen named scan paths; every token must be deliberately
+# across the same fifteen named scan paths; every token must be deliberately
 # classified below; any unclassified token is a blocker.
 #   857a7debc6625a3dadbaecee1ee7b2ed5e8ada75  pinned bitcoin/bips commit (BIP 174 / type registry / BIP 370 citations)
 #   15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d  pinned bitcoin/bitcoin commit (doc/psbt.md citation)
@@ -4119,12 +4571,24 @@ done
 #   09815b0a75c26a118f80c5cec008e695d319900b  F3.2l RESOURCE-BUDGETS post-enactment blob
 #   2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84  F3.2l REQUIREMENTS post-enactment blob
 #   ecb3867ca2842f6d011288d3dcd94d2b1997e516  F3.2l TEST-ARCHITECTURE post-enactment blob
+#   1408fa98961e62ba6316515b1e277b6952a96e18  F3.2m published source base / published F3.2l C
+#   75c5e69cf5154b1936b86a6f0795f615a4d6ab3d  F3.2m published source-base tree
+#   4d5041591bd28c665c717ddbdfc0dc54ef345680  F3.2m base host-verifier blob
+#   5b6b67b7ec44f1460f31a02803e6f6db4f9386d1  F3.2m protected MATURITY-GATES blob
+#   59008528885259ad8b93be1f0ece136930fd445d  F3.2m authorization commit A
+#   99384f6cd5eedd37488e0c12d865737217f88b6c  F3.2m Decision Log A blob
+#   a292d97308ae9a36d5bb5c4c48a83905bb06c073  F3.2m protected OPEN-DECISIONS blob
+#   11714544ea89b3475d65a8a5634b7fdab65f5972  F3.2m packet whole-file blob
+#   ee144c20c76283d8565d7d031145be372bae5375  F3.2m base current-stage-verifier blob
+#   9bb66dc93d452e04284e13026814ed7322fb25b0  F3.2m protected THREAT-MODEL blob
 {
   printf '%s\n' \
     065e20eed4e916c907a244aa3e5ca2e66cbc5d4e \
     09815b0a75c26a118f80c5cec008e695d319900b \
     0d2115de9c322bf221f5a5008d91e7b7b48363e6 \
     0e366c1acc5579e541dfe3f94a099db9b887064b \
+    11714544ea89b3475d65a8a5634b7fdab65f5972 \
+    1408fa98961e62ba6316515b1e277b6952a96e18 \
     15a7a4ed7c4d0952ce966087e55a9a3e2f28ec1d \
     1ae6494fc24a8e3572464cf45e6d43ea4875e95d \
     1e9dfb9518bd90d4531180d9a3258dd21e54dee3 \
@@ -4138,12 +4602,17 @@ done
     45f2b362994b785d303e91b8e530efc724dc2d81 \
     49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf \
     4af6166dc23eed7285a3d65b339924cda7b07962 \
+    4d5041591bd28c665c717ddbdfc0dc54ef345680 \
     4ffa20afbedeb0b6cfbbe57298f941bc0537683e \
     5088588dd4f913a489329d2422b0f925ed281856 \
     55bd46310606e2df4089d8234a67655c81440bab \
     55f93844b56e3637468321e1c68638a8138a3a2b \
     574e790193d45d3f392c64951d319bb5fde11d20 \
+    59008528885259ad8b93be1f0ece136930fd445d \
     5b05d62776c65bfaf5ec41ab39108bc0531b7944 \
+    5b6b67b7ec44f1460f31a02803e6f6db4f9386d1 \
+    71e3f95adf541560ff5d067030f78dfd088d1ec1 \
+    75c5e69cf5154b1936b86a6f0795f615a4d6ab3d \
     7d03656d245786f3a17eb4dbae689ef03b172b75 \
     838a732ab556b51ca8b0b61bed9ae9d512d47a87 \
     857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 \
@@ -4151,7 +4620,10 @@ done
     878b23be4690bb778a615bfe1a6ef108e7a94008 \
     8f3154d0e7845ed5a4c69b73b9479821fdf06765 \
     981b1b497102187da66fb4e82ef0725b32c088f7 \
+    99384f6cd5eedd37488e0c12d865737217f88b6c \
+    9bb66dc93d452e04284e13026814ed7322fb25b0 \
     a066fc9710371f414d158a3deb9c345f2b00821b \
+    a292d97308ae9a36d5bb5c4c48a83905bb06c073 \
     a64399dd35aef8d6daa05171f1da30c8026f6d1f \
     a996a6d7c2bfa3a15109085475868410fe354422 \
     a9d1f205cfa879a6f54b8838256d36e469cfed97 \
@@ -4169,12 +4641,13 @@ done
     e57faff4ead69ddf108cf522cb6c3cbfbef8219a \
     e7b7db5a12ea3c0a32d2b9cc3287e4d67d1da1bc \
     ecb3867ca2842f6d011288d3dcd94d2b1997e516 \
+    ee144c20c76283d8565d7d031145be372bae5375 \
     f4e127a92fc68243274b7d384e335fa4632e5dd2
 } > "$tmpdir/hexallow" || err "40-hex allowlist generation failed (fail-closed)"
 LC_ALL=C sort -c "$tmpdir/hexallow" \
   || err "40-hex allowlist is not sorted (fail-closed self-check)"
 : > "$tmpdir/hexfound.raw"
-for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
+for cf in "$DRAFT" "$WTS" "$RSP32" "$PKT32C" "$CLR32D" "$PKT32E" "$REC32F" "$PKT32H" "$REC32I" "$PKT32J" "$REC32K" "$PKT32M" docs/f3/README.md docs/SOURCE-REGISTER.md tools/verify-host-boundary.sh; do
   awk '{ s = $0
     while (match(s, /[0-9a-fA-F]+/)) {
       t = substr(s, RSTART, RLENGTH)
