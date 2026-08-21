@@ -106,6 +106,9 @@ F32K_B=17d190a98465411aafba88a186b531728e2c8c9b # docs(f3): record F3.2k exact d
 F32K_C=49ca0aa4a19ca10ebe8f2866b2d9426720b8ebdf # published F3.2l source base / F3.2k commit C
 F32L_A=4af6166dc23eed7285a3d65b339924cda7b07962 # docs: authorize F3.2l canonical tombstone
 F32L_B=9e4eade49620668d125d8875a3035bf982396ccc # docs(limits): enact F3.2l canonical tombstone
+F32L_C=1408fa98961e62ba6316515b1e277b6952a96e18 # published F3.2m source base / F3.2l commit C
+F32M_A=59008528885259ad8b93be1f0ece136930fd445d # docs: authorize F3.2m Q-002 decision packet
+F32M_B=96b76dc5a88c7e2430605ad78ed99d8f7a17a6c1 # docs(f3): add F3.2m Q-002 decision packet
 
 tmpdir="${TMPDIR:-/tmp}/qk-current-stage.$$"
 umask 077
@@ -129,11 +132,14 @@ $GIT ls-files > "$tmpdir/allfiles" || err "git ls-files failed (enumeration fail
 # C37 -> C38 -> C39 -> C40 -> C41 -> C42 -> C43 -> C44 -> C45 ->
 # F32G_C -> C46 -> C47 -> F32H_C -> F32I_A -> F32I_B -> F32I_C ->
 # F32J_A -> F32J_B -> F32J_C -> F32K_A -> F32K_B -> F32K_C ->
-# F32L_A -> F32L_B -> HEAD, no merges. F32K_C is the unchanged published
-# base of the exact three-commit local/unpublished F3.2l chain; F3.2j and
-# F3.2k remain frozen as historical published stages.
+# F32L_A -> F32L_B -> F32L_C -> F32M_A -> F32M_B -> HEAD, no merges.
+# F32L_C is the unchanged published F3.2m source base. F3.2l and every
+# earlier stage remain frozen historical snapshots.
 head=$($GIT rev-parse HEAD) || err "cannot resolve HEAD"
 p_head=$($GIT rev-parse "$head^" 2>/dev/null) || err "HEAD has no parent"
+p_f32m_b=$($GIT rev-parse "$F32M_B^" 2>/dev/null) || err "F32M_B has no parent"
+p_f32m_a=$($GIT rev-parse "$F32M_A^" 2>/dev/null) || err "F32M_A has no parent"
+p_f32l_c=$($GIT rev-parse "$F32L_C^" 2>/dev/null) || err "F32L_C has no parent"
 p_f32l_b=$($GIT rev-parse "$F32L_B^" 2>/dev/null) || err "F32L_B has no parent"
 p_f32l_a=$($GIT rev-parse "$F32L_A^" 2>/dev/null) || err "F32L_A has no parent"
 p_f32k_c=$($GIT rev-parse "$F32K_C^" 2>/dev/null) || err "F32K_C has no parent"
@@ -194,7 +200,10 @@ p_c4=$($GIT rev-parse "$C4^" 2>/dev/null) || err "C4 has no parent"
 p_c3=$($GIT rev-parse "$C3^" 2>/dev/null) || err "C3 has no parent"
 p_c2=$($GIT rev-parse "$C2^" 2>/dev/null) || err "C2 has no parent"
 p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
-[ "$p_head" = "$F32L_B" ] || err "HEAD parent is $p_head, expected $F32L_B"
+[ "$p_head" = "$F32M_B" ] || err "HEAD parent is $p_head, expected $F32M_B"
+[ "$p_f32m_b" = "$F32M_A" ] || err "F32M_B parent is $p_f32m_b, expected $F32M_A"
+[ "$p_f32m_a" = "$F32L_C" ] || err "F32M_A parent is $p_f32m_a, expected $F32L_C"
+[ "$p_f32l_c" = "$F32L_B" ] || err "F32L_C parent is $p_f32l_c, expected $F32L_B"
 [ "$p_f32l_b" = "$F32L_A" ] || err "F32L_B parent is $p_f32l_b, expected $F32L_A"
 [ "$p_f32l_a" = "$F32K_C" ] || err "F32L_A parent is $p_f32l_a, expected $F32K_C"
 [ "$p_f32k_c" = "$F32K_B" ] || err "F32K_C parent is $p_f32k_c, expected $F32K_B"
@@ -256,10 +265,10 @@ p_c1=$($GIT rev-parse "$C1^" 2>/dev/null) || err "C1 has no parent"
 [ "$p_c2" = "$C1" ] || err "C2 parent is $p_c2, expected $C1"
 [ "$p_c1" = "$BASE" ] || err "C1 parent is $p_c1, expected $BASE"
 count=$($GIT rev-list --count "$BASE..$head") || err "git rev-list --count failed (fail-closed)"
-[ "$count" = "61" ] || err "expected exactly 61 commits after base, found $count"
+[ "$count" = "64" ] || err "expected exactly 64 commits after base, found $count"
 merges=$($GIT rev-list --merges "$BASE..$head") || err "git rev-list --merges failed (fail-closed)"
 [ -z "$merges" ] || err "merge commit present in $BASE..$head: $merges"
-for c in "$head" "$F32K_B" "$F32K_A" "$F32J_C" "$F32J_B" "$F32J_A" "$F32I_C" "$F32I_B" "$F32I_A" "$F32H_C" "$C47" "$C46" "$F32G_C" "$C45" "$C44" "$C43" "$C42" "$C41" "$C40" "$C39" "$C38" "$C37" "$C36" "$C35" "$C34" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
+for c in "$head" "$F32M_B" "$F32M_A" "$F32L_C" "$F32K_B" "$F32K_A" "$F32J_C" "$F32J_B" "$F32J_A" "$F32I_C" "$F32I_B" "$F32I_A" "$F32H_C" "$C47" "$C46" "$F32G_C" "$C45" "$C44" "$C43" "$C42" "$C41" "$C40" "$C39" "$C38" "$C37" "$C36" "$C35" "$C34" "$C33" "$C32" "$C31" "$C30" "$C29" "$C28" "$C27" "$C26" "$C25" "$C24" "$C23" "$C22" "$C21" "$C20" "$C19" "$C18" "$C17" "$C16" "$C15" "$C14" "$C13" "$C12" "$C11" "$C10" "$C9" "$C8" "$C7" "$C6" "$C5" "$C4" "$C3" "$C2" "$C1"; do
   $GIT rev-list --no-walk --parents "$c" > "$tmpdir/parents" \
     || err "git rev-list --parents failed for $c (fail-closed)"
   # POSIX portability: wc -w may pad its output with whitespace on some
@@ -324,7 +333,10 @@ check_message "$F32K_B" "F3.2k commit B" 'docs(f3): record non-enacting QK-LIM-P
 check_message "$F32K_C" "F3.2k commit C" 'chore(verify): bind F3.2k QK-LIM-PSBT-027 owner-direction stage'
 check_message "$F32L_A" "F3.2l commit A" 'docs: authorize F3.2l QK-LIM-PSBT-027 canonical tombstone amendment'
 check_message "$F32L_B" "F3.2l commit B" 'docs(limits): enact QK-LIM-PSBT-027 permanent tombstone'
-check_message "$head" "F3.2l commit C" 'chore(verify): bind F3.2l QK-LIM-PSBT-027 canonical amendment stage'
+check_message "$F32L_C" "F3.2l commit C" 'chore(verify): bind F3.2l QK-LIM-PSBT-027 canonical amendment stage'
+check_message "$F32M_A" "F3.2m commit A" 'docs: authorize F3.2m D-11 Q-002 SD attachment-epoch decision packet'
+check_message "$F32M_B" "F3.2m commit B" 'docs(f3): add non-binding F3.2m D-11 Q-002 SD attachment-epoch decision packet'
+check_message "$head" "F3.2m commit C" 'chore(verify): bind F3.2m D-11 Q-002 decision-packet stage'
 
 # ------------------------------------------- b/c/d. Per-commit path sets
 check_paths() {
@@ -637,7 +649,20 @@ docs/TEST-ARCHITECTURE.md
 tools/verify-host-boundary.sh
 EOF
 
-check_paths "$head" "f32l-commit-c" <<'EOF'
+check_paths "$F32L_C" "f32l-commit-c" <<'EOF'
+tools/verify-current-stage.sh
+EOF
+
+check_paths "$F32M_A" "f32m-commit-a" <<'EOF'
+docs/DECISION-LOG.md
+EOF
+
+check_paths "$F32M_B" "f32m-commit-b" <<'EOF'
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+tools/verify-host-boundary.sh
+EOF
+
+check_paths "$head" "f32m-commit-c" <<'EOF'
 tools/verify-current-stage.sh
 EOF
 
@@ -2455,7 +2480,7 @@ grep -F 'claims production readiness' tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the production-ready guard"
 grep -F 'claims a closed gate' tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the closed-gate guard"
-grep -F 'is not byte-identical to the reviewed A commit' tools/verify-host-boundary.sh >/dev/null \
+grep -F 'F3.2l published Decision Log differs from the reviewed A' tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the exact Decision-Log byte-identity check"
 grep -F 'plus the seven authorized F3.2a rows in declared order' tools/verify-host-boundary.sh >/dev/null \
   || err "host checker missing the exact Source-Register bounded-append check"
@@ -5046,12 +5071,11 @@ for csf32khostfixture in \
 done
 
 # ---------------- F3.2l QK-LIM-PSBT-027 canonical tombstone amendment
-# The published F3.2k stage is immutable history. This local/unpublished
-# stage enacts all and only the seven owner-selected canonical payloads.
+# The published F3.2l stage enacted all and only the seven owner-selected canonical payloads.
 csf32lbase=$F32K_C
 csf32la=$F32L_A
 csf32lb=$F32L_B
-csf32lc=$head
+csf32lc=$F32L_C
 csf32ldlogblob=7d03656d245786f3a17eb4dbae689ef03b172b75
 csf32lhostblob=4d5041591bd28c665c717ddbdfc0dc54ef345680
 csf32lresourcepost=09815b0a75c26a118f80c5cec008e695d319900b
@@ -5059,6 +5083,18 @@ csf32lrequirementspost=2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84
 csf32ltestpost=ecb3867ca2842f6d011288d3dcd94d2b1997e516
 csf32lkrecordblob=5b05d62776c65bfaf5ec41ab39108bc0531b7944
 csf32ljpacketblob=b1c2153f5f89a0e1d44d62a09921251e225c0d87
+csf32lprovenancecount=$(grep -cE \
+  '^# The published F3[.]2l stage enacted all and only the seven owner-selected canonical payloads[.]$' \
+  tools/verify-current-stage.sh)
+csf32lrc=$?
+[ "$csf32lrc" -le 1 ] || err "F3.2l published provenance comment scan failed"
+[ "$csf32lprovenancecount" = 1 ] || err "F3.2l published provenance comment differs or duplicates"
+forbid "current-stage verifier restores stale F3.2l local/unpublished provenance wording" \
+  -E '^# The published F3[.]2k stage is immutable history[.] This local[/]unpublished$' \
+  tools/verify-current-stage.sh
+forbid "current-stage verifier restores stale F3.2l enactment wording" \
+  -E '^# stage enacts all and only the seven owner-selected canonical payloads[.]$' \
+  tools/verify-current-stage.sh
 
 branch=$($GIT symbolic-ref --quiet --short HEAD 2>/dev/null)
 csf32lrc=$?
@@ -5126,9 +5162,12 @@ csf32lrc=$?
 $GIT show "$csf32la:docs/DECISION-LOG.md" > "$tmpdir/cs.f32l.dlog.a" 2>/dev/null
 csf32lrc=$?
 [ "$csf32lrc" -eq 0 ] || err "cannot read F3.2l A Decision Log"
-cmp -s "$tmpdir/cs.f32l.dlog.a" docs/DECISION-LOG.md
+$GIT show "$csf32lc:docs/DECISION-LOG.md" > "$tmpdir/cs.f32l.dlog.frozen" 2>/dev/null
 csf32lrc=$?
-[ "$csf32lrc" -eq 0 ] || err "active Decision Log is not byte-identical to F3.2l A"
+[ "$csf32lrc" -eq 0 ] || err "cannot read frozen F3.2l Decision Log"
+cmp -s "$tmpdir/cs.f32l.dlog.a" "$tmpdir/cs.f32l.dlog.frozen"
+csf32lrc=$?
+[ "$csf32lrc" -eq 0 ] || err "frozen F3.2l Decision Log is not byte-identical to F3.2l A"
 wc -c < "$tmpdir/cs.f32l.dlog.base" > "$tmpdir/cs.f32l.dlog.bytes.raw"
 csf32lrc=$?
 [ "$csf32lrc" -eq 0 ] || err "F3.2l base Decision Log byte count failed"
@@ -5324,6 +5363,169 @@ for csf32lfile in docs/DECISION-LOG.md docs/RESOURCE-BUDGETS.md docs/REQUIREMENT
   forbid "F3.2l changed document contains a tab or trailing whitespace: $csf32lfile" -E '	|[[:blank:]]$' "$csf32lfile"
 done
 
+# ---------------- F3.2m D-11 Q-002 SD attachment-epoch decision packet
+# F3.2l C is a frozen published source snapshot. F3.2m adds only an
+# append-only owner authorization, one non-binding packet, and verifier
+# bindings; HEAD is intentionally not blob-pinned by this self-verifier.
+F32MPKT=docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+csf32mbase=$F32L_C
+csf32ma=$F32M_A
+csf32mb=$F32M_B
+csf32mdlogblob=99384f6cd5eedd37488e0c12d865737217f88b6c
+csf32mpacketblob=11714544ea89b3475d65a8a5634b7fdab65f5972
+csf32mhostblob=c9e69b00e2b4911bbe19baa15e5132156dcf1781
+
+for csf32mtreepair in \
+  "$csf32ma 100644 $csf32mdlogblob docs/DECISION-LOG.md" \
+  "$csf32mb 100644 $csf32mpacketblob $F32MPKT" \
+  "$csf32mb 100755 $csf32mhostblob tools/verify-host-boundary.sh" \
+  "$head 100755 - tools/verify-current-stage.sh"; do
+  csf32mtreecommit=${csf32mtreepair%% *}
+  csf32mtreerest=${csf32mtreepair#* }
+  csf32mtreemode=${csf32mtreerest%% *}
+  csf32mtreerest=${csf32mtreerest#* }
+  csf32mtreeblob=${csf32mtreerest%% *}
+  csf32mtreepath=${csf32mtreerest#* }
+  $GIT ls-tree "$csf32mtreecommit" -- "$csf32mtreepath" > "$tmpdir/cs.f32m.tree"
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m tree lookup failed for $csf32mtreepath"
+  [ -s "$tmpdir/cs.f32m.tree" ] || err "F3.2m tree entry missing for $csf32mtreepath"
+  csf32mtreecount=$(awk 'END {print NR+0}' "$tmpdir/cs.f32m.tree")
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m tree-entry count failed for $csf32mtreepath"
+  [ "$csf32mtreecount" = 1 ] || err "F3.2m tree entry is not unique for $csf32mtreepath"
+  csf32mtreeactmode=$(awk 'NR == 1 {print $1}' "$tmpdir/cs.f32m.tree")
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m tree mode extraction failed for $csf32mtreepath"
+  csf32mtreeactblob=$(awk 'NR == 1 {print $3}' "$tmpdir/cs.f32m.tree")
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m tree blob extraction failed for $csf32mtreepath"
+  [ "$csf32mtreeactmode" = "$csf32mtreemode" ] || err "F3.2m mode differs for $csf32mtreepath"
+  if [ "$csf32mtreeblob" != "-" ]; then
+    [ "$csf32mtreeactblob" = "$csf32mtreeblob" ] || err "F3.2m blob differs for $csf32mtreepath"
+  fi
+done
+
+$GIT diff --name-only "$csf32mbase" "$head" > "$tmpdir/cs.f32m.paths.raw"
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "F3.2m cumulative path enumeration failed"
+LC_ALL=C sort "$tmpdir/cs.f32m.paths.raw" > "$tmpdir/cs.f32m.paths.act"
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "F3.2m cumulative path sort failed"
+cat > "$tmpdir/cs.f32m.paths.exp" <<'QK_CS_F32M_PATHS_EOF' || err "F3.2m cumulative path fixture failed"
+docs/DECISION-LOG.md
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
+tools/verify-current-stage.sh
+tools/verify-host-boundary.sh
+QK_CS_F32M_PATHS_EOF
+diff "$tmpdir/cs.f32m.paths.exp" "$tmpdir/cs.f32m.paths.act" > "$tmpdir/cs.f32m.paths.diff" 2>&1
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "F3.2m cumulative path set differs: $(cat "$tmpdir/cs.f32m.paths.diff")"
+
+$GIT show "$csf32ma:docs/DECISION-LOG.md" > "$tmpdir/cs.f32m.dlog.a" 2>/dev/null
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "cannot read F3.2m A Decision Log"
+cmp -s "$tmpdir/cs.f32m.dlog.a" docs/DECISION-LOG.md
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "active Decision Log differs from exact F3.2m A blob"
+$GIT show "$csf32mb:$F32MPKT" > "$tmpdir/cs.f32m.packet.b" 2>/dev/null
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "cannot read F3.2m packet from B"
+cmp -s "$tmpdir/cs.f32m.packet.b" "$F32MPKT"
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "active F3.2m packet differs from exact B blob"
+
+for csf32msource in \
+  'docs/RESOURCE-BUDGETS.md 09815b0a75c26a118f80c5cec008e695d319900b' \
+  'docs/REQUIREMENTS.md 2cf8a34aa5621dcea114e2d5ec3dabc2b79aef84' \
+  'docs/TEST-ARCHITECTURE.md ecb3867ca2842f6d011288d3dcd94d2b1997e516' \
+  'docs/MATURITY-GATES.md 5b6b67b7ec44f1460f31a02803e6f6db4f9386d1' \
+  'docs/OPEN-DECISIONS.md a292d97308ae9a36d5bb5c4c48a83905bb06c073' \
+  'docs/THREAT-MODEL.md 9bb66dc93d452e04284e13026814ed7322fb25b0'; do
+  csf32mpath=${csf32msource%% *}
+  csf32mblob=${csf32msource#* }
+  $GIT rev-parse "$csf32mbase:$csf32mpath" > "$tmpdir/cs.f32m.source.base" 2>/dev/null
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m frozen-source lookup failed for $csf32mpath"
+  printf '%s\n' "$csf32mblob" > "$tmpdir/cs.f32m.source.exp" || err "F3.2m frozen-source fixture failed"
+  cmp -s "$tmpdir/cs.f32m.source.exp" "$tmpdir/cs.f32m.source.base"
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m frozen-source blob differs for $csf32mpath"
+  $GIT rev-parse "$head:$csf32mpath" > "$tmpdir/cs.f32m.source.head" 2>/dev/null
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m active protected-source lookup failed for $csf32mpath"
+  cmp -s "$tmpdir/cs.f32m.source.exp" "$tmpdir/cs.f32m.source.head"
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m protected source differs for $csf32mpath"
+done
+
+for csf32mline in \
+  '# QK-F3.2m — D-11 Q-002 SD Attachment-Epoch Decision Packet (Non-Binding)' \
+  'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' \
+  '| Option ID | Selection | Recommendation | Disposition |' \
+  '| F32M-D11-Q002-OPT-001 | PROPOSED — UNSELECTED | RECOMMENDED — NOT SELECTED |' \
+  '| F32M-D11-Q002-OPT-002 | PROPOSED — UNSELECTED | NOT RECOMMENDED |' \
+  '| F32M-D11-Q002-OPT-003 | PROPOSED — UNSELECTED | NOT RECOMMENDED |' \
+  'F32C-D11-Q-002 remains unresolved; neither attachment-epoch binding nor logical-route binding is selected.' \
+  '`F32M-D11-Q002-OPT-002` does not reconcile, waive, or amend `QK-REQ-BND-003`.' \
+  'F32M-D11-Q002-OPT-003 selects neither rule because it defers F32C-D11-Q-002.' \
+  'permits no automatic fallback, retry, or re-signing. No route-output-begins boundary is selected.' \
+  'END OF PACKET — F3.2m D-11 Q-002 DECISION INPUT ONLY — NON-BINDING — NON-ENACTING — F32C-D11-Q-002 UNANSWERED — EXACTLY THREE DISPOSITIONS PROPOSED — UNSELECTED — NO OWNER SELECTION — D-11 NOT SELECTED — LOCAL AND UNPUBLISHED.'; do
+  grep -F "$csf32mline" "$tmpdir/cs.f32m.packet.b" > /dev/null 2>&1
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m packet semantic fixture missing: $csf32mline"
+done
+for csf32mexactline in \
+  'Under F32M-D11-Q002-OPT-001 or F32M-D11-Q002-OPT-002, removal or replacement cannot continue an active attempt, and no replacement medium receives silent approval carry-over. F32M-D11-Q002-OPT-003 selects neither rule because it defers F32C-D11-Q-002. Nothing in this packet selects same-versus-distinct input/output media, route set, completion, retry, filename/collision, visibility/commit/orphan, QR self-check, signature insertion, serialization, hashing, authentication, writer, atomicity, durability, receipt, or residue policy.' \
+  '- The published F3.2d Q-001 clarification remains current and unchanged. Before route output begins, failure releases nothing; after output begins, a later failure stops further output, permits no complete-artifact, delivery, receipt, finalization, broadcast, atomicity, or durability claim, and permits no automatic fallback, retry, or re-signing. No route-output-begins boundary is selected.'; do
+  csf32mexacthits=$(grep -cFx -e "$csf32mexactline" "$tmpdir/cs.f32m.packet.b")
+  csf32mrc=$?
+  [ "$csf32mrc" -le 1 ] || err "F3.2m repaired semantic line scan failed"
+  [ "$csf32mexacthits" = 1 ] || err "F3.2m repaired semantic line differs or duplicates"
+done
+forbid "F3.2m packet reintroduces an overbroad all-dispositions attempt rule" \
+  -F 'under any disposition' "$tmpdir/cs.f32m.packet.b"
+forbid "F3.2m packet conflates prohibited actions with a retry/re-signing claim" \
+  -F 'retry, or re-signing claim' "$tmpdir/cs.f32m.packet.b"
+csf32moptions=$(grep -c '^| F32M-D11-Q002-OPT-' "$tmpdir/cs.f32m.packet.b")
+csf32mrc=$?
+[ "$csf32mrc" -le 1 ] || err "F3.2m option-row count failed"
+[ "$csf32moptions" = 3 ] || err "F3.2m packet must contain exactly three option rows"
+
+$GIT show "$csf32mb:tools/verify-host-boundary.sh" > "$tmpdir/cs.f32m.host.b" 2>/dev/null
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "cannot read F3.2m host verifier from B"
+cmp -s "$tmpdir/cs.f32m.host.b" tools/verify-host-boundary.sh
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "active host verifier differs from exact F3.2m B blob"
+for csf32mhostline in \
+  'p32mpacketblob=11714544ea89b3475d65a8a5634b7fdab65f5972' \
+  'F3.2m checked-out branch is not main' \
+  'F3.2m HEAD is neither exact intermediate B nor exact final C by bodyless message' \
+  'F3.2m B parent differs from exact A' \
+  'F3.2m final C parent differs from derived B' \
+  'F3.2m B path set differs' \
+  'F3.2m C path set differs' \
+  'F3.2m intermediate B cumulative path set differs' \
+  'F3.2m final C cumulative path set differs' \
+  'F3.2m exact three-option content, order, selection, or recommendation differs' \
+  'F3.2m protected base blob differs' \
+  'F3.2l published C'; do
+  grep -F "$csf32mhostline" "$tmpdir/cs.f32m.host.b" > /dev/null 2>&1
+  csf32mrc=$?
+  [ "$csf32mrc" -eq 0 ] || err "F3.2m host mechanism missing: $csf32mhostline"
+done
+sh tools/verify-host-boundary.sh > "$tmpdir/cs.f32m.host.out" 2>&1
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "F3.2m strict host verifier failed: $(cat "$tmpdir/cs.f32m.host.out")"
+grep -x 'HOST BOOTSTRAP SCOPE PASS' "$tmpdir/cs.f32m.host.out" > /dev/null 2>&1
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "F3.2m host verifier did not emit its sole exact PASS line"
+csf32mhostlines=$(awk 'END {print NR+0}' "$tmpdir/cs.f32m.host.out")
+csf32mrc=$?
+[ "$csf32mrc" -eq 0 ] || err "F3.2m host verifier output count failed"
+[ "$csf32mhostlines" = 1 ] || err "F3.2m host verifier emitted extra output"
+
 # --------------------------------- e. Historical verifiers byte-identical
 for v in tools/verify-foundation.sh tools/verify-f2-preparation.sh; do
   $GIT show "$BASE:$v" > "$tmpdir/hist" 2>/dev/null || err "cannot read $v from base"
@@ -5357,6 +5559,7 @@ docs/f3/F3.2H-QK-LIM-PSBT-027-CROSS-DOCUMENT-ALIGNMENT-PACKET.md
 docs/f3/F3.2I-QK-LIM-PSBT-027-OWNER-DIRECTION-RECORD.md
 docs/f3/F3.2J-QK-LIM-PSBT-027-EXACT-TOMBSTONE-CONSTRUCTION-PACKET.md
 docs/f3/F3.2K-QK-LIM-PSBT-027-EXACT-CONSTRUCTION-OWNER-DIRECTION-RECORD.md
+docs/f3/F3.2M-D11-Q002-SD-ATTACHMENT-EPOCH-DECISION-PACKET.md
 docs/f3/PSBT-V0-REVIEW-PROFILE-DRAFT.md
 docs/f3/README.md
 docs/f3/WALLET-TRUST-SPINE-DRAFT.md
