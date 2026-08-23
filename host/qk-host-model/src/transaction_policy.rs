@@ -79,6 +79,37 @@ pub const ALL_TRANSACTION_STATES: [TransactionState; 11] = [
     TransactionState::ReparsingOutput,
 ];
 
+/// Compile-time exhaustiveness guard for [`TransactionState`]: a
+/// wildcard-free match mapping every variant to its position in
+/// [`ALL_TRANSACTION_STATES`]. Adding a variant fails compilation at
+/// this match until the guard is extended, and the const block below
+/// then fails until [`ALL_TRANSACTION_STATES`] lists the new variant
+/// at the matching position.
+pub const fn transaction_state_index(state: TransactionState) -> usize {
+    match state {
+        TransactionState::Locked => 0,
+        TransactionState::Ready => 1,
+        TransactionState::Validating => 2,
+        TransactionState::ConstructingReview => 3,
+        TransactionState::ReviewReady => 4,
+        TransactionState::Confirming => 5,
+        TransactionState::Approved => 6,
+        TransactionState::Revalidating => 7,
+        TransactionState::SignPermitted => 8,
+        TransactionState::VerifyingSignature => 9,
+        TransactionState::ReparsingOutput => 10,
+    }
+}
+
+const _: () = {
+    assert!(ALL_TRANSACTION_STATES.len() == 11);
+    let mut i = 0;
+    while i < ALL_TRANSACTION_STATES.len() {
+        assert!(transaction_state_index(ALL_TRANSACTION_STATES[i]) == i);
+        i += 1;
+    }
+};
+
 impl TransactionState {
     /// True only for the locked/safe state.
     pub fn is_safe(self) -> bool {
@@ -199,6 +230,49 @@ pub const ALL_TRANSACTION_EVENTS: [TransactionEvent; 23] = [
     TransactionEvent::OutputInvalid,
 ];
 
+/// Compile-time exhaustiveness guard for [`TransactionEvent`]: a
+/// wildcard-free match mapping every variant to its position in
+/// [`ALL_TRANSACTION_EVENTS`]. Adding a variant fails compilation at
+/// this match until the guard is extended, and the const block below
+/// then fails until [`ALL_TRANSACTION_EVENTS`] lists the new variant
+/// at the matching position.
+pub const fn transaction_event_index(event: TransactionEvent) -> usize {
+    match event {
+        TransactionEvent::Wake => 0,
+        TransactionEvent::BeginValidation => 1,
+        TransactionEvent::ValidationPassed => 2,
+        TransactionEvent::ReviewConstructed => 3,
+        TransactionEvent::RequestApproval => 4,
+        TransactionEvent::Approve => 5,
+        TransactionEvent::BeginRevalidation => 6,
+        TransactionEvent::RevalidationPassed => 7,
+        TransactionEvent::SignatureProduced => 8,
+        TransactionEvent::SignatureVerified => 9,
+        TransactionEvent::OutputReparsed => 10,
+        TransactionEvent::Sleep => 11,
+        TransactionEvent::Cancel => 12,
+        TransactionEvent::Timeout => 13,
+        TransactionEvent::MediaRemoved => 14,
+        TransactionEvent::Restart => 15,
+        TransactionEvent::PowerLoss => 16,
+        TransactionEvent::ValidationFailed => 17,
+        TransactionEvent::ReviewConstructionFailed => 18,
+        TransactionEvent::ApprovalRejected => 19,
+        TransactionEvent::RevalidationFailed => 20,
+        TransactionEvent::SignatureInvalid => 21,
+        TransactionEvent::OutputInvalid => 22,
+    }
+}
+
+const _: () = {
+    assert!(ALL_TRANSACTION_EVENTS.len() == 23);
+    let mut i = 0;
+    while i < ALL_TRANSACTION_EVENTS.len() {
+        assert!(transaction_event_index(ALL_TRANSACTION_EVENTS[i]) == i);
+        i += 1;
+    }
+};
+
 impl TransactionEvent {
     /// True for the interruption events. All of them are terminal.
     pub fn is_interruption(self) -> bool {
@@ -264,6 +338,27 @@ pub enum TransactionTransitionOutcome {
     /// `Confirming`, `Approved`, `Revalidating`, `SignPermitted`,
     /// `VerifyingSignature`, or `ReparsingOutput`.
     RejectLocked(TransactionTransitionError),
+}
+
+/// Compile-time exhaustiveness guard for [`TransactionTransitionError`]:
+/// a wildcard-free match over every variant, so adding a variant fails
+/// compilation here until the guard is updated.
+pub const fn transaction_error_index(error: TransactionTransitionError) -> usize {
+    match error {
+        TransactionTransitionError::InvalidTransition { .. } => 0,
+    }
+}
+
+/// Compile-time exhaustiveness guard for
+/// [`TransactionTransitionOutcome`]: a wildcard-free match over every
+/// variant, so adding a variant fails compilation here until the guard
+/// is updated.
+pub const fn transaction_outcome_index(outcome: TransactionTransitionOutcome) -> usize {
+    match outcome {
+        TransactionTransitionOutcome::Continue(_) => 0,
+        TransactionTransitionOutcome::HaltLocked => 1,
+        TransactionTransitionOutcome::RejectLocked(_) => 2,
+    }
 }
 
 impl TransactionTransitionOutcome {
