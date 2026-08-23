@@ -712,6 +712,65 @@ fn low_s_boundary() {
 }
 
 #[test]
+fn zero_s_fails_closed_low_s_interval() {
+    let (prev, txid) = base_prev();
+    // QK-DEC-037 / BIP146: permitted S interval is 1..=HCO. Canonical
+    // strict-DER S=0 (single 0x00 byte) must fail closed.
+    let zero_s = der(&[0x01], &[0x00], 0x01);
+    let e = analyze_err(&simple(&prev, txid, 0, &[r_sig(&pk(1), &zero_s)]));
+    assert_eq!(e.category, SemanticCategory::HighS);
+    // S=1 is the smallest permitted value.
+    let one_s = der(&[0x01], &[0x01], 0x01);
+    assert_ok(&simple(&prev, txid, 0, &[r_sig(&pk(1), &one_s)]));
+    // HCO itself is permitted.
+    let at_bound = der(&[0x01], &LOW_S_MAX, 0x01);
+    assert_ok(&simple(&prev, txid, 0, &[r_sig(&pk(1), &at_bound)]));
+    // HCO+1 is rejected.
+    let mut over = LOW_S_MAX;
+    over[31] = 0xa1;
+    let sig = der(&[0x01], &over, 0x01);
+    let e = analyze_err(&simple(&prev, txid, 0, &[r_sig(&pk(1), &sig)]));
+    assert_eq!(e.category, SemanticCategory::HighS);
+}
+
+#[test]
+fn zero_s_candidates_cannot_reach_threshold_status() {
+    let (prev, txid) = base_prev();
+    let keys = [pk(1), pk(2), pk(3)];
+    let ws = wscript(2, &keys);
+    let zero_s = der(&[0x01], &[0x00], 0x01);
+    // A 2-of-3 fixture whose candidate signatures carry S=0 must fail
+    // closed at the first invalid signature rather than silently
+    // omitting it, so threshold structural-candidate status is
+    // unreachable.
+    let b = simple(
+        &prev,
+        txid,
+        0,
+        &[
+            r_wscript(&ws),
+            r_sig(&pk(1), &zero_s),
+            r_sig(&pk(2), &zero_s),
+        ],
+    );
+    let e = analyze_err(&b);
+    assert_eq!(e.category, SemanticCategory::HighS);
+    // One good signature plus one zero-S signature also fails closed.
+    let b = simple(
+        &prev,
+        txid,
+        0,
+        &[
+            r_wscript(&ws),
+            r_sig(&pk(1), &good_sig()),
+            r_sig(&pk(2), &zero_s),
+        ],
+    );
+    let e = analyze_err(&b);
+    assert_eq!(e.category, SemanticCategory::HighS);
+}
+
+#[test]
 fn pubkey_syntax_rejected() {
     let (prev, txid) = base_prev();
     let mut wrong_prefix = pk(1);

@@ -132,7 +132,7 @@ impl fmt::Display for SemanticCategory {
             Self::UnsupportedSighash => "unsupported sighash type",
             Self::CompressedPubkeySyntax => "invalid compressed pubkey syntax",
             Self::StrictDer => "signature not strict der",
-            Self::HighS => "signature s value too high",
+            Self::HighS => "signature s value outside permitted low-s range",
             Self::WitnessScriptForm => "witness script not canonical multisig form",
             Self::AllocationFailed => "result allocation failed",
             Self::HashFailure => "hash length accounting failed",
@@ -760,7 +760,9 @@ fn strict_der_s_range(sig: &[u8]) -> Option<(usize, usize)> {
     Some((s_start, len_s))
 }
 
-/// BIP146 low-S: the big-endian S value must not exceed `LOW_S_MAX`.
+/// QK-DEC-037 / BIP146 low-S: the big-endian S magnitude must lie in
+/// `1..=LOW_S_MAX`. Zero magnitude fails closed before the size/bound
+/// comparison; it never counts toward candidate status.
 fn s_is_low(s: &[u8]) -> bool {
     let mut lead = 0usize;
     for byte in s {
@@ -771,6 +773,9 @@ fn s_is_low(s: &[u8]) -> bool {
         }
     }
     let rest = s.get(lead..).unwrap_or(&[]);
+    if rest.is_empty() {
+        return false;
+    }
     if rest.len() > 32 {
         return false;
     }
