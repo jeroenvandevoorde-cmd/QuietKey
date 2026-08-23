@@ -55,3 +55,28 @@ pub const MAX_RECORDS_PER_MAP: usize = 64;
 /// of the global unsigned transaction (consensus MAX_SCRIPT_SIZE).
 /// HOST-scaffold candidate; no conformance claim; final value OPEN.
 pub const MAX_TX_OUTPUT_SCRIPT_BYTES: usize = 10_000;
+
+/// CANDIDATE (QK-DEC-039): maximum inputs in one previous transaction
+/// carried by a non_witness_utxo record. HOST-scaffold candidate; no
+/// conformance claim; final registry value OPEN.
+pub const MAX_PREVTX_INPUTS: usize = 8192;
+
+/// CANDIDATE (QK-DEC-039): maximum outputs in one previous transaction
+/// carried by a non_witness_utxo record. HOST-scaffold candidate; no
+/// conformance claim; final registry value OPEN.
+pub const MAX_PREVTX_OUTPUTS: usize = 8192;
+
+/// CANDIDATE (QK-DEC-039): maximum bytes of any single scriptSig or
+/// scriptPubKey inside a previous transaction. HOST-scaffold
+/// candidate; no conformance claim; final registry value OPEN.
+pub const MAX_PREVTX_SCRIPT_BYTES: usize = 10_000;
+
+/// CANDIDATE (QK-DEC-039): maximum witness stack items per input of a
+/// previous transaction. HOST-scaffold candidate; no conformance
+/// claim; final registry value OPEN.
+pub const MAX_PREVTX_WITNESS_ITEMS: usize = 1000;
+
+/// CANDIDATE (QK-DEC-039): maximum bytes per witness stack item of a
+/// previous transaction. HOST-scaffold candidate; no conformance
+/// claim; final registry value OPEN.
+pub const MAX_PREVTX_WITNESS_ITEM_BYTES: usize = 10_000;

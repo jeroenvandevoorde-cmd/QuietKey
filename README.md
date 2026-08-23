@@ -4,7 +4,7 @@ EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
 QuietKey is an in-design Bitcoin cold-custody system built around stealth, simplicity, and authenticated encryption: a 2-of-3 multisignature wallet whose custody objects are disguised as ordinary items — a printed webpage (A1 Recovery Document), two bus-pass-like bearer cards (B Key Card, C Emergency Card), and a calculator-disguised, air-gapped terminal.
 
-**This repository currently contains the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, a non-normative PSBT review-profile draft, and a dependency-free HOST-only bounded structural PSBT-v0 parser and canonical structural serializer scaffold.** It still contains no wallet product, no semantic PSBT validation, no cryptographic or signing implementation, no seed generation, no QR/SD/card integration, no target UI/runtime, no production evidence, and no fitness for funds.
+**This repository currently contains the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, a non-normative PSBT review-profile draft, and a dependency-free HOST-only bounded structural PSBT-v0 parser, canonical structural serializer, and bounded semantic-subset analyzer scaffold (structural signature candidates only — no cryptographic verification).** It still contains no wallet product, no cryptographic signature verification or signing implementation, no validity/signability/completeness decisions, no seed generation, no QR/SD/card integration, no target UI/runtime, no production evidence, and no fitness for funds.
 
 ## Status
 
