@@ -15,9 +15,10 @@
 //! return code is mapped explicitly and any other code fails closed.
 //! Error values carry fixed text only, never attacker bytes.
 //!
-//! This crate performs no signing, holds no secret keys, creates,
-//! randomizes, or destroys no context, normalizes no signature, and
-//! integrates with no PSBT flow; it decides nothing about validity,
+//! This Rust wrapper declares and calls no signing or secret-key
+//! function and accepts no secret-key input; it creates, randomizes,
+//! or destroys no context, normalizes no signature, and integrates
+//! with no PSBT flow; it decides nothing about validity,
 //! signability, or completeness of any transaction. It contains no
 //! file or device access, clocks, randomness, logging, network,
 //! environment access, threads, processes, or persistence, and has no

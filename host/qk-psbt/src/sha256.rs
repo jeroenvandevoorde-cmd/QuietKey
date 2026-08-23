@@ -382,24 +382,69 @@ mod tests {
         }
     }
 
-    /// SHAVS Monte Carlo procedure: for each of 100 checkpoints, seed
-    /// three rolling digests and iterate MDi = SHA-256(MDi-3 || MDi-2
-    /// || MDi-1) one thousand times; the final digest is the recorded
-    /// checkpoint and becomes the next seed.
-    #[test]
-    fn nist_monte_carlo_vectors_all_pass() {
-        let text = core::str::from_utf8(MONTE).expect("ASCII response file");
+    /// Strict structural parse of a SHAVS Monte Carlo response file
+    /// (QK-DEC-043): exactly one Seed (a second is rejected), every
+    /// COUNT parsed as an integer, COUNT values exactly 0.. in order,
+    /// each COUNT followed by exactly one MD, no MD without a pending
+    /// COUNT, no pending COUNT at EOF, and Seed and every MD exactly
+    /// 32 bytes. Test-only; touches no fixture byte.
+    fn parse_monte_structure(raw: &[u8]) -> Result<(Vec<u8>, Vec<Vec<u8>>), &'static str> {
+        let text = core::str::from_utf8(raw).map_err(|_| "response file is not ASCII")?;
         let mut seed: Option<Vec<u8>> = None;
-        let mut checkpoints = Vec::new();
+        let mut pending_count: Option<usize> = None;
+        let mut checkpoints: Vec<Vec<u8>> = Vec::new();
         for line in text.lines() {
             let line = line.trim();
             if let Some(v) = line.strip_prefix("Seed = ") {
-                seed = Some(hex_decode(v));
+                if seed.is_some() {
+                    return Err("second Seed line");
+                }
+                let s = hex_decode(v);
+                if s.len() != 32 {
+                    return Err("Seed is not exactly 32 bytes");
+                }
+                seed = Some(s);
+            } else if let Some(v) = line.strip_prefix("COUNT = ") {
+                if pending_count.is_some() {
+                    return Err("COUNT while a COUNT is still pending its MD");
+                }
+                let n: usize = v.parse().map_err(|_| "COUNT is not an integer")?;
+                if n != checkpoints.len() {
+                    return Err("COUNT values are not exactly 0.. in order");
+                }
+                pending_count = Some(n);
             } else if let Some(v) = line.strip_prefix("MD = ") {
-                checkpoints.push(hex_decode(v));
+                if pending_count.take().is_none() {
+                    return Err("MD without a pending COUNT");
+                }
+                let md = hex_decode(v);
+                if md.len() != 32 {
+                    return Err("MD is not exactly 32 bytes");
+                }
+                checkpoints.push(md);
             }
         }
-        let mut seed = seed.expect("Monte seed");
+        if pending_count.is_some() {
+            return Err("pending COUNT at EOF");
+        }
+        match seed {
+            Some(s) => Ok((s, checkpoints)),
+            None => Err("missing Seed"),
+        }
+    }
+
+    /// SHAVS Monte Carlo procedure: for each of 100 checkpoints, seed
+    /// three rolling digests and iterate MDi = SHA-256(MDi-3 || MDi-2
+    /// || MDi-1) one thousand times; the final digest is the recorded
+    /// checkpoint and becomes the next seed. The fixture structure is
+    /// enforced by `parse_monte_structure` (one Seed, COUNT 0..99 in
+    /// order, one MD per COUNT).
+    #[test]
+    fn nist_monte_carlo_vectors_all_pass() {
+        let (mut seed, checkpoints) = match parse_monte_structure(MONTE) {
+            Ok(parsed) => parsed,
+            Err(e) => panic!("Monte fixture structure: {e}"),
+        };
         assert_eq!(checkpoints.len(), 100, "recorded Monte checkpoint count");
         for (count, expected) in checkpoints.iter().enumerate() {
             let mut md = [seed.clone(), seed.clone(), seed.clone()];
@@ -410,6 +455,69 @@ mod tests {
             assert_eq!(&md[2], expected, "Monte COUNT = {count}");
             seed = md[2].clone();
         }
+    }
+
+    /// Focused malformed-structure regressions for the strict Monte
+    /// parser. Synthetic strings only; no fixture byte is changed and
+    /// no new NIST import is added.
+    #[test]
+    fn monte_structure_violations_are_rejected() {
+        let h = "11".repeat(32);
+        let well_formed = format!("Seed = {h}\nCOUNT = 0\nMD = {h}\nCOUNT = 1\nMD = {h}\n");
+        assert!(parse_monte_structure(well_formed.as_bytes()).is_ok());
+        let violations = [
+            (
+                "second Seed line",
+                format!("Seed = {h}\nSeed = {h}\nCOUNT = 0\nMD = {h}\n"),
+            ),
+            ("missing Seed", format!("COUNT = 0\nMD = {h}\n")),
+            (
+                "non-integer COUNT",
+                format!("Seed = {h}\nCOUNT = zero\nMD = {h}\n"),
+            ),
+            (
+                "COUNT not starting at 0",
+                format!("Seed = {h}\nCOUNT = 1\nMD = {h}\n"),
+            ),
+            (
+                "COUNT out of order",
+                format!("Seed = {h}\nCOUNT = 0\nMD = {h}\nCOUNT = 2\nMD = {h}\n"),
+            ),
+            (
+                "duplicate COUNT value",
+                format!("Seed = {h}\nCOUNT = 0\nMD = {h}\nCOUNT = 0\nMD = {h}\n"),
+            ),
+            (
+                "COUNT with no MD before the next COUNT",
+                format!("Seed = {h}\nCOUNT = 0\nCOUNT = 1\nMD = {h}\nMD = {h}\n"),
+            ),
+            (
+                "MD without a pending COUNT",
+                format!("Seed = {h}\nMD = {h}\n"),
+            ),
+            (
+                "second MD for one COUNT",
+                format!("Seed = {h}\nCOUNT = 0\nMD = {h}\nMD = {h}\n"),
+            ),
+            (
+                "pending COUNT at EOF",
+                format!("Seed = {h}\nCOUNT = 0\nMD = {h}\nCOUNT = 1\n"),
+            ),
+        ];
+        for (label, text) in &violations {
+            assert!(parse_monte_structure(text.as_bytes()).is_err(), "{label}");
+        }
+        let short = "22".repeat(31);
+        assert!(
+            parse_monte_structure(format!("Seed = {short}\nCOUNT = 0\nMD = {h}\n").as_bytes())
+                .is_err(),
+            "Seed shorter than 32 bytes"
+        );
+        assert!(
+            parse_monte_structure(format!("Seed = {h}\nCOUNT = 0\nMD = {short}\n").as_bytes())
+                .is_err(),
+            "MD shorter than 32 bytes"
+        );
     }
 
     /// Streaming over arbitrary chunk splits must equal one-shot

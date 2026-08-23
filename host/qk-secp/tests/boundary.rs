@@ -193,6 +193,39 @@ fn public_function_surface_is_exactly_the_approved_five() {
 }
 
 #[test]
+fn build_script_watches_the_complete_vendor_root() {
+    // The complete canonicalized vendor-root watch must be present so
+    // transitive header changes under src/ and include/ invalidate the
+    // native build.
+    assert_eq!(
+        standalone_count(
+            BUILD_SRC,
+            r#"println!("cargo:rerun-if-changed={}", vendor.display());"#,
+        ),
+        1,
+        "build.rs must watch the complete canonicalized vendor root"
+    );
+    // The narrower per-unit and include-dir watches must remain in
+    // addition to — not instead of — the vendor-root watch.
+    assert_eq!(
+        standalone_count(
+            BUILD_SRC,
+            r#"println!("cargo:rerun-if-changed={}", source.display());"#,
+        ),
+        1,
+        "per-unit source watch must remain"
+    );
+    assert_eq!(
+        standalone_count(
+            BUILD_SRC,
+            r#"println!("cargo:rerun-if-changed={}", include_dir.display());"#,
+        ),
+        1,
+        "include-dir watch must remain"
+    );
+}
+
+#[test]
 fn abi_shape_from_outside() {
     assert_eq!(core::mem::size_of::<PublicKey>(), 64);
     assert_eq!(core::mem::size_of::<Signature>(), 64);

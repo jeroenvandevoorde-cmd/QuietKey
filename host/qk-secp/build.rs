@@ -113,6 +113,11 @@ fn main() {
         println!("cargo:rerun-if-changed={}", source.display());
     }
     println!("cargo:rerun-if-changed={}", include_dir.display());
+    // Watch the complete canonicalized vendor root: the compiled units
+    // transitively consume headers under src/ (and include/), so any
+    // vendored byte change must invalidate the native build rather
+    // than leaving Cargo Fresh.
+    println!("cargo:rerun-if-changed={}", vendor.display());
 
     // Literal system ar, archiving the ratified units in ratified order.
     let archive = out_dir.join("libqksecpvendored.a");
