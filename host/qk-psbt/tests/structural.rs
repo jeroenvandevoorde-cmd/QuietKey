@@ -373,6 +373,21 @@ fn signer_record_caps_enforced_per_map() {
         &[vec![]],
     );
     assert!(p(&b).is_ok());
+    // The cap is shared across signer-bearing record classes within one
+    // map: 8 partial signatures plus 8 derivations (16 total) reject,
+    // while 8 plus 7 (15 total) accept.
+    let mixed = |n_sigs: usize, n_derivs: usize| -> Vec<Vec<u8>> {
+        let mut m: Vec<Vec<u8>> = (0..n_sigs)
+            .map(|i| rec(0x02, &pubkey(i as u8), &[1]))
+            .collect();
+        m.extend((0..n_derivs).map(|i| rec(0x06, &pubkey(0x40 + i as u8), &bip32_value(1))));
+        m
+    };
+    assert_eq!(
+        cat(&build(&[], &[mixed(8, 8)], &[vec![]])),
+        RejectCategory::TooManySigners
+    );
+    assert!(p(&build(&[], &[mixed(8, 7)], &[vec![]])).is_ok());
     let out_derivs: Vec<Vec<u8>> = (0..limits::MAX_SIGNERS + 1)
         .map(|i| rec(0x02, &pubkey(i as u8), &bip32_value(1)))
         .collect();

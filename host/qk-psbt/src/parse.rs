@@ -367,9 +367,10 @@ fn walk_map<'a>(
     dup.clear();
     let mut pos = start;
     let mut unsigned_tx: Option<UnsignedTxSummary> = None;
-    let mut partial_sigs: usize = 0;
-    let mut bip32s: usize = 0;
-    let mut xpubs: usize = 0;
+    // One shared cap for all signer-bearing records in this map:
+    // global xpubs, input partial signatures, and input/output BIP32
+    // derivations all count against the same per-map limit.
+    let mut signers: usize = 0;
     loop {
         match decode_record(buf, pos)? {
             Item::Separator { end } => {
@@ -410,7 +411,7 @@ fn walk_map<'a>(
                                 ));
                             }
                             check_bip32_value(&r)?;
-                            bump_signer_count(&mut xpubs, r.full_key.start)?;
+                            bump_signer_count(&mut signers, r.full_key.start)?;
                         }
                         0x02..=0x06 => {
                             return Err(ParseError::new(
@@ -436,7 +437,7 @@ fn walk_map<'a>(
                                     r.value.start,
                                 ));
                             }
-                            bump_signer_count(&mut partial_sigs, r.full_key.start)?;
+                            bump_signer_count(&mut signers, r.full_key.start)?;
                         }
                         0x03 => {
                             require_empty_key_data(&r)?;
@@ -451,7 +452,7 @@ fn walk_map<'a>(
                         0x06 => {
                             require_pubkey_key_data(&r)?;
                             check_bip32_value(&r)?;
-                            bump_signer_count(&mut bip32s, r.full_key.start)?;
+                            bump_signer_count(&mut signers, r.full_key.start)?;
                         }
                         0x13..=0x18 => {
                             return Err(ParseError::new(
@@ -470,7 +471,7 @@ fn walk_map<'a>(
                         0x02 => {
                             require_pubkey_key_data(&r)?;
                             check_bip32_value(&r)?;
-                            bump_signer_count(&mut bip32s, r.full_key.start)?;
+                            bump_signer_count(&mut signers, r.full_key.start)?;
                         }
                         0x05..=0x07 => {
                             return Err(ParseError::new(
