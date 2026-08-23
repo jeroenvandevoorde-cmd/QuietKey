@@ -1,8 +1,8 @@
 //! Tests for the HOST policy model of transaction authorization
-//! ordering — exhaustive ONLY over the current explicit 11-state and
-//! 23-event constants (a single test iterates all 253 declared pairs;
-//! there are not 253 tests, and no future-enum completeness is
-//! claimed).
+//! ordering and for the token-binding workflow runner — exhaustive
+//! ONLY over the current explicit 11-state and 23-event constants (a
+//! single test iterates all 253 declared pairs; there are not 253
+//! tests, and no future-enum completeness is claimed).
 //!
 //! HOST policy model only — HOST SCAFFOLD ONLY — NOT PRODUCT CODE —
 //! NO TARGET CLAIM. These tests exercise a payload-free symbolic
@@ -15,50 +15,15 @@ use qk_host_model::transaction_policy::{
     transaction_transition, TransactionEvent, TransactionState, TransactionTransitionError,
     TransactionTransitionOutcome, ALL_TRANSACTION_EVENTS, ALL_TRANSACTION_STATES,
 };
-use qk_host_sim::{run_transaction_workflow, TransactionScenarioOutcome, TransactionStep};
+use qk_host_sim::{
+    ApplyOutcome, TransactionWorkflow, WorkflowEvent, WorkflowFinished, WorkflowRejection,
+};
 
+use ApplyOutcome as AO;
 use TransactionEvent as E;
 use TransactionState as S;
 use TransactionTransitionOutcome as O;
-
-/// PRIVATE TEST-ONLY arbitrary-start runner, local to this test file.
-/// It exists solely for the explicitly exhaustive every-state coverage
-/// below (exhaustive only over the current declared constants); the
-/// caller-supplied start state's provenance is unchecked, so it proves
-/// no replay or provenance property. The normal library exports no
-/// arbitrary-start workflow/scenario API; intended workflows use the
-/// Locked-start `run_transaction_workflow`.
-fn run_from_state_test_only(
-    start: TransactionState,
-    events: &[TransactionEvent],
-) -> TransactionScenarioOutcome {
-    let mut state = start;
-    let mut steps = Vec::with_capacity(events.len());
-    let mut rejected = 0;
-    let mut processed = 0;
-    for &event in events {
-        let outcome = transaction_transition(state, event);
-        steps.push(TransactionStep {
-            before: state,
-            event,
-            outcome,
-        });
-        processed += 1;
-        state = outcome.resulting_state();
-        if outcome.is_terminal() {
-            if matches!(outcome, TransactionTransitionOutcome::RejectLocked(_)) {
-                rejected += 1;
-            }
-            break;
-        }
-    }
-    TransactionScenarioOutcome {
-        final_state: state,
-        steps,
-        unprocessed: events.len() - processed,
-        rejected,
-    }
-}
+use WorkflowRejection as R;
 
 /// The exact happy-path event sequence from `Locked`.
 const HAPPY_PATH: [E; 11] = [
@@ -136,26 +101,63 @@ fn continuing_next(state: S, event: E) -> Option<S> {
         .map(|(_, _, n)| *n)
 }
 
-/// Test 1: exact happy path — every intermediate state asserted, zero
-/// rejection, final `Ready`.
-#[test]
-fn happy_path_exact_intermediate_states() {
-    let out = run_transaction_workflow(&HAPPY_PATH);
-    assert_eq!(out.steps.len(), 11);
-    assert_eq!(out.unprocessed, 0);
-    assert_eq!(out.rejected, 0);
-    let mut before = S::Locked;
-    for (i, step) in out.steps.iter().enumerate() {
-        assert_eq!(step.before, before);
-        assert_eq!(step.event, HAPPY_PATH[i]);
-        assert_eq!(step.outcome, O::Continue(HAPPY_STATES[i]));
-        before = HAPPY_STATES[i];
+/// Attach the currently minted token to the token-required events; all
+/// other events pass through plain. When no token is minted, the
+/// token-required events are passed tokenless (a missing-token
+/// rejection).
+fn with_minted(workflow: &TransactionWorkflow, event: E) -> WorkflowEvent {
+    match event {
+        E::RevalidationPassed => match workflow.minted_token() {
+            Some(token) => WorkflowEvent::RevalidationPassed(token),
+            None => WorkflowEvent::Plain(E::RevalidationPassed),
+        },
+        E::SignatureProduced => match workflow.minted_token() {
+            Some(token) => WorkflowEvent::SignatureProduced(token),
+            None => WorkflowEvent::Plain(E::SignatureProduced),
+        },
+        other => WorkflowEvent::Plain(other),
     }
-    assert_eq!(out.final_state, S::Ready);
 }
 
-/// Test 2: `SignatureProduced` before approval -> `RejectLocked`,
-/// final `Locked`, suffix unprocessed.
+/// Drive an existing runner through model events, attaching the minted
+/// token where required. Returns the apply outcomes; stops (without
+/// consuming) once the workflow has ended.
+fn drive_into(workflow: &mut TransactionWorkflow, events: &[E]) -> Vec<ApplyOutcome> {
+    let mut outcomes = Vec::with_capacity(events.len());
+    for &event in events {
+        match workflow.apply(with_minted(workflow, event)) {
+            Ok(outcome) => outcomes.push(outcome),
+            Err(WorkflowFinished) => break,
+        }
+    }
+    outcomes
+}
+
+/// Drive a fresh Locked-start runner through model events.
+fn drive(events: &[E]) -> (TransactionWorkflow, Vec<ApplyOutcome>) {
+    let mut workflow = TransactionWorkflow::new();
+    let outcomes = drive_into(&mut workflow, events);
+    (workflow, outcomes)
+}
+
+/// Test 1: exact happy path — every intermediate state asserted, zero
+/// rejection, final `Ready`, minted token cleared at cycle end.
+#[test]
+fn happy_path_exact_intermediate_states() {
+    let (workflow, outcomes) = drive(&HAPPY_PATH);
+    assert_eq!(outcomes.len(), 11);
+    for (i, outcome) in outcomes.iter().enumerate() {
+        assert_eq!(*outcome, AO::Continue(HAPPY_STATES[i]));
+    }
+    assert_eq!(workflow.state(), S::Ready);
+    assert_eq!(workflow.rejected(), 0);
+    assert!(!workflow.is_finished());
+    assert_eq!(workflow.minted_token(), None);
+}
+
+/// Test 2: `SignatureProduced` before approval — no token has been
+/// minted, so the assertion arrives tokenless and is rejected
+/// missing-token; final `Locked`, suffix unconsumed.
 #[test]
 fn signature_before_approval_rejects() {
     let events = [
@@ -167,22 +169,23 @@ fn signature_before_approval_rejects() {
         E::SignatureVerified,
         E::OutputReparsed,
     ];
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 5);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 5);
     assert_eq!(
-        out.steps[4].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
+        outcomes[4],
+        AO::RejectLocked(R::MissingToken {
             state: S::ReviewReady,
             event: E::SignatureProduced,
         })
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 2);
-    assert_eq!(out.rejected, 1);
+    assert_eq!(workflow.state(), S::Locked);
+    assert!(workflow.is_finished());
+    assert_eq!(workflow.rejected(), 1);
 }
 
 /// Test 3: `SignatureProduced` after approval but before revalidation
-/// -> `RejectLocked`, final `Locked`, suffix unprocessed.
+/// carries the freshly minted token, so the token gate passes and the
+/// model table rejects the out-of-order pair; final `Locked`.
 #[test]
 fn signature_after_approval_before_revalidation_rejects() {
     let events = [
@@ -196,22 +199,23 @@ fn signature_after_approval_before_revalidation_rejects() {
         E::SignatureVerified,
         E::OutputReparsed,
     ];
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 7);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 7);
     assert_eq!(
-        out.steps[6].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
-            state: S::Approved,
-            event: E::SignatureProduced,
-        })
+        outcomes[6],
+        AO::RejectLocked(R::InvalidTransition(
+            TransactionTransitionError::InvalidTransition {
+                state: S::Approved,
+                event: E::SignatureProduced,
+            }
+        ))
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 2);
-    assert_eq!(out.rejected, 1);
+    assert_eq!(workflow.state(), S::Locked);
+    assert_eq!(workflow.rejected(), 1);
 }
 
 /// Test 4: `SignatureVerified` before `SignatureProduced` ->
-/// `RejectLocked`.
+/// rejected out of order.
 #[test]
 fn signature_verified_before_produced_rejects() {
     let events = [
@@ -226,21 +230,22 @@ fn signature_verified_before_produced_rejects() {
         E::SignatureVerified, // premature: state is SignPermitted, nothing produced
         E::OutputReparsed,
     ];
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 9);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 9);
     assert_eq!(
-        out.steps[8].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
-            state: S::SignPermitted,
-            event: E::SignatureVerified,
-        })
+        outcomes[8],
+        AO::RejectLocked(R::InvalidTransition(
+            TransactionTransitionError::InvalidTransition {
+                state: S::SignPermitted,
+                event: E::SignatureVerified,
+            }
+        ))
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 1);
+    assert_eq!(workflow.state(), S::Locked);
 }
 
-/// Test 5: `OutputReparsed` before `SignatureVerified` ->
-/// `RejectLocked`.
+/// Test 5: `OutputReparsed` before `SignatureVerified` -> rejected out
+/// of order.
 #[test]
 fn output_reparsed_before_verified_rejects() {
     let events = [
@@ -255,17 +260,18 @@ fn output_reparsed_before_verified_rejects() {
         E::SignatureProduced,
         E::OutputReparsed, // premature: state is VerifyingSignature
     ];
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 10);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 10);
     assert_eq!(
-        out.steps[9].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
-            state: S::VerifyingSignature,
-            event: E::OutputReparsed,
-        })
+        outcomes[9],
+        AO::RejectLocked(R::InvalidTransition(
+            TransactionTransitionError::InvalidTransition {
+                state: S::VerifyingSignature,
+                event: E::OutputReparsed,
+            }
+        ))
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 0);
+    assert_eq!(workflow.state(), S::Locked);
 }
 
 /// Stale `Approve` after a completed cycle has returned `Ready`, but
@@ -277,56 +283,58 @@ fn stale_approve_after_cycle_before_fresh_sequence_rejects() {
     let mut events: Vec<E> = HAPPY_PATH.to_vec();
     events.push(E::Approve); // stale: state is Ready, no fresh sequence
     events.push(E::BeginRevalidation); // suffix must not be consumed
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 12);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 12);
     assert_eq!(
-        out.steps[11].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
-            state: S::Ready,
-            event: E::Approve,
-        })
+        outcomes[11],
+        AO::RejectLocked(R::InvalidTransition(
+            TransactionTransitionError::InvalidTransition {
+                state: S::Ready,
+                event: E::Approve,
+            }
+        ))
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 1);
-    assert_eq!(out.rejected, 1);
+    assert_eq!(workflow.state(), S::Locked);
+    assert_eq!(workflow.rejected(), 1);
 }
 
 /// Two complete consecutive successful transaction cycles in ONE
-/// Locked-start `run_transaction_workflow` invocation are valid: the
-/// first cycle includes `Wake`; the second starts from the returned
-/// `Ready` without `Wake`; exactly one `Approve` continues in each
-/// cycle; final state `Ready`. Approval is single-use per
-/// authorization cycle, not per function invocation.
+/// Locked-start runner are valid: the first cycle includes `Wake`; the
+/// second starts from the returned `Ready` without `Wake`; exactly one
+/// `Approve` continues in each cycle; final state `Ready`. Each cycle
+/// mints a distinct token and the second is strictly greater
+/// (monotonic).
 #[test]
 fn two_consecutive_cycles_one_invocation_valid() {
     let mut events: Vec<E> = HAPPY_PATH.to_vec();
     events.extend_from_slice(&HAPPY_PATH[1..]); // second cycle, no Wake
     assert_eq!(events.len(), 21);
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 21);
-    assert_eq!(out.unprocessed, 0);
-    assert_eq!(out.rejected, 0);
-    assert_eq!(out.final_state, S::Ready);
-    let continuing_approves = out
-        .steps
-        .iter()
-        .filter(|st| st.event == E::Approve && matches!(st.outcome, O::Continue(_)))
-        .count();
-    assert_eq!(continuing_approves, 2); // exactly one per cycle
-    assert!(matches!(out.steps[5].outcome, O::Continue(S::Approved)));
-    assert!(matches!(out.steps[15].outcome, O::Continue(S::Approved)));
-    // Cycle boundary: step 10 returns Ready via the signed path, and
-    // the second cycle's BeginValidation continues from that Ready.
-    assert!(matches!(out.steps[10].outcome, O::Continue(S::Ready)));
-    assert_eq!(out.steps[11].before, S::Ready);
-    assert_eq!(out.steps[11].event, E::BeginValidation);
+    let mut workflow = TransactionWorkflow::new();
+    let mut tokens = Vec::new();
+    for &event in &events {
+        let outcome = workflow
+            .apply(with_minted(&workflow, event))
+            .expect("workflow must not end during two valid cycles");
+        if event == E::Approve && outcome == AO::Continue(S::Approved) {
+            tokens.push(
+                workflow
+                    .minted_token()
+                    .expect("accepted Approve must mint a token"),
+            );
+        }
+        assert!(matches!(outcome, AO::Continue(_)));
+    }
+    assert_eq!(workflow.state(), S::Ready);
+    assert_eq!(workflow.rejected(), 0);
+    assert_eq!(tokens.len(), 2); // exactly one continuing Approve per cycle
+    assert!(tokens[1] > tokens[0]); // opaque monotonicity
+    assert_eq!(workflow.minted_token(), None);
 }
 
 /// Test 6: immediate duplicate `Approve` within one authorization
-/// cycle -> `RejectLocked`, suffix stops. Approval is single-use PER
-/// AUTHORIZATION CYCLE, not per function invocation. No cross-call
-/// claim is made; the public pure transition function accepts
-/// caller-supplied states for model/table use only.
+/// cycle -> rejected, suffix stops. Approval is single-use PER
+/// AUTHORIZATION CYCLE. The pure transition function also rejects
+/// `Approve` from every non-`Confirming` state.
 #[test]
 fn immediate_duplicate_approve_rejects() {
     let events = [
@@ -339,17 +347,18 @@ fn immediate_duplicate_approve_rejects() {
         E::Approve, // immediate duplicate within the same cycle
         E::BeginRevalidation,
     ];
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 7);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 7);
     assert_eq!(
-        out.steps[6].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
-            state: S::Approved,
-            event: E::Approve,
-        })
+        outcomes[6],
+        AO::RejectLocked(R::InvalidTransition(
+            TransactionTransitionError::InvalidTransition {
+                state: S::Approved,
+                event: E::Approve,
+            }
+        ))
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 1);
+    assert_eq!(workflow.state(), S::Locked);
     // Approve is also rejected from every other non-Confirming state.
     for &state in ALL_TRANSACTION_STATES.iter() {
         if state == S::Confirming {
@@ -408,8 +417,8 @@ fn every_unspecified_pair_rejects_locked() {
 /// Test 9: exact declared state x event table — exhaustive ONLY over
 /// the current explicitly enumerated 11-state and 23-event constants —
 /// expected category and next state for every cell, with exact counts:
-/// 11 states x 23 events = 253 cells = 11 Continue + 132 HaltLocked
-/// + 110 RejectLocked. This is ONE Rust test that iterates all 253
+/// 11 states x 23 events = 253 cells = 11 Continue plus 132 HaltLocked
+/// plus 110 RejectLocked. This is ONE Rust test that iterates all 253
 /// declared pairs (not 253 tests). It proves table consistency and the
 /// declared ordering, not independent protocol correctness or future
 /// enum completeness.
@@ -447,58 +456,67 @@ fn exhaustive_state_event_table() {
     assert_eq!(rejects, 110);
 }
 
-/// Test 10: the runner stops at the first `HaltLocked` for every
-/// terminal event/state pair with the stale suffix
-/// `[Wake, BeginValidation]` appended — the suffix is never consumed.
+/// Test 10: for every reachable state (via happy-path prefixes) and
+/// every terminal event, the runner halts locked and then consumes
+/// NOTHING further: a stale `[Wake, BeginValidation]` suffix returns
+/// `WorkflowFinished` untouched (11 states x 12 terminal events = 132
+/// combos).
 #[test]
 fn runner_stops_at_first_halt_for_every_terminal_pair() {
     let mut combos = 0;
-    for &state in ALL_TRANSACTION_STATES.iter() {
+    for prefix_len in 0..=10 {
         for &event in TERMINAL_EVENTS.iter() {
-            let events = [event, E::Wake, E::BeginValidation];
-            let out = run_from_state_test_only(state, &events);
-            assert_eq!(out.steps.len(), 1, "{state:?} + {event:?}");
-            assert_eq!(out.steps[0].outcome, O::HaltLocked);
-            assert_eq!(out.final_state, S::Locked);
-            assert_eq!(out.unprocessed, 2);
-            assert_eq!(out.rejected, 0);
+            let mut workflow = TransactionWorkflow::new();
+            let outcomes = drive_into(&mut workflow, &HAPPY_PATH[..prefix_len]);
+            assert_eq!(outcomes.len(), prefix_len);
+            let halted = workflow.apply(WorkflowEvent::Plain(event));
+            assert_eq!(halted, Ok(AO::HaltLocked));
+            assert_eq!(workflow.state(), S::Locked);
+            assert!(workflow.is_finished());
+            assert_eq!(workflow.rejected(), 0);
+            assert_eq!(
+                workflow.apply(WorkflowEvent::Plain(E::Wake)),
+                Err(WorkflowFinished)
+            );
+            assert_eq!(
+                workflow.apply(WorkflowEvent::Plain(E::BeginValidation)),
+                Err(WorkflowFinished)
+            );
+            assert_eq!(workflow.state(), S::Locked);
             combos += 1;
         }
     }
     assert_eq!(combos, 132);
 }
 
-/// Test 11: the runner stops at `RejectLocked` and ignores the stale
-/// suffix.
+/// Test 11: the runner stops at a rejection and returns
+/// `WorkflowFinished` for the stale suffix.
 #[test]
 fn runner_stops_at_reject_and_ignores_stale_suffix() {
     let events = [
         E::Wake,
-        E::SignatureProduced, // invalid from Ready -> RejectLocked
+        E::SignatureProduced, // tokenless from Ready -> rejected
         E::Wake,              // stale suffix, must never be consumed
         E::BeginValidation,
         E::ValidationPassed,
     ];
-    let out = run_transaction_workflow(&events);
-    assert_eq!(out.steps.len(), 2);
+    let (workflow, outcomes) = drive(&events);
+    assert_eq!(outcomes.len(), 2);
     assert_eq!(
-        out.steps[1].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
+        outcomes[1],
+        AO::RejectLocked(R::MissingToken {
             state: S::Ready,
             event: E::SignatureProduced,
         })
     );
-    assert_eq!(out.final_state, S::Locked);
-    assert_eq!(out.unprocessed, 3);
-    assert_eq!(out.rejected, 1);
+    assert_eq!(workflow.state(), S::Locked);
+    assert_eq!(workflow.rejected(), 1);
 }
 
 /// Test 12: a post-failure workflow works only as a completely
-/// separate scenario starting from `Locked`.
+/// separate runner starting from `Locked`.
 #[test]
 fn post_failure_workflow_requires_new_scenario_from_locked() {
-    // First scenario fails mid-way; its appended continuation suffix
-    // is never processed.
     let failing = [
         E::Wake,
         E::BeginValidation,
@@ -507,49 +525,47 @@ fn post_failure_workflow_requires_new_scenario_from_locked() {
         E::BeginValidation,
         E::ValidationPassed,
     ];
-    let first = run_transaction_workflow(&failing);
-    assert_eq!(first.final_state, S::Locked);
-    assert_eq!(first.steps.len(), 3);
-    assert_eq!(first.unprocessed, 3);
-    // Only a NEW scenario, started from Locked, may proceed — and the
+    let (first, outcomes) = drive(&failing);
+    assert_eq!(first.state(), S::Locked);
+    assert!(first.is_finished());
+    assert_eq!(outcomes.len(), 3);
+    // Only a NEW runner, started from Locked, may proceed — and the
     // full mandatory order still applies from the beginning.
-    let second = run_transaction_workflow(&HAPPY_PATH);
-    assert_eq!(second.final_state, S::Ready);
-    assert_eq!(second.rejected, 0);
-    assert_eq!(second.unprocessed, 0);
+    let (second, second_outcomes) = drive(&HAPPY_PATH);
+    assert_eq!(second.state(), S::Ready);
+    assert_eq!(second.rejected(), 0);
+    assert_eq!(second_outcomes.len(), 11);
 }
 
-/// The intended workflow wrapper begins at `Locked` and accepts no
-/// caller-supplied start state: its first processed step always has
-/// `before == Locked`, and its API takes only events.
+/// The runner begins at `Locked` and accepts no caller-supplied start
+/// state: its API takes only events, and an event invalid from
+/// `Locked` is rejected immediately.
 #[test]
-fn workflow_wrapper_always_begins_locked() {
-    let out = run_transaction_workflow(&[E::Wake]);
-    assert_eq!(out.steps.len(), 1);
-    assert_eq!(out.steps[0].before, S::Locked);
-    assert_eq!(out.steps[0].outcome, O::Continue(S::Ready));
-    // An event that is invalid from Locked is rejected immediately,
-    // proving the wrapper did not start anywhere else.
-    let premature = run_transaction_workflow(&[E::SignatureProduced]);
+fn runner_always_begins_locked() {
+    let workflow = TransactionWorkflow::new();
+    assert_eq!(workflow.state(), S::Locked);
+    assert_eq!(workflow.minted_token(), None);
+    let (woken, outcomes) = drive(&[E::Wake]);
+    assert_eq!(outcomes, vec![AO::Continue(S::Ready)]);
+    assert_eq!(woken.state(), S::Ready);
+    // A tokenless signature assertion from Locked is rejected
+    // immediately, proving the runner did not start anywhere else.
+    let (premature, premature_outcomes) = drive(&[E::SignatureProduced]);
     assert_eq!(
-        premature.steps[0].outcome,
-        O::RejectLocked(TransactionTransitionError::InvalidTransition {
+        premature_outcomes[0],
+        AO::RejectLocked(R::MissingToken {
             state: S::Locked,
             event: E::SignatureProduced,
         })
     );
-    assert_eq!(premature.final_state, S::Locked);
+    assert_eq!(premature.state(), S::Locked);
 }
 
 /// `SignPermitted` is reachable in a Locked-start workflow only through
-/// the binding-representing `RevalidationPassed` event. That event is
-/// DEFINED as a symbolic assertion that a future trusted component
-/// proved byte-exact/canonical commitment equality between the
-/// revalidated candidate and the exact review object and policy
-/// context physically approved in this same workflow. This payload-free
-/// test proves only the ordering (no path to `SignPermitted` skips
-/// `RevalidationPassed`); it does NOT test payload equality, which this
-/// model cannot represent.
+/// the binding-representing `RevalidationPassed` event carrying the
+/// minted cycle token. The pure-model part proves the ordering over
+/// the declared table; the runner part proves a workflow that skips
+/// the tokened `RevalidationPassed` never reaches `SignPermitted`.
 #[test]
 fn sign_permitted_requires_binding_assertion_event() {
     // Ordering proof over the declared table: the only continuing edge
@@ -575,16 +591,15 @@ fn sign_permitted_requires_binding_assertion_event() {
         E::BeginRevalidation,
         E::SignatureProduced, // no binding-representing RevalidationPassed
     ];
-    let out = run_transaction_workflow(&skipping);
-    assert!(out
-        .steps
+    let (workflow, outcomes) = drive(&skipping);
+    assert!(outcomes
         .iter()
-        .all(|s| s.outcome != O::Continue(S::SignPermitted)));
-    assert_eq!(out.final_state, S::Locked);
+        .all(|o| *o != AO::Continue(S::SignPermitted)));
+    assert_eq!(workflow.state(), S::Locked);
 }
 
-/// Test 13: determinism — identical start state and event sequence
-/// always produce identical outcomes.
+/// Test 13: determinism — identical event sequences always produce
+/// identical outcomes, runner states, and minted tokens.
 #[test]
 fn determinism_for_identical_inputs() {
     let sequences: [&[E]; 4] = [
@@ -594,9 +609,14 @@ fn determinism_for_identical_inputs() {
         &[E::Sleep],
     ];
     for events in sequences.iter() {
-        let a = run_transaction_workflow(events);
-        let b = run_transaction_workflow(events);
-        assert_eq!(a, b);
+        let (workflow_a, outcomes_a) = drive(events);
+        let (workflow_b, outcomes_b) = drive(events);
+        assert_eq!(outcomes_a, outcomes_b);
+        // Token identity is intentionally per-instance (provenance),
+        // so compare observable behavior, not whole-runner equality.
+        assert_eq!(workflow_a.state(), workflow_b.state());
+        assert_eq!(workflow_a.is_finished(), workflow_b.is_finished());
+        assert_eq!(workflow_a.rejected(), workflow_b.rejected());
     }
     for &state in ALL_TRANSACTION_STATES.iter() {
         for &event in ALL_TRANSACTION_EVENTS.iter() {
@@ -606,4 +626,210 @@ fn determinism_for_identical_inputs() {
             );
         }
     }
+}
+
+/// A token is minted exactly when `Approve` is accepted, stays minted
+/// through the signature path, and is cleared when the cycle returns
+/// `Ready`.
+#[test]
+fn token_minted_only_on_accepted_approve() {
+    let mut workflow = TransactionWorkflow::new();
+    for (i, &event) in HAPPY_PATH.iter().enumerate() {
+        assert_eq!(
+            workflow.minted_token().is_some(),
+            (6..=10).contains(&i), // after Approve (index 5) until cycle end
+            "before event index {i}"
+        );
+        workflow
+            .apply(with_minted(&workflow, event))
+            .expect("happy path");
+    }
+    assert_eq!(workflow.minted_token(), None);
+}
+
+/// A token minted by a DIFFERENT runner instance is rejected as a
+/// mismatch even when both fresh runners are in their FIRST cycle
+/// (same cycle counter value): tokens carry per-runner provenance, so
+/// the binding is structural, per runner, per cycle.
+#[test]
+fn foreign_token_rejected_as_mismatch() {
+    let mut foreign = TransactionWorkflow::new();
+    drive_into(&mut foreign, &HAPPY_PATH[..6]); // through Approve, cycle 1
+    let foreign_token = foreign.minted_token().expect("foreign mint");
+
+    let mut workflow = TransactionWorkflow::new();
+    drive_into(&mut workflow, &HAPPY_PATH[..7]); // through BeginRevalidation, cycle 1
+    assert_eq!(workflow.state(), S::Revalidating);
+    assert_ne!(workflow.minted_token(), Some(foreign_token));
+    let outcome = workflow.apply(WorkflowEvent::RevalidationPassed(foreign_token));
+    assert_eq!(
+        outcome,
+        Ok(AO::RejectLocked(R::TokenMismatch {
+            state: S::Revalidating,
+            event: E::RevalidationPassed,
+        }))
+    );
+    assert_eq!(workflow.state(), S::Locked);
+    assert_eq!(workflow.rejected(), 1);
+
+    // Same for the signature assertion: a runner at SignPermitted
+    // rejects a foreign first-cycle token.
+    let mut signer = TransactionWorkflow::new();
+    drive_into(&mut signer, &HAPPY_PATH[..8]); // through RevalidationPassed
+    assert_eq!(signer.state(), S::SignPermitted);
+    let mut donor = TransactionWorkflow::new();
+    drive_into(&mut donor, &HAPPY_PATH[..6]); // through Approve, cycle 1
+    let donor_token = donor.minted_token().expect("donor mint");
+    let outcome = signer.apply(WorkflowEvent::SignatureProduced(donor_token));
+    assert_eq!(
+        outcome,
+        Ok(AO::RejectLocked(R::TokenMismatch {
+            state: S::SignPermitted,
+            event: E::SignatureProduced,
+        }))
+    );
+    assert_eq!(signer.state(), S::Locked);
+}
+
+/// A token from an EARLIER cycle of the same runner is stale and
+/// rejected once a later cycle has minted a new token.
+#[test]
+fn stale_cycle_token_rejected() {
+    let mut workflow = TransactionWorkflow::new();
+    drive_into(&mut workflow, &HAPPY_PATH[..6]); // cycle 1 through Approve
+    let first_token = workflow.minted_token().expect("cycle 1 mint");
+    drive_into(&mut workflow, &HAPPY_PATH[6..]); // complete cycle 1
+    assert_eq!(workflow.state(), S::Ready);
+    drive_into(&mut workflow, &HAPPY_PATH[1..7]); // cycle 2 through BeginRevalidation
+    assert_eq!(workflow.state(), S::Revalidating);
+    let second_token = workflow.minted_token().expect("cycle 2 mint");
+    assert!(second_token > first_token); // monotonic across cycles
+    let outcome = workflow.apply(WorkflowEvent::RevalidationPassed(first_token));
+    assert_eq!(
+        outcome,
+        Ok(AO::RejectLocked(R::TokenMismatch {
+            state: S::Revalidating,
+            event: E::RevalidationPassed,
+        }))
+    );
+    assert_eq!(workflow.state(), S::Locked);
+}
+
+/// A token-required event without any token is rejected even in the
+/// exactly right state.
+#[test]
+fn missing_token_rejected_in_right_state() {
+    let mut workflow = TransactionWorkflow::new();
+    drive_into(&mut workflow, &HAPPY_PATH[..7]);
+    assert_eq!(workflow.state(), S::Revalidating);
+    let outcome = workflow.apply(WorkflowEvent::Plain(E::RevalidationPassed));
+    assert_eq!(
+        outcome,
+        Ok(AO::RejectLocked(R::MissingToken {
+            state: S::Revalidating,
+            event: E::RevalidationPassed,
+        }))
+    );
+    assert_eq!(workflow.state(), S::Locked);
+}
+
+/// Delivery retry never re-runs signing: after `SignatureProduced` is
+/// accepted once, replaying it — even with the still-active cycle
+/// token — is rejected out of order. (Re-delivering the frozen signed
+/// artifact is outside this model; only re-SIGNING is modeled, and it
+/// is forbidden.)
+#[test]
+fn no_signing_rerun_on_delivery_retry() {
+    let mut workflow = TransactionWorkflow::new();
+    drive_into(&mut workflow, &HAPPY_PATH[..9]); // through SignatureProduced
+    assert_eq!(workflow.state(), S::VerifyingSignature);
+    let token = workflow.minted_token().expect("token active");
+    let outcome = workflow.apply(WorkflowEvent::SignatureProduced(token));
+    assert_eq!(
+        outcome,
+        Ok(AO::RejectLocked(R::InvalidTransition(
+            TransactionTransitionError::InvalidTransition {
+                state: S::VerifyingSignature,
+                event: E::SignatureProduced,
+            }
+        )))
+    );
+    assert_eq!(workflow.state(), S::Locked);
+}
+
+/// New signing requires a NEW approval cycle: after a completed cycle
+/// the old token is cleared and rejected, and only a full fresh
+/// sequence through `Approve` (minting a strictly greater token)
+/// reaches `SignPermitted` again.
+#[test]
+fn new_signing_requires_new_approval_cycle() {
+    let mut workflow = TransactionWorkflow::new();
+    drive_into(&mut workflow, &HAPPY_PATH[..6]);
+    let first_token = workflow.minted_token().expect("cycle 1 mint");
+    drive_into(&mut workflow, &HAPPY_PATH[6..]);
+    assert_eq!(workflow.state(), S::Ready);
+    assert_eq!(workflow.minted_token(), None);
+    // Old token after cycle completion: rejected, no signing.
+    let mut replay = workflow.clone();
+    let outcome = replay.apply(WorkflowEvent::SignatureProduced(first_token));
+    assert_eq!(
+        outcome,
+        Ok(AO::RejectLocked(R::TokenMismatch {
+            state: S::Ready,
+            event: E::SignatureProduced,
+        }))
+    );
+    // Fresh full cycle: new Approve mints a strictly greater token and
+    // signing is permitted again only through it.
+    let outcomes = drive_into(&mut workflow, &HAPPY_PATH[1..8]);
+    assert!(outcomes.iter().all(|o| matches!(o, AO::Continue(_))));
+    assert_eq!(workflow.state(), S::SignPermitted);
+    let second_token = workflow.minted_token().expect("cycle 2 mint");
+    assert!(second_token > first_token);
+    let outcome = workflow.apply(WorkflowEvent::SignatureProduced(second_token));
+    assert_eq!(outcome, Ok(AO::Continue(S::VerifyingSignature)));
+}
+
+/// Counter exhaustion fails closed without panic: when the monotonic
+/// counter has no fresh value left, `Approve` is rejected locked and
+/// nothing is minted.
+#[test]
+fn cycle_counter_exhaustion_fails_closed() {
+    // Immediately exhausted counter.
+    let mut workflow = TransactionWorkflow::with_first_cycle(u64::MAX);
+    drive_into(&mut workflow, &HAPPY_PATH[..5]); // to Confirming
+    assert_eq!(workflow.state(), S::Confirming);
+    let outcome = workflow.apply(WorkflowEvent::Plain(E::Approve));
+    assert_eq!(outcome, Ok(AO::RejectLocked(R::CycleCounterExhausted)));
+    assert_eq!(workflow.state(), S::Locked);
+    assert!(workflow.is_finished());
+    assert_eq!(workflow.minted_token(), None);
+    assert_eq!(workflow.rejected(), 1);
+    // Last mintable value works; the next cycle then fails closed.
+    let mut nearly = TransactionWorkflow::with_first_cycle(u64::MAX - 1);
+    let outcomes = drive_into(&mut nearly, &HAPPY_PATH);
+    assert_eq!(outcomes.len(), 11);
+    assert_eq!(nearly.state(), S::Ready);
+    let outcomes = drive_into(&mut nearly, &HAPPY_PATH[1..5]);
+    assert!(outcomes.iter().all(|o| matches!(o, AO::Continue(_))));
+    let outcome = nearly.apply(WorkflowEvent::Plain(E::Approve));
+    assert_eq!(outcome, Ok(AO::RejectLocked(R::CycleCounterExhausted)));
+    assert_eq!(nearly.state(), S::Locked);
+}
+
+/// A finished runner consumes nothing: every apply returns
+/// `WorkflowFinished` and observable state never changes.
+#[test]
+fn finished_runner_consumes_nothing() {
+    let (mut workflow, _) = drive(&[E::Wake, E::Approve]); // reject: Approve from Ready
+    assert!(workflow.is_finished());
+    assert_eq!(workflow.rejected(), 1);
+    let snapshot = workflow.clone();
+    for &event in ALL_TRANSACTION_EVENTS.iter() {
+        assert_eq!(
+            workflow.apply(with_minted(&snapshot, event)),
+            Err(WorkflowFinished)
+        );
+    }
+    assert_eq!(workflow, snapshot);
 }

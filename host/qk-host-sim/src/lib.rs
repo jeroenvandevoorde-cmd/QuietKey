@@ -1,4 +1,5 @@
-//! Library-only deterministic scenario runner over `qk-host-model`.
+//! Library-only deterministic transaction workflow runner over
+//! `qk-host-model`.
 //!
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET SIMULATOR —
 //! NO TARGET CLAIM. HOST policy model only: interruption events are
@@ -8,102 +9,283 @@
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
+//!
+//! Beyond the model's mandatory event order, the runner makes the
+//! approval→revalidation→signature binding STRUCTURAL: accepting
+//! `Approve` mints an opaque, monotonic per-cycle [`CycleToken`], and
+//! the `RevalidationPassed` and `SignatureProduced` assertions are
+//! accepted only when they carry exactly the token minted for the
+//! active cycle. The token carries no wallet or transaction data; it
+//! binds symbolic order only and proves nothing about real approval,
+//! revalidation, or signing.
 
 #![forbid(unsafe_code)]
 
 use qk_host_model::transaction_policy::{
-    transaction_transition, TransactionEvent, TransactionState, TransactionTransitionOutcome,
+    transaction_transition, TransactionEvent, TransactionState, TransactionTransitionError,
+    TransactionTransitionOutcome,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Result of applying one transaction event during a scenario.
-/// Records the triggering event and its result.
+/// Process-wide source of distinct runner provenance ids, so tokens
+/// minted by different runner instances never compare equal.
+static NEXT_RUNNER_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Opaque, monotonic per-cycle approval token minted by
+/// [`TransactionWorkflow`] when an `Approve` event is accepted from
+/// `Confirming`. It has no public constructor and exposes no value.
+/// A token carries the minting runner's process-unique provenance id
+/// plus that runner's cycle counter, so a token minted by a DIFFERENT
+/// runner instance never matches — even at the same cycle counter
+/// value. (Clones of a runner share its provenance: they are forks of
+/// the same logical workflow.) `Ord` exists only so hosts and tests
+/// can prove monotonicity between two tokens minted by the SAME
+/// runner without reading either one; ordering across runners is
+/// meaningless. It carries no wallet or transaction data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CycleToken {
+    runner: u64,
+    cycle: u64,
+}
+
+/// Runner input: a model event, with the two signature-path assertions
+/// required to carry the minted cycle token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TransactionStep {
-    /// State before the event was applied.
-    pub before: TransactionState,
-    /// The event that was applied.
-    pub event: TransactionEvent,
-    /// The transition outcome, always exposing the security result.
-    pub outcome: TransactionTransitionOutcome,
+pub enum WorkflowEvent {
+    /// Any model event that does not carry a token. Passing the
+    /// token-required model events (`RevalidationPassed`,
+    /// `SignatureProduced`) through this variant is a missing-token
+    /// rejection.
+    Plain(TransactionEvent),
+    /// Symbolic revalidation-passed assertion carrying a cycle token.
+    RevalidationPassed(CycleToken),
+    /// Symbolic signature-produced assertion carrying a cycle token.
+    SignatureProduced(CycleToken),
 }
 
-/// Deterministic outcome of running a whole transaction scenario.
+/// Why the runner rejected an event. Every rejection is terminal and
+/// resolves to `Locked`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowRejection {
+    /// The state/event pair is invalid in the model transition table.
+    InvalidTransition(TransactionTransitionError),
+    /// A token-required event arrived without a token.
+    MissingToken {
+        /// State when the tokenless event arrived.
+        state: TransactionState,
+        /// The token-required model event that arrived tokenless.
+        event: TransactionEvent,
+    },
+    /// The carried token is not the token minted for the active
+    /// approval cycle: mismatched, stale from an earlier cycle, or no
+    /// cycle is active.
+    TokenMismatch {
+        /// State when the wrongly-tokened event arrived.
+        state: TransactionState,
+        /// The token-required model event that carried the wrong token.
+        event: TransactionEvent,
+    },
+    /// The monotonic cycle counter is exhausted; the approval fails
+    /// closed instead of minting a reused or wrapped token.
+    CycleCounterExhausted,
+}
+
+/// Result of applying one event to a live workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    /// The workflow continues in the given state.
+    Continue(TransactionState),
+    /// A terminal model event ended the workflow; the state is
+    /// `Locked`.
+    HaltLocked,
+    /// The event was rejected; the workflow is terminated and the
+    /// state is `Locked`.
+    RejectLocked(WorkflowRejection),
+}
+
+/// Error: the workflow already ended. The event was NOT consumed and
+/// the runner state is unchanged (`Locked`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkflowFinished;
+
+/// Deterministic Locked-start transaction workflow runner.
+///
+/// Enforces the model's mandatory order and, structurally, the
+/// approval→revalidation→signature binding: `RevalidationPassed` and
+/// `SignatureProduced` are accepted only with the token minted for the
+/// active approval cycle. Fail-closed over the declared semantics,
+/// assuming successful host execution; allocation exhaustion,
+/// panic/abort, process termination, persistence, boot recovery, and
+/// target behavior are outside this model. This runner is a HOST
+/// policy model and test harness, NOT an authorization boundary.
+///
+/// After a `HaltLocked` or `RejectLocked` outcome the workflow is
+/// finished: every later [`TransactionWorkflow::apply`] returns
+/// [`WorkflowFinished`] without consuming the event. A completed cycle
+/// (`OutputReparsed` returning `Ready`) clears the minted token, so
+/// new signing always requires a fresh `Approve` in a fresh cycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransactionScenarioOutcome {
-    /// The state after the last processed event. After a `HaltLocked`
-    /// or `RejectLocked` outcome this is always `Locked`.
-    pub final_state: TransactionState,
-    /// One record per PROCESSED event, in order. Events queued after a
-    /// terminal outcome are never processed and never appear here.
-    pub steps: Vec<TransactionStep>,
-    /// Count of queued events left unprocessed because a terminal
-    /// outcome ended the scenario first.
-    pub unprocessed: usize,
-    /// Count of processed events whose outcome was `RejectLocked`.
-    /// Because rejection is terminal, this is always 0 or 1.
-    pub rejected: usize,
+pub struct TransactionWorkflow {
+    state: TransactionState,
+    finished: bool,
+    rejected: usize,
+    runner_id: u64,
+    next_cycle: u64,
+    minted: Option<CycleToken>,
 }
 
-/// Run the INTENDED transaction authorization workflow: accepts only
-/// events and ALWAYS begins at `TransactionState::Locked`. No
-/// caller-supplied start state exists in this API.
-///
-/// Deterministic, with no I/O and no hidden mutable or global state;
-/// fail-closed over the declared state/event semantics, assuming
-/// successful host execution. Allocation exhaustion, panic/abort,
-/// process termination, persistence, boot recovery, and target
-/// behavior are outside this model. This wrapper is a HOST policy
-/// model and test harness, NOT an authorization boundary.
-///
-/// Approval property (within one correctly outcome-threaded invocation
-/// of this function, which begins `Locked`; single-use PER
-/// AUTHORIZATION CYCLE, not per function invocation): `Approve`
-/// continues only from `Confirming`. An immediate duplicate `Approve`,
-/// or any stale `Approve` before a fresh symbolic `BeginValidation` ->
-/// `ValidationPassed` -> `ReviewConstructed` -> `RequestApproval`
-/// sequence reaches `Confirming`, rejects locked and the remaining
-/// suffix is not consumed. After a completed cycle returns to `Ready`
-/// through the signed completion path, an `Approve` following a new
-/// full validation/review/request sequence begins a NEW authorization
-/// cycle in the SAME invocation and is not replay. This is symbolic
-/// order only; no payload, freshness, or identity fact is proven. No
-/// cross-call guarantee exists.
-///
-/// The returned `Vec` of steps is host-test plumbing, not a bounded
-/// production mechanism; no resource-failure behavior is claimed.
-///
-/// On `HaltLocked` or `RejectLocked` the scenario state resolves to
-/// `Locked` and the runner STOPS consuming queued events; the
-/// remaining suffix events are counted as unprocessed. Any failure or
-/// interruption invalidates the entire authorization: a later `Wake`
-/// can only ever be the beginning of a completely NEW workflow
-/// invocation (which itself begins at `Locked`); it is never consumed
-/// as a stale suffix of an interrupted scenario.
-pub fn run_transaction_workflow(events: &[TransactionEvent]) -> TransactionScenarioOutcome {
-    let mut state = TransactionState::Locked;
-    let mut steps = Vec::with_capacity(events.len());
-    let mut rejected = 0;
-    let mut processed = 0;
-    for &event in events {
-        let outcome = transaction_transition(state, event);
-        steps.push(TransactionStep {
-            before: state,
-            event,
-            outcome,
-        });
-        processed += 1;
-        state = outcome.resulting_state();
-        if outcome.is_terminal() {
-            if matches!(outcome, TransactionTransitionOutcome::RejectLocked(_)) {
-                rejected += 1;
-            }
-            break;
+impl Default for TransactionWorkflow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TransactionWorkflow {
+    /// New workflow, beginning at `Locked` with a fresh cycle counter.
+    pub fn new() -> Self {
+        Self::with_first_cycle(0)
+    }
+
+    /// Host-test plumbing: start the monotonic cycle counter at a
+    /// chosen value so counter exhaustion is provable without 2^64
+    /// approvals. Behavior is otherwise identical to [`Self::new`].
+    ///
+    /// Every construction draws a fresh process-unique provenance id
+    /// for token binding. In the unreachable case that the provenance
+    /// id space is exhausted, the runner is created already finished
+    /// at `Locked` (fail closed) instead of reusing an id.
+    pub fn with_first_cycle(first_cycle: u64) -> Self {
+        let provenance = NEXT_RUNNER_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .ok();
+        match provenance {
+            Some(runner_id) => TransactionWorkflow {
+                state: TransactionState::Locked,
+                finished: false,
+                rejected: 0,
+                runner_id,
+                next_cycle: first_cycle,
+                minted: None,
+            },
+            None => TransactionWorkflow {
+                state: TransactionState::Locked,
+                finished: true,
+                rejected: 0,
+                runner_id: u64::MAX,
+                next_cycle: first_cycle,
+                minted: None,
+            },
         }
     }
-    TransactionScenarioOutcome {
-        final_state: state,
-        steps,
-        unprocessed: events.len() - processed,
-        rejected,
+
+    /// Current state. `Locked` after any terminal outcome.
+    pub fn state(&self) -> TransactionState {
+        self.state
+    }
+
+    /// True once a terminal outcome ended the workflow.
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    /// Count of rejected events. Rejection is terminal, so this is
+    /// always 0 or 1.
+    pub fn rejected(&self) -> usize {
+        self.rejected
+    }
+
+    /// The token minted for the active approval cycle, if one is
+    /// active. `None` before `Approve` is accepted, after the cycle
+    /// completes back to `Ready`, and after any terminal outcome.
+    pub fn minted_token(&self) -> Option<CycleToken> {
+        self.minted
+    }
+
+    /// Apply one event. Returns the outcome, or [`WorkflowFinished`]
+    /// (without consuming the event) if the workflow already ended.
+    pub fn apply(&mut self, event: WorkflowEvent) -> Result<ApplyOutcome, WorkflowFinished> {
+        if self.finished {
+            return Err(WorkflowFinished);
+        }
+        let model_event = match event {
+            WorkflowEvent::Plain(inner) => {
+                if matches!(
+                    inner,
+                    TransactionEvent::RevalidationPassed | TransactionEvent::SignatureProduced
+                ) {
+                    return Ok(self.reject(WorkflowRejection::MissingToken {
+                        state: self.state,
+                        event: inner,
+                    }));
+                }
+                inner
+            }
+            WorkflowEvent::RevalidationPassed(token) => {
+                if self.minted != Some(token) {
+                    return Ok(self.reject(WorkflowRejection::TokenMismatch {
+                        state: self.state,
+                        event: TransactionEvent::RevalidationPassed,
+                    }));
+                }
+                TransactionEvent::RevalidationPassed
+            }
+            WorkflowEvent::SignatureProduced(token) => {
+                if self.minted != Some(token) {
+                    return Ok(self.reject(WorkflowRejection::TokenMismatch {
+                        state: self.state,
+                        event: TransactionEvent::SignatureProduced,
+                    }));
+                }
+                TransactionEvent::SignatureProduced
+            }
+        };
+        if self.state == TransactionState::Confirming
+            && model_event == TransactionEvent::Approve
+            && self.next_cycle == u64::MAX
+        {
+            // Fail closed without panic: the reserved final counter
+            // value is never minted, so an approval that cannot get a
+            // fresh token never enters `Approved`.
+            return Ok(self.reject(WorkflowRejection::CycleCounterExhausted));
+        }
+        match transaction_transition(self.state, model_event) {
+            TransactionTransitionOutcome::Continue(next) => {
+                if model_event == TransactionEvent::Approve {
+                    // Accepted Approve implies the state was
+                    // `Confirming`; the counter is below MAX (checked
+                    // above), so the increment cannot overflow.
+                    self.minted = Some(CycleToken {
+                        runner: self.runner_id,
+                        cycle: self.next_cycle,
+                    });
+                    self.next_cycle += 1;
+                }
+                if next == TransactionState::Ready {
+                    // Cycle boundary: any minted token is now stale.
+                    self.minted = None;
+                }
+                self.state = next;
+                Ok(ApplyOutcome::Continue(next))
+            }
+            TransactionTransitionOutcome::HaltLocked => {
+                self.end_locked();
+                Ok(ApplyOutcome::HaltLocked)
+            }
+            TransactionTransitionOutcome::RejectLocked(error) => {
+                Ok(self.reject(WorkflowRejection::InvalidTransition(error)))
+            }
+        }
+    }
+
+    fn end_locked(&mut self) {
+        self.state = TransactionState::Locked;
+        self.finished = true;
+        self.minted = None;
+    }
+
+    fn reject(&mut self, rejection: WorkflowRejection) -> ApplyOutcome {
+        self.end_locked();
+        self.rejected += 1;
+        ApplyOutcome::RejectLocked(rejection)
     }
 }
