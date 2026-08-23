@@ -270,13 +270,44 @@ fn v2_global_fields_reject_and_v0_legal_globals_preserve() {
         let b = build(&[rec(t, &[], &[0])], &[vec![]], &[vec![]]);
         assert_eq!(cat(&b), RejectCategory::V2GlobalField, "type {t:#x}");
     }
-    // 0xfb (version, registered for v0) and 0xfc (proprietary) preserve.
+    // 0xfb (version zero) and 0xfc (proprietary) preserve.
     let b = build(
         &[rec(0xfb, &[], &[0, 0, 0, 0]), rec(0xfc, &[9], &[1])],
         &[vec![]],
         &[vec![]],
     );
     assert!(p(&b).is_ok());
+}
+
+#[test]
+fn explicit_global_version_field_must_declare_zero() {
+    // Omitted version field: accepted (minimal PSBT has none).
+    assert!(p(&minimal()).is_ok());
+    // Explicit version zero: accepted.
+    let b = build(&[rec(0xfb, &[], &[0, 0, 0, 0])], &[vec![]], &[vec![]]);
+    assert!(p(&b).is_ok());
+    // Well-formed nonzero versions: stable explicit rejection.
+    for v in [1u32, 2, u32::MAX] {
+        let b = build(&[rec(0xfb, &[], &v.to_le_bytes())], &[vec![]], &[vec![]]);
+        assert_eq!(
+            cat(&b),
+            RejectCategory::UnsupportedPsbtVersion,
+            "version {v}"
+        );
+    }
+    // Malformed value width keeps the structural category.
+    for bad in [&[0u8; 3][..], &[0u8; 5][..], &[][..]] {
+        let b = build(&[rec(0xfb, &[], bad)], &[vec![]], &[vec![]]);
+        assert_eq!(
+            cat(&b),
+            RejectCategory::InvalidValueStructure,
+            "len {}",
+            bad.len()
+        );
+    }
+    // Non-empty key data keeps the structural category.
+    let b = build(&[rec(0xfb, &[1], &[0, 0, 0, 0])], &[vec![]], &[vec![]]);
+    assert_eq!(cat(&b), RejectCategory::InvalidKeyStructure);
 }
 
 #[test]

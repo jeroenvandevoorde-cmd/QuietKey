@@ -14,7 +14,10 @@
 //! trailing bytes. Structurally valid partial-signature records are
 //! preserved as views; cryptographic and signer-policy validation is
 //! later work, as is all semantic validation (amounts, scripts,
-//! witness_utxo/prevout agreement, version-field semantics).
+//! witness_utxo/prevout agreement). The explicit global version field
+//! (type 0xFB) is validated structurally: empty key data, exactly four
+//! little-endian value bytes, and the value must declare version zero;
+//! omission remains accepted.
 //!
 //! The unsigned transaction is parsed only as far as necessary to
 //! validate its structure and derive the input/output map counts.

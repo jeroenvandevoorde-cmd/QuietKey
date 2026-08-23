@@ -419,8 +419,26 @@ fn walk_map<'a>(
                                 r.full_key.start,
                             ));
                         }
-                        // 0xfb (version) and 0xfc (proprietary) and all
-                        // other types: preserved verbatim as views.
+                        0xfb => {
+                            // Explicit v0 version field: empty key
+                            // data, exactly four little-endian value
+                            // bytes, value zero. Omission stays legal.
+                            require_empty_key_data(&r)?;
+                            if r.value.len() != 4 {
+                                return Err(ParseError::new(
+                                    RejectCategory::InvalidValueStructure,
+                                    r.value.start,
+                                ));
+                            }
+                            if r.value.slice(buf) != Some(&[0, 0, 0, 0]) {
+                                return Err(ParseError::new(
+                                    RejectCategory::UnsupportedPsbtVersion,
+                                    r.value.start,
+                                ));
+                            }
+                        }
+                        // 0xfc (proprietary) and all other types:
+                        // preserved verbatim as views.
                         _ => {}
                     },
                     Scope::Input => match r.key_type {

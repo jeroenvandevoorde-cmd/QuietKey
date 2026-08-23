@@ -53,6 +53,9 @@ pub enum RejectCategory {
     PathTooDeep,
     /// The ephemeral duplicate-detection set could not allocate.
     AllocationFailed,
+    /// A well-formed global version field declares a version other
+    /// than zero.
+    UnsupportedPsbtVersion,
 }
 
 impl fmt::Display for RejectCategory {
@@ -80,6 +83,7 @@ impl fmt::Display for RejectCategory {
             Self::TooManySigners => "too many signer records",
             Self::PathTooDeep => "derivation path too deep",
             Self::AllocationFailed => "duplicate-set allocation failed",
+            Self::UnsupportedPsbtVersion => "unsupported psbt version",
         };
         f.write_str(s)
     }
