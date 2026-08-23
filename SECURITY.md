@@ -2,7 +2,7 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This repository is **pre-production** and **unsafe for funds**. It contains the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, a non-normative PSBT review-profile draft, and a dependency-free HOST-only bounded structural PSBT-v0 parser, canonical structural serializer, and bounded semantic-subset analyzer scaffold (structural signature candidates only — no cryptographic verification) — no wallet product, no cryptographic signature verification or signing implementation, no validity/signability/completeness decisions, no seed generation, no QR/SD/card integration, no target UI/runtime, and no production evidence. Do not use anything here to store, receive, or move real bitcoin.
+This repository is **pre-production** and **unsafe for funds**. It contains the owner-approved specification baseline, dependency-free payload-free HOST-only non-product state/policy models and tests, a non-normative PSBT review-profile draft, a dependency-free HOST-only bounded structural PSBT-v0 parser, canonical structural serializer, and bounded semantic-subset analyzer scaffold (structural signature candidates only — the analyzer performs no cryptographic verification), and a HOST-only verification-only libsecp256k1 v0.8.0 FFI boundary (five functions over a vendored pinned tree; not integrated into PSBT analysis) — no wallet product, no signing implementation, no PSBT-integrated signature verification, no validity/signability/completeness decisions, no seed generation, no QR/SD/card integration, no target UI/runtime, and no production evidence. Do not use anything here to store, receive, or move real bitcoin.
 
 ## Never submit real secrets
 

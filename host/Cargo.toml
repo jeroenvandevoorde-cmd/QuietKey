@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["qk-host-model", "qk-host-sim", "qk-psbt"]
+members = ["qk-host-model", "qk-host-sim", "qk-psbt", "qk-secp"]
 
 [profile.release]
 overflow-checks = true

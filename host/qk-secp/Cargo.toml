@@ -1,0 +1,6 @@
+[package]
+name = "qk-secp"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Verification-only libsecp256k1 v0.8.0 FFI boundary over the vendored pinned tree. HOST evidence only. Not product code. Not a wallet. No signing, no secret keys, no PSBT integration, no conformance or target claim."
