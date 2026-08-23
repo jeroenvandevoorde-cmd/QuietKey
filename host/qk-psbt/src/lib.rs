@@ -1,10 +1,17 @@
-//! Bounded, read-only PSBT v0 structural parser.
+//! Bounded PSBT v0 structural parser and canonical structural serializer.
 //!
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET — NO TARGET CLAIM.
 //!
 //! This crate parses one immutable byte buffer as a BIP-174 PSBT v0
-//! container and exposes offset/length views into that buffer. It never
-//! copies subobjects, never serializes, and never normalizes records.
+//! container and exposes offset/length views into that buffer, and it
+//! canonically re-serializes an already-parsed view per QK-DEC-036:
+//! records reorder within each map by ascending decoded numeric key
+//! type then raw key data lexicographically, outer length prefixes
+//! re-encode as minimal CompactSize, and every record's complete key
+//! and value bytes are copied verbatim — no record is added, dropped,
+//! or rewritten, and no semantic emit behavior (including S9
+//! redundant-SIGHASH_ALL stripping) exists. The parser itself never
+//! copies subobjects and never normalizes records.
 //! Unknown and proprietary records are preserved verbatim as bounded
 //! byte-range views. BIP-370 input/output-only field numbers are treated
 //! as opaque preserved unknowns; the ratified rejection list is PSBT v2
@@ -45,7 +52,9 @@ pub mod error;
 pub mod limits;
 mod parse;
 mod raw;
+mod serialize;
 
 pub use error::{ParseError, RejectCategory};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
+pub use serialize::{canonical_serialize, SerializeError};

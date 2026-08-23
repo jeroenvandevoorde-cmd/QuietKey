@@ -11,8 +11,10 @@
 //! expected rejections with their exact category; the profile is never
 //! loosened to make an upstream vector pass. The two upstream "valid" vectors with
 //! zero-input unsigned transactions reject under the local profile.
-//! No round-trip tests and no serializer. HOST evidence only; no
-//! conformance claim.
+//! The canonical-serializer goldens below are locally derived from
+//! these imported vectors and first-party synthetic fixtures; no
+//! upstream expected-output material is imported. HOST evidence only;
+//! no conformance claim.
 //!
 //! Breakdown of the 36 imported strings (34 carry upstream "Case"
 //! labels; the two unknown-KV strings are introduced by prose and are
@@ -22,7 +24,7 @@
 //! that are signer-failure (structurally valid; post-M3 rejection
 //! pending), and 2 unknown-KV preservation cases.
 
-use qk_psbt::{parse, InputSource, RejectCategory};
+use qk_psbt::{canonical_serialize, parse, InputSource, PsbtView, Records, RejectCategory};
 
 #[derive(Clone, Copy)]
 enum Verdict {
@@ -326,4 +328,446 @@ fn upstream_unknown_key_value_vectors_preserve_records_verbatim() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// M5 canonical structural serializer tests (QK-DEC-036).
+//
+// The canonical-identity goldens below are locally derived, not imported:
+// for every accepted upstream fixture the test first proves, independently
+// of the serializer, that each map is already adjacent-ordered by (decoded
+// numeric key type, raw key data). Given verbatim record copying and the
+// parser's minimal-CompactSize guarantee, byte identity is then the only
+// canonical outcome, so the input bytes themselves serve as the expected
+// output. The scrambled synthetic fixture's expected canonical bytes were
+// derived independently by a temporary local script implementing the
+// QK-DEC-036 ordering; neither the script nor any intermediate artifact is
+// committed.
+// ---------------------------------------------------------------------------
+
+type RecordTriple = (u64, Vec<u8>, Vec<u8>);
+type MapMultiset = Vec<RecordTriple>;
+type EncodedRecords = Vec<Vec<u8>>;
+
+/// First-party synthetic PSBT with deliberately scrambled record order in
+/// the global, input, and output maps. Contains unknown records (0xf0,
+/// 0xf1), valid proprietary records (0xfc), an input SIGHASH_ALL record
+/// (type 0x03, four-byte value 1), same-type records with differing key
+/// data ([0x01] vs [0x01, 0x00]), and global key types 255 and 256 whose
+/// numeric order differs from raw encoded-key order (encoded 255 =
+/// fd ff 00 sorts after encoded 256 = fd 00 01). The unsigned transaction
+/// is the never-fundable one-input/one-OP_RETURN-output synthetic.
+const SCRAMBLED_SYNTHETIC_PSBT: &[u8] = &[
+    0x70, 0x73, 0x62, 0x74, 0xff, 0x04, 0xfd, 0x00, 0x01, 0x01, 0x01, 0x33, 0x02, 0xf0, 0x01, 0x01,
+    0x11, 0x01, 0x00, 0x3d, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0xfe, 0xff,
+    0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x6a, 0x00, 0x00, 0x00,
+    0x00, 0x04, 0xfd, 0xff, 0x00, 0x01, 0x01, 0x22, 0x07, 0xfc, 0x04, 0x74, 0x65, 0x73, 0x74, 0x00,
+    0x02, 0xaa, 0xbb, 0x00, 0x03, 0xf0, 0x01, 0x00, 0x01, 0x55, 0x05, 0xfc, 0x02, 0x71, 0x6b, 0x00,
+    0x01, 0x66, 0x01, 0x03, 0x04, 0x01, 0x00, 0x00, 0x00, 0x02, 0xf0, 0x01, 0x01, 0x44, 0x00, 0x01,
+    0xf1, 0x01, 0x77, 0x01, 0x04, 0x01, 0x88, 0x00,
+];
+
+/// Expected canonical bytes for `SCRAMBLED_SYNTHETIC_PSBT`, hard-coded from
+/// the independent temporary-script derivation described above.
+const SCRAMBLED_EXPECTED_CANONICAL: &[u8] = &[
+    0x70, 0x73, 0x62, 0x74, 0xff, 0x01, 0x00, 0x3d, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff,
+    0xff, 0x00, 0xfe, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0x6a, 0x00, 0x00, 0x00, 0x00, 0x02, 0xf0, 0x01, 0x01, 0x11, 0x07, 0xfc, 0x04, 0x74, 0x65, 0x73,
+    0x74, 0x00, 0x02, 0xaa, 0xbb, 0x04, 0xfd, 0xff, 0x00, 0x01, 0x01, 0x22, 0x04, 0xfd, 0x00, 0x01,
+    0x01, 0x01, 0x33, 0x00, 0x01, 0x03, 0x04, 0x01, 0x00, 0x00, 0x00, 0x02, 0xf0, 0x01, 0x01, 0x44,
+    0x03, 0xf0, 0x01, 0x00, 0x01, 0x55, 0x05, 0xfc, 0x02, 0x71, 0x6b, 0x00, 0x01, 0x66, 0x00, 0x01,
+    0x04, 0x01, 0x88, 0x01, 0xf1, 0x01, 0x77, 0x00,
+];
+
+/// Minimal CompactSize encoding (test-local, independent of the crate).
+fn compact_size(n: usize) -> Vec<u8> {
+    if n < 0xfd {
+        vec![n as u8]
+    } else if n <= 0xffff {
+        let mut v = vec![0xfd];
+        v.extend_from_slice(&(n as u16).to_le_bytes());
+        v
+    } else {
+        let mut v = vec![0xfe];
+        v.extend_from_slice(&(n as u32).to_le_bytes());
+        v
+    }
+}
+
+/// Encode one record: key length, key-type CompactSize, key data,
+/// value length, value.
+fn record(key_type: u64, key_data: &[u8], value: &[u8]) -> Vec<u8> {
+    let mut key = compact_size(key_type as usize);
+    key.extend_from_slice(key_data);
+    let mut out = compact_size(key.len());
+    out.extend_from_slice(&key);
+    out.extend_from_slice(&compact_size(value.len()));
+    out.extend_from_slice(value);
+    out
+}
+
+/// Never-fundable synthetic unsigned transaction: one null-prevout input,
+/// one zero-value OP_RETURN output.
+fn synthetic_tx() -> Vec<u8> {
+    let mut tx = vec![0x02, 0x00, 0x00, 0x00, 0x01];
+    tx.extend_from_slice(&[0u8; 32]);
+    tx.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0x00, 0xfe, 0xff, 0xff, 0xff]);
+    tx.push(0x01);
+    tx.extend_from_slice(&[0u8; 8]);
+    tx.extend_from_slice(&[0x01, 0x6a, 0x00, 0x00, 0x00, 0x00]);
+    tx
+}
+
+/// Assemble a full PSBT from encoded per-map record lists.
+fn build_psbt(global: &[Vec<u8>], inputs: &[&[Vec<u8>]], outputs: &[&[Vec<u8>]]) -> Vec<u8> {
+    let mut psbt = vec![0x70, 0x73, 0x62, 0x74, 0xff];
+    for r in global {
+        psbt.extend_from_slice(r);
+    }
+    psbt.push(0x00);
+    for map in inputs {
+        for r in *map {
+            psbt.extend_from_slice(r);
+        }
+        psbt.push(0x00);
+    }
+    for map in outputs {
+        for r in *map {
+            psbt.extend_from_slice(r);
+        }
+        psbt.push(0x00);
+    }
+    psbt
+}
+
+/// Independent adjacent-order check for one map: every neighbouring pair
+/// must be strictly ascending by (decoded numeric key type, raw key data).
+fn scope_adjacent_ordered(records: Records<'_>) -> bool {
+    let mut prev: Option<(u64, &[u8])> = None;
+    for r in records {
+        let cur = (r.key_type, r.key_data);
+        if let Some(p) = prev {
+            if p >= cur {
+                return false;
+            }
+        }
+        prev = Some(cur);
+    }
+    true
+}
+
+/// Adjacent-order proof over every map of a view.
+fn all_maps_adjacent_ordered(view: &PsbtView<'_>) -> bool {
+    if !scope_adjacent_ordered(view.global_records()) {
+        return false;
+    }
+    for i in 0..view.input_map_count() {
+        if !scope_adjacent_ordered(view.input_records(i).expect("input map")) {
+            return false;
+        }
+    }
+    for i in 0..view.output_map_count() {
+        if !scope_adjacent_ordered(view.output_records(i).expect("output map")) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Per-map multisets of (key type, complete key bytes, value bytes) in map
+/// order: global, then inputs by index, then outputs by index.
+fn map_multisets(view: &PsbtView<'_>) -> Vec<MapMultiset> {
+    fn collect(records: Records<'_>) -> MapMultiset {
+        let mut v: MapMultiset = records
+            .map(|r| (r.key_type, r.full_key.to_vec(), r.value.to_vec()))
+            .collect();
+        v.sort();
+        v
+    }
+    let mut maps = vec![collect(view.global_records())];
+    for i in 0..view.input_map_count() {
+        maps.push(collect(view.input_records(i).expect("input map")));
+    }
+    for i in 0..view.output_map_count() {
+        maps.push(collect(view.output_records(i).expect("output map")));
+    }
+    maps
+}
+
+/// The 14 structurally accepted imported fixtures (10 Accept plus 4
+/// SignerRejectLater).
+fn accepted_fixtures() -> Vec<(&'static str, Vec<u8>)> {
+    VECTORS
+        .iter()
+        .filter(|(_, _, v)| matches!(v, Accept | SignerRejectLater))
+        .map(|(n, s, _)| (*n, b64(s)))
+        .collect()
+}
+
+/// All permutations of the given encoded records.
+fn permutations(items: &[Vec<u8>]) -> Vec<EncodedRecords> {
+    if items.len() <= 1 {
+        return vec![items.to_vec()];
+    }
+    let mut out = Vec::new();
+    for i in 0..items.len() {
+        let mut rest = items.to_vec();
+        let head = rest.remove(i);
+        for mut p in permutations(&rest) {
+            let mut v = vec![head.clone()];
+            v.append(&mut p);
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// Property-test corpus: all 5! = 120 permutations of a small valid
+/// synthetic record set in the input map, plus the 14 accepted fixtures.
+fn property_corpus() -> Vec<Vec<u8>> {
+    let tx = synthetic_tx();
+    let global = vec![record(0x00, &[], &tx)];
+    let out_map = vec![record(0xf1, &[], &[0x77])];
+    let five = vec![
+        record(0x03, &[], &[0x01, 0x00, 0x00, 0x00]),
+        record(0xf0, &[0x01], &[0xaa]),
+        record(0xf0, &[0x02], &[0xbb]),
+        record(0xfc, &[0x02, 0x71, 0x6b, 0x00], &[0xcc]),
+        record(255, &[0x01], &[0xdd]),
+    ];
+    let perms = permutations(&five);
+    assert_eq!(perms.len(), 120, "5! permutations");
+    let mut corpus: Vec<Vec<u8>> = perms
+        .into_iter()
+        .map(|perm| build_psbt(&global, &[&perm], &[&out_map]))
+        .collect();
+    corpus.extend(accepted_fixtures().into_iter().map(|(_, b)| b));
+    corpus
+}
+
+#[test]
+fn accepted_upstream_fixtures_are_canonical_identity_goldens() {
+    let fixtures = accepted_fixtures();
+    assert_eq!(fixtures.len(), 14, "10 Accept + 4 SignerRejectLater");
+    for (name, bytes) in &fixtures {
+        let view = parse(bytes, InputSource::MicroSd).expect("accepted fixture parses");
+        assert!(
+            all_maps_adjacent_ordered(&view),
+            "{name}: every map must already be adjacent-ordered by (key type, key data); the identity golden is derived from this independently proven fact"
+        );
+        let out = canonical_serialize(&view).expect("accepted fixture serializes");
+        assert_eq!(
+            &out, bytes,
+            "{name}: canonical serialization must reproduce the input bytes"
+        );
+    }
+}
+
+#[test]
+fn scrambled_synthetic_psbt_serializes_to_hardcoded_canonical_bytes() {
+    let view =
+        parse(SCRAMBLED_SYNTHETIC_PSBT, InputSource::MicroSd).expect("scrambled fixture parses");
+    // Real reordering is required in every map: none is adjacent-ordered.
+    assert!(!scope_adjacent_ordered(view.global_records()));
+    assert!(!scope_adjacent_ordered(
+        view.input_records(0).expect("input map")
+    ));
+    assert!(!scope_adjacent_ordered(
+        view.output_records(0).expect("output map")
+    ));
+
+    let out = canonical_serialize(&view).expect("scrambled fixture serializes");
+    assert_eq!(
+        out.as_slice(),
+        SCRAMBLED_EXPECTED_CANONICAL,
+        "canonical bytes must match the independently derived expectation"
+    );
+    assert_ne!(
+        out.as_slice(),
+        SCRAMBLED_SYNTHETIC_PSBT,
+        "serialization really reordered records"
+    );
+
+    let reparsed = parse(&out, InputSource::MicroSd).expect("canonical output reparses");
+    // The SIGHASH_ALL record stays byte-identical.
+    let sighash: Vec<_> = reparsed
+        .input_records(0)
+        .expect("input map")
+        .filter(|r| r.key_type == 0x03)
+        .collect();
+    assert_eq!(sighash.len(), 1);
+    assert_eq!(sighash[0].full_key, &[0x03]);
+    assert_eq!(sighash[0].value, &[0x01, 0x00, 0x00, 0x00]);
+    // Numeric key-type order governs: 255 sorts before 256 even though raw
+    // encoded keys would order 256 (fd 00 01) before 255 (fd ff 00).
+    let global_types: Vec<u64> = reparsed.global_records().map(|r| r.key_type).collect();
+    assert_eq!(global_types, vec![0x00, 0xf0, 0xfc, 255, 256]);
+    // Same-type records order by key data; the shorter prefix sorts first.
+    let unknown_key_data: Vec<Vec<u8>> = reparsed
+        .input_records(0)
+        .expect("input map")
+        .filter(|r| r.key_type == 0xf0)
+        .map(|r| r.key_data.to_vec())
+        .collect();
+    assert_eq!(unknown_key_data, vec![vec![0x01], vec![0x01, 0x00]]);
+}
+
+#[test]
+fn canonical_serialization_preserves_records_maps_and_unsigned_tx() {
+    fn of_type(m: &MapMultiset, key_type: u64) -> MapMultiset {
+        m.iter()
+            .filter(|(t, _, _)| *t == key_type)
+            .cloned()
+            .collect()
+    }
+    fn high_unknowns(m: &MapMultiset) -> MapMultiset {
+        m.iter()
+            .filter(|(t, _, _)| *t >= 0xf0 && *t != 0xfc)
+            .cloned()
+            .collect()
+    }
+    let mut corpus: Vec<(String, Vec<u8>)> = accepted_fixtures()
+        .into_iter()
+        .map(|(n, b)| (n.to_string(), b))
+        .collect();
+    corpus.push((
+        "scrambled synthetic".to_string(),
+        SCRAMBLED_SYNTHETIC_PSBT.to_vec(),
+    ));
+    for (name, bytes) in &corpus {
+        let before = parse(bytes, InputSource::MicroSd).expect("corpus member parses");
+        let out = canonical_serialize(&before).expect("corpus member serializes");
+        let after = parse(&out, InputSource::MicroSd).expect("canonical output reparses");
+        assert_eq!(
+            before.input_map_count(),
+            after.input_map_count(),
+            "{name}: input map count"
+        );
+        assert_eq!(
+            before.output_map_count(),
+            after.output_map_count(),
+            "{name}: output map count"
+        );
+        assert_eq!(
+            before.unsigned_tx_bytes(),
+            after.unsigned_tx_bytes(),
+            "{name}: exact unsigned-tx bytes"
+        );
+        let (m_before, m_after) = (map_multisets(&before), map_multisets(&after));
+        assert_eq!(m_before.len(), m_after.len(), "{name}: map list length");
+        for (i, (a, b)) in m_before.iter().zip(m_after.iter()).enumerate() {
+            assert_eq!(a.len(), b.len(), "{name}: map {i} record count");
+            assert_eq!(a, b, "{name}: map {i} complete-key/value multiset");
+            // Explicit unchanged-byte assertions for proprietary, SIGHASH,
+            // and high-numbered unknown records (subsumed by the multiset
+            // equality, asserted separately as required).
+            assert_eq!(
+                of_type(a, 0xfc),
+                of_type(b, 0xfc),
+                "{name}: map {i} proprietary bytes"
+            );
+            assert_eq!(
+                of_type(a, 0x03),
+                of_type(b, 0x03),
+                "{name}: map {i} SIGHASH bytes"
+            );
+            assert_eq!(
+                high_unknowns(a),
+                high_unknowns(b),
+                "{name}: map {i} unknown bytes"
+            );
+        }
+    }
+}
+
+#[test]
+fn canonical_output_length_always_equals_input_length() {
+    for bytes in property_corpus() {
+        let view = parse(&bytes, InputSource::MicroSd).expect("corpus member parses");
+        let out = canonical_serialize(&view).expect("corpus member serializes");
+        assert_eq!(out.len(), bytes.len(), "output length equals input length");
+    }
+}
+
+#[test]
+fn canonical_output_is_a_fixed_point_of_parse_then_serialize() {
+    for bytes in property_corpus() {
+        let view = parse(&bytes, InputSource::MicroSd).expect("corpus member parses");
+        let once = canonical_serialize(&view).expect("first serialization");
+        let reparsed = parse(&once, InputSource::MicroSd).expect("canonical output reparses");
+        let twice = canonical_serialize(&reparsed).expect("second serialization");
+        assert_eq!(
+            once, twice,
+            "parse -> serialize is a fixed point on canonical bytes"
+        );
+    }
+}
+
+#[test]
+fn compact_size_boundaries_empty_maps_and_full_descending_map() {
+    let tx = synthetic_tx();
+    let global = vec![record(0x00, &[], &tx)];
+    let out_map = vec![record(0xf1, &[], &[0x77])];
+
+    // Accepted length boundaries, built already canonical so identity is
+    // the expected outcome: value lengths 252 (largest one-byte
+    // CompactSize), 253 (smallest fd form), and 65536 (smallest fe form),
+    // plus a complete key of exactly 128 bytes (one-byte length 0x80).
+    let long_key_data = [0x42u8; 127];
+    let boundary_map = vec![
+        record(0xf0, &[0x01], &[0x11; 252]),
+        record(0xf0, &[0x02], &[0x22; 253]),
+        record(0xf0, &[0x03], &[0x33; 65536]),
+        record(0xf5, &long_key_data, &[0x44]),
+    ];
+    let bytes = build_psbt(&global, &[&boundary_map], &[&out_map]);
+    let view = parse(&bytes, InputSource::MicroSd).expect("boundary fixture parses");
+    let out = canonical_serialize(&view).expect("boundary fixture serializes");
+    assert_eq!(
+        out, bytes,
+        "already-canonical boundary fixture round-trips to identity"
+    );
+
+    // Empty input and output maps: separators only.
+    let empty: Vec<Vec<u8>> = Vec::new();
+    let bytes = build_psbt(&global, &[&empty], &[&empty]);
+    let view = parse(&bytes, InputSource::MicroSd).expect("empty-maps fixture parses");
+    let out = canonical_serialize(&view).expect("empty-maps fixture serializes");
+    assert_eq!(out, bytes, "empty maps round-trip to identity");
+
+    // A completely full input map (MAX_RECORDS_PER_MAP records) inserted in
+    // strictly descending key-type order must reorder to ascending.
+    let descending: Vec<Vec<u8>> = (0..qk_psbt::limits::MAX_RECORDS_PER_MAP)
+        .rev()
+        .map(|i| record(0x19 + i as u64, &[], &[0x55]))
+        .collect();
+    let bytes = build_psbt(&global, &[&descending], &[&out_map]);
+    let view = parse(&bytes, InputSource::MicroSd).expect("descending fixture parses");
+    assert!(
+        !scope_adjacent_ordered(view.input_records(0).expect("input map")),
+        "descending map starts unordered"
+    );
+    let out = canonical_serialize(&view).expect("descending fixture serializes");
+    assert_eq!(
+        out.len(),
+        bytes.len(),
+        "length preserved under full-map reordering"
+    );
+    let reparsed = parse(&out, InputSource::MicroSd).expect("reordered output reparses");
+    let types: Vec<u64> = reparsed
+        .input_records(0)
+        .expect("input map")
+        .map(|r| r.key_type)
+        .collect();
+    let ascending: Vec<u64> = (0..qk_psbt::limits::MAX_RECORDS_PER_MAP)
+        .map(|i| 0x19 + i as u64)
+        .collect();
+    assert_eq!(
+        types, ascending,
+        "all records ascending after canonicalization"
+    );
 }

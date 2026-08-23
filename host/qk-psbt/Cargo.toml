@@ -3,4 +3,4 @@ name = "qk-psbt"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Bounded read-only PSBT v0 structural parser scaffold. HOST evidence only. Not product code. Not a wallet. No conformance or target-RAM claim."
+description = "Bounded PSBT v0 structural parser and canonical structural serializer scaffold. HOST evidence only. Not product code. Not a wallet. No conformance or target-RAM claim."
