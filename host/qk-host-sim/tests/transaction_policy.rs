@@ -12,8 +12,9 @@
 //! verification, or output parsing.
 
 use qk_host_model::transaction_policy::{
-    transaction_transition, TransactionEvent, TransactionState, TransactionTransitionError,
-    TransactionTransitionOutcome, ALL_TRANSACTION_EVENTS, ALL_TRANSACTION_STATES,
+    transaction_state_index, transaction_transition, TransactionEvent, TransactionState,
+    TransactionTransitionError, TransactionTransitionOutcome, ALL_TRANSACTION_EVENTS,
+    ALL_TRANSACTION_STATES,
 };
 use qk_host_sim::{
     ApplyOutcome, TransactionWorkflow, WorkflowEvent, WorkflowFinished, WorkflowRejection,
@@ -25,38 +26,15 @@ use TransactionState as S;
 use TransactionTransitionOutcome as O;
 use WorkflowRejection as R;
 
-/// The exact happy-path event sequence from `Locked`.
-const HAPPY_PATH: [E; 11] = [
-    E::Wake,
-    E::BeginValidation,
-    E::ValidationPassed,
-    E::ReviewConstructed,
-    E::RequestApproval,
-    E::Approve,
-    E::BeginRevalidation,
-    E::RevalidationPassed,
-    E::SignatureProduced,
-    E::SignatureVerified,
-    E::OutputReparsed,
-];
-
-/// The state expected AFTER each happy-path event, in order.
-const HAPPY_STATES: [S; 11] = [
-    S::Ready,
-    S::Validating,
-    S::ConstructingReview,
-    S::ReviewReady,
-    S::Confirming,
-    S::Approved,
-    S::Revalidating,
-    S::SignPermitted,
-    S::VerifyingSignature,
-    S::ReparsingOutput,
-    S::Ready,
-];
-
-/// The exact 11 continuing (state, event, next-state) cells.
-const CONTINUING: [(S, E, S); 11] = [
+/// THE single authoritative oracle table of continuing
+/// (state, event, next-state) tuples, written down once as plain data
+/// from the mandatory QK-DEC-009/QK-DEC-010 authorization order:
+/// validate -> construct review -> physical approval -> revalidate ->
+/// permit signature -> verify signature -> reparse output.
+/// Every continue oracle below (happy path, per-cell lookups) is
+/// DERIVED from this table; every declared cell not in it is expected
+/// to halt (terminal events) or reject (everything else).
+const CONTINUE_TABLE: [(S, E, S); 11] = [
     (S::Locked, E::Wake, S::Ready),
     (S::Ready, E::BeginValidation, S::Validating),
     (S::Validating, E::ValidationPassed, S::ConstructingReview),
@@ -78,6 +56,49 @@ const CONTINUING: [(S, E, S); 11] = [
     (S::ReparsingOutput, E::OutputReparsed, S::Ready),
 ];
 
+const _: () = {
+    // The table must chain: row 0 starts at Locked and each later row
+    // starts exactly where the previous row ended, so the derived
+    // happy path below is the table itself, not a second declaration.
+    assert!(transaction_state_index(CONTINUE_TABLE[0].0) == transaction_state_index(S::Locked));
+    let mut i = 1;
+    while i < CONTINUE_TABLE.len() {
+        assert!(
+            transaction_state_index(CONTINUE_TABLE[i].0)
+                == transaction_state_index(CONTINUE_TABLE[i - 1].2)
+        );
+        i += 1;
+    }
+};
+
+const fn derive_happy_path() -> [E; 11] {
+    let mut events = [CONTINUE_TABLE[0].1; 11];
+    let mut i = 0;
+    while i < CONTINUE_TABLE.len() {
+        events[i] = CONTINUE_TABLE[i].1;
+        i += 1;
+    }
+    events
+}
+
+const fn derive_happy_states() -> [S; 11] {
+    let mut states = [CONTINUE_TABLE[0].2; 11];
+    let mut i = 0;
+    while i < CONTINUE_TABLE.len() {
+        states[i] = CONTINUE_TABLE[i].2;
+        i += 1;
+    }
+    states
+}
+
+/// The happy-path event sequence from `Locked`: the event column of
+/// the authoritative table, in row order (derived, not re-declared).
+const HAPPY_PATH: [E; 11] = derive_happy_path();
+
+/// The state expected AFTER each happy-path event: the next-state
+/// column of the authoritative table (derived, not re-declared).
+const HAPPY_STATES: [S; 11] = derive_happy_states();
+
 /// The 12 terminal events: Sleep, 5 interruptions, 6 explicit failures.
 const TERMINAL_EVENTS: [E; 12] = [
     E::Sleep,
@@ -94,8 +115,9 @@ const TERMINAL_EVENTS: [E; 12] = [
     E::OutputInvalid,
 ];
 
+/// Continue-oracle lookup, derived from the authoritative table.
 fn continuing_next(state: S, event: E) -> Option<S> {
-    CONTINUING
+    CONTINUE_TABLE
         .iter()
         .find(|(s, e, _)| *s == state && *e == event)
         .map(|(_, _, n)| *n)
