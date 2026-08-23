@@ -53,6 +53,7 @@ pub mod limits;
 mod parse;
 mod raw;
 mod serialize;
+mod sha256;
 
 pub use error::{ParseError, RejectCategory};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
