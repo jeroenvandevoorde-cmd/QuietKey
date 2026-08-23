@@ -118,9 +118,12 @@ impl<'a> PsbtView<'a> {
 }
 
 /// Ephemeral fallible duplicate set of borrowed complete-key slices.
-/// Cleared per map; allocation failure is a clean rejection.
+/// Keys are appended as the map is walked (O(1) amortized, fallible),
+/// then checked once at map completion by sorting and comparing
+/// adjacent entries — O(n log n) total, never quadratic. Cleared per
+/// map; allocation failure is a clean rejection.
 struct DupSet<'a> {
-    entries: Vec<&'a [u8]>,
+    entries: Vec<(&'a [u8], usize)>,
 }
 
 impl<'a> DupSet<'a> {
@@ -134,17 +137,26 @@ impl<'a> DupSet<'a> {
         self.entries.clear();
     }
 
-    fn insert(&mut self, key: &'a [u8], offset: usize) -> Result<(), ParseError> {
-        match self.entries.binary_search(&key) {
-            Ok(_) => Err(ParseError::new(RejectCategory::DuplicateKey, offset)),
-            Err(i) => {
-                self.entries
-                    .try_reserve(1)
-                    .map_err(|_| ParseError::new(RejectCategory::AllocationFailed, offset))?;
-                self.entries.insert(i, key);
-                Ok(())
+    /// Append one complete raw key with its offset; no search here.
+    fn record(&mut self, key: &'a [u8], offset: usize) -> Result<(), ParseError> {
+        self.entries
+            .try_reserve(1)
+            .map_err(|_| ParseError::new(RejectCategory::AllocationFailed, offset))?;
+        self.entries.push((key, offset));
+        Ok(())
+    }
+
+    /// Check at map completion: sort by (key, offset), then any
+    /// adjacent pair with equal key bytes is a duplicate; report the
+    /// later occurrence's offset.
+    fn check(&mut self) -> Result<(), ParseError> {
+        self.entries.sort_unstable();
+        for (a, b) in self.entries.iter().zip(self.entries.iter().skip(1)) {
+            if a.0 == b.0 {
+                return Err(ParseError::new(RejectCategory::DuplicateKey, b.1));
             }
         }
+        Ok(())
     }
 }
 
@@ -374,6 +386,7 @@ fn walk_map<'a>(
     loop {
         match decode_record(buf, pos)? {
             Item::Separator { end } => {
+                dup.check()?;
                 if scope == Scope::Global && unsigned_tx.is_none() {
                     return Err(ParseError::new(RejectCategory::MissingUnsignedTx, start));
                 }
@@ -388,18 +401,20 @@ fn walk_map<'a>(
                     .full_key
                     .slice(buf)
                     .ok_or(ParseError::new(RejectCategory::Truncated, r.full_key.start))?;
-                dup.insert(key, r.full_key.start)?;
+                dup.record(key, r.full_key.start)?;
                 match scope {
                     Scope::Global => match r.key_type {
                         0x00 => {
                             require_empty_key_data(&r)?;
-                            if unsigned_tx.is_some() {
-                                return Err(ParseError::new(
-                                    RejectCategory::DuplicateKey,
-                                    r.full_key.start,
-                                ));
+                            // Parse structurally even when this is a
+                            // duplicate; the duplicate complete raw
+                            // key is rejected by the map-completion
+                            // check, so structural categories keep
+                            // precedence over `DuplicateKey`.
+                            let summary = parse_unsigned_tx(buf, r.value)?;
+                            if unsigned_tx.is_none() {
+                                unsigned_tx = Some(summary);
                             }
-                            unsigned_tx = Some(parse_unsigned_tx(buf, r.value)?);
                         }
                         0x01 => {
                             // Global xpub: 78-byte xpub key data,

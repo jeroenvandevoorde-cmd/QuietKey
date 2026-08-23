@@ -625,9 +625,8 @@ fn map_count_mismatches_reject() {
 
 // --- truncation at every byte boundary -----------------------------------------
 
-#[test]
-fn every_strict_prefix_rejects_without_panic() {
-    let rich = build(
+fn rich_psbt() -> Vec<u8> {
+    build(
         &[
             rec(0x01, &[3; 78], &bip32_value(2)),
             rec(0xf0, &[1, 2], &[3, 4, 5]),
@@ -639,11 +638,152 @@ fn every_strict_prefix_rejects_without_panic() {
             rec(0x0e, &[9], &[8, 7]),
         ]],
         &[vec![rec(0x02, &pubkey(3), &bip32_value(1))]],
-    );
+    )
+}
+
+#[test]
+fn every_strict_prefix_rejects_without_panic() {
+    let rich = rich_psbt();
     assert!(p(&rich).is_ok());
     for l in 0..rich.len() {
         let r = p(&rich[..l]);
         assert!(r.is_err(), "prefix of length {l} must reject");
+    }
+}
+
+// --- duplicate-set scaling and robustness ---------------------------------
+
+#[test]
+fn near_cap_descending_unique_tiny_records_accept() {
+    // An exactly-2-MiB PSBT whose global map holds hundreds of
+    // thousands of tiny unique records with strictly descending keys —
+    // the worst case for a sorted-insertion duplicate set. The
+    // append-then-sort design must complete promptly; a quadratic
+    // regression makes this test effectively hang (no wall-clock
+    // assertion is used).
+    let mut b = b"psbt\xff".to_vec();
+    b.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    let target = limits::MAX_SD_INPUT_BYTES;
+    // Tail: one pad record (>= 10 bytes), separator, two empty maps.
+    let mut key_ctr = u32::MAX;
+    let mut n_tiny: usize = 0;
+    while b.len() + 7 + 10 + 3 <= target {
+        // 7-byte record: type 0xf0 + descending 4-byte key data.
+        b.extend_from_slice(&rec(0xf0, &key_ctr.to_be_bytes(), &[]));
+        key_ctr -= 1;
+        n_tiny += 1;
+    }
+    // Distinct-type pad record sized to land exactly on the cap.
+    let pad_value = target - b.len() - 3 - 7;
+    b.extend_from_slice(&rec(0xf1, &[0; 4], &vec![0u8; pad_value]));
+    b.push(0);
+    b.push(0);
+    b.push(0);
+    assert_eq!(b.len(), target);
+    let v = p(&b).expect("exact-cap descending-unique PSBT must parse");
+    // Unsigned tx + tiny records + pad record.
+    assert_eq!(v.global_records().count(), n_tiny + 2);
+    assert!(n_tiny > 250_000, "cap must force a large record count");
+    // The same map with one duplicated tiny key still rejects.
+    let mut d = b"psbt\xff".to_vec();
+    d.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    d.extend_from_slice(&rec(0xf0, &7u32.to_be_bytes(), &[]));
+    d.extend_from_slice(&rec(0xf0, &6u32.to_be_bytes(), &[]));
+    d.extend_from_slice(&rec(0xf0, &7u32.to_be_bytes(), &[]));
+    d.push(0);
+    d.push(0);
+    d.push(0);
+    assert_eq!(cat(&d), RejectCategory::DuplicateKey);
+}
+
+#[test]
+fn duplicate_unsigned_tx_records_defer_to_map_completion() {
+    // Two well-formed unsigned-tx records: the duplicate complete raw
+    // key is rejected by the map-completion check.
+    let mut b = b"psbt\xff".to_vec();
+    b.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    b.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    b.push(0);
+    b.push(0);
+    b.push(0);
+    assert_eq!(cat(&b), RejectCategory::DuplicateKey);
+    // A duplicate whose second value is structurally malformed keeps
+    // the per-record structural category, which precedes the deferred
+    // duplicate check.
+    let mut m = b"psbt\xff".to_vec();
+    m.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    let mut bad = tx(1, 1);
+    bad.push(0);
+    m.extend_from_slice(&rec(0x00, &[], &bad));
+    m.push(0);
+    m.push(0);
+    m.push(0);
+    assert_eq!(cat(&m), RejectCategory::MalformedUnsignedTx);
+}
+
+/// Deterministic splitmix64 stream for the mutation test.
+struct SplitMix64(u64);
+
+impl SplitMix64 {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+}
+
+fn walk_view(buf: &[u8], v: &qk_psbt::PsbtView) {
+    let s = v.unsigned_tx();
+    assert!(s.input_count <= limits::MAX_INPUTS);
+    assert!(s.output_count <= limits::MAX_OUTPUTS);
+    let mut total = 0usize;
+    for r in v.global_records() {
+        total += r.full_key.len() + r.value.len() + (r.key_type as usize & 1);
+        assert_eq!(r.value_span.slice(buf).unwrap(), r.value);
+    }
+    for i in 0..v.input_map_count() {
+        for r in v.input_records(i).unwrap() {
+            total += r.full_key.len() + r.value.len();
+            assert_eq!(r.full_key_span.slice(buf).unwrap(), r.full_key);
+        }
+    }
+    for o in 0..v.output_map_count() {
+        for r in v.output_records(o).unwrap() {
+            total += r.full_key.len() + r.value.len();
+            assert_eq!(r.key_data_span.slice(buf).unwrap(), r.key_data);
+        }
+    }
+    assert!(total <= buf.len().saturating_mul(2));
+}
+
+#[test]
+fn fixed_seed_mutations_and_prefixes_never_panic() {
+    // Deterministic arbitrary byte mutations and prefix truncations of
+    // a rich valid PSBT: every parse must return cleanly, and every
+    // accepted view must be fully walkable without panicking.
+    let base = rich_psbt();
+    let mut rng = SplitMix64(0x5157_4b4d_3350_5342); // fixed seed
+    for round in 0..4096u32 {
+        let mut m = base.clone();
+        let flips = 1 + (rng.next() % 4) as usize;
+        for _ in 0..flips {
+            let pos = (rng.next() as usize) % m.len();
+            m[pos] = (rng.next() & 0xff) as u8;
+        }
+        let cand = if rng.next() % 2 == 0 {
+            let l = (rng.next() as usize) % (m.len() + 1);
+            m[..l].to_vec()
+        } else {
+            m
+        };
+        match p(&cand) {
+            Ok(v) => walk_view(&cand, &v),
+            Err(e) => {
+                assert!(e.offset <= cand.len(), "round {round}: offset in range");
+            }
+        }
     }
 }
 
