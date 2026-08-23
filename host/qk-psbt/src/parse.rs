@@ -279,7 +279,16 @@ fn parse_unsigned_tx(buf: &[u8], value: Span) -> Result<UnsignedTxSummary, Parse
         .map_err(|_| ParseError::new(RejectCategory::TooManyOutputs, out_pos))?;
     for _ in 0..output_count {
         c.take(8)?; // amount
+        let script_pos = c.pos;
         let script_len = c.compact_size()?;
+        // Candidate per-output scriptPubKey cap, checked after the
+        // minimal length decode and before conversion or slicing.
+        if script_len > limits::MAX_TX_OUTPUT_SCRIPT_BYTES as u64 {
+            return Err(ParseError::new(
+                RejectCategory::TxOutputScriptTooLong,
+                script_pos,
+            ));
+        }
         let script_len =
             usize::try_from(script_len).map_err(|_| ParseError::new(malformed, c.pos))?;
         c.take(script_len)?;
@@ -383,6 +392,13 @@ fn walk_map<'a>(
     // global xpubs, input partial signatures, and input/output BIP32
     // derivations all count against the same per-map limit.
     let mut signers: usize = 0;
+    // Candidate per-map record cap: every non-separator record counts
+    // — known, unknown, proprietary, and the required global
+    // unsigned-transaction record — and the count resets per map. It
+    // is checked before duplicate-set insertion and scope/type
+    // validation, is not an aggregate cap, and does not replace the
+    // separate shared signer cap.
+    let mut records: usize = 0;
     loop {
         match decode_record(buf, pos)? {
             Item::Separator { end } => {
@@ -397,6 +413,13 @@ fn walk_map<'a>(
                 });
             }
             Item::Record(r) => {
+                records = records.saturating_add(1);
+                if records > limits::MAX_RECORDS_PER_MAP {
+                    return Err(ParseError::new(
+                        RejectCategory::TooManyRecords,
+                        r.full_key.start,
+                    ));
+                }
                 let key = r
                     .full_key
                     .slice(buf)

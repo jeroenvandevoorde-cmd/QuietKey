@@ -56,6 +56,20 @@ pub enum RejectCategory {
     /// A well-formed global version field declares a version other
     /// than zero.
     UnsupportedPsbtVersion,
+    /// A complete raw key (encoded key type plus key data, excluding
+    /// the key-length prefix) exceeds the candidate
+    /// `limits::MAX_KEY_BYTES`.
+    KeyTooLong,
+    /// A record value (excluding its length prefix) exceeds the
+    /// candidate `limits::MAX_VALUE_BYTES`.
+    ValueTooLong,
+    /// More records in one map than the candidate
+    /// `limits::MAX_RECORDS_PER_MAP`; every non-separator record
+    /// counts.
+    TooManyRecords,
+    /// An unsigned-transaction output scriptPubKey exceeds the
+    /// candidate `limits::MAX_TX_OUTPUT_SCRIPT_BYTES`.
+    TxOutputScriptTooLong,
 }
 
 impl fmt::Display for RejectCategory {
@@ -84,6 +98,10 @@ impl fmt::Display for RejectCategory {
             Self::PathTooDeep => "derivation path too deep",
             Self::AllocationFailed => "duplicate-set allocation failed",
             Self::UnsupportedPsbtVersion => "unsupported psbt version",
+            Self::KeyTooLong => "complete raw key too long",
+            Self::ValueTooLong => "record value too long",
+            Self::TooManyRecords => "too many records in one map",
+            Self::TxOutputScriptTooLong => "unsigned tx output script too long",
         };
         f.write_str(s)
     }

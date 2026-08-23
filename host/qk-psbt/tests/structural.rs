@@ -142,25 +142,49 @@ fn empty_and_missing_magic_reject() {
 
 #[test]
 fn source_byte_caps_enforced_at_exact_boundary() {
-    // Pad a valid PSBT to exactly the SD cap with one unknown record.
-    // Replacing the empty value with a pad-length value swaps a 1-byte
-    // CompactSize for a 5-byte one and adds the pad bytes.
-    let base = build(&[rec(0xf0, &[], &[])], &[vec![]], &[vec![]]);
-    let pad = limits::MAX_SD_INPUT_BYTES - base.len() - 4;
-    let exact = build(&[rec(0xf0, &[], &vec![0u8; pad])], &[vec![]], &[vec![]]);
+    // Pad a valid PSBT to exactly the SD cap with two distinct unknown
+    // globals, keeping every record value within the candidate value
+    // limit: the first value is exactly MAX_VALUE_BYTES, the second
+    // pads to the outer cap. The pad subtracts 4 because the second
+    // record's CompactSize value-length prefix grows from 1 byte to 5.
+    let interim = build(
+        &[
+            rec(0xf0, &[], &vec![0u8; limits::MAX_VALUE_BYTES]),
+            rec(0xf1, &[], &[]),
+        ],
+        &[vec![]],
+        &[vec![]],
+    );
+    let pad = limits::MAX_SD_INPUT_BYTES - interim.len() - 4;
+    assert_eq!(pad, 1_048_490);
+    assert!(pad <= limits::MAX_VALUE_BYTES);
+    let sd = |second: usize| -> Vec<u8> {
+        build(
+            &[
+                rec(0xf0, &[], &vec![0u8; limits::MAX_VALUE_BYTES]),
+                rec(0xf1, &[], &vec![0u8; second]),
+            ],
+            &[vec![]],
+            &[vec![]],
+        )
+    };
+    let exact = sd(pad);
     assert_eq!(exact.len(), limits::MAX_SD_INPUT_BYTES);
     assert!(parse(&exact, InputSource::MicroSd).is_ok());
     assert_eq!(
         parse(&exact, InputSource::Qr).err().unwrap().category,
         RejectCategory::InputTooLarge
     );
-    let over = build(&[rec(0xf0, &[], &vec![0u8; pad + 1])], &[vec![]], &[vec![]]);
+    // One byte over: the artifact cap keeps precedence over every
+    // record-level rule.
+    let over = sd(pad + 1);
     assert_eq!(over.len(), limits::MAX_SD_INPUT_BYTES + 1);
     assert_eq!(
         parse(&over, InputSource::MicroSd).err().unwrap().category,
         RejectCategory::InputTooLarge
     );
     // QR boundary.
+    let base = build(&[rec(0xf0, &[], &[])], &[vec![]], &[vec![]]);
     let pad_qr = limits::MAX_QR_INPUT_BYTES - base.len() - 4;
     let exact_qr = build(&[rec(0xf0, &[], &vec![0u8; pad_qr])], &[vec![]], &[vec![]]);
     assert_eq!(exact_qr.len(), limits::MAX_QR_INPUT_BYTES);
@@ -202,13 +226,14 @@ fn compact_size_minimality_is_enforced_at_every_width() {
         cat(&build(&[r], &[vec![]], &[vec![]])),
         RejectCategory::NonMinimalCompactSize
     );
-    // Minimal 2^32 value length: truncated (cannot fit any buffer here).
+    // Minimal 2^32 value length: over the candidate value limit, which
+    // is checked before any slicing (cap-before-slicing precedence).
     let r = vec![
         0x01, 0xf0, 0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
     ];
     assert_eq!(
         cat(&build(&[r], &[vec![]], &[vec![]])),
-        RejectCategory::Truncated
+        RejectCategory::ValueTooLong
     );
     // Non-minimal key length.
     let r = vec![0xfd, 0x01, 0x00, 0xf0, 0x00];
@@ -456,6 +481,205 @@ fn derivation_depth_cap_enforced() {
     );
 }
 
+// --- candidate per-record and per-map limits (QK-DEC-035) ------------------
+
+#[test]
+fn complete_key_byte_limit_boundary() {
+    // Complete raw key = encoded key type plus key data, excluding the
+    // outer key-length prefix: 128 accepts; 129 gets only the
+    // key-limit category, in every map scope.
+    let ok = rec(0xf0, &[7; limits::MAX_KEY_BYTES - 1], &[]);
+    assert!(p(&build(&[ok.clone()], &[vec![]], &[vec![]])).is_ok());
+    assert!(p(&build(&[], &[vec![ok.clone()]], &[vec![]])).is_ok());
+    assert!(p(&build(&[], &[vec![]], &[vec![ok]])).is_ok());
+    let long = rec(0xf0, &[7; limits::MAX_KEY_BYTES], &[]);
+    assert_eq!(
+        cat(&build(&[long.clone()], &[vec![]], &[vec![]])),
+        RejectCategory::KeyTooLong
+    );
+    assert_eq!(
+        cat(&build(&[], &[vec![long.clone()]], &[vec![]])),
+        RejectCategory::KeyTooLong
+    );
+    assert_eq!(
+        cat(&build(&[], &[vec![]], &[vec![long]])),
+        RejectCategory::KeyTooLong
+    );
+    // Declared over-limit but truncated: still the limit category,
+    // because the limit is checked before key bytes are sliced.
+    let mut t = b"psbt\xff".to_vec();
+    t.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    t.extend_from_slice(&cs((limits::MAX_KEY_BYTES + 1) as u64));
+    t.push(0xf0); // key bytes end here: truncated
+    assert_eq!(cat(&t), RejectCategory::KeyTooLong);
+    // Non-minimal encoding of an over-limit key length beats the limit.
+    let mut t = b"psbt\xff".to_vec();
+    t.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    t.extend_from_slice(&[0xfd, 0x81, 0x00]); // 129 encoded non-minimally
+    assert_eq!(cat(&t), RejectCategory::NonMinimalCompactSize);
+}
+
+#[test]
+fn value_byte_limit_boundary() {
+    // A value of exactly 1 MiB accepts under the MicroSd cap, in
+    // every map scope.
+    let ok = rec(0xf0, &[], &vec![0u8; limits::MAX_VALUE_BYTES]);
+    assert!(p(&build(&[ok.clone()], &[vec![]], &[vec![]])).is_ok());
+    assert!(p(&build(&[], &[vec![ok.clone()]], &[vec![]])).is_ok());
+    assert!(p(&build(&[], &[vec![]], &[vec![ok]])).is_ok());
+    // 1 MiB + 1 gets only the value-limit category, in every map scope.
+    let long = rec(0xf0, &[], &vec![0u8; limits::MAX_VALUE_BYTES + 1]);
+    assert_eq!(
+        cat(&build(&[long.clone()], &[vec![]], &[vec![]])),
+        RejectCategory::ValueTooLong
+    );
+    assert_eq!(
+        cat(&build(&[], &[vec![long.clone()]], &[vec![]])),
+        RejectCategory::ValueTooLong
+    );
+    assert_eq!(
+        cat(&build(&[], &[vec![]], &[vec![long]])),
+        RejectCategory::ValueTooLong
+    );
+    // Declared over-limit but truncated: still the limit category,
+    // because the limit is checked before value bytes are sliced.
+    let mut t = b"psbt\xff".to_vec();
+    t.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    t.extend_from_slice(&[1, 0xf0]); // one-byte unknown key
+    t.extend_from_slice(&cs((limits::MAX_VALUE_BYTES + 1) as u64));
+    // value bytes entirely absent
+    assert_eq!(cat(&t), RejectCategory::ValueTooLong);
+    // Non-minimal encoding of an over-limit value length beats the
+    // limit (1 MiB + 1 in a nine-byte CompactSize).
+    let mut t = b"psbt\xff".to_vec();
+    t.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
+    t.extend_from_slice(&[1, 0xf0]);
+    t.extend_from_slice(&[0xff, 0x01, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(cat(&t), RejectCategory::NonMinimalCompactSize);
+}
+
+#[test]
+fn records_per_map_cap_boundary() {
+    let cap = limits::MAX_RECORDS_PER_MAP;
+    // Unknown and proprietary records both count toward the cap.
+    let mk = |i: usize| -> Vec<u8> {
+        let key = (i as u32).to_be_bytes();
+        if i % 2 == 0 {
+            rec(0xf0, &key, &[])
+        } else {
+            rec(0xfc, &key, &[])
+        }
+    };
+    // Global map: the required unsigned-tx record counts, so cap - 1
+    // extras reach exactly the cap; one more rejects.
+    let extras: Vec<Vec<u8>> = (0..cap - 1).map(&mk).collect();
+    assert!(p(&build(&extras, &[vec![]], &[vec![]])).is_ok());
+    let extras_over: Vec<Vec<u8>> = (0..cap).map(&mk).collect();
+    assert_eq!(
+        cat(&build(&extras_over, &[vec![]], &[vec![]])),
+        RejectCategory::TooManyRecords
+    );
+    // Input map: exactly cap accepts, cap + 1 rejects.
+    let full: Vec<Vec<u8>> = (0..cap).map(&mk).collect();
+    let over: Vec<Vec<u8>> = (0..cap + 1).map(&mk).collect();
+    assert!(p(&build(&[], &[full.clone()], &[vec![]])).is_ok());
+    assert_eq!(
+        cat(&build(&[], &[over.clone()], &[vec![]])),
+        RejectCategory::TooManyRecords
+    );
+    // Output map: exactly cap accepts, cap + 1 rejects.
+    assert!(p(&build(&[], &[vec![]], &[full.clone()])).is_ok());
+    assert_eq!(
+        cat(&build(&[], &[vec![]], &[over])),
+        RejectCategory::TooManyRecords
+    );
+    // The count resets per map: full maps side by side accept, and
+    // there is no aggregate cap across maps.
+    let b = build(&[], &[full.clone(), full.clone()], &[full.clone()]);
+    assert!(p(&b).is_ok());
+    // A duplicate within the cap still rejects as a duplicate.
+    let mut dup_in: Vec<Vec<u8>> = (0..cap - 1).map(&mk).collect();
+    dup_in.push(mk(0));
+    assert_eq!(
+        cat(&build(&[], &[dup_in], &[vec![]])),
+        RejectCategory::DuplicateKey
+    );
+    // A cap-plus-first record that duplicates an earlier key gets the
+    // record-count category: the count is checked before duplicate-set
+    // insertion.
+    let mut over_dup: Vec<Vec<u8>> = (0..cap).map(&mk).collect();
+    over_dup.push(mk(0));
+    assert_eq!(
+        cat(&build(&[], &[over_dup], &[vec![]])),
+        RejectCategory::TooManyRecords
+    );
+}
+
+#[test]
+fn tx_output_script_byte_limit_boundary() {
+    let cap = limits::MAX_TX_OUTPUT_SCRIPT_BYTES;
+    // One-input transaction with the given output scriptPubKey sizes.
+    let tx_outs = |lens: &[usize]| -> Vec<u8> {
+        let mut b = vec![2, 0, 0, 0, 1];
+        b.extend_from_slice(&[0u8; 32]);
+        b.extend_from_slice(&[0u8; 4]);
+        b.push(0); // empty scriptSig
+        b.extend_from_slice(&[0xff; 4]);
+        b.extend_from_slice(&cs(lens.len() as u64));
+        for &l in lens {
+            b.extend_from_slice(&[0u8; 8]);
+            b.extend_from_slice(&cs(l as u64));
+            b.extend_from_slice(&vec![0x51u8; l]);
+        }
+        b.extend_from_slice(&[0; 4]); // locktime
+        b
+    };
+    // Exactly 10,000 accepts, alone and per output.
+    assert!(p(&psbt_with_tx(&tx_outs(&[cap]), 1, 1)).is_ok());
+    assert!(p(&psbt_with_tx(&tx_outs(&[cap, cap]), 1, 2)).is_ok());
+    // 10,001 gets only the script-limit category.
+    assert_eq!(
+        cat(&psbt_with_tx(&tx_outs(&[cap + 1]), 1, 1)),
+        RejectCategory::TxOutputScriptTooLong
+    );
+    // Each output scriptPubKey is checked individually.
+    assert_eq!(
+        cat(&psbt_with_tx(&tx_outs(&[1, cap + 1]), 1, 2)),
+        RejectCategory::TxOutputScriptTooLong
+    );
+    // Declared over-limit but truncated: still the limit category,
+    // because the limit is checked before conversion or slicing.
+    let mut t = vec![2, 0, 0, 0, 1];
+    t.extend_from_slice(&[0u8; 32]);
+    t.extend_from_slice(&[0u8; 4]);
+    t.push(0);
+    t.extend_from_slice(&[0xff; 4]);
+    t.push(1); // one output
+    t.extend_from_slice(&[0u8; 8]);
+    t.extend_from_slice(&cs((cap + 1) as u64)); // script bytes absent
+    assert_eq!(
+        cat(&psbt_with_tx(&t, 1, 1)),
+        RejectCategory::TxOutputScriptTooLong
+    );
+    // The output-count cap precedes the per-output script check.
+    let lens = vec![cap + 1; limits::MAX_OUTPUTS + 1];
+    assert_eq!(
+        cat(&psbt_with_tx(&tx_outs(&lens), 1, 1)),
+        RejectCategory::TooManyOutputs
+    );
+    // Input scriptSig remains exactly zero with its existing category.
+    let mut t = vec![2, 0, 0, 0, 1];
+    t.extend_from_slice(&[0u8; 32]);
+    t.extend_from_slice(&[0u8; 4]);
+    t.extend_from_slice(&[1, 0x51]); // scriptSig length 1
+    t.extend_from_slice(&[0xff; 4]);
+    t.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0x51, 0, 0, 0, 0]);
+    assert_eq!(
+        cat(&psbt_with_tx(&t, 1, 1)),
+        RejectCategory::UnsignedTxScriptSigNotEmpty
+    );
+}
+
 // --- key/value structure -----------------------------------------------------
 
 #[test]
@@ -654,36 +878,27 @@ fn every_strict_prefix_rejects_without_panic() {
 // --- duplicate-set scaling and robustness ---------------------------------
 
 #[test]
-fn near_cap_descending_unique_tiny_records_accept() {
-    // An exactly-2-MiB PSBT whose global map holds hundreds of
-    // thousands of tiny unique records with strictly descending keys —
-    // the worst case for a sorted-insertion duplicate set. The
-    // append-then-sort design must complete promptly; a quadratic
-    // regression makes this test effectively hang (no wall-clock
-    // assertion is used).
+fn descending_unique_tiny_records_within_record_cap_accept() {
+    // Strictly descending unique tiny keys — the historical worst case
+    // for a sorted-insertion duplicate set — now bounded by the
+    // candidate per-map record cap. The append-then-sort duplicate
+    // design stays O(n log n) with n bounded per map; no wall-clock
+    // assertion is used, and the outer artifact cap is unchanged.
     let mut b = b"psbt\xff".to_vec();
     b.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));
-    let target = limits::MAX_SD_INPUT_BYTES;
-    // Tail: one pad record (>= 10 bytes), separator, two empty maps.
+    // The required unsigned-tx record counts, so cap - 1 extras reach
+    // exactly the per-map record cap.
     let mut key_ctr = u32::MAX;
-    let mut n_tiny: usize = 0;
-    while b.len() + 7 + 10 + 3 <= target {
+    for _ in 0..limits::MAX_RECORDS_PER_MAP - 1 {
         // 7-byte record: type 0xf0 + descending 4-byte key data.
         b.extend_from_slice(&rec(0xf0, &key_ctr.to_be_bytes(), &[]));
         key_ctr -= 1;
-        n_tiny += 1;
     }
-    // Distinct-type pad record sized to land exactly on the cap.
-    let pad_value = target - b.len() - 3 - 7;
-    b.extend_from_slice(&rec(0xf1, &[0; 4], &vec![0u8; pad_value]));
     b.push(0);
     b.push(0);
     b.push(0);
-    assert_eq!(b.len(), target);
-    let v = p(&b).expect("exact-cap descending-unique PSBT must parse");
-    // Unsigned tx + tiny records + pad record.
-    assert_eq!(v.global_records().count(), n_tiny + 2);
-    assert!(n_tiny > 250_000, "cap must force a large record count");
+    let v = p(&b).expect("descending-unique PSBT within the record cap must parse");
+    assert_eq!(v.global_records().count(), limits::MAX_RECORDS_PER_MAP);
     // The same map with one duplicated tiny key still rejects.
     let mut d = b"psbt\xff".to_vec();
     d.extend_from_slice(&rec(0x00, &[], &tx(1, 1)));

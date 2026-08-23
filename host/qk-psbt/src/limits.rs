@@ -1,5 +1,8 @@
-//! Candidate resource limits (QK-DEC-031). Candidate constants only:
-//! explicit, reviewable bounds with no target-RAM or conformance claim.
+//! Candidate resource limits (QK-DEC-031, QK-DEC-035; recorded under
+//! the QK-DEC-034 process). Candidate constants only: explicit,
+//! reviewable bounds with no target-RAM or conformance claim; final
+//! values remain OPEN pending each affected registry row's freeze pack
+//! and authorization.
 
 /// Maximum unsigned-transaction inputs (and therefore input maps).
 pub const MAX_INPUTS: usize = 100;
@@ -27,3 +30,28 @@ pub const MAX_QR_FRAMES: usize = 256;
 /// QR transport cap: maximum scan window in seconds. Enforced by the
 /// transport intake layer, not by this parser.
 pub const MAX_QR_SCAN_SECONDS: usize = 120;
+
+/// CANDIDATE (QK-DEC-035, QK-LIM-PSBT-007): maximum complete raw key
+/// bytes per record — encoded key type plus key data, excluding the
+/// outer key-length prefix. HOST-scaffold candidate; no conformance
+/// claim; final value OPEN.
+pub const MAX_KEY_BYTES: usize = 128;
+
+/// CANDIDATE (QK-DEC-035, QK-LIM-PSBT-008): maximum value bytes per
+/// record, excluding the length prefix (1 MiB). HOST-scaffold
+/// candidate; no conformance claim; final value OPEN.
+pub const MAX_VALUE_BYTES: usize = 1_048_576;
+
+/// CANDIDATE (QK-DEC-035, shared across QK-LIM-PSBT-002/009/010 and
+/// explicitly covering QK-LIM-PSBT-012): maximum records per map.
+/// Every known, unknown, and proprietary non-separator record counts,
+/// including the required global unsigned-transaction record; the
+/// count resets per map. Not an aggregate cap; the separate shared
+/// signer cap remains. HOST-scaffold candidate; no conformance claim;
+/// final value OPEN.
+pub const MAX_RECORDS_PER_MAP: usize = 64;
+
+/// CANDIDATE (QK-DEC-035): maximum scriptPubKey bytes for each output
+/// of the global unsigned transaction (consensus MAX_SCRIPT_SIZE).
+/// HOST-scaffold candidate; no conformance claim; final value OPEN.
+pub const MAX_TX_OUTPUT_SCRIPT_BYTES: usize = 10_000;

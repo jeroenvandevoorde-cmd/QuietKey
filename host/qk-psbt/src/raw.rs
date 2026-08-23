@@ -2,6 +2,7 @@
 //! immutable borrowed buffer. No copying, no allocation, no panics.
 
 use crate::error::{ParseError, RejectCategory};
+use crate::limits;
 
 /// A bounded byte-range view into the parsed input buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,13 +97,19 @@ pub(crate) enum Item {
 
 /// Decode one record or separator at `pos`. Every CompactSize must be
 /// minimal, including the key type inside each non-empty key, and the
-/// key type must lie entirely within the key bytes.
+/// key type must lie entirely within the key bytes. The candidate
+/// complete-key and value byte limits are enforced after each length
+/// is minimally decoded and before any slicing, so a declared
+/// over-limit but truncated length still returns the limit category.
 pub(crate) fn decode_record(buf: &[u8], pos: usize) -> Result<Item, ParseError> {
     let trunc = |o: usize| ParseError::new(RejectCategory::Truncated, o);
     let (key_len, kl_sz) = decode_compact_size(buf, pos)?;
     let key_start = pos.checked_add(kl_sz).ok_or(trunc(pos))?;
     if key_len == 0 {
         return Ok(Item::Separator { end: key_start });
+    }
+    if key_len > limits::MAX_KEY_BYTES as u64 {
+        return Err(ParseError::new(RejectCategory::KeyTooLong, pos));
     }
     let key_len = usize::try_from(key_len).map_err(|_| trunc(pos))?;
     let key_end = key_start.checked_add(key_len).ok_or(trunc(pos))?;
@@ -115,6 +122,9 @@ pub(crate) fn decode_record(buf: &[u8], pos: usize) -> Result<Item, ParseError> 
     })?;
     let key_data_start = key_start.checked_add(kt_sz).ok_or(trunc(key_start))?;
     let (value_len, vl_sz) = decode_compact_size(buf, key_end)?;
+    if value_len > limits::MAX_VALUE_BYTES as u64 {
+        return Err(ParseError::new(RejectCategory::ValueTooLong, key_end));
+    }
     let value_len = usize::try_from(value_len).map_err(|_| trunc(key_end))?;
     let value_start = key_end.checked_add(vl_sz).ok_or(trunc(key_end))?;
     let value_end = value_start.checked_add(value_len).ok_or(trunc(key_end))?;
