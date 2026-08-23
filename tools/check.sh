@@ -8,11 +8,11 @@ fail() { printf 'FAIL: %s\n' "$1" >&2; status=1; }
 info() { printf 'INFO: %s\n' "$1"; }
 ok() { printf 'OK: %s\n' "$1"; }
 
-# --- 1. README warning header -------------------------------------------
-if [ -f README.md ] && grep -q -F 'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' README.md; then
-  ok 'README warning header present'
+# --- 1. README warning header (must be the first line) -------------------
+if [ -f README.md ] && [ "$(head -n 1 README.md)" = 'EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET' ]; then
+  ok 'README warning header present as first line'
 else
-  fail 'README.md missing required warning header'
+  fail 'README.md first line is not the required warning header'
 fi
 
 # --- 2. No external dependency entries in any tracked Cargo.toml ---------
@@ -51,22 +51,27 @@ printf '%s%s\n' '-----BEGIN ' 'PRIVATE KEY-----' | grep -q -E -e "$p_key" || pro
 printf '%s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | grep -q -E -e "$p_aws" || probe_ok=0
 printf '%s%s\n' 'xprv' 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' | grep -q -E -e "$p_xprv" || probe_ok=0
 if [ "$probe_ok" = 1 ]; then
-  scan_tmp=$(mktemp) || { fail 'mktemp failed for secret scan'; scan_tmp=''; }
+  scan_tmp=$(mktemp) && scan_err=$(mktemp) || { fail 'mktemp failed for secret scan'; scan_tmp=''; }
   if [ -n "$scan_tmp" ]; then
-    git ls-files -z | xargs -0 grep -I -n -E \
+    # -a scans binary files as text (no -I skip); stderr is captured and any
+    # diagnostic output fails the check, so scanner errors cannot pass silently.
+    git ls-files -z | xargs -0 grep -a -n -E \
       -e "$p_key" -e "$p_xprv" -e "$p_aws" -e "$p_ghp" \
       -e "$p_gpat" -e "$p_stripe" -e "$p_slack" \
-      > "$scan_tmp" 2>/dev/null
+      > "$scan_tmp" 2> "$scan_err"
     scan_rc=$?
     if [ -s "$scan_tmp" ]; then
       fail 'likely real secret pattern found at:'
       cut -d: -f1,2 "$scan_tmp" >&2
+    elif [ -s "$scan_err" ]; then
+      fail 'secret scan reported errors:'
+      cat "$scan_err" >&2
     elif [ "$scan_rc" = 0 ] || [ "$scan_rc" = 123 ]; then
       ok 'no likely real secret patterns in tracked files'
     else
       fail "secret scan tool failure (exit $scan_rc)"
     fi
-    rm -f "$scan_tmp"
+    rm -f "$scan_tmp" "$scan_err"
   fi
 else
   fail 'secret scan self-test failed; scanner unreliable'
@@ -78,24 +83,20 @@ if [ ! -f host/Cargo.toml ]; then
 elif ! command -v cargo >/dev/null 2>&1; then
   fail 'cargo unavailable; required tests cannot run'
 else
-  if cargo fmt --version >/dev/null 2>&1; then
-    if cargo fmt --all --check --manifest-path host/Cargo.toml >/dev/null 2>&1; then
-      ok 'cargo fmt --check passed'
-    else
-      fail 'cargo fmt --check reported formatting differences'
-    fi
+  if ! cargo fmt --version >/dev/null 2>&1; then
+    fail 'rustfmt unavailable; required fmt check cannot run'
+  elif cargo fmt --all --check --manifest-path host/Cargo.toml >/dev/null 2>&1; then
+    ok 'cargo fmt --check passed'
   else
-    info 'rustfmt unavailable; fmt check omitted'
+    fail 'cargo fmt --check reported formatting differences'
   fi
-  if cargo clippy --version >/dev/null 2>&1; then
-    if cargo clippy --workspace --manifest-path host/Cargo.toml \
-        --locked --offline --quiet -- -D warnings >/dev/null 2>&1; then
-      ok 'cargo clippy (warnings denied) passed'
-    else
-      fail 'cargo clippy (warnings denied) failed'
-    fi
+  if ! cargo clippy --version >/dev/null 2>&1; then
+    fail 'clippy unavailable; required clippy check cannot run'
+  elif cargo clippy --workspace --manifest-path host/Cargo.toml \
+      --locked --offline --quiet -- -D warnings >/dev/null 2>&1; then
+    ok 'cargo clippy (warnings denied) passed'
   else
-    info 'clippy unavailable; clippy check omitted'
+    fail 'cargo clippy (warnings denied) failed'
   fi
   if cargo test --workspace --manifest-path host/Cargo.toml \
       --locked --offline --quiet >/dev/null 2>&1; then
