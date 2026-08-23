@@ -1,10 +1,10 @@
 //! Dependency-free breadth-first reachability/model check over
 //! `transaction_transition` and the token-binding runner.
 //!
-//! HOST policy model only — HOST SCAFFOLD ONLY — NOT PRODUCT CODE —
-//! NO TARGET CLAIM. Everything proven here is about the declared
-//! symbolic transition table and runner, not about real validation,
-//! approval, revalidation, signing, or hardware.
+//! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NO TARGET CLAIM. Scope:
+//! see the canonical scope disclaimer in
+//! `qk_host_model::transaction_policy`. Everything proven here is
+//! about the declared symbolic transition table and runner.
 
 use qk_host_model::transaction_policy::{
     transaction_state_index, transaction_transition, TransactionEvent, TransactionState,

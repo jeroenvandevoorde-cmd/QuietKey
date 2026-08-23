@@ -2,10 +2,8 @@
 //! `qk-host-model`.
 //!
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET SIMULATOR —
-//! NO TARGET CLAIM. HOST policy model only: interruption events are
-//! symbolic; no target runtime or target-runtime integration, and no
-//! persistence, boot-recovery, removable-media,
-//! target, or real power-loss evidence is produced.
+//! NO TARGET CLAIM. Scope: see the canonical scope disclaimer in
+//! `qk_host_model::transaction_policy`.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
@@ -16,8 +14,8 @@
 //! the `RevalidationPassed` and `SignatureProduced` assertions are
 //! accepted only when they carry exactly the token minted for the
 //! active cycle. The token carries no wallet or transaction data; it
-//! binds symbolic order only and proves nothing about real approval,
-//! revalidation, or signing.
+//! binds symbolic order only (see the canonical disclaimer's BINDING
+//! REQUIREMENT for what real implementations must still enforce).
 
 #![forbid(unsafe_code)]
 

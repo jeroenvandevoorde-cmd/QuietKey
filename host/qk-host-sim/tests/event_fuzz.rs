@@ -3,10 +3,10 @@
 //! (including missing, stale, and foreign tokens) checked against the
 //! runner's declared invariants.
 //!
-//! HOST policy model only — HOST SCAFFOLD ONLY — NOT PRODUCT CODE —
-//! NO TARGET CLAIM. Fuzzing symbolic assertions proves runner
-//! fail-closed behavior over the declared semantics, nothing about
-//! real approval, revalidation, or signing.
+//! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NO TARGET CLAIM. Scope:
+//! see the canonical scope disclaimer in
+//! `qk_host_model::transaction_policy`. Fuzzing symbolic assertions
+//! proves runner fail-closed behavior over the declared semantics.
 
 use qk_host_model::transaction_policy::{
     transaction_transition, TransactionEvent, TransactionState, TransactionTransitionOutcome,

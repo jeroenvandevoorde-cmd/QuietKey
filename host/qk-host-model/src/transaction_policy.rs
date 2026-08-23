@@ -1,5 +1,11 @@
 //! HOST-only transaction authority policy model.
 //!
+//! # Canonical scope disclaimer
+//!
+//! This section is THE single canonical statement of scope for this
+//! policy model, the workflow runner in `qk-host-sim`, and their
+//! tests. Other doc comments point here instead of restating it.
+//!
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET — NO TARGET CLAIM.
 //! HOST policy model only. PAYLOAD-FREE: no transaction bytes, no
 //! partially-signed transaction data, no amounts, fees, addresses, scripts, descriptors, networks, seeds,
@@ -22,6 +28,27 @@
 //! `PowerLoss`, and `MediaRemoved` are symbolic HOST policy events only;
 //! no target runtime, persistence, boot-recovery, removable-media,
 //! signing, parser, physical-button, or power-loss evidence is claimed.
+//!
+//! NO CROSS-CALL GUARANTEE: the pure transition function accepts
+//! caller-supplied states for model/table use, so by itself it claims
+//! no global single-use or provenance property. Ordering claims such
+//! as "approval is single-use per authorization cycle" and
+//! "`SignPermitted` is entered only after `Approve` followed by the
+//! binding-representing `RevalidationPassed`" hold within one
+//! correctly outcome-threaded invocation of a Locked-start workflow
+//! runner, not across separate calls to the pure function.
+//!
+//! BINDING REQUIREMENT: transaction/intent binding is REPRESENTED by
+//! the unauthenticated symbolic `RevalidationPassed` assertion — it is
+//! not carried by, and cannot be proven by, a payload-free event. The
+//! represented assertion is that a future trusted component reparsed
+//! and revalidated the candidate transaction and proved
+//! byte-exact/canonical commitment equality to the exact review object
+//! and policy context that were physically approved in this same
+//! workflow. This payload-free model cannot perform or check that
+//! equality; a future implementation MUST enforce it before emitting
+//! `RevalidationPassed`. Treating a review/approval of one candidate
+//! followed by revalidation/signing of another as valid is forbidden.
 
 /// Opaque, payload-free transaction authorization states.
 /// `Locked` is the safe state; every terminal outcome resolves to it.
@@ -41,20 +68,16 @@ pub enum TransactionState {
     /// Waiting for the symbolic physical approval decision.
     Confirming,
     /// A symbolic physical approval was asserted. The only continuing
-    /// exit declared in the table is `BeginRevalidation`. No global
-    /// single-use or provenance property is claimed: the pure
-    /// transition function accepts caller-supplied states for
-    /// model/table use.
+    /// exit declared in the table is `BeginRevalidation`. Scope: see
+    /// NO CROSS-CALL GUARANTEE in the module-level canonical
+    /// disclaimer.
     Approved,
     /// Symbolically revalidating after approval.
     Revalidating,
-    /// Signature production is symbolically permitted. Within one
-    /// correctly outcome-threaded invocation of the Locked-start
-    /// workflow runner, this state is entered only after `Approve`
-    /// followed by the binding-representing `RevalidationPassed` in
-    /// that same uninterrupted invocation. No cross-call guarantee
-    /// exists, and the pure transition function accepts
-    /// caller-supplied states for model/table use.
+    /// Signature production is symbolically permitted; the only
+    /// continuing edge into this state is `Revalidating` +
+    /// `RevalidationPassed`. Scope: see NO CROSS-CALL GUARANTEE in
+    /// the module-level canonical disclaimer.
     SignPermitted,
     /// Symbolically verifying the produced signature.
     VerifyingSignature,
@@ -135,37 +158,20 @@ pub enum TransactionEvent {
     ReviewConstructed,
     /// Request the symbolic physical approval decision.
     RequestApproval,
-    /// Symbolic assertion: physically approved. Approval is single-use
-    /// PER AUTHORIZATION CYCLE, not per function invocation: within one
-    /// correctly outcome-threaded invocation of the Locked-start
-    /// workflow runner, `Approve` continues only from `Confirming`; an
-    /// immediate duplicate `Approve`, or any stale `Approve` before a
-    /// fresh symbolic `BeginValidation` -> `ValidationPassed` ->
-    /// `ReviewConstructed` -> `RequestApproval` sequence reaches
-    /// `Confirming`, rejects locked and stops the suffix; after a
-    /// completed cycle returns to `Ready` through the signed completion
-    /// path, an `Approve` following a new full validation/review/
-    /// request sequence begins a NEW authorization cycle and is not
-    /// replay. This is symbolic order only; no payload, freshness, or
-    /// identity fact is proven. No cross-call guarantee is claimed: the
-    /// pure transition function accepts caller-supplied states for
-    /// model/table use.
+    /// Symbolic assertion: physically approved. `Approve` continues
+    /// only from `Confirming` and is single-use PER AUTHORIZATION
+    /// CYCLE: an immediate duplicate or any stale `Approve` before a
+    /// fresh validation/review/request sequence reaches `Confirming`
+    /// rejects locked, while an `Approve` after a completed cycle and
+    /// a new full sequence begins a NEW cycle and is not replay.
+    /// Scope: see NO CROSS-CALL GUARANTEE in the module-level
+    /// canonical disclaimer.
     Approve,
     /// Begin symbolic revalidation from `Approved`.
     BeginRevalidation,
-    /// Symbolic assertion: revalidation passed. Transaction/intent
-    /// binding is REPRESENTED here by an UNAUTHENTICATED symbolic
-    /// assertion — it is not carried by, and cannot be proven by, this
-    /// payload-free event. The represented assertion is that a future
-    /// trusted component reparsed and revalidated the candidate
-    /// transaction and proved byte-exact/canonical commitment equality
-    /// to the exact review object and policy context that were
-    /// physically approved in this same workflow. This payload-free
-    /// model cannot perform or check that equality; a future
-    /// implementation MUST enforce it before emitting
-    /// `RevalidationPassed`. Treating a review/approval of one
-    /// candidate followed by revalidation/signing of another as valid
-    /// is forbidden.
+    /// Symbolic assertion: revalidation passed. This is the
+    /// binding-representing event: see BINDING REQUIREMENT in the
+    /// module-level canonical disclaimer.
     RevalidationPassed,
     /// Symbolic assertion: a signature was produced. Continues only
     /// from `SignPermitted`.

@@ -4,12 +4,10 @@
 //! single test iterates all 253 declared pairs; there are not 253
 //! tests, and no future-enum completeness is claimed).
 //!
-//! HOST policy model only — HOST SCAFFOLD ONLY — NOT PRODUCT CODE —
-//! NO TARGET CLAIM. These tests exercise a payload-free symbolic
-//! policy model. They do NOT execute any canonical QK-TST row and do
-//! NOT constitute Gate C evidence or evidence of any real validation,
-//! review, physical approval, revalidation, signing, signature
-//! verification, or output parsing.
+//! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NO TARGET CLAIM. Scope:
+//! see the canonical scope disclaimer in
+//! `qk_host_model::transaction_policy`. These tests do NOT execute
+//! any canonical QK-TST row and do NOT constitute Gate C evidence.
 
 use qk_host_model::transaction_policy::{
     transaction_state_index, transaction_transition, TransactionEvent, TransactionState,
