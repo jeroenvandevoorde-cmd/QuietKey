@@ -4,11 +4,12 @@
 //! `bip-0174.mediawiki` at commit
 //! `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75`, license BSD-2-Clause per
 //! the BIP 174 preamble at that commit; provenance recorded in
-//! `docs/SOURCE-REGISTER.md`. Only these vector strings are imported,
-//! verbatim. Upstream vectors that carry fields or shapes outside the
-//! ratified v0 structural profile are labeled expected rejections with
-//! their exact category; the profile is never loosened to make an
-//! upstream vector pass. The two upstream "valid" vectors with
+//! `docs/SOURCE-REGISTER.md`. These 36 vector strings and the
+//! corresponding 34 Case labels are the only imported material; their
+//! source bytes/text are verbatim. Upstream vectors that carry fields
+//! or shapes outside the ratified v0 structural profile are labeled
+//! expected rejections with their exact category; the profile is never
+//! loosened to make an upstream vector pass. The two upstream "valid" vectors with
 //! zero-input unsigned transactions reject under the local profile.
 //! No round-trip tests and no serializer. HOST evidence only; no
 //! conformance claim.
