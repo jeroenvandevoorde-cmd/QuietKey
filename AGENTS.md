@@ -13,7 +13,7 @@ EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 No agent may mark `ARCHITECTURE.md` owner-approved, close any gate, or claim the project is secure, validated, audited, fool-proof, or quantum-proof.
 
 ## Workflow
-- Code first: target at least 7 of every 10 commits changing code, not prose.
+- Code first — hard floor, not a target: at least 7 of any 10 consecutive commits change source or test files.
 - One logical change per commit; one-line imperative commit subject.
 - Decision Log: short rows, durable decisions only.
 - Batch related owner questions into a single ask.
@@ -24,3 +24,4 @@ No agent may mark `ARCHITECTURE.md` owner-approved, close any gate, or claim the
 - At most one active build task and one review task; apply or cancel any Ready-for-review task before starting a successor.
 - Review at milestone/feature gates, not per-wording audits.
 - Run `tools/check.sh` before requesting review.
+- End every session by pushing to GitHub; include the session commit range (first SHA to last SHA) in the at-most-5-line summary — unpushed work is invisible to oversight.
