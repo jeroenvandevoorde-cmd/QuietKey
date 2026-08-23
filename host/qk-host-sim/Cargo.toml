@@ -7,3 +7,6 @@ description = "Library-only deterministic scenario runner over the disposable ho
 
 [dependencies]
 qk-host-model = { path = "../qk-host-model" }
+
+[dev-dependencies]
+qk-psbt = { path = "../qk-psbt" }
