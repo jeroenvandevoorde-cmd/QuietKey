@@ -43,3 +43,20 @@ No third-party code may enter this repository until its exact commit, license, p
 | bitcoin/bips — `bip-0382.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.2a citation-only reference for wsh()/P2WSH descriptor semantics. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |
 | bitcoin/bips — `bip-0383.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | BSD-2-Clause (per the pinned BIP preamble) | F3.2a citation-only reference for multi()/sortedmulti() semantics and sorting of derived public keys. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |
 | bitcoin/bips — `bip-0039.mediawiki` | `857a7debc6625a3dadbaecee1ee7b2ed5e8ada75` | MIT (per the pinned BIP preamble) | F3.2a citation-only reference limited to mnemonic-to-seed mechanics used by the inherited 24-word English/empty-passphrase profile; QuietKey's 24-word English/empty-passphrase selection remains controlled by local QK-REQ-CUS-005. Nothing imported. | Citation-only remote review at the pinned commit; nothing imported. |
+
+## Owner-provided imports
+
+- **QK2 authority document set — owner-provided, imported 2026-08-23 into `docs/qk2/`.** First-party owner-authored documents, not third-party code; the third-party prohibition and citation-only statements above are unaffected by this import. `docs/qk2/MANIFEST.md` is packaged navigation and is not one of the thirteen authority documents. The thirteen imported authority documents, byte-for-byte, with SHA-256:
+  - `00-core-architecture-v1.md` — `0fc1f35afaecc0cf79f05fa8d2797282a4e4b828a1267ea878e7f6e6a7e9a8e3`
+  - `01-qk2-dossier.pdf` — `78265880ea78da2408639c870342667f5830286c2185fadbb3b39d5b20e8c4f1`
+  - `02-qk2-decision-register.pdf` — `090795425f2744c472f11e2d17a2fdfcd016cc6dac89a0ff42dcd59773d61c6e`
+  - `03-qk2-blueprint.pdf` — `bb9b487716f28aeb8b082aa8d156df1a864654ff58484ba4b446313b9355f21a`
+  - `04-qkec-1-specification.pdf` — `182b1c94b5065e0e6128afd0a48d99f3c8a7767eca88f089a45abe95a47f80f8`
+  - `05-qk2-standards-register.pdf` — `3494a1da7a83d34337100e886682a4cf3194538a5b59d95925b659d2d4c4bde1`
+  - `06-qk2-psbt-checklist.pdf` — `d7218fb4ca83b1dbe8552fbbc775b1d27e89e793cc90f209890fe92fad93610d`
+  - `07-qk2-recovery-decision.pdf` — `f6aba7caadcf0209700d256c65ef0eac38158f9653298657343fdaa72cec7613`
+  - `08-qk2-card-protocol.pdf` — `fb222165c9be89df99828fa4991e10f1068e5b6d5ec6d347cfeda7eaf3518edf`
+  - `09-qk2-recovery-document.pdf` — `c78183a73329a35978000f6b4bbb9627c264fc3dbd435259965043f29eff3225`
+  - `10-qk2-component-map.pdf` — `2e65229b025f36c75516f6f9e45f28e295673ceb30cc7b3fd79ce483cf53ca18`
+  - `11-qk2-04-system-device-blueprint.pdf` — `24cef5b74e7b1f6c58322abf9fed98e9f1dcd216ce5fc1fce5ff79a4fbc1547d`
+  - `12-qk2-hw-p0-1-hardware-blueprint.pdf` — `93126505453236103cd8f730a128efc6018cecd0ad06649408c6770f77cea2e0`

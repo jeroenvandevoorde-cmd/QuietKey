@@ -170,7 +170,8 @@ QuietKey is STOP-SHIP until every gate in `docs/MATURITY-GATES.md` closes: Gates
 
 ## Change control
 
-- This document is authoritative over `replit.md` and any other mutable working notes.
+This repository implements QuietKey Core Architecture v1 (`docs/qk2/00-core-architecture-v1.md`), the supreme authority for system and security architecture. The QK2 working drafts in `docs/qk2/` are subordinate elaborations of it, with the PSBT Checklist (`docs/qk2/06-qk2-psbt-checklist.pdf`) governing the signing pipeline. QK2-HW-P0.1 (`docs/qk2/12-qk2-hw-p0-1-hardware-blueprint.pdf`) governs prototype hardware except its superseded residue: the "2-of-2 remains binding" basis line, the bech32 footer-token target, the 99-roll dice test, and the KMAC-related rows. QK2-04 (`docs/qk2/11-qk2-04-system-device-blueprint.pdf`) and the CloakVault v3 protocol are superseded historical records, with QK2-04's Gate A test methodology retained. Where documents disagree, Core Architecture v1 is correct.
+
 - An agent may propose a change by recording it in `docs/OPEN-DECISIONS.md`.
 - Only explicit project-owner approval **and** a new entry in `docs/DECISION-LOG.md` may change this architecture.
 - No agent may mark this document owner-approved or close any technical gate.
