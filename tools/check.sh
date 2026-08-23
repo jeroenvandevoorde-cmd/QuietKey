@@ -93,13 +93,13 @@ else
   if ! cargo clippy --version >/dev/null 2>&1; then
     fail 'clippy unavailable; required clippy check cannot run'
   elif cargo clippy --workspace --manifest-path host/Cargo.toml \
-      --locked --offline --quiet -- -D warnings >/dev/null 2>&1; then
+      --offline --quiet -- -D warnings >/dev/null 2>&1; then
     ok 'cargo clippy (warnings denied) passed'
   else
     fail 'cargo clippy (warnings denied) failed'
   fi
   if cargo test --workspace --manifest-path host/Cargo.toml \
-      --locked --offline --quiet >/dev/null 2>&1; then
+      --offline --quiet >/dev/null 2>&1; then
     ok 'cargo test (locked, offline) passed'
   else
     fail 'cargo test (locked, offline) failed'

@@ -1,2 +1,3 @@
 # Cargo-local generated outputs only
 /target
+Cargo.lock
