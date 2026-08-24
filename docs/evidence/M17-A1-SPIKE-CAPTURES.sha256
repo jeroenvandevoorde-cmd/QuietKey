@@ -1,0 +1,49 @@
+# QUIETKEY_M17_A1_SPIKE_CAPTURE_MANIFEST_V1
+# bench_project=QuietKey-Protocol-Lab
+# bench_url=https://replit.com/@jeroenvandevoor/QuietKey-Protocol-Lab
+# bench_capture_tree_commit=aec25bb6ab30790faf3cbf55169a3b4777572d6c
+# bench_path=artifacts/cloakvault/spike
+# canonical_entry_count=29
+# canonical_total_bytes=59148370
+# canonical_entry_block_sha256=bdb0cd18c5f752546b1239cbd739b272347f1311410ea22d9e5ac1330b4d4174
+# exclusion_1_path=captures/baseline-0-std-S01..jpeg
+# exclusion_1_sha256=c8064f8ce898bcbfb64d8b52be3b361f662254e1781009fdf3ebb267f3dd23d3
+# exclusion_1_reason=byte-identical duplicate of captures/baseline-0-std-S01.jpeg; retained untouched
+# exclusion_2_path=captures/CloakVault capture-spike sheet v1.pdf
+# exclusion_2_sha256=1cf45a7e32997ee480e4cdf824d4f7c80c513bdb3f26a4c4f59805d93d8f43b9
+# exclusion_2_reason=source-sheet PDF, not a camera capture; retained untouched
+# exclusion_3_path=captures/QuietKey_GateA_Spike_Verdict.pdf
+# exclusion_3_sha256=0df86918b4852d9848c56236a497d010f30292beb6b4c6f2bf714e34a840e210
+# exclusion_3_reason=verdict PDF, not a camera capture; retained untouched
+# no_capture_bytes_are_stored_in_this_repository=true
+# format=lowercase SHA-256, two ASCII spaces, path relative to artifacts/cloakvault/spike
+
+b1d6ef1297e3ac98574f5a1c59f2237dff21018e3ff39e21c26830c880307de1  captures/baseline-0-dim-S01.jpeg
+1d247c7d1476f52d23c850077670981c64256efd11e31e2ec04e83dcb38b7389  captures/baseline-0-glare-S02.jpeg
+c8064f8ce898bcbfb64d8b52be3b361f662254e1781009fdf3ebb267f3dd23d3  captures/baseline-0-std-S01.jpeg
+e0123dfe7a4d7e8dfa71cb17665d847a68b9bf1723922b65fc7b79ef2decdebb  captures/baseline-0-std-S02.jpeg
+21444c0d547cfda7524c9b50ea3022a4f4cc18321318ec9e7de58d80efbd4ce2  captures/coffee-1-std-S03.jpeg
+2f4ff7d56ca816c8a2a579f002965e9f735cc50d72e7f793b7e298e096f826d6  captures/coffee-2-std-S04.jpeg
+50907647a2458dbbd8bf09d727996796f0e7093386b73af38bbab4c0b68efd5d  captures/coffee-3-std-S05.jpeg
+657ae087a18b3eb0650fbc0a9fcd64397cdc09643a692aa1dbfc313a580e9187  captures/crumple-1-std-S21.jpeg
+88e244aedbe1b3780269cb1253511bc92b6c57cfaf61d4e69bba1b967265c66c  captures/crumple-2-std-S22.jpeg
+e60eddfd703c01e10234433f3b2ff2b09192ac3cf75967a78b324a5fab28ef1c  captures/edge-1-std-S23.jpeg
+8c5bd868ad8f052a06bd58a2d040115a6349ef4ce4689ea513fbac77bb2dd647  captures/edge-2-std-S24.jpeg
+0ff78cd1fd39f35503c8ea4d9862240a25f3cf72212684eae026a97e46a82490  captures/edge-3-std-S25.jpeg
+0d3c52e741f9fb43439c1828ffdf39c02fdbb0ba67fd1484fa150582d4d91d9d  captures/fade-1-std-S12.jpeg
+ee404915a232d0cefc02dbb19575a28f68eb26ca4aac4da8d25c5b75f02ebdef  captures/fade-2-std-S13.jpeg
+9b95e8f0cbbb1bd4bb4568680e5bcd4cdb3e72b34456f23119f95d902e1f4b5b  captures/fade-3-std-S14.jpeg
+f4bc5eb641382b1722de89b4632154a8788f125aef1d0929a5f4a1462099b396  captures/fold-1-std-S18.jpeg
+c587f8696e4eea1af23075cde3c1db1f9ef474058320a6fc2fe3ccbc4c19afb0  captures/fold-2-std-S19.jpeg
+0c1bc6cff5d3a36a587e655cb310fbf5de24d61e3b532d0638412b25056529bc  captures/fold-3-std-S20.jpeg
+f4b8c5a0061a43bfac894242e7c71181a3d13bb3795dbf2da0225f3b4c7d1ead  captures/locate-0-std-S26.jpeg
+9b308ca4c927ea95672c08a4e18ba75e62b793d321ffd44e4c82a3596c56cb82  captures/locate-1-std-S27.jpeg
+ae687c729edbe5a666c70d697f52f04d697dd0e7dd2b76771827bc90ba40865d  captures/scratch-1-std-S15.jpeg
+1ba3de0b2b512780cbb8d06cd486a175726c14a12de829bfc63db5b7bfc772ec  captures/scratch-2-std-S16.jpeg
+f724c13300ffd65eea6baef7b0e599a4de42412ee131709bc58754dedb193829  captures/scratch-3-std-S17.jpeg
+3fc759bdf63576b601d2f88066baee99f855cdf96599123f1ef7da6354c079df  captures/scuff-1-std-S09.jpeg
+02110fe1b109b00cac1c39094dd05e54bb754b213169ee029aa53d5e458f2101  captures/scuff-2-std-S10.jpeg
+c3496c19efefb76c05b9fec6afaf458cb03427cd693c6af9a3a3b8e64e163b0b  captures/scuff-3-std-S11.jpeg
+6f8476121349a71c7a3504219b69bcb9844c70f72ef4009a2863e494da3dbbbc  captures/water-1-std-S06.jpeg
+a53449b5ede0b8658ec13ddc13908708e29c5006e7cc8910246aa94ba1c0de5a  captures/water-2-std-S07.jpeg
+faef2f9a1dcb51d4c7273371ae7b3b7d47e3984e0d7b62cae7835c2e7cdcb18b  captures/water-3-std-S08.jpeg
