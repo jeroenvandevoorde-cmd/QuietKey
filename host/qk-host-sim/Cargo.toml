@@ -3,7 +3,7 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only deterministic scenario runner over the disposable host state model. HOST evidence only. Not product code. Not a wallet simulator."
+description = "Library-only HOST scaffolds: a legacy payload-free symbolic runner and a distinct D-09 review-binding seam. Not product code; no target, UI, wallet, signing, finalization, or export."
 
 [dependencies]
 qk-host-model = { path = "../qk-host-model" }

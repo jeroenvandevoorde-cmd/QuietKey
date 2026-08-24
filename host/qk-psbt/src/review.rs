@@ -593,4 +593,104 @@ mod tests {
         assert_ne!(wrong_domain, baseline);
         assert_ne!(missing_separator, baseline);
     }
+
+    #[test]
+    fn published_review_binding_fixture_contract_is_frozen() {
+        const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/review_binding.txt");
+        const REQUIRED_FIELDS: [&str; 14] = [
+            "case",
+            "class",
+            "expected",
+            "s0_len",
+            "s0_sha256",
+            "s0_hex",
+            "unsigned_tx_hex",
+            "wallet_id",
+            "canonical_review_len",
+            "canonical_review_hex",
+            "domain_ascii",
+            "domain_hex",
+            "review_hash",
+            "separator_hex",
+        ];
+        const CASES: [(&str, &str, &str, &str, &str); 2] = [
+            (
+                "M14-FULL",
+                "returned-fact-never-fund",
+                "complete-schema-v1",
+                "922",
+                "617",
+            ),
+            (
+                "M14-RAW-MUTATION",
+                "returned-fact-never-fund",
+                "same-semantics-different-raw-s0",
+                "927",
+                "617",
+            ),
+        ];
+        const EXPECTED_SHA256: [u8; 32] = [
+            0xcc, 0x12, 0x18, 0x46, 0xa9, 0x42, 0xbf, 0x21, 0xa0, 0x22, 0x85, 0x25, 0xfc, 0x06,
+            0xbe, 0xd3, 0xae, 0x85, 0xa5, 0xbf, 0xc6, 0x88, 0xe1, 0x2e, 0xa7, 0x9d, 0x15, 0x5e,
+            0xec, 0x37, 0x00, 0x04,
+        ];
+
+        assert_eq!(FIXTURE.len(), 10_205);
+        assert_eq!(FIXTURE.iter().filter(|&&byte| byte == b'\n').count(), 43);
+        assert_eq!(FIXTURE.iter().filter(|&&byte| byte == b'\r').count(), 0);
+        assert_eq!(FIXTURE.last(), Some(&b'\n'));
+        assert_eq!(sha256(&[FIXTURE]).unwrap(), EXPECTED_SHA256);
+
+        let text = core::str::from_utf8(FIXTURE).unwrap();
+        let blocks: Vec<&str> = text
+            .split("\n\n")
+            .filter(|block| block.starts_with("case: "))
+            .collect();
+        assert_eq!(blocks.len(), CASES.len());
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|block| block
+                    .strip_prefix("case: ")
+                    .unwrap()
+                    .lines()
+                    .next()
+                    .unwrap())
+                .collect::<Vec<_>>(),
+            CASES.iter().map(|case| case.0).collect::<Vec<_>>()
+        );
+
+        for (block, (name, class, expected, s0_len, canonical_len)) in blocks.iter().zip(CASES) {
+            let lines: Vec<&str> = block.lines().collect();
+            assert_eq!(lines.len(), REQUIRED_FIELDS.len(), "{name}");
+            for field in REQUIRED_FIELDS {
+                let prefix = format!("{field}: ");
+                assert_eq!(
+                    lines
+                        .iter()
+                        .filter(|line| line.starts_with(&prefix))
+                        .count(),
+                    1,
+                    "{name}: {field}"
+                );
+            }
+            let value = |field| {
+                lines
+                    .iter()
+                    .find_map(|line| line.strip_prefix(&format!("{field}: ")))
+                    .unwrap()
+            };
+            assert_eq!(value("case"), name);
+            assert_eq!(value("class"), class);
+            assert_eq!(value("expected"), expected);
+            assert_eq!(value("s0_len"), s0_len);
+            assert_eq!(value("canonical_review_len"), canonical_len);
+            assert_eq!(value("domain_ascii"), "QuietKey/D-09/review/v1");
+            assert_eq!(
+                value("domain_hex"),
+                "51756965744b65792f442d30392f7265766965772f7631"
+            );
+            assert_eq!(value("separator_hex"), "00");
+        }
+    }
 }

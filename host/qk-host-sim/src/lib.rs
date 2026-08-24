@@ -1,12 +1,16 @@
-//! Library-only deterministic transaction workflow runner over
-//! `qk-host-model`.
+//! Library-only HOST scaffolds over `qk-host-model`.
 //!
-//! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET SIMULATOR —
-//! NO TARGET CLAIM. Scope: see the canonical scope disclaimer in
-//! `qk_host_model::transaction_policy`.
+//! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET — NO TARGET
+//! CLAIM. [`TransactionWorkflow`] is the legacy payload-free symbolic
+//! HOST scaffold: it models event order and opaque runner tokens only.
+//! [`ReviewBoundWorkflow`] is the distinct production HOST D-09 seam:
+//! it retains and reparses S0, then gates revalidation on the exact
+//! review hash and current runner token. Scope: see the canonical scope
+//! disclaimer in `qk_host_model::transaction_policy`.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
+//! No signing, signature insertion, finalization, or export.
 //!
 //! Beyond the model's mandatory event order, the runner makes the
 //! approval→revalidation→signature binding STRUCTURAL: accepting
@@ -111,9 +115,10 @@ pub enum ApplyOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkflowFinished;
 
-/// Deterministic Locked-start transaction workflow runner.
+/// Legacy payload-free symbolic HOST workflow scaffold, starting Locked.
 ///
-/// Enforces the model's mandatory order and, structurally, the
+/// It receives no S0, descriptor, review data, or review hash. It
+/// enforces the model's mandatory order and, structurally, the
 /// approval→revalidation→signature binding: `RevalidationPassed` and
 /// `SignatureProduced` are accepted only with the token minted for the
 /// active approval cycle. Fail-closed over the declared semantics,
@@ -369,11 +374,13 @@ pub enum ReviewBindingError {
     RehashFailed,
 }
 
-/// Production wrapper binding an immutable exact S0 and authenticated
-/// provenance/descriptor to the unchanged symbolic workflow.
+/// Distinct production HOST D-09 seam binding immutable exact S0 and
+/// authenticated provenance/descriptor to the unchanged symbolic workflow.
 ///
-/// This type intentionally has no API accepting review bytes, a hash, a
-/// token, or any critical model event. It neither signs nor exports.
+/// It reparses retained S0 and gates revalidation on exact review-hash
+/// equality plus the current runner token. This type intentionally has no
+/// API accepting review bytes, a hash, a token, or any critical model event.
+/// It neither signs, finalizes, nor exports.
 pub struct ReviewBoundWorkflow<'a> {
     s0: &'a [u8],
     source: InputSource,
