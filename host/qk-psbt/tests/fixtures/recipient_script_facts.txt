@@ -1,0 +1,136 @@
+# QuietKey M13 local public recipient-script facts
+# Procedure: locally authored literal script templates and closed case labels under QK-DEC-047/QK-DEC-059.
+# Payload bytes are repeated public labels only; no address, key generator, signer, scalar, nonce, or private material exists.
+# The M12 input authority remains the committed QK-DEC-059 NUMS descriptor fixture; no new authority or derivation is introduced.
+# Every script and in-memory PSBT assembled from this file is synthetic, valueless, and permanently NEVER-FUND.
+# Contains public fixture facts only. Closed inventory: 31 cases = 17 returned-fact + 14 named-rejection.
+p2wpkh: 00141111111111111111111111111111111111111111
+p2wsh: 00202222222222222222222222222222222222222222222222222222222222222222
+p2tr: 51203333333333333333333333333333333333333333333333333333333333333333
+p2pkh: 76a914444444444444444444444444444444444444444488ac
+p2sh: a914555555555555555555555555555555555555555587
+op_return_no_push: 6a
+
+case: R01
+class: returned-fact
+expected: p2wpkh-program20
+
+case: R02
+class: returned-fact
+expected: p2wsh-program32
+
+case: R03
+class: returned-fact
+expected: destination-only-p2tr-program32
+
+case: R04
+class: returned-fact
+expected: p2pkh-hash20
+
+case: R05
+class: returned-fact
+expected: p2sh-hash20
+
+case: R06
+class: returned-fact
+expected: op-return-no-push-empty-data
+
+case: R07
+class: returned-fact
+expected: op-return-op-zero-empty-data
+
+case: R08
+class: returned-fact
+expected: op-return-direct-push-1
+
+case: R09
+class: returned-fact
+expected: op-return-direct-push-75
+
+case: R10
+class: returned-fact
+expected: op-return-pushdata1-76
+
+case: R11
+class: returned-fact
+expected: op-return-pushdata1-80
+
+case: R12
+class: returned-fact
+expected: one-op-return-zero-value
+
+case: R13
+class: returned-fact
+expected: ordinary-zero-value-no-warning
+
+case: R14
+class: returned-fact
+expected: mixed-six-recipient-types
+
+case: R15
+class: returned-fact
+expected: proven-change-preserved
+
+case: R16
+class: returned-fact
+expected: proven-self-transfer-preserved
+
+case: R17
+class: returned-fact
+expected: max-32-output-classification
+
+case: E01
+class: named-rejection
+expected: BarePubkeyRecipientScript
+
+case: E02
+class: named-rejection
+expected: BareMultisigRecipientScript
+
+case: E03
+class: named-rejection
+expected: FutureWitnessVersion
+
+case: E04
+class: named-rejection
+expected: MalformedWitnessProgram
+
+case: E05
+class: named-rejection
+expected: UnsupportedRecipientScript
+
+case: E06
+class: named-rejection
+expected: OpReturnNonZeroValue
+
+case: E07
+class: named-rejection
+expected: MultipleOpReturnOutputs
+
+case: E08
+class: named-rejection
+expected: OpReturnMultiplePushes
+
+case: E09
+class: named-rejection
+expected: OpReturnNonMinimalPush
+
+case: E10
+class: named-rejection
+expected: OpReturnPayloadTooLong
+
+case: E11
+class: named-rejection
+expected: MalformedScriptPush
+
+case: E12
+class: named-rejection
+expected: SignatureVerificationFailed
+
+case: E13
+class: named-rejection
+expected: DescriptorOutputScriptMismatch
+
+case: E14
+class: named-rejection
+expected: TooManyOutputs
