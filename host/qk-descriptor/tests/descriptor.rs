@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 
 const PAIRS: &str = include_str!("fixtures/descriptor_pairs.txt");
 const NEGATIVES: &str = include_str!("fixtures/descriptor_pair_negatives.txt");
+const XPUB_KATS: &str = include_str!("../../qk-bip32/tests/fixtures/xpub_vectors.txt");
+const CKDPUB_KATS: &str = include_str!("../../qk-bip32/tests/fixtures/ckdpub_vectors.txt");
 const XPUB_STARTS: [usize; 3] = [41, 180, 319];
 
 fn field<'a>(block: &'a str, name: &str) -> &'a str {
@@ -50,7 +52,7 @@ fn parse_error(value: &str) -> DescriptorParseError {
 
 #[test]
 fn local_pair_fixture_inventory_wallets_and_scripts_are_exact() {
-    assert_eq!(PAIRS.len(), 8_919);
+    assert_eq!(PAIRS.len(), 8_882);
     assert!(PAIRS.ends_with('\n'));
     assert!(!PAIRS.contains('\r'));
     assert_eq!(PAIRS.matches("case: ").count(), 3);
@@ -123,6 +125,48 @@ fn local_pair_fixture_inventory_wallets_and_scripts_are_exact() {
 }
 
 #[test]
+fn nums_authorities_are_exact_and_exclude_every_bip32_fixture_public_key() {
+    let receive = field(pair_block("GOLDEN"), "receive").as_bytes();
+    let authorities = XPUB_STARTS.map(|start| {
+        decode_mainnet_xpub(&receive[start..start + 111])
+            .unwrap()
+            .public_node
+            .compressed_public_key
+    });
+    assert_eq!(
+        authorities,
+        [
+            hex("0259b1fea182bb42b4e611be0d6279c92fd64a82f40d7abcb2d5cc71e2b86ad38f"),
+            hex("0255a6c872ae654399346a25a7005691f4d93d1b4935ac380a7da7aff3f653b4cd"),
+            hex("021284b9a71b9da0bf3568311550ac14000f8fb8619b6a59950847202920d3ab89"),
+        ]
+    );
+
+    let mut kat_public_keys = Vec::new();
+    for line in XPUB_KATS.lines() {
+        if let Some(value) = line.strip_prefix("public_key: ") {
+            kat_public_keys.push(hex::<33>(value));
+        }
+    }
+    assert_eq!(kat_public_keys.len(), 19);
+    for line in CKDPUB_KATS.lines() {
+        if let Some(value) = line
+            .strip_prefix("parent_pubkey: ")
+            .or_else(|| line.strip_prefix("child_pubkey: "))
+        {
+            kat_public_keys.push(hex::<33>(value));
+        }
+    }
+    assert_eq!(kat_public_keys.len(), 31);
+    for (role, authority) in ["A", "B", "C"].into_iter().zip(authorities) {
+        assert!(
+            !kat_public_keys.contains(&authority),
+            "NUMS authority {role} reuses a BIP32 fixture public key"
+        );
+    }
+}
+
+#[test]
 fn equal_fingerprints_are_metadata_and_duplicate_account_nodes_reject() {
     let golden_block = pair_block("GOLDEN");
     let equal_block = pair_block("EQUAL_FINGERPRINT");
@@ -160,8 +204,8 @@ fn equal_fingerprints_are_metadata_and_duplicate_account_nodes_reject() {
 }
 
 #[test]
-fn checksum_correct_negative_fixture_is_fully_consumed() {
-    assert_eq!(NEGATIVES.len(), 22_900);
+fn negative_fixture_has_22_checksum_correct_pairs_and_one_checksum_mismatch_precedence_pair() {
+    assert_eq!(NEGATIVES.len(), 23_051);
     assert!(NEGATIVES.ends_with('\n'));
     assert!(!NEGATIVES.contains('\r'));
     let fields: Vec<&str> = NEGATIVES
@@ -170,6 +214,8 @@ fn checksum_correct_negative_fixture_is_fully_consumed() {
         .collect();
     assert_eq!(fields.len(), 23 * 4);
     let mut histogram = BTreeMap::new();
+    let mut checksum_correct_pairs = 0usize;
+    let mut checksum_mismatch_precedence_pairs = 0usize;
     for block in fields.chunks_exact(4) {
         let name = block[0].strip_prefix("case: ").unwrap();
         let receive = block[1].strip_prefix("receive: ").unwrap();
@@ -182,7 +228,14 @@ fn checksum_correct_negative_fixture_is_fully_consumed() {
             Err(error) if error == parse_error(expected)
         ));
         *histogram.entry(expected).or_insert(0usize) += 1;
+        if expected == "ChecksumMismatch" {
+            checksum_mismatch_precedence_pairs += 1;
+        } else {
+            checksum_correct_pairs += 1;
+        }
     }
+    assert_eq!(checksum_correct_pairs, 22);
+    assert_eq!(checksum_mismatch_precedence_pairs, 1);
     assert_eq!(
         histogram,
         BTreeMap::from([

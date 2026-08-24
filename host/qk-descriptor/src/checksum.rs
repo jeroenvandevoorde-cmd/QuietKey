@@ -1,6 +1,6 @@
 //! Private exact BIP-380 descriptor-checksum verification.
 
-const INPUT_CHARSET: &[u8] = b"0123456789()[],'/*abcdefgh@:$%{}IJKLMNOPQRSTUVWXYZ&+-.;<=>?!^_|~ijklmnopqrstuvwxyzABCDEFGH`#\\ \"";
+const INPUT_CHARSET: &[u8] = b"0123456789()[],'/*abcdefgh@:$%{}IJKLMNOPQRSTUVWXYZ&+-.;<=>?!^_|~ijklmnopqrstuvwxyzABCDEFGH`#\"\\ ";
 const CHECKSUM_CHARSET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const GENERATORS: [u64; 5] = [
     0x00f5_dee5_1989,
@@ -98,7 +98,7 @@ fn verify_fixture_token(input: &[u8]) -> Result<(), ChecksumFixtureError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{verify_fixture_token, ChecksumFixtureError};
+    use super::{verify_fixture_token, ChecksumFixtureError, INPUT_CHARSET};
 
     const VECTORS: &str = include_str!("../tests/fixtures/bip380_checksum_vectors.txt");
 
@@ -136,5 +136,12 @@ mod tests {
                 block[0]
             );
         }
+    }
+
+    #[test]
+    fn input_charset_tail_and_checksum_mapping_match_bip380() {
+        assert_eq!(INPUT_CHARSET.len(), 95);
+        assert_eq!(&INPUT_CHARSET[90..], b"`#\"\\ ");
+        assert_eq!(verify_fixture_token(b"raw(`\"\\ )#n50qjjqa"), Ok(()));
     }
 }
