@@ -3,7 +3,7 @@ name = "qk-bip32"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Bounded public (nonhardened) BIP32 CKDpub child derivation over private FIPS 180-4 SHA-512 and FIPS 198-1 HMAC-SHA512 implementations; evaluates the presented index only and never scans or retries. HOST evidence only. Not product code. Not a wallet. No private derivation, no xprv or seed handling, no Base58 or xpub text API, no HASH160 or fingerprints, no PSBT integration, no conformance or target claim."
+description = "Bounded public BIP32 foundation: presented-index-only nonhardened CKDpub plus a strict mainnet-xpub public decoder over private fixed-memory SHA-256/Base58Check. HOST evidence only. Not product code. Not a wallet. No private derivation, xprv or seed handling, Base58 encoder, HASH160/fingerprint calculation, descriptors, ownership/change proof, PSBT integration, conformance, or target claim."
 
 [dependencies]
 qk-secp = { path = "../qk-secp" }

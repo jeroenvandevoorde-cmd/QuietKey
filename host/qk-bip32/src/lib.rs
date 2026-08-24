@@ -1,29 +1,32 @@
-//! Bounded HOST-only public (nonhardened) BIP32 child derivation
-//! foundation (QK-DEC-048, QK-DEC-049, QK-DEC-050).
+//! Bounded HOST-only public BIP32 foundation (QK-DEC-048..053):
+//! nonhardened CKDpub plus strict mainnet xpub decoding.
 //!
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET — NO TARGET CLAIM.
 //!
-//! The complete frozen public surface (QK-DEC-049) is [`PublicNode`],
-//! [`CkdPubError`], and [`derive_public_child`]. Nothing else is
-//! public: the FIPS 180-4 SHA-512 and FIPS 198-1 HMAC-SHA512
-//! implementations are private modules with no general public hash or
-//! HMAC API, and there are no public constants, modules, traits, or
-//! private-derivation paths. This validator evaluates exactly the
-//! presented index and never increments, scans, retries, or searches —
-//! a deliberate, ratified deviation from the BIP32 skip-to-next-index
-//! generation procedure. Child keys are computed only through the
-//! unchanged qk-secp parse/serialize/tweak-add boundary; no sixth FFI
-//! function exists. No private derivation, no xprv or seed handling,
-//! no Base58 or xpub text API, no HASH160 or fingerprints, no path
-//! policy, no PSBT integration. Correctness is exercised only against
-//! the committed public fixtures recorded in
-//! `docs/SOURCE-REGISTER.md`; **no FIPS, CAVP, or BIP32 conformance
-//! claim.**
+//! The complete frozen public surface is [`PublicNode`],
+//! [`CkdPubError`], [`derive_public_child`], [`DecodedXpub`],
+//! [`XpubDecodeError`], and [`decode_mainnet_xpub`]. Nothing else is
+//! public. SHA-512, HMAC-SHA512, SHA-256, Base58 arithmetic, and
+//! checksum handling remain private with no general cryptographic API.
+//! CKDpub evaluates exactly the presented nonhardened index and never
+//! increments, scans, retries, or searches. The strict decoder accepts
+//! borrowed bytes only, permits exactly mainnet xpub version 0488b21e,
+//! checks SHA256d before payload semantics, and exposes only decoded
+//! public fields. Both paths use only the unchanged qk-secp
+//! parse/serialize/tweak-add boundary; no sixth FFI function exists.
+//! No private derivation, xprv or seed handling, Base58 encoder,
+//! HASH160 calculation, path policy, descriptors, ownership/change,
+//! or PSBT integration. Correctness is exercised only against the
+//! committed public fixtures recorded in `docs/SOURCE-REGISTER.md`;
+//! **no FIPS, CAVP, or BIP32 conformance claim.**
 
 #![deny(unsafe_code)]
 
 mod ckdpub;
 mod hmac_sha512;
+mod sha256;
 mod sha512;
+mod xpub;
 
 pub use ckdpub::{derive_public_child, CkdPubError, PublicNode};
+pub use xpub::{decode_mainnet_xpub, DecodedXpub, XpubDecodeError};

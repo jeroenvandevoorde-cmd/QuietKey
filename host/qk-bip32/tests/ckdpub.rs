@@ -349,14 +349,15 @@ fn standalone_count(haystack: &str, needle: &str) -> usize {
     haystack.matches(needle).count()
 }
 
-/// The public source surface is frozen (QK-DEC-049): exactly one
-/// public function, one public struct with three public fields, one
-/// public enum with five unit variants, one re-export line, and no
-/// other public items anywhere in the crate.
+/// The M9 source surface remains frozen inside the exact M10 additive
+/// extension: the original function, struct, fields, enum, variants,
+/// and re-export remain byte-for-byte named and no M9 hash API becomes
+/// public.
 #[test]
-fn public_source_surface_is_exactly_the_approved_set() {
-    // lib.rs: three private modules, one re-export, nothing else pub.
-    assert_eq!(standalone_count(LIB_SRC, "pub use "), 1);
+fn m9_public_source_surface_is_preserved_inside_m10() {
+    // lib.rs: the original re-export remains exact; M10 adds only its
+    // separately frozen re-export and two private modules.
+    assert_eq!(standalone_count(LIB_SRC, "pub use "), 2);
     assert_eq!(
         standalone_count(
             LIB_SRC,
@@ -368,7 +369,13 @@ fn public_source_surface_is_exactly_the_approved_set() {
     assert_eq!(standalone_count(LIB_SRC, "pub struct "), 0);
     assert_eq!(standalone_count(LIB_SRC, "pub enum "), 0);
     assert_eq!(standalone_count(LIB_SRC, "pub mod "), 0);
-    for module in ["mod ckdpub;", "mod hmac_sha512;", "mod sha512;"] {
+    for module in [
+        "mod ckdpub;",
+        "mod hmac_sha512;",
+        "mod sha256;",
+        "mod sha512;",
+        "mod xpub;",
+    ] {
         assert_eq!(standalone_count(LIB_SRC, module), 1, "{module}");
     }
     // ckdpub.rs: exactly the ratified public items.
