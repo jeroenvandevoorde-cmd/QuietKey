@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["qk-bip32", "qk-host-model", "qk-host-sim", "qk-psbt", "qk-secp"]
+members = ["qk-bip32", "qk-descriptor", "qk-host-model", "qk-host-sim", "qk-psbt", "qk-secp"]
 
 [profile.release]
 overflow-checks = true
