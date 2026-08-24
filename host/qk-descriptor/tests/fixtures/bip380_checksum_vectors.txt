@@ -1,0 +1,46 @@
+# BIP-380 descriptor-checksum public tokens (M11)
+# Source: bitcoin/bips bip-0380.mediawiki at commit 857a7debc6625a3dadbaecee1ee7b2ed5e8ada75,
+# blob fe4cad50b2d8129ccc974636b1921d2b6cd98c67, 19681 bytes,
+# SHA256 5723e05eaade58c0a3b52fda7222430997fd28f331f99a65e0315fdfca08d5ae, 344 LF-only lines with final LF; BSD-2-Clause.
+# Exactly the eight public tokens at lines 204..211; labels and expected categories are local.
+# No source prose, code, key expression, or other source token is included.
+# Fields: case, source_line, token, expected.
+case: valid
+source_line: 204
+token: raw(deadbeef)#89f8spxm
+expected: accept
+
+case: no-checksum
+source_line: 205
+token: raw(deadbeef)
+expected: MissingChecksum
+
+case: empty-checksum
+source_line: 206
+token: raw(deadbeef)#
+expected: InvalidChecksumLength
+
+case: long-checksum
+source_line: 207
+token: raw(deadbeef)#89f8spxmx
+expected: InvalidChecksumLength
+
+case: short-checksum
+source_line: 208
+token: raw(deadbeef)#89f8spx
+expected: InvalidChecksumLength
+
+case: payload-mismatch
+source_line: 209
+token: raw(deedbeef)#89f8spxm
+expected: ChecksumMismatch
+
+case: checksum-character
+source_line: 210
+token: raw(deedbeef)##9f8spxm
+expected: InvalidChecksumCharacter
+
+case: descriptor-character
+source_line: 211
+token: raw(Ü)#00000000
+expected: InvalidDescriptorCharacter
