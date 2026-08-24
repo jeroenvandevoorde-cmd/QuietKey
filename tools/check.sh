@@ -66,7 +66,9 @@ if [ "$probe_ok" = 1 ]; then
     elif [ -s "$scan_err" ]; then
       fail 'secret scan reported errors:'
       cat "$scan_err" >&2
-    elif [ "$scan_rc" = 0 ] || [ "$scan_rc" = 123 ]; then
+    # GNU xargs maps grep's no-match status to 123; BSD xargs returns 1.
+    # Empty output and stderr above distinguish both from scan failures.
+    elif [ "$scan_rc" = 0 ] || [ "$scan_rc" = 1 ] || [ "$scan_rc" = 123 ]; then
       ok 'no likely real secret patterns in tracked files'
     else
       fail "secret scan tool failure (exit $scan_rc)"
