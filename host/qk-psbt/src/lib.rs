@@ -48,11 +48,19 @@
 //! `NotProvenOwned` outputs across six exact destination templates.
 //! It performs no address encoding, display, amount warning, approval,
 //! signing, insertion, finalization, or export.
+//! The M14 entrypoint ([`build_review`]) binds those authoritative facts,
+//! exact unsigned-transaction bytes, exact S0 SHA-256, authenticated
+//! descriptor identity, and parse-retained intake provenance into the
+//! bounded D-09 v1 canonical representation. [`PsbtView::source`] is the
+//! only accepted source provenance; a conflicting review context rejects
+//! before analysis or review allocation. The review remains session-free,
+//! and its domain-separated SHA-256 commitment is computed on request.
 //!
 //! The unsigned transaction is parsed only as far as necessary to
 //! validate its structure and derive the input/output map counts.
-//! Persistent metadata is bounded to the global/input/output map ranges
-//! plus the unsigned-transaction facts. Duplicate detection uses an
+//! Persistent metadata is bounded to intake provenance, the
+//! global/input/output map ranges, and the unsigned-transaction facts.
+//! Duplicate detection uses an
 //! ephemeral fallible set of borrowed complete-key slices; allocation
 //! failure is reported as an explicit rejection category, and no
 //! target-RAM or conformance claim is made.
@@ -82,6 +90,7 @@ pub mod error;
 pub mod limits;
 mod parse;
 mod raw;
+mod review;
 mod semantic;
 mod serialize;
 mod sha256;
@@ -89,6 +98,10 @@ mod sha256;
 pub use error::{ParseError, RejectCategory};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
+pub use review::{
+    build_review, Review, ReviewContext, ReviewError, ReviewHash, ReviewInput, ReviewNetwork,
+    ReviewOutput, ReviewOutputOwnership, ReviewRecipient,
+};
 pub use semantic::{
     analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_recipient_script_facts,
     analyze_semantic_subset, DescriptorOwnershipAnalysis, DescriptorWalletFacts,

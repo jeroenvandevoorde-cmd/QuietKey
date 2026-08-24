@@ -42,6 +42,7 @@ pub struct UnsignedTxSummary {
 #[derive(Debug)]
 pub struct PsbtView<'a> {
     buf: &'a [u8],
+    source: InputSource,
     unsigned_tx: UnsignedTxSummary,
     global_map: Span,
     input_maps: Vec<Span>,
@@ -53,6 +54,12 @@ impl<'a> PsbtView<'a> {
     #[must_use]
     pub const fn buffer(&self) -> &'a [u8] {
         self.buf
+    }
+
+    /// Retained intake provenance and the cap used during parsing.
+    #[must_use]
+    pub const fn source(&self) -> InputSource {
+        self.source
     }
 
     /// Structural unsigned-transaction facts.
@@ -600,6 +607,7 @@ pub fn parse(buf: &[u8], source: InputSource) -> Result<PsbtView<'_>, ParseError
     }
     Ok(PsbtView {
         buf,
+        source,
         unsigned_tx,
         global_map: global.span,
         input_maps,

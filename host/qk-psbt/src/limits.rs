@@ -97,3 +97,11 @@ pub const MAX_CHILD_INDEX: u32 = 65_535;
 /// times six calls. Candidate only under QK-DEC-034; final registry
 /// value remains OPEN.
 pub const MAX_CHILD_DERIVATIONS: usize = 792;
+
+/// CANDIDATE (QK-DEC-072): exact maximum byte length of a D-09 v1
+/// canonical review. This follows the successful M13 shape and makes no
+/// target-RAM or conformance claim.
+pub const MAX_CANONICAL_REVIEW_BYTES: usize = 19_272;
+
+const _: [(); MAX_CANONICAL_REVIEW_BYTES] = [(); 124 + 5_535 + (100 * 107) + (185 + 31 * 88)];
+const _: [(); 19_296] = [(); MAX_CANONICAL_REVIEW_BYTES + 23 + 1];
