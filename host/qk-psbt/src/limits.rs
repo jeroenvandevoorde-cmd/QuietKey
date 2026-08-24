@@ -56,6 +56,12 @@ pub const MAX_RECORDS_PER_MAP: usize = 64;
 /// HOST-scaffold candidate; no conformance claim; final value OPEN.
 pub const MAX_TX_OUTPUT_SCRIPT_BYTES: usize = 10_000;
 
+/// CANDIDATE (QK-DEC-067): maximum canonical OP_RETURN payload bytes
+/// accepted by the HOST-only M13 recipient-script-facts route.
+/// Candidate only under QK-DEC-034; the registry freeze pack remains
+/// owed and no conformance claim is made.
+pub const MAX_OP_RETURN_PAYLOAD_BYTES: usize = 80;
+
 /// CANDIDATE (QK-DEC-039): maximum inputs in one previous transaction
 /// carried by a non_witness_utxo record. HOST-scaffold candidate; no
 /// conformance claim; final registry value OPEN.

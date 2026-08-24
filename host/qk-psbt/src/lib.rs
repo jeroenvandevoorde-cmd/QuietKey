@@ -42,7 +42,12 @@
 //! authorization of any later policy gate. The explicit global version field
 //! (type 0xFB) is validated structurally: empty key data, exactly four
 //! little-endian value bytes, and the value must declare version zero;
-//! omission remains accepted.
+//! omission remains accepted. The separate M13 HOST-only entrypoint
+//! ([`analyze_recipient_script_facts`]) first completes M12 ownership
+//! and M8 verification, then returns bounded raw script facts for only
+//! `NotProvenOwned` outputs across six exact destination templates.
+//! It performs no address encoding, display, amount warning, approval,
+//! signing, insertion, finalization, or export.
 //!
 //! The unsigned transaction is parsed only as far as necessary to
 //! validate its structure and derive the input/output map counts.
@@ -85,10 +90,11 @@ pub use error::{ParseError, RejectCategory};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
 pub use semantic::{
-    analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_semantic_subset,
-    DescriptorOwnershipAnalysis, DescriptorWalletFacts, InputSemanticFacts, InputSignatureStatus,
-    MalformedPush, MultisigForm, OutputOwnership, OutputSemanticFacts, ProvenWalletInput,
-    ScriptToken, ScriptTokens, SemanticCandidate, SemanticCategory, SemanticError,
+    analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_recipient_script_facts,
+    analyze_semantic_subset, DescriptorOwnershipAnalysis, DescriptorWalletFacts,
+    InputSemanticFacts, InputSignatureStatus, MalformedPush, MultisigForm, OutputOwnership,
+    OutputSemanticFacts, ProvenWalletInput, RecipientScriptAnalysis, RecipientScriptFacts,
+    RecipientType, ScriptToken, ScriptTokens, SemanticCandidate, SemanticCategory, SemanticError,
     VerifiedAggregateStatus, VerifiedInputFacts, VerifiedInputStatus, VerifiedSemanticCandidate,
 };
 pub use serialize::{canonical_serialize, SerializeError};

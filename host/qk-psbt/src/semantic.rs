@@ -42,6 +42,13 @@
 //! VERIFY_AND_EXPORT_ONLY disposition are returned facts only: no
 //! export is performed or authorized, and no later S4/S7,
 //! ownership, or change check is bypassed.
+//!
+//! M13 (QK-DEC-065..068) adds one further HOST-only entrypoint,
+//! [`analyze_recipient_script_facts`]. It first completes the unchanged
+//! M12 ownership and M8 verification path, then classifies only
+//! [`OutputOwnership::NotProvenOwned`] outputs against six exact
+//! destination templates. Descriptor-proven change and self-transfer
+//! outputs remain unchanged and receive no recipient fact.
 
 use crate::bip143::{
     sighash_all_digest, Bip143Error, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL,
@@ -202,6 +209,29 @@ pub enum SemanticCategory {
     /// M12: descriptor CKDpub calls would exceed the candidate
     /// `limits::MAX_CHILD_DERIVATIONS`.
     DescriptorChildDerivationLimitExceeded,
+    /// M13: an output is an exact bare-pubkey script.
+    BarePubkeyRecipientScript,
+    /// M13: an output is an exact canonical bare-multisig script.
+    BareMultisigRecipientScript,
+    /// M13: a canonical witness program uses version 2 through 16.
+    FutureWitnessVersion,
+    /// M13: a version 0 or 1 witness program has a nonselected length,
+    /// or a version 0 through 16 witness-looking script is malformed.
+    MalformedWitnessProgram,
+    /// M13: an output script matches none of the selected templates or
+    /// separately named rejection forms.
+    UnsupportedRecipientScript,
+    /// M13: an OP_RETURN output has nonzero value.
+    OpReturnNonZeroValue,
+    /// M13: more than one NotProvenOwned output begins with OP_RETURN.
+    MultipleOpReturnOutputs,
+    /// M13: canonical OP_RETURN is followed by more than one push.
+    OpReturnMultiplePushes,
+    /// M13: an OP_RETURN push is not the selected minimal encoding.
+    OpReturnNonMinimalPush,
+    /// M13: an OP_RETURN payload exceeds
+    /// `limits::MAX_OP_RETURN_PAYLOAD_BYTES`.
+    OpReturnPayloadTooLong,
 }
 
 impl fmt::Display for SemanticCategory {
@@ -285,6 +315,16 @@ impl fmt::Display for SemanticCategory {
             Self::DescriptorChildDerivationLimitExceeded => {
                 "descriptor child derivation cap exceeded"
             }
+            Self::BarePubkeyRecipientScript => "bare pubkey recipient script rejected",
+            Self::BareMultisigRecipientScript => "bare multisig recipient script rejected",
+            Self::FutureWitnessVersion => "future witness version rejected",
+            Self::MalformedWitnessProgram => "witness program malformed",
+            Self::UnsupportedRecipientScript => "recipient script unsupported",
+            Self::OpReturnNonZeroValue => "OP_RETURN value must be zero",
+            Self::MultipleOpReturnOutputs => "multiple OP_RETURN outputs",
+            Self::OpReturnMultiplePushes => "OP_RETURN has multiple pushes",
+            Self::OpReturnNonMinimalPush => "OP_RETURN push encoding nonminimal",
+            Self::OpReturnPayloadTooLong => "OP_RETURN payload exceeds byte cap",
         };
         f.write_str(s)
     }
@@ -2324,5 +2364,352 @@ pub fn analyze_descriptor_ownership<'a>(
             inputs: wallet_inputs,
             outputs: wallet_outputs,
         },
+    })
+}
+
+// ====================================================================
+// M13 HOST-only recipient-script facts (QK-DEC-065..068).
+// ====================================================================
+
+/// Exact accepted recipient destination template.
+///
+/// This is a raw script classification only. It is not an address,
+/// recipient authorization, amount warning, or approval disposition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipientType {
+    /// Native version-0 20-byte witness program.
+    P2wpkh,
+    /// Native version-0 32-byte witness program.
+    P2wsh,
+    /// Destination-only version-1 32-byte witness program.
+    P2tr,
+    /// Exact legacy pay-to-public-key-hash template.
+    P2pkh,
+    /// Exact legacy pay-to-script-hash template.
+    P2sh,
+    /// Canonical zero-value OP_RETURN under QK-DEC-067.
+    OpReturn,
+}
+
+/// Borrowed raw program, hash, or OP_RETURN data for one accepted
+/// NotProvenOwned output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecipientScriptFacts<'a> {
+    /// Exact accepted destination template.
+    pub recipient_type: RecipientType,
+    /// Exact borrowed witness program, hash, or OP_RETURN payload bytes.
+    pub data: &'a [u8],
+    /// Absolute half-open span of `data` in the immutable PSBT buffer.
+    pub data_span: Span,
+}
+
+/// M13 result: the complete unchanged M12 analysis plus one optional
+/// recipient fact per output.
+///
+/// `None` means the parallel ownership fact is ProvenChange or
+/// ProvenSelfTransfer. Every NotProvenOwned output has `Some` on
+/// success; unsupported or malformed recipient scripts reject.
+#[derive(Debug, Clone)]
+pub struct RecipientScriptAnalysis<'a> {
+    /// Complete unchanged M12 descriptor-ownership analysis.
+    pub ownership: DescriptorOwnershipAnalysis<'a>,
+    /// Parallel to unsigned outputs in exact order.
+    pub recipient_outputs: Vec<Option<RecipientScriptFacts<'a>>>,
+}
+
+fn recipient_fact<'a>(
+    recipient_type: RecipientType,
+    script: &'a [u8],
+    script_span: Span,
+    data_start: usize,
+    data_len: usize,
+) -> Result<RecipientScriptFacts<'a>, SemanticError> {
+    let data_end = data_start.checked_add(data_len).ok_or_else(|| {
+        SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+    })?;
+    let data = script.get(data_start..data_end).ok_or_else(|| {
+        SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+    })?;
+    let absolute_start = script_span.start.checked_add(data_start).ok_or_else(|| {
+        SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+    })?;
+    let absolute_end = absolute_start.checked_add(data_len).ok_or_else(|| {
+        SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+    })?;
+    if absolute_end > script_span.end {
+        return Err(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            script_span.start,
+        ));
+    }
+    Ok(RecipientScriptFacts {
+        recipient_type,
+        data,
+        data_span: Span {
+            start: absolute_start,
+            end: absolute_end,
+        },
+    })
+}
+
+fn is_bare_pubkey(script: &[u8]) -> bool {
+    match script {
+        [0x21, key @ .., 0xac] => key.len() == 33 && matches!(key.first(), Some(0x02 | 0x03)),
+        [0x41, key @ .., 0xac] => key.len() == 65 && key.first() == Some(&0x04),
+        _ => false,
+    }
+}
+
+fn malformed_push_offset(script: &[u8]) -> Option<usize> {
+    for token in ScriptTokens::new(script) {
+        if let Err(malformed) = token {
+            return Some(malformed.offset);
+        }
+    }
+    None
+}
+
+fn classify_op_return<'a>(
+    output: &OutputSemanticFacts<'a>,
+    script_span: Span,
+) -> Result<RecipientScriptFacts<'a>, SemanticError> {
+    let script = output.script_pubkey;
+    if output.amount != 0 {
+        return Err(SemanticError::global(
+            SemanticCategory::OpReturnNonZeroValue,
+            script_span.start,
+        ));
+    }
+    let rest = script.get(1..).ok_or_else(|| {
+        SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+    })?;
+    let Some(opcode) = rest.first().copied() else {
+        return recipient_fact(RecipientType::OpReturn, script, script_span, 1, 0);
+    };
+    if opcode == 0x00 {
+        if rest.len() != 1 {
+            return Err(SemanticError::global(
+                SemanticCategory::OpReturnMultiplePushes,
+                script_span.start.saturating_add(2),
+            ));
+        }
+        return recipient_fact(RecipientType::OpReturn, script, script_span, 2, 0);
+    }
+    if (0x01..=0x4b).contains(&opcode) {
+        let data_len = usize::from(opcode);
+        let data_start = 2usize;
+        let data_end = data_start.checked_add(data_len).ok_or_else(|| {
+            SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+        })?;
+        if script.len() < data_end {
+            return Err(SemanticError::global(
+                SemanticCategory::MalformedScriptPush,
+                script_span.start.saturating_add(1),
+            ));
+        }
+        if script.len() > data_end {
+            return Err(SemanticError::global(
+                SemanticCategory::OpReturnMultiplePushes,
+                script_span.start.saturating_add(data_end),
+            ));
+        }
+        return recipient_fact(
+            RecipientType::OpReturn,
+            script,
+            script_span,
+            data_start,
+            data_len,
+        );
+    }
+    if opcode == 0x4c {
+        let Some(declared) = rest.get(1).copied() else {
+            return Err(SemanticError::global(
+                SemanticCategory::MalformedScriptPush,
+                script_span.start.saturating_add(1),
+            ));
+        };
+        let data_len = usize::from(declared);
+        let data_start = 3usize;
+        let data_end = data_start.checked_add(data_len).ok_or_else(|| {
+            SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+        })?;
+        if script.len() < data_end {
+            return Err(SemanticError::global(
+                SemanticCategory::MalformedScriptPush,
+                script_span.start.saturating_add(1),
+            ));
+        }
+        if script.len() > data_end {
+            return Err(SemanticError::global(
+                SemanticCategory::OpReturnMultiplePushes,
+                script_span.start.saturating_add(data_end),
+            ));
+        }
+        if data_len <= 75 {
+            return Err(SemanticError::global(
+                SemanticCategory::OpReturnNonMinimalPush,
+                script_span.start.saturating_add(1),
+            ));
+        }
+        if data_len > limits::MAX_OP_RETURN_PAYLOAD_BYTES {
+            return Err(SemanticError::global(
+                SemanticCategory::OpReturnPayloadTooLong,
+                script_span.start.saturating_add(data_start),
+            ));
+        }
+        return recipient_fact(
+            RecipientType::OpReturn,
+            script,
+            script_span,
+            data_start,
+            data_len,
+        );
+    }
+    if let Some(offset) = malformed_push_offset(rest) {
+        return Err(SemanticError::global(
+            SemanticCategory::MalformedScriptPush,
+            script_span.start.saturating_add(1).saturating_add(offset),
+        ));
+    }
+    Err(SemanticError::global(
+        SemanticCategory::OpReturnNonMinimalPush,
+        script_span.start.saturating_add(1),
+    ))
+}
+
+fn classify_recipient_output<'a>(
+    output: &OutputSemanticFacts<'a>,
+    script_span: Span,
+    op_return_seen: &mut bool,
+) -> Result<RecipientScriptFacts<'a>, SemanticError> {
+    let script = output.script_pubkey;
+    match script {
+        [0x00, 0x14, program @ ..] if program.len() == 20 => {
+            return recipient_fact(RecipientType::P2wpkh, script, script_span, 2, 20);
+        }
+        [0x00, 0x20, program @ ..] if program.len() == 32 => {
+            return recipient_fact(RecipientType::P2wsh, script, script_span, 2, 32);
+        }
+        [0x51, 0x20, program @ ..] if program.len() == 32 => {
+            return recipient_fact(RecipientType::P2tr, script, script_span, 2, 32);
+        }
+        [0x76, 0xa9, 0x14, hash @ .., 0x88, 0xac] if hash.len() == 20 => {
+            return recipient_fact(RecipientType::P2pkh, script, script_span, 3, 20);
+        }
+        [0xa9, 0x14, hash @ .., 0x87] if hash.len() == 20 => {
+            return recipient_fact(RecipientType::P2sh, script, script_span, 2, 20);
+        }
+        _ => {}
+    }
+
+    if is_bare_pubkey(script) {
+        return Err(SemanticError::global(
+            SemanticCategory::BarePubkeyRecipientScript,
+            script_span.start,
+        ));
+    }
+    if parse_multisig_form(script).is_some() {
+        return Err(SemanticError::global(
+            SemanticCategory::BareMultisigRecipientScript,
+            script_span.start,
+        ));
+    }
+
+    let first = script.first().copied();
+    if matches!(first, Some(0x00 | 0x51..=0x60)) {
+        let canonical_length = script
+            .get(1)
+            .copied()
+            .filter(|length| (2..=40).contains(length))
+            .map(usize::from)
+            .and_then(|length| length.checked_add(2))
+            == Some(script.len());
+        if canonical_length && matches!(first, Some(0x52..=0x60)) {
+            return Err(SemanticError::global(
+                SemanticCategory::FutureWitnessVersion,
+                script_span.start,
+            ));
+        }
+        return Err(SemanticError::global(
+            SemanticCategory::MalformedWitnessProgram,
+            script_span.start,
+        ));
+    }
+
+    if first == Some(0x6a) {
+        if *op_return_seen {
+            return Err(SemanticError::global(
+                SemanticCategory::MultipleOpReturnOutputs,
+                script_span.start,
+            ));
+        }
+        *op_return_seen = true;
+        return classify_op_return(output, script_span);
+    }
+    Err(SemanticError::global(
+        SemanticCategory::UnsupportedRecipientScript,
+        script_span.start,
+    ))
+}
+
+/// Analyze selected recipient-script policy facts after complete M12
+/// descriptor ownership and existing M8 signature verification.
+///
+/// HOST-ONLY READ-ONLY FACTS. Only NotProvenOwned outputs are
+/// classified. ProvenChange and ProvenSelfTransfer remain unchanged
+/// inside `ownership` and have `None` in `recipient_outputs`.
+/// Successful recipient facts expose only an exact raw destination type,
+/// borrowed program/hash/data bytes, and their immutable source span.
+/// This performs no address encoding, display, amount warning, approval,
+/// signing, insertion, finalization, serialization, or export.
+///
+/// # Errors
+///
+/// Returns any existing M6/M8/M12 error before M13. Recipient failures
+/// then occur in unsigned-output order, with a second OP_RETURN before
+/// that output's value or push-shape checks.
+pub fn analyze_recipient_script_facts<'a>(
+    view: &PsbtView<'a>,
+    descriptor: &DescriptorPair,
+) -> Result<RecipientScriptAnalysis<'a>, SemanticError> {
+    let ownership = analyze_descriptor_ownership(view, descriptor)?;
+    let unsigned = unsigned_facts(view)?;
+    if ownership.wallet.outputs.len() != ownership.candidate.outputs.len()
+        || unsigned.outputs.len() != ownership.candidate.outputs.len()
+    {
+        return Err(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            view.unsigned_tx().span.start,
+        ));
+    }
+
+    let mut recipient_outputs: Vec<Option<RecipientScriptFacts<'a>>> = Vec::new();
+    reserve_exact(
+        &mut recipient_outputs,
+        ownership.candidate.outputs.len(),
+        view.unsigned_tx().span.start,
+    )?;
+    let mut op_return_seen = false;
+    for ((owner, output), raw) in ownership
+        .wallet
+        .outputs
+        .iter()
+        .zip(&ownership.candidate.outputs)
+        .zip(&unsigned.outputs)
+    {
+        let recipient = match owner {
+            OutputOwnership::NotProvenOwned => Some(classify_recipient_output(
+                output,
+                raw.script,
+                &mut op_return_seen,
+            )?),
+            OutputOwnership::ProvenChange(_) | OutputOwnership::ProvenSelfTransfer(_) => None,
+        };
+        recipient_outputs.push(recipient);
+    }
+
+    Ok(RecipientScriptAnalysis {
+        ownership,
+        recipient_outputs,
     })
 }
