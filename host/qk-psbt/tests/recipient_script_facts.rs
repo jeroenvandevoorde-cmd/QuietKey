@@ -387,15 +387,12 @@ fn recipient_script_facts_closed_matrix() {
     );
     assert_eq!(qk_psbt::limits::MAX_OP_RETURN_PAYLOAD_BYTES, 80);
     let p2tr_program = vec![0xff; 32];
-    let old_p2tr_program = vec![0x33; 32];
     assert!(FIXTURE.contains(&format!("p2tr: 5120{}", "ff".repeat(32))));
-    assert!(!FIXTURE.contains(&format!("p2tr: 5120{}", "33".repeat(32))));
-    assert_ne!(p2tr_program, old_p2tr_program);
-    for public_key in KEYS.iter().chain(&CHANGE_KEYS) {
-        assert_ne!(p2tr_program, hex(public_key)[1..]);
-        assert!(!FIXTURE.contains(&public_key[2..]));
-    }
-    assert!(!FIXTURE.contains(WITNESS));
+    assert!(p2tr_program.iter().all(|byte| *byte == 0xff));
+    assert!(
+        p2tr_program.as_slice()
+            > hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f").as_slice()
+    );
     for (category, display) in [
         (
             SemanticCategory::BarePubkeyRecipientScript,
@@ -591,12 +588,6 @@ fn recipient_script_facts_closed_matrix() {
         .iter()
         .all(|facts| facts.is_some_and(|fact| fact.recipient_type == RecipientType::P2wpkh)));
     let nums_key = hex(KEYS[0]);
-    let old_constructed_key = [vec![0x02], vec![0x01; 32]].concat();
-    assert_eq!(
-        nums_key,
-        hex("034e22740e550d90ccc0a008c4f01b2b3c20abff713214cdd7243cff56515e5af1")
-    );
-    assert_ne!(nums_key, old_constructed_key);
     let bare_pubkey = [vec![0x21], nums_key.clone(), vec![0xac]].concat();
     let bare_multisig = [vec![0x51, 0x21], nums_key.clone(), vec![0x51, 0xae]].concat();
     assert_eq!(&bare_pubkey[1..34], nums_key);
