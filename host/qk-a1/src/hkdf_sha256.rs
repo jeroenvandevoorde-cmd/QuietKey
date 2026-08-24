@@ -1,0 +1,68 @@
+//! Private HKDF-SHA256 following RFC 5869.
+
+use crate::hmac_sha256::{hmac_sha256, hmac_sha256_parts};
+
+const HASH_LEN: usize = 32;
+const MAX_OUTPUT_LEN: usize = 255 * HASH_LEN;
+const DOCUMENT_INFO: &[u8; 14] = b"QuietKey/A1/v1";
+
+pub(crate) fn extract(salt: &[u8], ikm: &[u8]) -> [u8; HASH_LEN] {
+    hmac_sha256(salt, ikm)
+}
+
+pub(crate) fn expand(prk: &[u8; HASH_LEN], info: &[u8], output: &mut [u8]) -> bool {
+    if output.len() > MAX_OUTPUT_LEN {
+        return false;
+    }
+
+    let mut previous = [0u8; HASH_LEN];
+    let mut offset = 0usize;
+    let mut counter = 1u8;
+    while offset < output.len() {
+        let count = [counter];
+        let mut block = if offset == 0 {
+            hmac_sha256_parts(prk, &[info, &count])
+        } else {
+            hmac_sha256_parts(prk, &[&previous, info, &count])
+        };
+        let taken = core::cmp::min(HASH_LEN, output.len() - offset);
+        output[offset..offset + taken].copy_from_slice(&block[..taken]);
+        previous.copy_from_slice(&block);
+        block.fill(0);
+        offset += taken;
+        counter = counter.wrapping_add(1);
+    }
+    previous.fill(0);
+    true
+}
+
+pub(crate) fn derive_document_key(a2: &[u8; 32], wallet_id: &[u8; 32]) -> [u8; 32] {
+    let mut prk = extract(wallet_id, a2);
+    let mut key = [0u8; 32];
+    let expanded = expand(&prk, DOCUMENT_INFO, &mut key);
+    debug_assert!(expanded, "one SHA-256 output is within HKDF's bound");
+    prk.fill(0);
+    key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_document_key;
+
+    #[test]
+    fn capsule_fixture_document_key_passes() {
+        let wallet_id = [
+            0xa7, 0x98, 0x90, 0xdc, 0xde, 0x9c, 0x85, 0x17, 0xad, 0x86, 0x0a, 0xb3, 0xa9, 0x07,
+            0xff, 0x01, 0x65, 0x2b, 0xbe, 0x20, 0x0a, 0x56, 0x10, 0x28, 0xce, 0xb6, 0x6e, 0x22,
+            0xe8, 0xc9, 0xd5, 0x43,
+        ];
+        assert_eq!(
+            derive_document_key(&[0u8; 32], &wallet_id),
+            [
+                0xb3, 0xaa, 0x6e, 0x9b, 0xc9, 0xe5, 0x6c, 0x98, 0xcb, 0x1b, 0xfd, 0x99, 0x47, 0x80,
+                0xde, 0xf3, 0xc5, 0x32, 0x5f, 0x35, 0x6d, 0xee, 0x46, 0xad, 0x05, 0x08, 0x5f, 0x7c,
+                0xd4, 0xe3, 0xa1, 0x26,
+            ]
+        );
+    }
+}
