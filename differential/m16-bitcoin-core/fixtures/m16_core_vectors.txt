@@ -1,0 +1,81 @@
+# PLACEHOLDER - FAIL CLOSED - NO M16 CORPUS HAS BEEN GENERATED.
+# QuietKey M16 finalization/Core differential fixture, permanently NEVER-FUND.
+# Replace every angle-bracket token with a complete literal value. No token may remain in the committed file.
+# The committed header must additionally carry the complete external generation, agreement, screening, and destruction transcript required by the ratified rows.
+
+corpus_state: PLACEHOLDER-FAIL-CLOSED
+core_release: 28.0
+core_archive: bitcoin-28.0-x86_64-apple-darwin.tar.gz
+core_archive_sha256: 77e931bbaaf47771a10c376230bf53223f5380864bad3568efc7f4d02e40a0f7
+regtest_genesis_hash: 0f9188f13cb7b2c71f2a335e3a4f57466c36f5ccfdade5404115b441e1e0a6b7
+seed_block_len: <decimal>
+seed_block_sha256: <64-lowercase-hex>
+seed_block_hash: <64-lowercase-hex-display-order>
+seed_block_hex: <complete-lowercase-hex>
+seed_coinbase_len: <decimal>
+seed_coinbase_sha256: <64-lowercase-hex>
+seed_coinbase_txid: <64-lowercase-hex-display-order>
+seed_coinbase_hex: <complete-lowercase-hex>
+seed_vout: <decimal>
+seed_amount_sats: <decimal>
+seed_script_pubkey_hex: <complete-lowercase-hex>
+
+case: M16-CORE-UNKNOWN-FREE
+class: differential-accept
+unknown_profile: none
+receive_descriptor: <445-exact-ASCII-bytes>
+change_descriptor: <445-exact-ASCII-bytes>
+wallet_id: <64-lowercase-hex>
+m15_psbt_len: <decimal>
+m15_psbt_sha256: <64-lowercase-hex>
+m15_psbt_hex: <complete-lowercase-hex>
+finalized_psbt_len: <decimal>
+finalized_psbt_sha256: <64-lowercase-hex>
+finalized_psbt_hex: <complete-lowercase-hex>
+raw_tx_len: <decimal>
+raw_tx_sha256: <64-lowercase-hex>
+raw_tx_hex: <complete-lowercase-hex>
+stripped_tx_len: <decimal>
+stripped_tx_sha256: <64-lowercase-hex>
+stripped_tx_hex: <complete-lowercase-hex>
+txid: <64-lowercase-hex-display-order>
+wtxid: <64-lowercase-hex-display-order>
+fee_sats: <decimal>
+witness_item_count: 4
+witness_0_hex:
+witness_1_hex: <complete-signature-plus-sighash-lowercase-hex>
+witness_1_pubkey: <66-lowercase-hex>
+witness_2_hex: <complete-signature-plus-sighash-lowercase-hex>
+witness_2_pubkey: <66-lowercase-hex>
+witness_3_hex: <210-lowercase-hex>
+core_finalized_psbt_rule: byte-equal
+
+case: M16-CORE-UNKNOWN-ORDER
+class: differential-accept
+unknown_profile: numeric-255-256-order-delta
+# PLACEHOLDER: repeat every common field above with complete literal bytes.
+core_finalized_psbt_rule: decoded-equal-order-delta
+quietkey_unknown_type_order: 255,256
+core_unknown_type_order: 256,255
+quietkey_unknown_full_keys: fdff00,fd0001
+core_unknown_full_keys: fd0001,fdff00
+
+case: M16-CORE-NONEMPTY-DUMMY
+class: differential-reject
+mutation: witness-item-0-empty-to-01
+raw_tx_len: <decimal>
+raw_tx_sha256: <64-lowercase-hex>
+raw_tx_hex: <complete-lowercase-hex>
+txid: <64-lowercase-hex-display-order>
+wtxid: <64-lowercase-hex-display-order>
+core_rule: testmempoolaccept-allowed-false
+
+case: M16-CORE-SWAPPED-SIGNATURES
+class: differential-reject
+mutation: witness-items-1-and-2-swapped
+# PLACEHOLDER: repeat exact raw fields.
+
+case: M16-CORE-MUTATED-SIGNATURE
+class: differential-reject
+mutation: strict-der-preserving-signature-value-bit-flip
+# PLACEHOLDER: repeat exact raw fields.
