@@ -41,10 +41,15 @@
 //! failure is reported as an explicit rejection category, and no
 //! target-RAM or conformance claim is made.
 //!
-//! This crate contains no secret bytes, wallet data, cryptography,
-//! file or device access, clocks, randomness, logging, network,
-//! environment access, threads, processes, FFI, persistence, or
-//! hardware code, and has no external dependencies.
+//! This crate contains no secret bytes, wallet data, signing
+//! capability, file or device access, clocks, randomness, logging,
+//! network, environment access, threads, processes, FFI, persistence,
+//! or hardware code, and has no external dependencies; its only
+//! dependency is the internal verification-only `qk-secp` path crate
+//! (M8), whose audited FFI boundary lives entirely in that crate. The
+//! [`bip143`] module computes BIP143 SIGHASH_ALL digests only
+//! (QK-DEC-044): it computes hashes, never signatures, and authorizes
+//! nothing.
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -55,6 +60,7 @@
     clippy::arithmetic_side_effects
 )]
 
+pub mod bip143;
 pub mod error;
 pub mod limits;
 mod parse;
