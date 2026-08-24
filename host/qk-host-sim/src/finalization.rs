@@ -22,8 +22,7 @@ const MIN_FINALIZED_PSBT_SHRINK_PER_INPUT: usize = 149;
 
 const _: [(); MAX_WITNESS_BYTES_PER_INPUT] =
     [(); 1 + 1 + 2 * (1 + DER_PLUS_SIGHASH_MAX_BYTES) + 1 + WITNESS_SCRIPT_BYTES];
-const _: [(); MAX_FINAL_WITNESS_RECORD_BYTES] =
-    [(); 1 + 1 + 3 + MAX_WITNESS_BYTES_PER_INPUT];
+const _: [(); MAX_FINAL_WITNESS_RECORD_BYTES] = [(); 1 + 1 + 3 + MAX_WITNESS_BYTES_PER_INPUT];
 const _: [(); MAX_RAW_TRANSACTION_BYTES] =
     [(); MAX_UNSIGNED_TRANSACTION_BYTES + 2 + 100 * MAX_WITNESS_BYTES_PER_INPUT];
 const _: [(); MIN_FINALIZED_PSBT_SHRINK_PER_INPUT] = [(); 3 * DERIVATION_RECORD_BYTES
@@ -123,9 +122,7 @@ impl fmt::Display for FinalizationError {
             Self::ArtifactTooLarge => f.write_str("finalization artifact exceeds cap"),
             Self::AllocationFailed => f.write_str("finalization allocation failed"),
             Self::FinalizedPsbtReparse => f.write_str("finalized PSBT reparse failed"),
-            Self::FinalizedPsbtNonCanonical => {
-                f.write_str("finalized PSBT is not canonical")
-            }
+            Self::FinalizedPsbtNonCanonical => f.write_str("finalized PSBT is not canonical"),
             Self::ForbiddenDelta => f.write_str("finalized PSBT delta forbidden"),
             Self::RawTransactionReparse => f.write_str("raw transaction reparse failed"),
             Self::BaseTransactionMismatch => f.write_str("base transaction mismatch"),
@@ -195,9 +192,11 @@ fn finalize_capability(
                 .map_err(FinalizationError::CryptographicVerification)?
                 .aggregate_status
         }
-        None => analyze_and_verify_signatures(&view)
-            .map_err(FinalizationError::CryptographicVerification)?
-            .aggregate_status,
+        None => {
+            analyze_and_verify_signatures(&view)
+                .map_err(FinalizationError::CryptographicVerification)?
+                .aggregate_status
+        }
     };
     if aggregate != VerifiedAggregateStatus::VerifyAndExportOnly {
         return Err(FinalizationError::ThresholdIncomplete);
@@ -345,11 +344,8 @@ fn select_witnesses<'a>(
         }
         let first_signature = selected[0].ok_or(FinalizationError::WitnessShapeMismatch)?;
         let second_signature = selected[1].ok_or(FinalizationError::WitnessShapeMismatch)?;
-        let encoded_len = witness_encoded_len(
-            first_signature,
-            second_signature,
-            &shape.witness_script,
-        )?;
+        let encoded_len =
+            witness_encoded_len(first_signature, second_signature, &shape.witness_script)?;
         if encoded_len > MAX_WITNESS_BYTES_PER_INPUT {
             return Err(FinalizationError::ArtifactTooLarge);
         }
@@ -621,19 +617,14 @@ fn emit_verification_input(
     if !inserted {
         emit_verification_witness_script(output, &shape.witness_script);
     }
-    if record_start.checked_add(1) != Some(span.end)
-        || bytes.get(record_start) != Some(&0x00)
-    {
+    if record_start.checked_add(1) != Some(span.end) || bytes.get(record_start) != Some(&0x00) {
         return Err(FinalizationError::InternalInvariant);
     }
     output.push(0x00);
     Ok(())
 }
 
-fn emit_verification_witness_script(
-    output: &mut Vec<u8>,
-    script: &[u8; WITNESS_SCRIPT_BYTES],
-) {
+fn emit_verification_witness_script(output: &mut Vec<u8>, script: &[u8; WITNESS_SCRIPT_BYTES]) {
     output.extend_from_slice(&[0x01, 0x05, 0x69]);
     output.extend_from_slice(script);
 }
@@ -786,9 +777,7 @@ fn emit_finalized_input(
     if !emitted_final {
         emit_final_witness_record(output, witness)?;
     }
-    if record_start.checked_add(1) != Some(span.end)
-        || bytes.get(record_start) != Some(&0x00)
-    {
+    if record_start.checked_add(1) != Some(span.end) || bytes.get(record_start) != Some(&0x00) {
         return Err(FinalizationError::InternalInvariant);
     }
     output.push(0x00);
@@ -812,10 +801,7 @@ fn emit_final_witness_record(
     Ok(())
 }
 
-fn emit_witness(
-    output: &mut Vec<u8>,
-    witness: &WitnessParts<'_>,
-) -> Result<(), FinalizationError> {
+fn emit_witness(output: &mut Vec<u8>, witness: &WitnessParts<'_>) -> Result<(), FinalizationError> {
     let before = output.len();
     output.extend_from_slice(&[0x04, 0x00]);
     write_compact_size(output, witness.first_signature.len())?;
@@ -838,9 +824,7 @@ fn allowed_finalized_delta(
     if before.input_map_count() != after.input_map_count()
         || before.output_map_count() != after.output_map_count()
         || witnesses.len() != before.input_map_count()
-        || before
-            .global_map_span()
-            .slice(before.buffer())
+        || before.global_map_span().slice(before.buffer())
             != after.global_map_span().slice(after.buffer())
     {
         return false;
@@ -933,8 +917,7 @@ fn extract_raw_transaction(
         .map_err(|_| FinalizationError::AllocationFailed)?;
     append_slice(
         &mut raw,
-        base.get(..4)
-            .ok_or(FinalizationError::InternalInvariant)?,
+        base.get(..4).ok_or(FinalizationError::InternalInvariant)?,
     );
     raw.extend_from_slice(&[0x00, 0x01]);
     append_slice(
@@ -975,8 +958,8 @@ fn reparse_and_rebind_raw(
         return Err(FinalizationError::RawTransactionReparse);
     }
     let (input_count, input_count_bytes) = cursor.compact_size()?;
-    let input_count = usize::try_from(input_count)
-        .map_err(|_| FinalizationError::RawTransactionReparse)?;
+    let input_count =
+        usize::try_from(input_count).map_err(|_| FinalizationError::RawTransactionReparse)?;
     if input_count == 0 || input_count != finalized_view.input_map_count() {
         return Err(FinalizationError::RawTransactionReparse);
     }
@@ -991,8 +974,8 @@ fn reparse_and_rebind_raw(
         append_slice(&mut stripped, cursor.take(4)?);
     }
     let (output_count, output_count_bytes) = cursor.compact_size()?;
-    let output_count = usize::try_from(output_count)
-        .map_err(|_| FinalizationError::RawTransactionReparse)?;
+    let output_count =
+        usize::try_from(output_count).map_err(|_| FinalizationError::RawTransactionReparse)?;
     if output_count == 0 || output_count != finalized_view.output_map_count() {
         return Err(FinalizationError::RawTransactionReparse);
     }
@@ -1000,8 +983,8 @@ fn reparse_and_rebind_raw(
     for _ in 0..output_count {
         append_slice(&mut stripped, cursor.take(8)?);
         let (script_len, script_len_bytes) = cursor.compact_size()?;
-        let script_len = usize::try_from(script_len)
-            .map_err(|_| FinalizationError::RawTransactionReparse)?;
+        let script_len =
+            usize::try_from(script_len).map_err(|_| FinalizationError::RawTransactionReparse)?;
         append_slice(&mut stripped, script_len_bytes);
         append_slice(&mut stripped, cursor.take(script_len)?);
     }
@@ -1017,8 +1000,8 @@ fn reparse_and_rebind_raw(
         let mut parsed_items: [Option<&[u8]>; 4] = [None, None, None, None];
         for item_index in 0..4 {
             let (item_len, _) = cursor.compact_size()?;
-            let item_len = usize::try_from(item_len)
-                .map_err(|_| FinalizationError::RawTransactionReparse)?;
+            let item_len =
+                usize::try_from(item_len).map_err(|_| FinalizationError::RawTransactionReparse)?;
             if item_index == 0 && item_len != 0 {
                 return Err(FinalizationError::WitnessMismatch);
             }
