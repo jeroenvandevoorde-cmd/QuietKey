@@ -14,12 +14,15 @@ import datetime as dt
 import hashlib
 import json
 import platform
+import re
 import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
+from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +39,193 @@ BITCOIND_SHA256 = "55afd04193715ef76bb445a8aec7c18f1af780b9df8b8e5028c1b78baa15b
 BITCOIN_CLI_SHA256 = "2b53751345cdc0f326fa82e721c1f33b29db75d39f9125cb212d2e38524e4c1c"
 BITCOIND_VERSION = "Bitcoin Core version v28.0.0"
 BITCOIN_CLI_VERSION = "Bitcoin Core RPC client version v28.0.0"
-REGTEST_GENESIS = "0f9188f13cb7b2c71f2a335e3a4f57466c36f5ccfdade5404115b441e1e0a6b7"
+REGTEST_GENESIS = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+HARNESS_REL = Path("differential/m16-bitcoin-core/run.py")
+FIXTURE_REL = Path("differential/m16-bitcoin-core/fixtures/m16_core_vectors.txt")
+PROCEDURE_REL = Path("differential/m16-bitcoin-core/README.md")
+EVIDENCE_REL = Path("differential/m16-bitcoin-core/evidence")
+TRANSCRIPT_NAME = re.compile(
+    r"run-(?P<utc>[0-9]{8}T[0-9]{6}Z)-(?P<commit>[0-9a-f]{7,40})\.txt"
+)
+HEX_32 = re.compile(r"[0-9a-f]{64}")
+TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+/-]{0,127}")
+UTC_SECOND = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+PROVENANCE_FIELDS = {
+    "fixture_profile",
+    "generation_procedure",
+    "generated_outside_git",
+    "implementation_count",
+    "implementation_a_name",
+    "implementation_a_runtime",
+    "implementation_a_source_sha256",
+    "implementation_a_runtime_sha256",
+    "implementation_b_name",
+    "implementation_b_runtime",
+    "implementation_b_source_sha256",
+    "implementation_b_runtime_sha256",
+    "implementation_independence",
+    "agreement_scope",
+    "agreement_result",
+    "entropy_source",
+    "authority_private_scalar_count",
+    "signature_count",
+    "unique_nonce_count",
+    "unique_nonce_per_signature",
+    "external_generation_transcript_sha256",
+    "external_generation_transcript_len",
+    "external_generation_transcript_line_count",
+    "screening_policy",
+    "screening_report_sha256",
+    "screening_repository_head",
+    "screening_tracked_file_count",
+    "screening_tracked_byte_count",
+    "screened_public_key_count",
+    "screened_signature_r_count",
+    "screening_representations",
+    "screening_named_sets",
+    "screening_small_multiple_limit",
+    "screening_collisions",
+    "private_scalars_destroyed",
+    "nonces_destroyed",
+    "entropy_buffers_destroyed",
+    "signer_destroyed",
+    "generator_destroyed",
+    "temporary_wallet_material_destroyed",
+    "intermediates_destroyed",
+    "destruction_result",
+    "deletion_completed_utc",
+    "destroyed_regular_file_count",
+    "destroyed_directory_count",
+    "destroyed_symlink_count",
+    "destroyed_regular_file_byte_count",
+    "destroyed_secret_file_count",
+    "destroyed_signing_generator_source_count",
+    "destroyed_support_procedure_source_count",
+    "destroyed_root_absent",
+    "retained_public_file_count",
+    "retained_secret_file_count",
+    "retained_generator_source_count",
+    "fixture_lineage",
+    "mainnet_funding_status",
+    "regtest_coin_status",
+}
+
+HEADER_FIELDS = PROVENANCE_FIELDS | {
+    "corpus_state",
+    "core_release",
+    "core_archive",
+    "core_archive_sha256",
+    "regtest_genesis_hash",
+    "seed_block_len",
+    "seed_block_sha256",
+    "seed_block_hash",
+    "seed_block_hex",
+    "seed_coinbase_len",
+    "seed_coinbase_sha256",
+    "seed_coinbase_txid",
+    "seed_coinbase_hex",
+    "seed_vout",
+    "seed_amount_sats",
+    "seed_script_pubkey_hex",
+}
+
+POSITIVE_BASE_FIELDS = {
+    "case",
+    "class",
+    "unknown_profile",
+    "receive_descriptor",
+    "change_descriptor",
+    "wallet_id",
+    "m15_psbt_len",
+    "m15_psbt_sha256",
+    "m15_psbt_hex",
+    "finalized_psbt_len",
+    "finalized_psbt_sha256",
+    "finalized_psbt_hex",
+    "raw_tx_len",
+    "raw_tx_sha256",
+    "raw_tx_hex",
+    "stripped_tx_len",
+    "stripped_tx_sha256",
+    "stripped_tx_hex",
+    "txid",
+    "wtxid",
+    "fee_sats",
+    "tx_version",
+    "tx_locktime",
+    "input_count",
+    "input_0_prev_txid",
+    "input_0_prev_vout",
+    "input_0_sequence",
+    "input_0_script_sig_hex",
+    "output_count",
+    "witness_item_count",
+    "witness_0_hex",
+    "witness_1_hex",
+    "witness_1_pubkey",
+    "witness_2_hex",
+    "witness_2_pubkey",
+    "witness_3_hex",
+    "core_finalized_psbt_rule",
+}
+
+UNKNOWN_ORDER_FIELDS = {
+    "quietkey_unknown_type_order",
+    "core_unknown_type_order",
+    "quietkey_unknown_full_keys",
+    "core_unknown_full_keys",
+}
+
+NEGATIVE_BASE_FIELDS = {
+    "case",
+    "class",
+    "parent_case",
+    "mutation",
+    "raw_tx_len",
+    "raw_tx_sha256",
+    "raw_tx_hex",
+    "txid",
+    "wtxid",
+    "core_rule",
+}
+
+EXPECTED_CASES = [
+    ("M16-CORE-UNKNOWN-FREE", "differential-accept"),
+    ("M16-CORE-UNKNOWN-ORDER", "differential-accept"),
+    ("M16-CORE-SWAPPED-SIGNATURES", "differential-reject"),
+    ("M16-CORE-MUTATED-SIGNATURE", "differential-reject"),
+    ("M16-CORE-MUTATED-BASE", "differential-reject"),
+]
+
+EXPECTED_M15_MAP_TYPES = {
+    "M16-CORE-UNKNOWN-FREE": ((0,), (0, 1, 2, 2, 3, 5, 6, 6, 6), ()),
+    "M16-CORE-UNKNOWN-ORDER": (
+        (0, 255, 256),
+        (0, 1, 2, 2, 2, 3, 5, 6, 6, 6, 255, 256),
+        (255, 256),
+    ),
+}
+
+EXPECTED_FINALIZED_MAP_TYPES = {
+    "M16-CORE-UNKNOWN-FREE": ((0,), (0, 1, 8), ()),
+    "M16-CORE-UNKNOWN-ORDER": (
+        (0, 255, 256),
+        (0, 1, 8, 255, 256),
+        (255, 256),
+    ),
+}
+
+AGREEMENT_SCOPE = (
+    "public-keys,descriptors,derivations,scripts,digests,signatures,psbts,"
+    "witnesses,raw-transactions,txids,wtxids,mutations,fixture-bytes"
+)
+SCREENING_POLICY = "QK-DEC-059/QK-DEC-064/QK-DEC-078"
+SCREENING_REPRESENTATIONS = (
+    "raw_lowercase_hex_uppercase_hex_contiguous_hex_Rust_byte_arrays_"
+    "hex_escapes_decimal_byte_arrays_base64_base58"
+)
+SCREENING_NAMED_SETS = "tracked_KAT_NUMS_M15_and_all_other_tracked_material"
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -58,16 +247,79 @@ def sha256d_display(data: bytes) -> str:
 
 
 def compact_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("non-finite JSON decimal")
+        rendered = format(value, "f")
+        if "." in rendered:
+            rendered = rendered.rstrip("0").rstrip(".")
+        return rendered or "0"
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=True)
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(compact_json(item) for item in value) + "]"
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("JSON object keys must be strings")
+        return "{" + ",".join(
+            f"{compact_json(key)}:{compact_json(value[key])}" for key in sorted(value)
+        ) + "}"
+    raise TypeError(f"unsupported JSON value {type(value).__name__}")
 
 
 def parse_hex(value: str, label: str) -> bytes:
     if len(value) % 2:
         raise ValueError(f"{label}: odd hex length")
-    try:
-        return bytes.fromhex(value)
-    except ValueError as exc:
-        raise ValueError(f"{label}: invalid hex") from exc
+    if re.fullmatch(r"[0-9a-f]*", value) is None:
+        raise ValueError(f"{label}: expected canonical lowercase hex")
+    return bytes.fromhex(value)
+
+
+def parse_uint(value: str, label: str, maximum: int | None = None) -> int:
+    if re.fullmatch(r"0|[1-9][0-9]*", value) is None:
+        raise ValueError(f"{label}: expected canonical unsigned decimal")
+    parsed = int(value)
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{label}: exceeds {maximum}")
+    return parsed
+
+
+def parse_i32(value: str, label: str) -> int:
+    if re.fullmatch(r"0|-?[1-9][0-9]*", value) is None:
+        raise ValueError(f"{label}: expected canonical signed decimal")
+    parsed = int(value)
+    if not -(1 << 31) <= parsed < (1 << 31):
+        raise ValueError(f"{label}: outside signed 32-bit range")
+    return parsed
+
+
+def require_hash(fields: dict[str, str], name: str) -> str:
+    value = required(fields, name)
+    if HEX_32.fullmatch(value) is None:
+        raise ValueError(f"{name}: expected 32-byte lowercase hash")
+    return value
+
+
+def require_literal(fields: dict[str, str], name: str, expected: str) -> None:
+    actual = required(fields, name)
+    if actual != expected:
+        raise ValueError(f"{name}: actual={actual!r}, expected={expected!r}")
+
+
+def require_exact_fields(fields: dict[str, str], expected: set[str], label: str) -> None:
+    actual = set(fields)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise ValueError(f"{label}: closed schema mismatch; missing={missing}, extra={extra}")
 
 
 def parse_fixture(path: Path) -> tuple[dict[str, str], list[dict[str, str]]]:
@@ -80,9 +332,15 @@ def parse_fixture(path: Path) -> tuple[dict[str, str], list[dict[str, str]]]:
         if ": " not in raw and not raw.endswith(":"):
             raise ValueError(f"fixture line {number}: missing ': ' separator")
         key, value = raw.split(":", 1)
+        if re.fullmatch(r"[a-z][a-z0-9_]*", key) is None:
+            raise ValueError(f"fixture line {number}: noncanonical field name")
         if value.startswith(" "):
             value = value[1:]
+        if value.endswith(" ") or "\t" in value:
+            raise ValueError(f"fixture line {number}: noncanonical field whitespace")
         if key == "case":
+            if not value:
+                raise ValueError(f"fixture line {number}: empty case name")
             current = {"case": value}
             cases.append(current)
         elif key in current:
@@ -97,6 +355,144 @@ def required(fields: dict[str, str], name: str) -> str:
         return fields[name]
     except KeyError as exc:
         raise ValueError(f"missing fixture field {name}") from exc
+
+
+def positive_fields(case: dict[str, str]) -> set[str]:
+    output_count = parse_uint(required(case, "output_count"), f"{case.get('case', 'case')} output_count", 100)
+    if output_count == 0:
+        raise ValueError(f"{case.get('case', 'case')}: output_count must be nonzero")
+    fields = set(POSITIVE_BASE_FIELDS)
+    for index in range(output_count):
+        fields.add(f"output_{index}_amount_sats")
+        fields.add(f"output_{index}_script_pubkey_hex")
+    if case.get("case") == "M16-CORE-UNKNOWN-ORDER":
+        fields |= UNKNOWN_ORDER_FIELDS
+    return fields
+
+
+def negative_fields(case: dict[str, str]) -> set[str]:
+    fields = set(NEGATIVE_BASE_FIELDS)
+    if case.get("case") in {
+        "M16-CORE-MUTATED-SIGNATURE",
+        "M16-CORE-MUTATED-BASE",
+    }:
+        fields |= {"mutation_witness_index", "mutation_byte_offset", "mutation_xor_mask"}
+    if case.get("case") == "M16-CORE-MUTATED-BASE":
+        fields.remove("mutation_witness_index")
+    return fields
+
+
+def validate_fixture_schema(header: dict[str, str], cases: list[dict[str, str]]) -> None:
+    require_exact_fields(header, HEADER_FIELDS, "fixture header")
+    actual_cases = [(required(case, "case"), required(case, "class")) for case in cases]
+    if actual_cases != EXPECTED_CASES:
+        raise ValueError(f"fixture cases: actual={actual_cases!r}, expected={EXPECTED_CASES!r}")
+    if len({name for name, _ in actual_cases}) != len(actual_cases):
+        raise ValueError("fixture cases: duplicate case name")
+    for case in cases:
+        name = required(case, "case")
+        expected = positive_fields(case) if required(case, "class") == "differential-accept" else negative_fields(case)
+        require_exact_fields(case, expected, name)
+
+
+def validate_provenance(header: dict[str, str], checks: "Checks") -> None:
+    literals = {
+        "fixture_profile": "QuietKey/M16/Core/v1",
+        "generation_procedure": "QK-DEC-047-M8-F",
+        "generated_outside_git": "true",
+        "implementation_count": "2",
+        "implementation_independence": "separately-written",
+        "agreement_scope": AGREEMENT_SCOPE,
+        "agreement_result": "byte-for-byte",
+        "entropy_source": "OS-CSPRNG",
+        "unique_nonce_per_signature": "true",
+        "screening_policy": SCREENING_POLICY,
+        "screening_representations": SCREENING_REPRESENTATIONS,
+        "screening_named_sets": SCREENING_NAMED_SETS,
+        "screening_small_multiple_limit": "4096",
+        "screening_collisions": "0",
+        "private_scalars_destroyed": "true",
+        "nonces_destroyed": "true",
+        "entropy_buffers_destroyed": "true",
+        "signer_destroyed": "true",
+        "generator_destroyed": "true",
+        "temporary_wallet_material_destroyed": "true",
+        "intermediates_destroyed": "true",
+        "destruction_result": "complete",
+        "destroyed_root_absent": "true",
+        "fixture_lineage": "distinct-m16-fixture-only",
+        "mainnet_funding_status": "NEVER-FUND",
+        "regtest_coin_status": "valueless-by-construction",
+    }
+    for name, expected in literals.items():
+        checks.equal(required(header, name), expected, f"provenance {name}")
+    implementation_names: list[str] = []
+    implementation_hashes: list[str] = []
+    for prefix in ("implementation_a", "implementation_b"):
+        name = required(header, f"{prefix}_name")
+        runtime = required(header, f"{prefix}_runtime")
+        checks.that(TOKEN.fullmatch(name) is not None, f"provenance {prefix} name token")
+        checks.that(0 < len(runtime) <= 128 and runtime == runtime.strip(), f"provenance {prefix} runtime")
+        checks.that("<" not in runtime and ">" not in runtime, f"provenance {prefix} runtime closed")
+        require_hash(header, f"{prefix}_source_sha256")
+        require_hash(header, f"{prefix}_runtime_sha256")
+        implementation_names.append(name)
+        implementation_hashes.append(required(header, f"{prefix}_source_sha256"))
+    checks.equal(len(set(implementation_names)), 2, "provenance implementation names distinct")
+    checks.equal(len(set(implementation_hashes)), 2, "provenance implementation source hashes distinct")
+    for name in (
+        "external_generation_transcript_sha256",
+        "screening_report_sha256",
+    ):
+        require_hash(header, name)
+        checks.that(True, f"provenance {name}")
+    repository_head = required(header, "screening_repository_head")
+    checks.that(
+        re.fullmatch(r"[0-9a-f]{40}", repository_head) is not None,
+        "provenance screening repository HEAD",
+    )
+    completion = required(header, "deletion_completed_utc")
+    checks.that(UTC_SECOND.fullmatch(completion) is not None, "provenance deletion completion UTC")
+    exact_counts = {
+        "external_generation_transcript_len": 21_030,
+        "external_generation_transcript_line_count": 105,
+        "destroyed_regular_file_count": 179,
+        "destroyed_directory_count": 55,
+        "destroyed_symlink_count": 0,
+        "destroyed_regular_file_byte_count": 162_097_011,
+        "destroyed_secret_file_count": 1,
+        "destroyed_signing_generator_source_count": 2,
+        "destroyed_support_procedure_source_count": 2,
+        "retained_public_file_count": 5,
+        "retained_secret_file_count": 0,
+        "retained_generator_source_count": 0,
+    }
+    for name, expected in exact_counts.items():
+        checks.equal(
+            parse_uint(required(header, name), name),
+            expected,
+            f"provenance {name}",
+        )
+    scalar_count = parse_uint(required(header, "authority_private_scalar_count"), "authority_private_scalar_count")
+    signature_count = parse_uint(required(header, "signature_count"), "signature_count")
+    nonce_count = parse_uint(required(header, "unique_nonce_count"), "unique_nonce_count")
+    tracked_files = parse_uint(
+        required(header, "screening_tracked_file_count"),
+        "screening_tracked_file_count",
+    )
+    tracked_bytes = parse_uint(
+        required(header, "screening_tracked_byte_count"),
+        "screening_tracked_byte_count",
+    )
+    public_key_count = parse_uint(required(header, "screened_public_key_count"), "screened_public_key_count")
+    r_count = parse_uint(required(header, "screened_signature_r_count"), "screened_signature_r_count")
+    checks.equal(scalar_count, 3, "provenance authority scalar count")
+    checks.equal(signature_count, 3, "provenance signature count")
+    checks.equal(nonce_count, signature_count, "one unique nonce per signature")
+    checks.equal(tracked_files, 339, "provenance screened tracked-file count")
+    checks.equal(tracked_bytes, 27_875_765, "provenance screened tracked-byte count")
+    checks.equal(public_key_count, 9, "provenance screened public-key count")
+    checks.equal(r_count, signature_count, "all signature r values screened")
 
 
 def read_cs(data: bytes, pos: int) -> tuple[int, int]:
@@ -115,6 +511,185 @@ def read_cs(data: bytes, pos: int) -> tuple[int, int]:
     if value < minimum:
         raise ValueError("nonminimal CompactSize")
     return value, end
+
+
+def write_cs(value: int) -> bytes:
+    if value < 0:
+        raise ValueError("negative CompactSize")
+    if value < 0xFD:
+        return bytes([value])
+    if value <= 0xFFFF:
+        return b"\xfd" + value.to_bytes(2, "little")
+    if value <= 0xFFFF_FFFF:
+        return b"\xfe" + value.to_bytes(4, "little")
+    if value <= 0xFFFF_FFFF_FFFF_FFFF:
+        return b"\xff" + value.to_bytes(8, "little")
+    raise ValueError("CompactSize overflow")
+
+
+@dataclass(frozen=True)
+class TxInput:
+    prev_hash: bytes
+    prev_vout: int
+    script_sig: bytes
+    sequence: int
+    witness: tuple[bytes, ...]
+
+
+@dataclass(frozen=True)
+class TxOutput:
+    amount_sats: int
+    script_pubkey: bytes
+
+
+@dataclass(frozen=True)
+class Transaction:
+    version: int
+    inputs: tuple[TxInput, ...]
+    outputs: tuple[TxOutput, ...]
+    locktime: int
+    has_witness: bool
+
+
+def read_bytes(data: bytes, pos: int, length: int, label: str) -> tuple[bytes, int]:
+    end = pos + length
+    if end > len(data):
+        raise ValueError(f"truncated {label}")
+    return data[pos:end], end
+
+
+def parse_transaction(data: bytes) -> Transaction:
+    version_bytes, pos = read_bytes(data, 0, 4, "transaction version")
+    version = int.from_bytes(version_bytes, "little", signed=True)
+    has_witness = data[pos : pos + 2] == b"\x00\x01"
+    if has_witness:
+        pos += 2
+    input_count, pos = read_cs(data, pos)
+    inputs: list[TxInput] = []
+    for index in range(input_count):
+        prev_hash, pos = read_bytes(data, pos, 32, f"input {index} prev hash")
+        prev_vout_bytes, pos = read_bytes(data, pos, 4, f"input {index} prev vout")
+        script_len, pos = read_cs(data, pos)
+        script_sig, pos = read_bytes(data, pos, script_len, f"input {index} scriptSig")
+        sequence_bytes, pos = read_bytes(data, pos, 4, f"input {index} sequence")
+        inputs.append(
+            TxInput(
+                prev_hash=prev_hash,
+                prev_vout=int.from_bytes(prev_vout_bytes, "little"),
+                script_sig=script_sig,
+                sequence=int.from_bytes(sequence_bytes, "little"),
+                witness=(),
+            )
+        )
+    output_count, pos = read_cs(data, pos)
+    outputs: list[TxOutput] = []
+    for index in range(output_count):
+        amount_bytes, pos = read_bytes(data, pos, 8, f"output {index} amount")
+        script_len, pos = read_cs(data, pos)
+        script_pubkey, pos = read_bytes(data, pos, script_len, f"output {index} scriptPubKey")
+        outputs.append(TxOutput(int.from_bytes(amount_bytes, "little"), script_pubkey))
+    if has_witness:
+        with_witness: list[TxInput] = []
+        for index, txin in enumerate(inputs):
+            item_count, pos = read_cs(data, pos)
+            items: list[bytes] = []
+            for item_index in range(item_count):
+                item_len, pos = read_cs(data, pos)
+                item, pos = read_bytes(data, pos, item_len, f"input {index} witness {item_index}")
+                items.append(item)
+            with_witness.append(
+                TxInput(txin.prev_hash, txin.prev_vout, txin.script_sig, txin.sequence, tuple(items))
+            )
+        inputs = with_witness
+    locktime_bytes, pos = read_bytes(data, pos, 4, "transaction locktime")
+    if pos != len(data):
+        raise ValueError("transaction trailing bytes")
+    if input_count == 0:
+        raise ValueError("transaction has no inputs")
+    if output_count == 0:
+        raise ValueError("transaction has no outputs")
+    if has_witness and not any(txin.witness for txin in inputs):
+        raise ValueError("superfluous witness marker/flag")
+    return Transaction(
+        version=version,
+        inputs=tuple(inputs),
+        outputs=tuple(outputs),
+        locktime=int.from_bytes(locktime_bytes, "little"),
+        has_witness=has_witness,
+    )
+
+
+def serialize_transaction(tx: Transaction, include_witness: bool) -> bytes:
+    out = bytearray(tx.version.to_bytes(4, "little", signed=True))
+    if include_witness:
+        out.extend(b"\x00\x01")
+    out.extend(write_cs(len(tx.inputs)))
+    for txin in tx.inputs:
+        out.extend(txin.prev_hash)
+        out.extend(txin.prev_vout.to_bytes(4, "little"))
+        out.extend(write_cs(len(txin.script_sig)))
+        out.extend(txin.script_sig)
+        out.extend(txin.sequence.to_bytes(4, "little"))
+    out.extend(write_cs(len(tx.outputs)))
+    for txout in tx.outputs:
+        out.extend(txout.amount_sats.to_bytes(8, "little"))
+        out.extend(write_cs(len(txout.script_pubkey)))
+        out.extend(txout.script_pubkey)
+    if include_witness:
+        for txin in tx.inputs:
+            out.extend(write_cs(len(txin.witness)))
+            for item in txin.witness:
+                out.extend(write_cs(len(item)))
+                out.extend(item)
+    out.extend(tx.locktime.to_bytes(4, "little"))
+    return bytes(out)
+
+
+def replace_witness(tx: Transaction, witness: tuple[bytes, ...]) -> Transaction:
+    if len(tx.inputs) != 1:
+        raise ValueError("mutation parent must have one input")
+    txin = tx.inputs[0]
+    replaced = TxInput(txin.prev_hash, txin.prev_vout, txin.script_sig, txin.sequence, witness)
+    return Transaction(tx.version, (replaced,), tx.outputs, tx.locktime, True)
+
+
+def strict_der_value_indices(stored_signature: bytes, label: str) -> set[int]:
+    if not 9 <= len(stored_signature) <= 72 or stored_signature[-1] != 0x01:
+        raise ValueError(f"{label}: expected strict DER plus SIGHASH_ALL")
+    der = stored_signature[:-1]
+    if der[0] != 0x30 or der[1] != len(der) - 2 or der[2] != 0x02:
+        raise ValueError(f"{label}: invalid DER sequence")
+    r_len = der[3]
+    r_start = 4
+    r_end = r_start + r_len
+    if r_len == 0 or r_end + 2 > len(der) or der[r_end] != 0x02:
+        raise ValueError(f"{label}: invalid DER R")
+    s_len = der[r_end + 1]
+    s_start = r_end + 2
+    s_end = s_start + s_len
+    if s_len == 0 or s_end != len(der):
+        raise ValueError(f"{label}: invalid DER S")
+    for name, start, end in (("R", r_start, r_end), ("S", s_start, s_end)):
+        integer = der[start:end]
+        if integer[0] & 0x80:
+            raise ValueError(f"{label}: negative DER {name}")
+        if len(integer) > 1 and integer[0] == 0 and not integer[1] & 0x80:
+            raise ValueError(f"{label}: nonminimal DER {name}")
+    return set(range(r_start, r_end)) | set(range(s_start, s_end))
+
+
+def strict_der_r(stored_signature: bytes, label: str) -> bytes:
+    strict_der_value_indices(stored_signature, label)
+    r_len = stored_signature[3]
+    return stored_signature[4 : 4 + r_len]
+
+
+def btc_to_sats(value: Decimal, label: str) -> int:
+    sats = value * Decimal(100_000_000)
+    integral = sats.to_integral_value()
+    if sats != integral or integral < 0 or integral > 21_000_000 * 100_000_000:
+        raise ValueError(f"{label}: noncanonical Bitcoin amount")
+    return int(integral)
 
 
 def tx_counts(unsigned: bytes) -> tuple[int, int]:
@@ -149,6 +724,7 @@ def parse_psbt(data: bytes) -> list[list[Record]]:
     def one_map() -> list[Record]:
         nonlocal pos
         records: list[Record] = []
+        keys: set[bytes] = set()
         while True:
             key_len, pos = read_cs(data, pos)
             if key_len == 0:
@@ -167,6 +743,9 @@ def parse_psbt(data: bytes) -> list[list[Record]]:
             key_type, type_end = read_cs(key, 0)
             if type_end > len(key):
                 raise ValueError("bad PSBT key type")
+            if key in keys:
+                raise ValueError("duplicate PSBT complete key")
+            keys.add(key)
             records.append((key_type, key, value))
 
     maps = [one_map()]
@@ -180,19 +759,72 @@ def parse_psbt(data: bytes) -> list[list[Record]]:
     return maps
 
 
+def serialize_psbt(maps: list[list[Record]]) -> bytes:
+    out = bytearray(b"psbt\xff")
+    for records in maps:
+        for _, key, value in records:
+            out.extend(write_cs(len(key)))
+            out.extend(key)
+            out.extend(write_cs(len(value)))
+            out.extend(value)
+        out.append(0)
+    return bytes(out)
+
+
+def psbt_unsigned(maps: list[list[Record]]) -> bytes:
+    values = [value for typ, key, value in maps[0] if typ == 0 and key == b"\x00"]
+    if len(values) != 1:
+        raise ValueError("PSBT must have one unsigned transaction record")
+    return values[0]
+
+
+def key_data(record: Record) -> bytes:
+    _, key, _ = record
+    _, pos = read_cs(key, 0)
+    return key[pos:]
+
+
 def map_multisets(maps: list[list[Record]]) -> list[list[Record]]:
     return [sorted(records, key=lambda item: (item[0], item[1], item[2])) for records in maps]
 
 
-def locate_255_256_order(maps: list[list[Record]]) -> tuple[int, list[int], list[str]]:
+def swap_only_255_256(maps: list[list[Record]]) -> list[list[Record]]:
+    copied = [list(records) for records in maps]
+    selected: list[tuple[int, int, int]] = []
+    for map_index, records in enumerate(copied):
+        positions = [index for index, record in enumerate(records) if record[0] in (255, 256)]
+        if positions:
+            types = [records[index][0] for index in positions]
+            if types != [255, 256]:
+                raise ValueError("QuietKey unknown records are not exactly [255,256]")
+            selected.append((map_index, positions[0], positions[1]))
+    if [map_index for map_index, _, _ in selected] != list(range(len(copied))):
+        raise ValueError("expected exactly one 255/256 pair in every PSBT map")
+    for map_index, first, second in selected:
+        copied[map_index][first], copied[map_index][second] = (
+            copied[map_index][second],
+            copied[map_index][first],
+        )
+    return copied
+
+
+def locate_255_256_order(
+    maps: list[list[Record]],
+) -> list[tuple[int, list[int], list[str]]]:
     found: list[tuple[int, list[int], list[str]]] = []
     for index, records in enumerate(maps):
         selected = [(typ, key.hex()) for typ, key, _ in records if typ in (255, 256)]
         if selected:
             found.append((index, [typ for typ, _ in selected], [key for _, key in selected]))
-    if len(found) != 1:
-        raise ValueError("expected exactly one map carrying unknown types 255 and 256")
-    return found[0]
+    if [map_index for map_index, _, _ in found] != list(range(len(maps))):
+        raise ValueError("expected exactly one unknown type-255/type-256 pair in every PSBT map")
+    return found
+
+
+def render_unknown_full_keys(
+    orders: list[tuple[int, list[int], list[str]]],
+) -> str:
+    return "|".join(",".join(keys) for _, _, keys in orders)
 
 
 class Checks:
@@ -206,6 +838,16 @@ class Checks:
 
     def equal(self, actual: Any, expected: Any, message: str) -> None:
         self.that(actual == expected, f"{message}: actual={actual!r}, expected={expected!r}")
+
+
+def decode_cli_result(method: str, raw: str) -> Any:
+    if raw in ("", "null"):
+        return None
+    if method in {"getblockhash", "stop"}:
+        return raw
+    if method == "submitblock" and not raw.startswith(("{", "[")):
+        return raw
+    return json.loads(raw, parse_float=Decimal)
 
 
 class Core:
@@ -254,7 +896,8 @@ class Core:
                 time.sleep(0.1)
         raise RuntimeError(f"bitcoind RPC startup timeout: {last_error}")
 
-    def rpc(self, method: str, *params: str) -> Any:
+    def rpc(self, method: str, *params: Any) -> Any:
+        cli_params = [param if isinstance(param, str) else compact_json(param) for param in params]
         args = [
             str(self.cli),
             "-regtest",
@@ -262,36 +905,56 @@ class Core:
             f"-rpcport={self.port}",
             "-rpcclienttimeout=30",
             method,
-            *params,
+            *cli_params,
         ]
-        proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if proc.returncode != 0:
-            raise RuntimeError(f"RPC {method} failed ({proc.returncode}): {proc.stderr.strip()}")
-        raw = proc.stdout.strip()
-        result = None if raw in ("", "null") else json.loads(raw)
         prefix = f"rpc_{self.rpc_index:03d}"
         self.transcript.append(f"{prefix}_method={method}")
         self.transcript.append(f"{prefix}_params={compact_json(list(params))}")
+        proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode != 0:
+            self.transcript.append(
+                f'{prefix}_error={{"cli_exit":{proc.returncode},"kind":"rpc-command-failed"}}'
+            )
+            self.rpc_index += 1
+            raise RuntimeError(f"RPC {method} failed with exit {proc.returncode}")
+        raw = proc.stdout.strip()
+        try:
+            result = decode_cli_result(method, raw)
+        except Exception as exc:
+            self.transcript.append(
+                f"{prefix}_error={compact_json({'kind': 'result-decode-failed', 'type': type(exc).__name__})}"
+            )
+            self.rpc_index += 1
+            raise RuntimeError(f"RPC {method} returned an invalid result") from exc
         self.transcript.append(f"{prefix}_result={compact_json(result)}")
         self.rpc_index += 1
         return result
 
     def stop(self) -> int:
-        if self.process is None:
-            return 0
-        if self.process.poll() is None:
-            try:
-                self.rpc("stop")
-            except Exception as exc:  # preserve failure in transcript; still terminate below
-                self.transcript.append(f"daemon_stop_rpc_error={compact_json(str(exc))}")
-            try:
-                self.process.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                self.process.terminate()
-                self.process.wait(timeout=10)
-        if self.log_handle is not None:
-            self.log_handle.close()
-        return int(self.process.returncode or 0)
+        try:
+            if self.process is None:
+                return 0
+            if self.process.poll() is None:
+                try:
+                    self.rpc("stop")
+                except Exception as exc:  # preserve failure in transcript; still terminate below
+                    self.transcript.append(
+                        f"daemon_stop_rpc_error_type={type(exc).__name__}"
+                    )
+                try:
+                    self.process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    self.process.terminate()
+                    try:
+                        self.process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait(timeout=10)
+            return int(self.process.returncode or 0)
+        finally:
+            if self.log_handle is not None:
+                self.log_handle.close()
+                self.log_handle = None
 
 
 def git(repo: Path, *args: str) -> str:
@@ -328,14 +991,257 @@ def safe_extract(archive: Path, destination: Path) -> None:
 
 
 def fixture_bytes(case: dict[str, str], stem: str, checks: Checks) -> bytes:
-    data = parse_hex(required(case, f"{stem}_hex"), f"{case['case']} {stem}")
-    checks.equal(len(data), int(required(case, f"{stem}_len")), f"{case['case']} {stem} length")
-    checks.equal(sha256_bytes(data), required(case, f"{stem}_sha256"), f"{case['case']} {stem} SHA256")
+    label = case.get("case", "header")
+    data = parse_hex(required(case, f"{stem}_hex"), f"{label} {stem}")
+    expected_len = parse_uint(required(case, f"{stem}_len"), f"{label} {stem} length")
+    checks.equal(len(data), expected_len, f"{label} {stem} length")
+    checks.equal(sha256_bytes(data), require_hash(case, f"{stem}_sha256"), f"{label} {stem} SHA256")
     return data
 
 
 def b64(data: bytes) -> str:
     return base64.b64encode(data).decode("ascii")
+
+
+def assert_head_file(repo: Path, path: Path, relative: Path, label: str, checks: Checks) -> str:
+    checks.equal(path, (repo / relative).resolve(), f"{label} canonical repository path")
+    relative_text = relative.as_posix()
+    tracked = git(repo, "ls-files", "--error-unmatch", "--", relative_text)
+    checks.equal(tracked, relative_text, f"{label} tracked path")
+    head_blob = git(repo, "rev-parse", f"HEAD:{relative_text}")
+    worktree_blob = git(repo, "hash-object", "--", relative_text)
+    checks.equal(worktree_blob, head_blob, f"{label} bytes equal HEAD blob")
+    return head_blob
+
+
+def witness_script_keys(script: bytes) -> tuple[bytes, bytes, bytes]:
+    if len(script) != 105 or script[0:2] != b"\x52\x21" or script[35] != 0x21 or script[69] != 0x21:
+        raise ValueError("witnessScript: wrong sortedmulti frame")
+    if script[103:] != b"\x53\xae":
+        raise ValueError("witnessScript: wrong sortedmulti trailer")
+    keys = (script[2:35], script[36:69], script[70:103])
+    if any(len(key) != 33 or key[0] not in (2, 3) for key in keys):
+        raise ValueError("witnessScript: invalid compressed pubkey")
+    if not keys[0] < keys[1] < keys[2]:
+        raise ValueError("witnessScript: pubkeys are not distinct strict BIP67 order")
+    return keys
+
+
+def serialize_witness(items: tuple[bytes, ...]) -> bytes:
+    out = bytearray(write_cs(len(items)))
+    for item in items:
+        out.extend(write_cs(len(item)))
+        out.extend(item)
+    return bytes(out)
+
+
+@dataclass(frozen=True)
+class PositivePayload:
+    tx: Transaction
+    raw_tx: bytes
+    stripped_tx: bytes
+    m15_maps: list[list[Record]]
+    finalized_maps: list[list[Record]]
+    selected_positions: tuple[int, int]
+
+
+def validate_positive_payload(
+    case: dict[str, str],
+    header: dict[str, str],
+    m15: bytes,
+    finalized: bytes,
+    raw_tx: bytes,
+    stripped: bytes,
+    checks: Checks,
+) -> PositivePayload:
+    name = required(case, "case")
+    tx = parse_transaction(raw_tx)
+    stripped_tx = parse_transaction(stripped)
+    checks.that(tx.has_witness, f"{name} raw transaction has BIP141 witness")
+    checks.that(not stripped_tx.has_witness, f"{name} stripped transaction has no witness marker")
+    checks.equal(serialize_transaction(tx, True), raw_tx, f"{name} raw transaction canonical reserialization")
+    checks.equal(serialize_transaction(stripped_tx, False), stripped, f"{name} stripped transaction canonical reserialization")
+    checks.equal(serialize_transaction(tx, False), stripped, f"{name} witness stripping")
+    checks.equal(tx.version, stripped_tx.version, f"{name} stripped version")
+    raw_base_inputs = tuple(TxInput(i.prev_hash, i.prev_vout, i.script_sig, i.sequence, ()) for i in tx.inputs)
+    checks.equal(raw_base_inputs, stripped_tx.inputs, f"{name} stripped inputs")
+    checks.equal(tx.outputs, stripped_tx.outputs, f"{name} stripped outputs")
+    checks.equal(tx.locktime, stripped_tx.locktime, f"{name} stripped locktime")
+    checks.equal(sha256d_display(stripped), require_hash(case, "txid"), f"{name} local txid")
+    checks.equal(sha256d_display(raw_tx), require_hash(case, "wtxid"), f"{name} local wtxid")
+
+    receive = required(case, "receive_descriptor")
+    change = required(case, "change_descriptor")
+    checks.equal(len(receive.encode("ascii")), 445, f"{name} receive descriptor length")
+    checks.equal(len(change.encode("ascii")), 445, f"{name} change descriptor length")
+    checks.equal(
+        sha256_bytes(receive.encode("ascii") + b"\x00" + change.encode("ascii")),
+        require_hash(case, "wallet_id"),
+        f"{name} wallet_id",
+    )
+
+    checks.equal(parse_uint(required(case, "input_count"), f"{name} input_count"), 1, f"{name} one fixture input")
+    checks.equal(len(tx.inputs), 1, f"{name} one parsed input")
+    txin = tx.inputs[0]
+    prev_txid = txin.prev_hash[::-1].hex()
+    checks.equal(prev_txid, require_hash(case, "input_0_prev_txid"), f"{name} input prev txid")
+    checks.equal(prev_txid, require_hash(header, "seed_coinbase_txid"), f"{name} spends seed coinbase")
+    expected_vout = parse_uint(required(case, "input_0_prev_vout"), f"{name} input vout", 0xFFFF_FFFF)
+    checks.equal(txin.prev_vout, expected_vout, f"{name} input vout")
+    checks.equal(expected_vout, parse_uint(required(header, "seed_vout"), "seed_vout", 0xFFFF_FFFF), f"{name} seed vout")
+    checks.equal(txin.sequence, parse_uint(required(case, "input_0_sequence"), f"{name} sequence", 0xFFFF_FFFF), f"{name} sequence")
+    checks.equal(txin.script_sig, parse_hex(required(case, "input_0_script_sig_hex"), f"{name} scriptSig"), f"{name} empty fixture scriptSig")
+    checks.equal(txin.script_sig, b"", f"{name} native witness empty scriptSig")
+    checks.equal(tx.version, parse_i32(required(case, "tx_version"), f"{name} version"), f"{name} version")
+    checks.equal(tx.locktime, parse_uint(required(case, "tx_locktime"), f"{name} locktime", 0xFFFF_FFFF), f"{name} locktime")
+
+    output_count = parse_uint(required(case, "output_count"), f"{name} output_count", 100)
+    checks.equal(len(tx.outputs), output_count, f"{name} output count")
+    output_total = 0
+    for index, txout in enumerate(tx.outputs):
+        expected_amount = parse_uint(required(case, f"output_{index}_amount_sats"), f"{name} output {index} amount", 21_000_000 * 100_000_000)
+        expected_script = parse_hex(required(case, f"output_{index}_script_pubkey_hex"), f"{name} output {index} script")
+        checks.equal(txout.amount_sats, expected_amount, f"{name} output {index} amount")
+        checks.equal(txout.script_pubkey, expected_script, f"{name} output {index} script")
+        output_total += txout.amount_sats
+    seed_amount = parse_uint(required(header, "seed_amount_sats"), "seed_amount_sats", 21_000_000 * 100_000_000)
+    checks.that(output_total <= seed_amount, f"{name} output total does not exceed seed")
+    checks.equal(seed_amount - output_total, parse_uint(required(case, "fee_sats"), f"{name} fee_sats"), f"{name} exact fee")
+
+    checks.equal(parse_uint(required(case, "witness_item_count"), f"{name} witness count"), 4, f"{name} fixture witness count")
+    witness = tuple(parse_hex(required(case, f"witness_{index}_hex"), f"{name} witness {index}") for index in range(4))
+    checks.equal(txin.witness, witness, f"{name} exact witness bytes")
+    checks.equal(witness[0], b"", f"{name} zero-length CHECKMULTISIG dummy")
+    strict_der_value_indices(witness[1], f"{name} witness signature 1")
+    strict_der_value_indices(witness[2], f"{name} witness signature 2")
+    keys = witness_script_keys(witness[3])
+    seed_script = parse_hex(required(header, "seed_script_pubkey_hex"), "seed_script_pubkey_hex")
+    checks.equal(seed_script, b"\x00\x20" + hashlib.sha256(witness[3]).digest(), f"{name} seed P2WSH commitment")
+    witness_pubkeys = (
+        parse_hex(required(case, "witness_1_pubkey"), f"{name} witness pubkey 1"),
+        parse_hex(required(case, "witness_2_pubkey"), f"{name} witness pubkey 2"),
+    )
+    positions = tuple(keys.index(pubkey) if pubkey in keys else -1 for pubkey in witness_pubkeys)
+    checks.that(positions[0] >= 0 and positions[1] >= 0, f"{name} witness pubkeys are script members")
+    checks.that(positions[0] < positions[1], f"{name} witness signatures follow script positions")
+
+    m15_maps = parse_psbt(m15)
+    finalized_maps = parse_psbt(finalized)
+    checks.equal(
+        tuple(tuple(record[0] for record in records) for records in m15_maps),
+        EXPECTED_M15_MAP_TYPES[name],
+        f"{name} exact M15 per-map type shape",
+    )
+    checks.equal(
+        tuple(tuple(record[0] for record in records) for records in finalized_maps),
+        EXPECTED_FINALIZED_MAP_TYPES[name],
+        f"{name} exact finalized per-map type shape",
+    )
+    checks.equal(serialize_psbt(m15_maps), m15, f"{name} M15 PSBT exact parse round trip")
+    checks.equal(serialize_psbt(finalized_maps), finalized, f"{name} finalized PSBT exact parse round trip")
+    checks.equal(psbt_unsigned(m15_maps), stripped, f"{name} M15 unsigned transaction")
+    checks.equal(psbt_unsigned(finalized_maps), stripped, f"{name} finalized unsigned transaction")
+    expected_map_count = 2 + len(tx.outputs)
+    checks.equal(len(m15_maps), expected_map_count, f"{name} M15 map count")
+    checks.equal(len(finalized_maps), expected_map_count, f"{name} finalized map count")
+    partial = [(key_data(record), record[2]) for record in m15_maps[1] if record[0] == 2]
+    checks.that(len(partial) in (2, 3), f"{name} two or three M15 partial signatures")
+    checks.equal(len({pubkey for pubkey, _ in partial}), len(partial), f"{name} distinct partial-signature pubkeys")
+    checks.that(all(pubkey in keys for pubkey, _ in partial), f"{name} partial signatures are script members")
+    partial_positions = [keys.index(pubkey) for pubkey, _ in partial]
+    checks.equal(partial_positions, sorted(partial_positions), f"{name} partial signatures already follow script positions")
+    selected = sorted(partial, key=lambda item: keys.index(item[0]))[:2]
+    checks.equal(tuple(pubkey for pubkey, _ in selected), witness_pubkeys, f"{name} selected signature pubkeys")
+    checks.equal(tuple(signature for _, signature in selected), witness[1:3], f"{name} selected signature values")
+    witness_scripts = [record[2] for record in m15_maps[1] if record[0] == 5]
+    checks.that(len(witness_scripts) <= 1, f"{name} optional M15 witnessScript count")
+    if witness_scripts:
+        checks.equal(witness_scripts[0], witness[3], f"{name} M15 witnessScript")
+    derivation_keys = [key_data(record) for record in m15_maps[1] if record[0] == 6]
+    checks.equal(len(derivation_keys), 3, f"{name} three M15 derivations")
+    checks.equal(set(derivation_keys), set(keys), f"{name} derivation keys equal script keys")
+    final_input = finalized_maps[1]
+    final_witnesses = [record for record in final_input if record[0] == 8]
+    checks.equal(len(final_witnesses), 1, f"{name} one final witness record")
+    checks.equal(final_witnesses[0][1], b"\x08", f"{name} final witness empty key data")
+    checks.equal(final_witnesses[0][2], serialize_witness(witness), f"{name} final witness serialization")
+    checks.that(not any(2 <= record[0] <= 7 for record in final_input), f"{name} signing fields removed and final_scriptSig absent")
+    checks.equal(finalized_maps[0], m15_maps[0], f"{name} global map byte-frozen")
+    checks.equal(finalized_maps[2:], m15_maps[2:], f"{name} output maps byte-frozen")
+    expected_input: list[Record] = []
+    final_record: Record = (8, b"\x08", serialize_witness(witness))
+    final_inserted = False
+    for record in m15_maps[1]:
+        if 2 <= record[0] <= 6:
+            continue
+        checks.that(record[0] not in (7, 8), f"{name} no preexisting final input fields")
+        if not final_inserted and record[0] > 8:
+            expected_input.append(final_record)
+            final_inserted = True
+        expected_input.append(record)
+    if not final_inserted:
+        expected_input.append(final_record)
+    checks.equal(final_input, expected_input, f"{name} exact input-map preservation delta")
+    return PositivePayload(tx, raw_tx, stripped, m15_maps, finalized_maps, (positions[0], positions[1]))
+
+
+def validate_core_decoded(case: dict[str, str], payload: PositivePayload, decoded: dict[str, Any], checks: Checks) -> None:
+    name = required(case, "case")
+    tx = payload.tx
+    checks.equal(decoded["version"], tx.version, f"{name} Core version")
+    checks.equal(decoded["locktime"], tx.locktime, f"{name} Core locktime")
+    checks.equal(decoded["size"], len(payload.raw_tx), f"{name} Core serialized size")
+    checks.equal(len(decoded["vin"]), 1, f"{name} Core input count")
+    vin = decoded["vin"][0]
+    txin = tx.inputs[0]
+    checks.equal(vin["txid"], txin.prev_hash[::-1].hex(), f"{name} Core input txid")
+    checks.equal(vin["vout"], txin.prev_vout, f"{name} Core input vout")
+    checks.equal(vin["sequence"], txin.sequence, f"{name} Core input sequence")
+    checks.equal(vin["scriptSig"]["hex"], txin.script_sig.hex(), f"{name} Core scriptSig")
+    checks.equal(vin["txinwitness"], [item.hex() for item in txin.witness], f"{name} Core witness")
+    checks.equal(len(decoded["vout"]), len(tx.outputs), f"{name} Core output count")
+    for index, (decoded_output, txout) in enumerate(zip(decoded["vout"], tx.outputs)):
+        checks.equal(decoded_output["n"], index, f"{name} Core output {index} index")
+        checks.equal(btc_to_sats(decoded_output["value"], f"{name} Core output {index}"), txout.amount_sats, f"{name} Core output {index} amount")
+        checks.equal(decoded_output["scriptPubKey"]["hex"], txout.script_pubkey.hex(), f"{name} Core output {index} script")
+
+
+def derive_negative(case: dict[str, str], parent: PositivePayload, checks: Checks) -> bytes:
+    name = required(case, "case")
+    parent_witness = parent.tx.inputs[0].witness
+    mutation = required(case, "mutation")
+    if name == "M16-CORE-SWAPPED-SIGNATURES":
+        checks.equal(mutation, "witness-items-1-and-2-swapped", f"{name} mutation label")
+        witness = (parent_witness[0], parent_witness[2], parent_witness[1], parent_witness[3])
+    elif name == "M16-CORE-MUTATED-SIGNATURE":
+        checks.equal(mutation, "strict-der-preserving-signature-value-bit-flip", f"{name} mutation label")
+        witness_index = parse_uint(required(case, "mutation_witness_index"), f"{name} witness index", 3)
+        checks.that(witness_index in (1, 2), f"{name} signature witness index")
+        offset = parse_uint(required(case, "mutation_byte_offset"), f"{name} mutation byte offset")
+        mask_bytes = parse_hex(required(case, "mutation_xor_mask"), f"{name} mutation XOR mask")
+        checks.equal(len(mask_bytes), 1, f"{name} one-byte XOR mask")
+        mask = mask_bytes[0]
+        checks.that(mask != 0 and mask & (mask - 1) == 0, f"{name} single-bit XOR mask")
+        allowed_indices = strict_der_value_indices(parent_witness[witness_index], f"{name} parent DER")
+        checks.that(offset in allowed_indices, f"{name} mutation lies inside DER integer value")
+        mutated = bytearray(parent_witness[witness_index])
+        mutated[offset] ^= mask
+        strict_der_value_indices(bytes(mutated), f"{name} mutated DER")
+        items = list(parent_witness)
+        items[witness_index] = bytes(mutated)
+        witness = tuple(items)
+    elif name == "M16-CORE-MUTATED-BASE":
+        checks.equal(mutation, "output-0-amount-byte-0-xor-01", f"{name} mutation label")
+        offset = parse_uint(required(case, "mutation_byte_offset"), f"{name} mutation byte offset")
+        mask_bytes = parse_hex(required(case, "mutation_xor_mask"), f"{name} mutation XOR mask")
+        checks.equal(offset, 49, f"{name} first output amount byte offset")
+        checks.equal(mask_bytes, b"\x01", f"{name} one-bit XOR mask")
+        mutated_raw = bytearray(parent.raw_tx)
+        mutated_raw[offset] ^= mask_bytes[0]
+        return bytes(mutated_raw)
+    else:
+        raise ValueError(f"{name}: closed negative mutation")
+    return serialize_transaction(replace_witness(parent.tx, witness), True)
 
 
 def main() -> int:
@@ -348,27 +1254,46 @@ def main() -> int:
     parser.add_argument("--transcript", required=True, type=Path)
     args = parser.parse_args()
 
+    repo = args.repo_root.resolve()
     transcript_path = args.transcript.resolve()
     if transcript_path.exists():
         raise SystemExit("refusing to overwrite transcript")
-    transcript: list[str] = ["QUIETKEY_M16_CORE_DIFFERENTIAL_TRANSCRIPT_V1"]
+    evidence_root = (repo / EVIDENCE_REL).resolve()
+    transcript_name = TRANSCRIPT_NAME.fullmatch(transcript_path.name)
+    if transcript_path.parent != evidence_root or transcript_name is None:
+        raise SystemExit(
+            "transcript must be a new differential/m16-bitcoin-core/evidence/"
+            "run-YYYYMMDDTHHMMSSZ-<HEAD>.txt path"
+        )
+    transcript: list[str] = [
+        "QUIETKEY_M16_CORE_DIFFERENTIAL_TRANSCRIPT_V1",
+        "commit_every_run=true",
+    ]
     checks = Checks()
     core: Core | None = None
     error: str | None = None
+    error_detail: str | None = None
 
     try:
-        repo = args.repo_root.resolve()
         fixture = args.fixture.resolve()
         procedure = args.procedure.resolve()
         sums = args.sha256sums.resolve()
         archive = args.archive.resolve()
         runner = Path(__file__).resolve()
 
-        checks.equal(git(repo, "status", "--porcelain"), "", "repository clean at entry")
+        checks.equal(git(repo, "status", "--porcelain", "--untracked-files=all"), "", "repository clean at entry")
+        repo_commit = git(repo, "rev-parse", "HEAD")
+        checks.that(
+            repo_commit.startswith(transcript_name.group("commit")),
+            "transcript filename commit suffix matches HEAD",
+        )
+        runner_blob = assert_head_file(repo, runner, HARNESS_REL, "runner", checks)
+        fixture_blob = assert_head_file(repo, fixture, FIXTURE_REL, "fixture", checks)
+        procedure_blob = assert_head_file(repo, procedure, PROCEDURE_REL, "procedure", checks)
         transcript.extend(
             [
                 f"run_utc={dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')}",
-                f"repo_commit={git(repo, 'rev-parse', 'HEAD')}",
+                f"repo_commit={repo_commit}",
                 f"repo_tree={git(repo, 'rev-parse', 'HEAD^{tree}')}",
                 "repo_clean=true",
                 f"host_os={platform.system()}",
@@ -376,8 +1301,11 @@ def main() -> int:
                 f"host_arch={platform.machine()}",
                 f"python_version={platform.python_version()}",
                 f"harness_sha256={sha256_file(runner)}",
+                f"harness_head_blob={runner_blob}",
                 f"procedure_sha256={sha256_file(procedure)}",
+                f"procedure_head_blob={procedure_blob}",
                 f"fixture_sha256={sha256_file(fixture)}",
+                f"fixture_head_blob={fixture_blob}",
                 f"core_release={CORE_RELEASE}",
             ]
         )
@@ -403,27 +1331,66 @@ def main() -> int:
             ]
         )
 
+        fixture_data = fixture.read_bytes()
+        checks.that(fixture_data.endswith(b"\n"), "fixture final LF")
+        checks.that(b"\r" not in fixture_data, "fixture LF-only encoding")
+        fixture_text = fixture_data.decode("ascii")
         header, cases = parse_fixture(fixture)
         checks.equal(
             required(header, "corpus_state"),
             "READY",
             "fixture corpus state (the committed placeholder must fail closed)",
         )
+        checks.that("PLACEHOLDER" not in fixture_text, "READY fixture contains no placeholder marker")
+        checks.that("<" not in fixture_text and ">" not in fixture_text, "READY fixture contains no bracket token")
+        validate_fixture_schema(header, cases)
+        validate_provenance(header, checks)
         checks.equal(required(header, "core_release"), CORE_RELEASE, "fixture Core release")
         checks.equal(required(header, "core_archive"), CORE_ARCHIVE, "fixture Core archive")
-        checks.equal(required(header, "core_archive_sha256"), CORE_ARCHIVE_SHA256, "fixture Core archive hash")
-        checks.equal(required(header, "regtest_genesis_hash"), REGTEST_GENESIS, "fixture genesis")
+        checks.equal(require_hash(header, "core_archive_sha256"), CORE_ARCHIVE_SHA256, "fixture Core archive hash")
+        checks.equal(require_hash(header, "regtest_genesis_hash"), REGTEST_GENESIS, "fixture genesis")
         positive = [case for case in cases if required(case, "class") == "differential-accept"]
         negative = [case for case in cases if required(case, "class") == "differential-reject"]
         checks.equal(len(positive), 2, "two positive differential cases")
         checks.equal(len(negative), 3, "three negative Core controls")
+        transcript.extend(
+            [
+                f"generation_procedure={required(header, 'generation_procedure')}",
+                f"external_generation_transcript_sha256={require_hash(header, 'external_generation_transcript_sha256')}",
+                f"external_generation_transcript_len={required(header, 'external_generation_transcript_len')}",
+                f"external_generation_transcript_line_count={required(header, 'external_generation_transcript_line_count')}",
+                "external_implementation_count=2",
+                "external_agreement=byte-for-byte",
+                f"screening_report_sha256={require_hash(header, 'screening_report_sha256')}",
+                f"screening_repository_head={required(header, 'screening_repository_head')}",
+                f"screening_tracked_file_count={required(header, 'screening_tracked_file_count')}",
+                f"screening_tracked_byte_count={required(header, 'screening_tracked_byte_count')}",
+                f"screened_public_key_count={required(header, 'screened_public_key_count')}",
+                f"screened_signature_r_count={required(header, 'screened_signature_r_count')}",
+                "screening_collisions=0",
+                "destruction_result=complete",
+                f"deletion_completed_utc={required(header, 'deletion_completed_utc')}",
+                f"destroyed_regular_file_count={required(header, 'destroyed_regular_file_count')}",
+                f"destroyed_regular_file_byte_count={required(header, 'destroyed_regular_file_byte_count')}",
+                "destroyed_root_absent=true",
+                "mainnet_funding_status=NEVER-FUND",
+                "regtest_coin_status=valueless-by-construction",
+            ]
+        )
 
         seed_block = fixture_bytes(header, "seed_block", checks)
         seed_coinbase = fixture_bytes(header, "seed_coinbase", checks)
         checks.equal(seed_block[80], 1, "seed block transaction count")
         checks.equal(seed_block[81:], seed_coinbase, "seed block sole transaction bytes")
-        checks.equal(sha256d_display(seed_block[:80]), required(header, "seed_block_hash"), "seed block hash")
-        checks.equal(sha256d_display(seed_coinbase), required(header, "seed_coinbase_txid"), "seed coinbase txid")
+        checks.equal(sha256d_display(seed_block[:80]), require_hash(header, "seed_block_hash"), "seed block hash")
+        seed_block_time = int.from_bytes(seed_block[68:72], "little")
+        checks.equal(seed_block_time, 1_800_000_000, "seed block header time")
+        seed_coinbase_tx = parse_transaction(seed_coinbase)
+        checks.equal(
+            sha256d_display(serialize_transaction(seed_coinbase_tx, False)),
+            require_hash(header, "seed_coinbase_txid"),
+            "seed coinbase txid",
+        )
 
         with tempfile.TemporaryDirectory(prefix="qk-m16-core-") as temp_name:
             temp = Path(temp_name)
@@ -454,36 +1421,42 @@ def main() -> int:
             chain = core.rpc("getblockchaininfo")
             checks.equal(chain["chain"], "regtest", "Core chain")
             checks.equal(chain["blocks"], 0, "initial Core height")
-            genesis = core.rpc("getblockhash", "0")
+            genesis = core.rpc("getblockhash", 0)
             checks.equal(genesis, REGTEST_GENESIS, "Core regtest genesis")
             transcript.extend(["chain=regtest", f"genesis_hash={REGTEST_GENESIS}", "height_before_seed=0"])
 
+            checks.equal(core.rpc("setmocktime", seed_block_time), None, "setmocktime result")
             submitted = core.rpc("submitblock", seed_block.hex())
             checks.equal(submitted, None, "submitblock result")
             checks.equal(core.rpc("getblockcount"), 1, "height after seed")
-            checks.equal(core.rpc("getblockhash", "1"), required(header, "seed_block_hash"), "active seed block")
+            checks.equal(core.rpc("getblockhash", 1), require_hash(header, "seed_block_hash"), "active seed block")
             transcript.extend(
                 [
+                    f"seed_block_time={seed_block_time}",
                     f"seed_block_hash={required(header, 'seed_block_hash')}",
                     f"seed_coinbase_txid={required(header, 'seed_coinbase_txid')}",
                     "height_after_seed=1",
                 ]
             )
 
-            generated = core.rpc("generatetodescriptor", "100", "raw(51)")
+            generated = core.rpc("generatetodescriptor", 100, "raw(51)")
             checks.equal(len(generated), 100, "maturity block count")
             checks.equal(core.rpc("getblockcount"), 101, "height after maturity")
             utxo = core.rpc(
                 "gettxout",
                 required(header, "seed_coinbase_txid"),
-                required(header, "seed_vout"),
-                "true",
+                parse_uint(required(header, "seed_vout"), "seed_vout", 0xFFFF_FFFF),
+                True,
             )
             checks.that(isinstance(utxo, dict), "seed UTXO exists")
             checks.equal(utxo["confirmations"], 101, "seed UTXO confirmations")
             checks.equal(utxo["coinbase"], True, "seed UTXO coinbase flag")
             checks.equal(utxo["scriptPubKey"]["hex"], required(header, "seed_script_pubkey_hex"), "seed UTXO script")
-            checks.equal(round(float(utxo["value"]) * 100_000_000), int(required(header, "seed_amount_sats")), "seed UTXO amount")
+            checks.equal(
+                btc_to_sats(utxo["value"], "seed UTXO value"),
+                parse_uint(required(header, "seed_amount_sats"), "seed_amount_sats", 21_000_000 * 100_000_000),
+                "seed UTXO amount",
+            )
             transcript.extend(
                 [
                     "maturity_blocks_generated=100",
@@ -494,6 +1467,7 @@ def main() -> int:
                 ]
             )
 
+            positive_payloads: dict[str, PositivePayload] = {}
             for case_index, case in enumerate(positive):
                 before = checks.total
                 name = required(case, "case")
@@ -501,50 +1475,99 @@ def main() -> int:
                 finalized = fixture_bytes(case, "finalized_psbt", checks)
                 raw_tx = fixture_bytes(case, "raw_tx", checks)
                 stripped = fixture_bytes(case, "stripped_tx", checks)
-                checks.equal(sha256d_display(stripped), required(case, "txid"), f"{name} local txid")
-                checks.equal(sha256d_display(raw_tx), required(case, "wtxid"), f"{name} local wtxid")
+                payload = validate_positive_payload(case, header, m15, finalized, raw_tx, stripped, checks)
+                positive_payloads[name] = payload
 
-                core_final = core.rpc("finalizepsbt", b64(m15), "false")
+                core_final = core.rpc("finalizepsbt", b64(m15), False)
                 checks.equal(core_final["complete"], True, f"{name} Core final complete")
                 core_psbt = base64.b64decode(core_final["psbt"], validate=True)
                 rule = required(case, "core_finalized_psbt_rule")
                 if rule == "byte-equal":
+                    checks.equal(name, "M16-CORE-UNKNOWN-FREE", f"{name} byte-equal case identity")
+                    checks.equal(required(case, "unknown_profile"), "none", f"{name} unknown profile")
                     checks.equal(core_psbt, finalized, f"{name} finalized PSBT byte equality")
                 elif rule == "decoded-equal-order-delta":
+                    checks.equal(name, "M16-CORE-UNKNOWN-ORDER", f"{name} order-delta case identity")
+                    checks.equal(required(case, "unknown_profile"), "numeric-255-256-order-delta", f"{name} unknown profile")
+                    checks.equal(required(case, "quietkey_unknown_type_order"), "255,256", f"{name} declared QuietKey type order")
+                    checks.equal(required(case, "core_unknown_type_order"), "256,255", f"{name} declared Core type order")
                     checks.that(core_psbt != finalized, f"{name} expected PSBT byte order delta")
                     qk_decode = core.rpc("decodepsbt", b64(finalized))
                     core_decode = core.rpc("decodepsbt", b64(core_psbt))
                     checks.equal(qk_decode, core_decode, f"{name} decoded PSBT equivalence")
-                    qk_maps = parse_psbt(finalized)
+                    qk_maps = payload.finalized_maps
                     core_maps = parse_psbt(core_psbt)
+                    checks.equal(serialize_psbt(core_maps), core_psbt, f"{name} Core PSBT exact parse round trip")
                     checks.equal(map_multisets(qk_maps), map_multisets(core_maps), f"{name} PSBT record multisets")
-                    qk_index, qk_order, qk_keys = locate_255_256_order(qk_maps)
-                    core_index, core_order, core_keys = locate_255_256_order(core_maps)
-                    checks.equal(core_index, qk_index, f"{name} unknown map index")
-                    checks.equal(qk_order, [255, 256], f"{name} QuietKey unknown order")
-                    checks.equal(core_order, [256, 255], f"{name} Core unknown order")
-                    checks.equal(qk_keys, ["fdff00", "fd0001"], f"{name} QuietKey unknown full keys")
-                    checks.equal(core_keys, ["fd0001", "fdff00"], f"{name} Core unknown full keys")
+                    qk_orders = locate_255_256_order(qk_maps)
+                    core_orders = locate_255_256_order(core_maps)
+                    checks.equal(
+                        [entry[0] for entry in qk_orders],
+                        [entry[0] for entry in core_orders],
+                        f"{name} unknown map indices",
+                    )
+                    checks.equal(
+                        [entry[1] for entry in qk_orders],
+                        [[255, 256]] * len(qk_maps),
+                        f"{name} QuietKey unknown order in every map",
+                    )
+                    checks.equal(
+                        [entry[1] for entry in core_orders],
+                        [[256, 255]] * len(core_maps),
+                        f"{name} Core unknown order in every map",
+                    )
+                    checks.that(
+                        all(
+                            keys[0].startswith("fdff00")
+                            and keys[1].startswith("fd0001")
+                            for _, _, keys in qk_orders
+                        ),
+                        f"{name} QuietKey full keys carry minimal type encodings",
+                    )
+                    checks.that(
+                        all(
+                            keys[0].startswith("fd0001")
+                            and keys[1].startswith("fdff00")
+                            for _, _, keys in core_orders
+                        ),
+                        f"{name} Core full keys carry minimal type encodings",
+                    )
+                    checks.equal(
+                        render_unknown_full_keys(qk_orders),
+                        required(case, "quietkey_unknown_full_keys"),
+                        f"{name} declared QuietKey complete keys",
+                    )
+                    checks.equal(
+                        render_unknown_full_keys(core_orders),
+                        required(case, "core_unknown_full_keys"),
+                        f"{name} declared Core complete keys",
+                    )
+                    checks.equal(
+                        serialize_psbt(swap_only_255_256(qk_maps)),
+                        core_psbt,
+                        f"{name} sole 255/256 record-order byte delta",
+                    )
                 else:
                     raise ValueError(f"{name}: closed finalized PSBT rule")
 
-                extracted_result = core.rpc("finalizepsbt", b64(m15), "true")
+                extracted_result = core.rpc("finalizepsbt", b64(m15), True)
                 checks.equal(extracted_result["complete"], True, f"{name} Core extraction complete")
                 checks.equal(extracted_result["hex"], raw_tx.hex(), f"{name} raw transaction bytes")
                 decoded_tx = core.rpc("decoderawtransaction", raw_tx.hex())
-                checks.equal(decoded_tx["txid"], required(case, "txid"), f"{name} Core txid")
-                checks.equal(decoded_tx["hash"], required(case, "wtxid"), f"{name} Core wtxid")
-                checks.equal(len(decoded_tx["vin"]), 1, f"{name} one input")
-                expected_witness = [required(case, f"witness_{i}_hex") for i in range(4)]
-                checks.equal(decoded_tx["vin"][0]["txinwitness"], expected_witness, f"{name} exact witness")
-                checks.equal(decoded_tx["vin"][0]["scriptSig"]["hex"], "", f"{name} empty scriptSig")
-                acceptance = core.rpc("testmempoolaccept", compact_json([raw_tx.hex()]), "0")
+                checks.equal(decoded_tx["txid"], require_hash(case, "txid"), f"{name} Core txid")
+                checks.equal(decoded_tx["hash"], require_hash(case, "wtxid"), f"{name} Core wtxid")
+                validate_core_decoded(case, payload, decoded_tx, checks)
+                acceptance = core.rpc("testmempoolaccept", [raw_tx.hex()], 0)
                 checks.equal(len(acceptance), 1, f"{name} one acceptance result")
                 result = acceptance[0]
                 checks.equal(result.get("allowed"), True, f"{name} allowed")
-                checks.equal(result["txid"], required(case, "txid"), f"{name} accepted txid")
-                checks.equal(result["wtxid"], required(case, "wtxid"), f"{name} accepted wtxid")
+                checks.equal(result["txid"], require_hash(case, "txid"), f"{name} accepted txid")
+                checks.equal(result["wtxid"], require_hash(case, "wtxid"), f"{name} accepted wtxid")
                 checks.that(result.get("vsize", 0) > 0, f"{name} positive vsize")
+                checks.that(isinstance(result.get("fees"), dict), f"{name} Core fee object")
+                expected_fee = parse_uint(required(case, "fee_sats"), f"{name} fee_sats")
+                checks.equal(btc_to_sats(result["fees"]["base"], f"{name} Core base fee"), expected_fee, f"{name} Core base fee")
+                checks.equal(result["fees"]["effective-includes"], [require_hash(case, "wtxid")], f"{name} effective fee member")
                 checks.that("reject-reason" not in result, f"{name} no reject reason")
                 checks.that("package-error" not in result, f"{name} no package error")
                 prefix = f"case_{case_index:03d}"
@@ -554,8 +1577,11 @@ def main() -> int:
                         f"{prefix}_core_complete=true",
                         f"{prefix}_core_psbt_rule={rule}",
                         f"{prefix}_raw_tx_equal=true",
-                        f"{prefix}_txid={required(case, 'txid')}",
-                        f"{prefix}_wtxid={required(case, 'wtxid')}",
+                        f"{prefix}_txid={require_hash(case, 'txid')}",
+                        f"{prefix}_wtxid={require_hash(case, 'wtxid')}",
+                        f"{prefix}_decoded_fields_equal=true",
+                        f"{prefix}_fee_sats={expected_fee}",
+                        f"{prefix}_witness_pubkey_positions={payload.selected_positions[0]},{payload.selected_positions[1]}",
                         f"{prefix}_testmempoolaccept_allowed=true",
                         f"{prefix}_assertions={checks.total - before}",
                         f"{prefix}_failures=0",
@@ -569,35 +1595,113 @@ def main() -> int:
                             f"{prefix}_core_psbt_equal=false",
                             f"{prefix}_decoded_equal=true",
                             f"{prefix}_record_multisets_equal=true",
+                            f"{prefix}_unknown_map_count={len(payload.finalized_maps)}",
                             f"{prefix}_quietkey_unknown_type_order=255,256",
                             f"{prefix}_core_unknown_type_order=256,255",
-                            f"{prefix}_order_only_delta=true",
+                            f"{prefix}_quietkey_unknown_full_keys={required(case, 'quietkey_unknown_full_keys')}",
+                            f"{prefix}_core_unknown_full_keys={required(case, 'core_unknown_full_keys')}",
+                            f"{prefix}_sole_255_256_swap_equal=true",
                         ]
                     )
 
+            committed_signatures = {
+                record[2]
+                for payload in positive_payloads.values()
+                for record in payload.m15_maps[1]
+                if record[0] == 2
+            }
+            committed_pubkeys = {
+                key_data(record)
+                for payload in positive_payloads.values()
+                for record in payload.m15_maps[1]
+                if record[0] in (2, 6)
+            }
+            committed_r_values = {
+                strict_der_r(signature, "committed fixture signature") for signature in committed_signatures
+            }
+            checks.equal(
+                len(committed_signatures),
+                parse_uint(required(header, "signature_count"), "signature_count"),
+                "provenance signature count matches unique fixture signatures",
+            )
+            checks.equal(len(committed_r_values), len(committed_signatures), "one distinct r value per fixture signature")
+            checks.equal(
+                len(committed_r_values),
+                parse_uint(required(header, "screened_signature_r_count"), "screened_signature_r_count"),
+                "provenance screened r count matches fixture",
+            )
+            checks.that(
+                parse_uint(required(header, "screened_public_key_count"), "screened_public_key_count") >= len(committed_pubkeys),
+                "provenance public-key screening covers all PSBT keys",
+            )
+
+            negative_raws: list[bytes] = []
             for offset, case in enumerate(negative):
                 before = checks.total
                 name = required(case, "case")
+                checks.equal(required(case, "parent_case"), "M16-CORE-UNKNOWN-FREE", f"{name} parent case")
+                checks.equal(required(case, "core_rule"), "testmempoolaccept-allowed-false", f"{name} Core rule")
+                parent = positive_payloads[required(case, "parent_case")]
                 raw_tx = fixture_bytes(case, "raw_tx", checks)
-                checks.equal(sha256d_display(raw_tx), required(case, "wtxid"), f"{name} local wtxid")
-                rejection = core.rpc("testmempoolaccept", compact_json([raw_tx.hex()]), "0")
+                negative_raws.append(raw_tx)
+                mutated_tx = parse_transaction(raw_tx)
+                checks.equal(serialize_transaction(mutated_tx, True), raw_tx, f"{name} canonical raw mutation")
+                checks.equal(raw_tx, derive_negative(case, parent, checks), f"{name} exact one-change derivation")
+                mutated_stripped = serialize_transaction(mutated_tx, False)
+                if name == "M16-CORE-MUTATED-BASE":
+                    checks.that(mutated_stripped != parent.stripped_tx, f"{name} base transaction changed")
+                    checks.equal(mutated_tx.version, parent.tx.version, f"{name} version frozen")
+                    checks.equal(mutated_tx.inputs, parent.tx.inputs, f"{name} inputs and witness frozen")
+                    checks.equal(mutated_tx.locktime, parent.tx.locktime, f"{name} locktime frozen")
+                    checks.equal(len(mutated_tx.outputs), len(parent.tx.outputs), f"{name} output count frozen")
+                    checks.equal(
+                        mutated_tx.outputs[0].amount_sats,
+                        parent.tx.outputs[0].amount_sats + 1,
+                        f"{name} output amount exact one-satoshi change",
+                    )
+                    checks.equal(
+                        mutated_tx.outputs[0].script_pubkey,
+                        parent.tx.outputs[0].script_pubkey,
+                        f"{name} output script frozen",
+                    )
+                    checks.that(
+                        require_hash(case, "txid") != sha256d_display(parent.stripped_tx),
+                        f"{name} txid changed",
+                    )
+                    base_equal = "false"
+                else:
+                    checks.equal(mutated_stripped, parent.stripped_tx, f"{name} base transaction frozen")
+                    checks.equal(
+                        require_hash(case, "txid"),
+                        sha256d_display(parent.stripped_tx),
+                        f"{name} parent txid retained",
+                    )
+                    base_equal = "true"
+                checks.equal(sha256d_display(mutated_stripped), require_hash(case, "txid"), f"{name} local txid")
+                checks.equal(sha256d_display(raw_tx), require_hash(case, "wtxid"), f"{name} local wtxid")
+                rejection = core.rpc("testmempoolaccept", [raw_tx.hex()], 0)
                 checks.equal(len(rejection), 1, f"{name} one rejection result")
                 result = rejection[0]
                 checks.equal(result.get("allowed"), False, f"{name} rejected")
-                checks.equal(result["txid"], required(case, "txid"), f"{name} rejected txid")
-                checks.equal(result["wtxid"], required(case, "wtxid"), f"{name} rejected wtxid")
+                checks.equal(result["txid"], require_hash(case, "txid"), f"{name} rejected txid")
+                checks.equal(result["wtxid"], require_hash(case, "wtxid"), f"{name} rejected wtxid")
                 checks.that(bool(result.get("reject-reason")), f"{name} nonempty reject reason")
+                checks.that("package-error" not in result, f"{name} no package error")
                 prefix = f"case_{len(positive) + offset:03d}"
                 transcript.extend(
                     [
                         f"{prefix}_name={name}",
+                        f"{prefix}_parent=M16-CORE-UNKNOWN-FREE",
                         f"{prefix}_mutation={required(case, 'mutation')}",
+                        f"{prefix}_exact_mutation_derivation=true",
+                        f"{prefix}_base_transaction_equal={base_equal}",
                         f"{prefix}_testmempoolaccept_allowed=false",
                         f"{prefix}_reject_reason={compact_json(result['reject-reason'])}",
                         f"{prefix}_assertions={checks.total - before}",
                         f"{prefix}_failures=0",
                     ]
                 )
+            checks.equal(len(set(negative_raws)), 3, "three distinct negative raw transactions")
 
             stop_code = core.stop()
             transcript.extend(["daemon_stop_requested=true", f"daemon_exit_code={stop_code}"])
@@ -614,21 +1718,29 @@ def main() -> int:
             )
             core = None
     except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
-        transcript.extend([f"failure={compact_json(error)}", f"assertions_total={checks.total}", "assertions_failed=1", "result=FAIL"])
+        error = type(exc).__name__
+        error_detail = f"{error}: {exc}"
+        transcript.extend(
+            [
+                f"failure_type={error}",
+                f"assertions_total={checks.total}",
+                "assertions_failed=1",
+                "result=FAIL",
+            ]
+        )
     finally:
         if core is not None:
             try:
                 code = core.stop()
                 transcript.extend(["daemon_stop_requested=true", f"daemon_exit_code={code}"])
             except Exception as stop_exc:
-                transcript.append(f"daemon_stop_error={compact_json(str(stop_exc))}")
+                transcript.append(f"daemon_stop_error_type={type(stop_exc).__name__}")
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         with transcript_path.open("x", encoding="ascii", newline="\n") as out:
             out.write("\n".join(transcript) + "\n")
 
     if error is not None:
-        print(error, file=sys.stderr)
+        print(error_detail, file=sys.stderr)
         return 1
     return 0
 
