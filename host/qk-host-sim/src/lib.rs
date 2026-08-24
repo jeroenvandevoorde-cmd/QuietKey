@@ -5,12 +5,15 @@
 //! HOST scaffold: it models event order and opaque runner tokens only.
 //! [`ReviewBoundWorkflow`] is the distinct production HOST D-09 seam:
 //! it retains and reparses S0, then gates revalidation on the exact
-//! review hash and current runner token. Scope: see the canonical scope
-//! disclaimer in `qk_host_model::transaction_policy`.
+//! review hash and current runner token, then performs M15 final-only
+//! signature insertion and canonical PSBT emission. Scope: see the
+//! canonical disclaimer in `qk_host_model::transaction_policy`.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
-//! No signing, signature insertion, finalization, or export.
+//! No signing or signature generation, finalization, transaction
+//! extraction, media output, or persistence. M15 only inserts supplied
+//! externally produced signatures and returns a threshold-complete PSBT.
 //!
 //! Beyond the model's mandatory event order, the runner makes the
 //! approval→revalidation→signature binding STRUCTURAL: accepting
@@ -23,14 +26,20 @@
 
 #![forbid(unsafe_code)]
 
+mod insertion;
+
+pub use insertion::{
+    DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
+};
+
 use qk_descriptor::DescriptorPair;
 use qk_host_model::transaction_policy::{
     transaction_transition, TransactionEvent, TransactionState, TransactionTransitionError,
     TransactionTransitionOutcome,
 };
 use qk_psbt::{
-    build_review, parse, InputSource, ParseError, PsbtView, ReviewContext, ReviewError, ReviewHash,
-    ReviewNetwork,
+    build_review, parse, InputSource, ParseError, PsbtView, Review, ReviewContext, ReviewError,
+    ReviewHash, ReviewNetwork,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -303,7 +312,8 @@ impl TransactionWorkflow {
 /// The binding assertions are deliberately absent: validation and review
 /// construction are performed from the retained S0 internally, and
 /// revalidation is performed by [`ReviewBoundWorkflow::revalidate`].
-/// `SignatureProduced` is not available through this production seam.
+/// `SignatureProduced` is not caller-accessible through this seam; M15
+/// emits it internally only after the live review/token gate succeeds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewWorkflowEvent {
     Wake,
@@ -380,13 +390,15 @@ pub enum ReviewBindingError {
 /// It reparses retained S0 and gates revalidation on exact review-hash
 /// equality plus the current runner token. This type intentionally has no
 /// API accepting review bytes, a hash, a token, or any critical model event.
-/// It neither signs, finalizes, nor exports.
+/// It neither generates signatures, finalizes or extracts transactions,
+/// nor performs persistence or media export.
 pub struct ReviewBoundWorkflow<'a> {
     s0: &'a [u8],
     source: InputSource,
     descriptor: &'a DescriptorPair,
     inner: TransactionWorkflow,
     approved_hash: Option<ReviewHash>,
+    approved_review: Option<Review<'a>>,
     approved_token: Option<CycleToken>,
     #[cfg(test)]
     last_parse_identity: Option<(*const u8, usize)>,
@@ -403,6 +415,7 @@ impl<'a> ReviewBoundWorkflow<'a> {
             descriptor,
             inner: TransactionWorkflow::new(),
             approved_hash: None,
+            approved_review: None,
             approved_token: None,
             #[cfg(test)]
             last_parse_identity: None,
@@ -551,7 +564,10 @@ impl<'a> ReviewBoundWorkflow<'a> {
             ApplyOutcome::Continue(TransactionState::ReviewReady)
         ) {
             self.approved_hash = match review.review_hash() {
-                Ok(hash) => Some(hash),
+                Ok(hash) => {
+                    self.approved_review = Some(review);
+                    Some(hash)
+                }
                 Err(_) => {
                     return self.fail(TransactionEvent::ReviewConstructionFailed);
                 }
@@ -588,6 +604,7 @@ impl<'a> ReviewBoundWorkflow<'a> {
 
     fn clear_binding(&mut self) {
         self.approved_hash = None;
+        self.approved_review = None;
         self.approved_token = None;
     }
 
