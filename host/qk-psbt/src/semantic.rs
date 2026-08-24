@@ -19,11 +19,37 @@
 //! selected amount and running input total -> witness-utxo equality);
 //! unsigned outputs, totals, and fee; per-input signature and sighash
 //! checks plus witness-script form; script token iteration.
+//!
+//! M8 (QK-DEC-044..046) adds one separate read-only entrypoint,
+//! [`analyze_and_verify_signatures`], which upgrades the M6
+//! structural signature candidates to cryptographically verified
+//! facts through the qk-secp verification boundary and the bounded
+//! [`crate::bip143`] digest engine. The M6 entrypoint, output, and
+//! legacy precedence are preserved unchanged; the shared private
+//! phases below were extracted verbatim. Frozen M8 precedence: the
+//! M6 structural stages, then per input ascending the M8
+//! pre-verification screen (missing witnessScript -> unsupported
+//! final-script fields -> malformed witnessScript push -> actual
+//! OP_CODESEPARATOR opcode by parsed opcode semantics, which in M8
+//! precedes any sighash classification -> canonical multisig form ->
+//! exact native P2WSH commitment -> redeem-script route), then the
+//! unchanged M6 signature/sighash and script-token stages, then per
+//! input ascending the cryptographic stage (digest once per input;
+//! per signature in map order: witnessScript membership -> pubkey
+//! curve validity -> trailing sighash byte -> DER-only signature
+//! parse -> digest verification). Any invalid signature rejects the
+//! whole verified result. Verified statuses and the
+//! VERIFY_AND_EXPORT_ONLY disposition are returned facts only: no
+//! export is performed or authorized, and no later S4/S7,
+//! ownership, or change check is bypassed.
 
+use crate::bip143::{
+    sighash_all_digest, Bip143Error, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL,
+};
 use crate::limits;
 use crate::parse::PsbtView;
 use crate::raw::{decode_compact_size, Span};
-use crate::sha256::sha256d;
+use crate::sha256::{sha256, sha256d};
 use core::fmt;
 
 /// MoneyRange upper bound in satoshis (Bitcoin Core `MAX_MONEY`),
@@ -106,6 +132,34 @@ pub enum SemanticCategory {
     /// An internal invariant guaranteed by the structural parser did
     /// not hold.
     InternalInvariant,
+    /// M8: an input has no witnessScript record, so no signature
+    /// verification is possible.
+    MissingWitnessScript,
+    /// M8: final-script fields (final_scriptSig, final_scriptwitness)
+    /// are unsupported by signature verification.
+    UnsupportedFinalScriptFields,
+    /// M8: a redeem-script record (wrapped route) is unsupported by
+    /// signature verification.
+    UnsupportedRedeemScriptRoute,
+    /// M8: the witnessScript contains an actual OP_CODESEPARATOR
+    /// opcode (parsed opcode semantics; a pushed 0xAB data byte never
+    /// matches).
+    UnsupportedCodeSeparator,
+    /// M8: the selected prevout scriptPubKey is not the exact native
+    /// P2WSH commitment `00 20 SHA256(witnessScript)`.
+    PrevoutNotNativeWitnessScriptHash,
+    /// M8: a partial-signature map pubkey is not a member of the
+    /// input's witnessScript key set. Never ignored.
+    PartialSignaturePubkeyNotInWitnessScript,
+    /// M8: a partial-signature map pubkey is not a cryptographically
+    /// valid compressed curve point.
+    InvalidCryptographicPubkey,
+    /// M8: a partial signature failed cryptographic parsing or
+    /// verification against the computed BIP143 SIGHASH_ALL digest.
+    SignatureVerificationFailed,
+    /// M8: the cryptographic backend or digest engine reported an
+    /// unexpected condition; fails closed.
+    CryptographicBackendInvariant,
 }
 
 impl fmt::Display for SemanticCategory {
@@ -137,6 +191,25 @@ impl fmt::Display for SemanticCategory {
             Self::AllocationFailed => "result allocation failed",
             Self::HashFailure => "hash length accounting failed",
             Self::InternalInvariant => "internal invariant violated",
+            Self::MissingWitnessScript => "missing witness script for signature verification",
+            Self::UnsupportedFinalScriptFields => {
+                "final script fields unsupported for signature verification"
+            }
+            Self::UnsupportedRedeemScriptRoute => {
+                "redeem script route unsupported for signature verification"
+            }
+            Self::UnsupportedCodeSeparator => "witness script contains code separator",
+            Self::PrevoutNotNativeWitnessScriptHash => {
+                "prevout not native witness script hash commitment"
+            }
+            Self::PartialSignaturePubkeyNotInWitnessScript => {
+                "partial signature pubkey not in witness script"
+            }
+            Self::InvalidCryptographicPubkey => "pubkey not a valid curve point",
+            Self::SignatureVerificationFailed => {
+                "partial signature failed cryptographic verification"
+            }
+            Self::CryptographicBackendInvariant => "cryptographic backend invariant failed",
         };
         f.write_str(s)
     }
@@ -912,28 +985,21 @@ struct InputWork<'a> {
     final_fields: bool,
 }
 
-/// Analyze the M6 semantic subset of one structurally parsed PSBT v0.
-///
-/// STRUCTURAL CANDIDATE ANALYSIS ONLY. This function performs no
-/// cryptographic signature verification, no signing, and no policy
-/// evaluation; it never decides that a PSBT is valid, signable,
-/// complete, or exportable, and it never changes parsing, rejection,
-/// serialization, or any existing behavior. Every returned fact is a
-/// deferred structural claim that requires future cryptographic
-/// verification outside M6. Present final-script fields are surfaced
-/// as requiring that future verification, never as completion.
-///
-/// Analysis is read-only over the borrowed buffer, bounded by the
-/// QK-DEC-039 candidate caps, deterministic, and fail-closed with the
-/// frozen precedence documented at module level.
-///
-/// # Errors
-///
-/// Returns the first [`SemanticError`] in the frozen precedence
-/// order.
-pub fn analyze_semantic_subset<'a>(
-    view: &PsbtView<'a>,
-) -> Result<SemanticCandidate<'a>, SemanticError> {
+/// Shared M6 stage-1 state: checked unsigned-transaction facts,
+/// per-input prevout work, and totals. Extracted verbatim from the
+/// M6 analyzer so the M6 and M8 entrypoints share one implementation;
+/// no M6 behavior changed.
+struct AnalysisState<'a> {
+    facts: UnsignedFacts,
+    work: Vec<InputWork<'a>>,
+    total_input: u64,
+    total_output: u64,
+    fee: u64,
+}
+
+/// Frozen M6 structural stages: unsigned-transaction facts, duplicate
+/// outpoints, inputs ascending, unsigned outputs, totals, and fee.
+fn structural_phase<'a>(view: &PsbtView<'a>) -> Result<AnalysisState<'a>, SemanticError> {
     let buf = view.buffer();
     let facts = unsigned_facts(view)?;
     check_duplicate_outpoints(buf, &facts.inputs)?;
@@ -1047,7 +1113,19 @@ pub fn analyze_semantic_subset<'a>(
             SemanticCategory::NegativeFee,
             view.unsigned_tx().span.start,
         ))?;
+    Ok(AnalysisState {
+        facts,
+        work,
+        total_input,
+        total_output,
+        fee,
+    })
+}
 
+/// Frozen M6 signature stage: sighash record, then partial signatures
+/// in map order, then witnessScript form and candidate counting,
+/// inputs ascending.
+fn signature_phase(view: &PsbtView<'_>, work: &mut [InputWork<'_>]) -> Result<(), SemanticError> {
     // Signature and sighash checks, inputs ascending: sighash record,
     // then partial signatures in map order, then witnessScript form
     // and candidate counting.
@@ -1071,7 +1149,7 @@ pub fn analyze_semantic_subset<'a>(
                             r.value_span.start,
                         )
                     })?;
-                    if u32::from_le_bytes(b) != 1 {
+                    if u32::from_le_bytes(b) != u32::from(SIGHASH_ALL) {
                         return Err(SemanticError::at_input(
                             SemanticCategory::UnsupportedSighash,
                             i,
@@ -1120,7 +1198,7 @@ pub fn analyze_semantic_subset<'a>(
                 ));
             }
             let trailing_offset = r.value_span.end.saturating_sub(1);
-            if r.value.last().copied() != Some(0x01) {
+            if r.value.last().copied() != Some(SIGHASH_ALL) {
                 return Err(SemanticError::at_input(
                     SemanticCategory::UnsupportedSighash,
                     i,
@@ -1150,24 +1228,35 @@ pub fn analyze_semantic_subset<'a>(
             }
         }
     }
+    Ok(())
+}
 
-    // Script token iteration, full consumption: unsigned output
-    // scriptPubKeys, then selected prevout scriptPubKeys.
-    for out in &facts.outputs {
+/// Frozen M6 script-token stage, full consumption: unsigned output
+/// scriptPubKeys, then selected prevout scriptPubKeys.
+fn token_phase(view: &PsbtView<'_>, state: &AnalysisState<'_>) -> Result<(), SemanticError> {
+    let buf = view.buffer();
+    for out in &state.facts.outputs {
         let script = out.script.slice(buf).ok_or(SemanticError::global(
             SemanticCategory::InternalInvariant,
             out.script.start,
         ))?;
         check_script_tokens(script, out.script.start, None)?;
     }
-    for (i, w) in work.iter().enumerate() {
+    for (i, w) in state.work.iter().enumerate() {
         check_script_tokens(w.prevout_script, w.prevout_script_offset, Some(i))?;
     }
+    Ok(())
+}
 
-    // Assemble the candidate result.
+/// Frozen M6 assembly of the candidate result.
+fn assemble<'a>(
+    view: &PsbtView<'a>,
+    state: AnalysisState<'a>,
+) -> Result<SemanticCandidate<'a>, SemanticError> {
+    let buf = view.buffer();
     let mut inputs: Vec<InputSemanticFacts<'a>> = Vec::new();
-    reserve_exact(&mut inputs, work.len(), view.unsigned_tx().span.start)?;
-    for (uin, w) in facts.inputs.iter().zip(work.iter()) {
+    reserve_exact(&mut inputs, state.work.len(), view.unsigned_tx().span.start)?;
+    for (uin, w) in state.facts.inputs.iter().zip(state.work.iter()) {
         let outpoint_txid_wire = uin.txid.slice(buf).ok_or(SemanticError::global(
             SemanticCategory::InternalInvariant,
             uin.outpoint_offset,
@@ -1195,10 +1284,10 @@ pub fn analyze_semantic_subset<'a>(
     let mut outputs: Vec<OutputSemanticFacts<'a>> = Vec::new();
     reserve_exact(
         &mut outputs,
-        facts.outputs.len(),
+        state.facts.outputs.len(),
         view.unsigned_tx().span.start,
     )?;
-    for out in &facts.outputs {
+    for out in &state.facts.outputs {
         let script_pubkey = out.script.slice(buf).ok_or(SemanticError::global(
             SemanticCategory::InternalInvariant,
             out.script.start,
@@ -1209,12 +1298,416 @@ pub fn analyze_semantic_subset<'a>(
         });
     }
     Ok(SemanticCandidate {
-        version: facts.version,
-        locktime: facts.locktime,
+        version: state.facts.version,
+        locktime: state.facts.locktime,
         inputs,
         outputs,
-        total_input_amount: total_input,
-        total_output_amount: total_output,
-        fee,
+        total_input_amount: state.total_input,
+        total_output_amount: state.total_output,
+        fee: state.fee,
+    })
+}
+
+/// Analyze the M6 semantic subset of one structurally parsed PSBT v0.
+///
+/// STRUCTURAL CANDIDATE ANALYSIS ONLY. This function performs no
+/// cryptographic signature verification, no signing, and no policy
+/// evaluation; it never decides that a PSBT is valid, signable,
+/// complete, or exportable, and it never changes parsing, rejection,
+/// serialization, or any existing behavior. Every returned fact is a
+/// deferred structural claim that requires future cryptographic
+/// verification outside M6. Present final-script fields are surfaced
+/// as requiring that future verification, never as completion.
+///
+/// Analysis is read-only over the borrowed buffer, bounded by the
+/// QK-DEC-039 candidate caps, deterministic, and fail-closed with the
+/// frozen precedence documented at module level.
+///
+/// # Errors
+///
+/// Returns the first [`SemanticError`] in the frozen precedence
+/// order.
+pub fn analyze_semantic_subset<'a>(
+    view: &PsbtView<'a>,
+) -> Result<SemanticCandidate<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    signature_phase(view, &mut state.work)?;
+    token_phase(view, &state)?;
+    assemble(view, state)
+}
+
+// ====================================================================
+// M8 read-only cryptographic verification of existing signatures
+// (QK-DEC-044, QK-DEC-045, QK-DEC-046; QK-DEC-033 enacted as a
+// returned disposition only).
+// ====================================================================
+
+/// Defensive upper bound on qk-secp verification calls per analysis.
+/// Derivation: at most `limits::MAX_INPUTS` (100) inputs, and per
+/// input at most `limits::MAX_SIGNERS` (15) distinct witnessScript
+/// member keys can carry counted partial signatures (non-member
+/// records reject immediately), so 1500 calls is structurally
+/// unreachable and exceeding it is an internal invariant violation.
+const MAX_VERIFICATION_CALLS: usize = 1_500;
+
+/// Per-input cryptographic verification status (M8). A status is a
+/// verified fact about existing partial signatures only; it is not an
+/// authorization and bypasses no later S4/S7, ownership, or change
+/// check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifiedInputStatus {
+    /// Fewer cryptographically verified member signatures than the
+    /// input's witnessScript threshold m.
+    BelowThreshold,
+    /// At least m existing partial signatures verified
+    /// cryptographically against this input's computed BIP143
+    /// SIGHASH_ALL digest.
+    CryptographicallyVerifiedThreshold,
+}
+
+/// Aggregate cryptographic completeness across all inputs (M8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifiedAggregateStatus {
+    /// Every input is below its threshold.
+    AllInputsBelowThreshold,
+    /// Some inputs reached their threshold and others did not.
+    MixedInputCompleteness,
+    /// Every input reached its cryptographically verified threshold
+    /// (the QK-DEC-033 disposition). This is a returned fact and a
+    /// no-additional-signature direction only: no export is performed
+    /// or authorized here, and no later S4/S7 authorization,
+    /// ownership, or change check is bypassed or weakened.
+    VerifyAndExportOnly,
+}
+
+/// Per-input verified facts (M8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifiedInputFacts {
+    /// Count of existing partial signatures that verified
+    /// cryptographically against this input's computed digest. Only
+    /// witnessScript member records are counted; any malformed,
+    /// off-curve, non-member, or failing record rejects the whole
+    /// result instead of being skipped.
+    pub verified_signature_count: usize,
+    /// Verified threshold status for this input.
+    pub status: VerifiedInputStatus,
+}
+
+/// The M8 verified result: the unchanged, still non-authoritative M6
+/// structural candidate plus cryptographically verified per-input
+/// facts and one aggregate status. Everything is derived read-only
+/// from the same parsed view; nothing here signs, inserts, finalizes,
+/// exports, or authorizes anything.
+#[derive(Debug, Clone)]
+pub struct VerifiedSemanticCandidate<'a> {
+    /// The embedded M6 structural candidate, unchanged and still
+    /// explicitly non-authoritative (its structural signature counts
+    /// remain unverified claims).
+    pub candidate: SemanticCandidate<'a>,
+    /// Per-input verified facts in unsigned-transaction input order.
+    pub verified_inputs: Vec<VerifiedInputFacts>,
+    /// Aggregate verified status across all inputs.
+    pub aggregate_status: VerifiedAggregateStatus,
+}
+
+/// Map a digest-engine error into the semantic error space. `Hash`
+/// maps to the existing hash-failure category; every other engine
+/// condition (including an unsigned-transaction output scriptPubKey
+/// exceeding the engine's output-script cap) fails closed as a
+/// cryptographic backend invariant.
+fn map_bip143(e: Bip143Error, input_index: Option<usize>, offset: usize) -> SemanticError {
+    let category = match e {
+        Bip143Error::Hash => SemanticCategory::HashFailure,
+        Bip143Error::ScriptCodeTooLong
+        | Bip143Error::OutputScriptTooLong
+        | Bip143Error::Invariant => SemanticCategory::CryptographicBackendInvariant,
+    };
+    SemanticError {
+        category,
+        input_index,
+        offset,
+    }
+}
+
+/// M8 pre-verification screen, inputs ascending, before any
+/// cryptographic call: require a witnessScript record; reject
+/// final-script fields; reject a malformed witnessScript push; reject
+/// an actual OP_CODESEPARATOR opcode by parsed opcode semantics
+/// (never a raw byte scan; pushed 0xAB data never matches); require
+/// the canonical bounded m-of-n form; require the selected prevout
+/// scriptPubKey to be the exact native P2WSH commitment
+/// `00 20 SHA256(witnessScript)` (a coherence check, not an ownership
+/// claim); reject a redeem-script (wrapped) route.
+fn verification_screen(
+    view: &PsbtView<'_>,
+    state: &AnalysisState<'_>,
+) -> Result<(), SemanticError> {
+    for (i, w) in state.work.iter().enumerate() {
+        let map_start = view.input_map_span(i).map_or(0, |s| s.start);
+        let invariant = SemanticError::at_input(SemanticCategory::InternalInvariant, i, map_start);
+        let records = view.input_records(i).ok_or(invariant)?;
+        let mut witness_script = None;
+        let mut final_field = None;
+        let mut redeem_script = None;
+        for r in records.clone() {
+            match r.key_type {
+                0x04 => {
+                    if redeem_script.is_none() {
+                        redeem_script = Some(r);
+                    }
+                }
+                0x05 => witness_script = Some(r),
+                0x07 | 0x08 => {
+                    if final_field.is_none() {
+                        final_field = Some(r);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let ws = witness_script.ok_or(SemanticError::at_input(
+            SemanticCategory::MissingWitnessScript,
+            i,
+            map_start,
+        ))?;
+        if let Some(r) = final_field {
+            return Err(SemanticError::at_input(
+                SemanticCategory::UnsupportedFinalScriptFields,
+                i,
+                r.value_span.start,
+            ));
+        }
+        for token in ScriptTokens::new(ws.value) {
+            match token {
+                Err(m) => {
+                    return Err(SemanticError::at_input(
+                        SemanticCategory::MalformedScriptPush,
+                        i,
+                        ws.value_span.start.saturating_add(m.offset),
+                    ));
+                }
+                Ok(ScriptToken::Opcode(0xab)) => {
+                    return Err(SemanticError::at_input(
+                        SemanticCategory::UnsupportedCodeSeparator,
+                        i,
+                        ws.value_span.start,
+                    ));
+                }
+                Ok(_) => {}
+            }
+        }
+        if parse_multisig_form(ws.value).is_none() {
+            return Err(SemanticError::at_input(
+                SemanticCategory::WitnessScriptForm,
+                i,
+                ws.value_span.start,
+            ));
+        }
+        let commitment = sha256(&[ws.value]).map_err(|_| {
+            SemanticError::at_input(SemanticCategory::HashFailure, i, ws.value_span.start)
+        })?;
+        let native = w.prevout_script.len() == 34
+            && w.prevout_script.first() == Some(&0x00)
+            && w.prevout_script.get(1) == Some(&0x20)
+            && w.prevout_script.get(2..) == Some(commitment.as_slice());
+        if !native {
+            return Err(SemanticError::at_input(
+                SemanticCategory::PrevoutNotNativeWitnessScriptHash,
+                i,
+                w.prevout_script_offset,
+            ));
+        }
+        if let Some(r) = redeem_script {
+            return Err(SemanticError::at_input(
+                SemanticCategory::UnsupportedRedeemScriptRoute,
+                i,
+                r.value_span.start,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// M8 cryptographic stage. Precomputes hashPrevouts, hashSequence,
+/// and hashOutputs exactly once, derives exactly one BIP143
+/// SIGHASH_ALL digest per input (no per-signature rehashing and no
+/// transaction-sized buffer), then verifies every existing partial
+/// signature in map order through qk-secp: witnessScript membership
+/// first, then compressed-pubkey curve validity, then the trailing
+/// sighash byte bound to [`SIGHASH_ALL`], then a DER-only signature
+/// parse (the trailing byte is never passed on), then digest
+/// verification. Any failing record rejects the whole result.
+fn verification_phase(
+    view: &PsbtView<'_>,
+    candidate: &SemanticCandidate<'_>,
+) -> Result<(Vec<VerifiedInputFacts>, VerifiedAggregateStatus), SemanticError> {
+    let global_offset = view.unsigned_tx().span.start;
+    let mut builder = Bip143PrecomputeBuilder::new();
+    for (i, input) in candidate.inputs.iter().enumerate() {
+        let txid: &[u8; 32] = input.outpoint_txid_wire.try_into().map_err(|_| {
+            SemanticError::at_input(SemanticCategory::InternalInvariant, i, global_offset)
+        })?;
+        builder
+            .add_input(txid, input.outpoint_vout, input.sequence)
+            .map_err(|e| map_bip143(e, Some(i), global_offset))?;
+    }
+    for output in &candidate.outputs {
+        builder
+            .add_output(output.amount, output.script_pubkey)
+            .map_err(|e| map_bip143(e, None, global_offset))?;
+    }
+    let precomputed = builder
+        .finish()
+        .map_err(|e| map_bip143(e, None, global_offset))?;
+
+    let mut verified_inputs: Vec<VerifiedInputFacts> = Vec::new();
+    reserve_exact(&mut verified_inputs, candidate.inputs.len(), global_offset)?;
+    let mut verification_calls = 0usize;
+    for (i, input) in candidate.inputs.iter().enumerate() {
+        let map_start = view.input_map_span(i).map_or(0, |s| s.start);
+        let invariant = SemanticError::at_input(SemanticCategory::InternalInvariant, i, map_start);
+        let records = view.input_records(i).ok_or(invariant)?;
+        let mut witness_script = None;
+        for r in records.clone() {
+            if r.key_type == 0x05 {
+                witness_script = Some(r);
+            }
+        }
+        let ws = witness_script.ok_or(invariant)?;
+        let form = input.multisig_form.ok_or(invariant)?;
+        let txid: &[u8; 32] = input.outpoint_txid_wire.try_into().map_err(|_| invariant)?;
+        let facts = Bip143InputFacts {
+            outpoint_txid_wire: txid,
+            outpoint_vout: input.outpoint_vout,
+            script_code: ws.value,
+            amount_sats: input.prevout_amount,
+            sequence: input.sequence,
+        };
+        let digest =
+            sighash_all_digest(candidate.version, candidate.locktime, &precomputed, &facts)
+                .map_err(|e| map_bip143(e, Some(i), ws.value_span.start))?;
+        let mut verified = 0usize;
+        for r in records.clone() {
+            if r.key_type != 0x02 {
+                continue;
+            }
+            if !multisig_contains_key(ws.value, r.key_data) {
+                return Err(SemanticError::at_input(
+                    SemanticCategory::PartialSignaturePubkeyNotInWitnessScript,
+                    i,
+                    r.key_data_span.start,
+                ));
+            }
+            let key: &[u8; 33] = r.key_data.try_into().map_err(|_| invariant)?;
+            let pubkey = qk_secp::pubkey_parse_compressed(key).map_err(|_| {
+                SemanticError::at_input(
+                    SemanticCategory::InvalidCryptographicPubkey,
+                    i,
+                    r.key_data_span.start,
+                )
+            })?;
+            let (trailing, der) = r.value.split_last().ok_or(invariant)?;
+            if *trailing != SIGHASH_ALL {
+                return Err(SemanticError::at_input(
+                    SemanticCategory::UnsupportedSighash,
+                    i,
+                    r.value_span.end.saturating_sub(1),
+                ));
+            }
+            let signature = qk_secp::signature_parse_der(der).map_err(|_| {
+                SemanticError::at_input(
+                    SemanticCategory::SignatureVerificationFailed,
+                    i,
+                    r.value_span.start,
+                )
+            })?;
+            verification_calls = verification_calls.saturating_add(1);
+            if verification_calls > MAX_VERIFICATION_CALLS {
+                return Err(invariant);
+            }
+            match qk_secp::ecdsa_verify(&signature, &digest, &pubkey) {
+                Ok(()) => {}
+                Err(qk_secp::SecpError::VerificationFailed) => {
+                    return Err(SemanticError::at_input(
+                        SemanticCategory::SignatureVerificationFailed,
+                        i,
+                        r.value_span.start,
+                    ));
+                }
+                Err(_) => {
+                    return Err(SemanticError::at_input(
+                        SemanticCategory::CryptographicBackendInvariant,
+                        i,
+                        r.value_span.start,
+                    ));
+                }
+            }
+            verified = verified.saturating_add(1);
+        }
+        let status = if verified >= form.required_m {
+            VerifiedInputStatus::CryptographicallyVerifiedThreshold
+        } else {
+            VerifiedInputStatus::BelowThreshold
+        };
+        verified_inputs.push(VerifiedInputFacts {
+            verified_signature_count: verified,
+            status,
+        });
+    }
+    let all_verified = !verified_inputs.is_empty()
+        && verified_inputs
+            .iter()
+            .all(|v| v.status == VerifiedInputStatus::CryptographicallyVerifiedThreshold);
+    let none_verified = verified_inputs
+        .iter()
+        .all(|v| v.status == VerifiedInputStatus::BelowThreshold);
+    let aggregate_status = if all_verified {
+        VerifiedAggregateStatus::VerifyAndExportOnly
+    } else if none_verified {
+        VerifiedAggregateStatus::AllInputsBelowThreshold
+    } else {
+        VerifiedAggregateStatus::MixedInputCompleteness
+    };
+    Ok((verified_inputs, aggregate_status))
+}
+
+/// Analyze one structurally parsed PSBT v0 and cryptographically
+/// verify its existing partial signatures (M8, QK-DEC-044..046).
+///
+/// READ-ONLY VERIFICATION OF EXISTING SIGNATURES ONLY. Everything is
+/// derived from the same borrowed view; no separately supplied
+/// candidate is accepted. This entrypoint performs no signing, no
+/// signature insertion, no finalization, no export, and no policy
+/// authorization; the M6 structural candidate it embeds is preserved
+/// unchanged and remains non-authoritative. The
+/// [`VerifiedAggregateStatus::VerifyAndExportOnly`] disposition is a
+/// returned fact only and bypasses no later S4/S7 authorization,
+/// ownership, or change check.
+///
+/// Frozen M8 precedence is documented at module level. Analysis is
+/// deterministic, fail-closed, bounded by the existing structural
+/// caps plus [`MAX_VERIFICATION_CALLS`], computes the three BIP143
+/// precomputed hashes once and one digest per input, and allocates
+/// only exact fallible reservations.
+///
+/// # Errors
+///
+/// Returns the first [`SemanticError`] in the frozen M8 precedence
+/// order. Any malformed, off-curve, non-member, or cryptographically
+/// failing partial signature rejects the whole result even when m
+/// other signatures verify.
+pub fn analyze_and_verify_signatures<'a>(
+    view: &PsbtView<'a>,
+) -> Result<VerifiedSemanticCandidate<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    verification_screen(view, &state)?;
+    signature_phase(view, &mut state.work)?;
+    token_phase(view, &state)?;
+    let candidate = assemble(view, state)?;
+    let (verified_inputs, aggregate_status) = verification_phase(view, &candidate)?;
+    Ok(VerifiedSemanticCandidate {
+        candidate,
+        verified_inputs,
+        aggregate_status,
     })
 }

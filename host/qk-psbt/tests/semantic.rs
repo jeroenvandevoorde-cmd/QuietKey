@@ -4,8 +4,9 @@
 //! cross-checked against hard-coded digests.
 
 use qk_psbt::{
-    analyze_semantic_subset, canonical_serialize, parse, InputSignatureStatus, InputSource,
-    ScriptToken, ScriptTokens, SemanticCategory, SemanticError,
+    analyze_and_verify_signatures, analyze_semantic_subset, canonical_serialize, parse,
+    InputSignatureStatus, InputSource, ScriptToken, ScriptTokens, SemanticCategory, SemanticError,
+    VerifiedAggregateStatus, VerifiedInputStatus,
 };
 
 const MAX_MONEY: u64 = 2_100_000_000_000_000;
@@ -1107,4 +1108,978 @@ fn deterministic_no_panic_mutation_sweep() {
         assert_eq!(run(t), run(t), "truncation {len} not deterministic");
     }
     assert!(run(&base).starts_with("Ok"));
+}
+
+// ===============================================================
+// M8: read-only cryptographic verification of existing signatures
+// (QK-DEC-044..046).
+//
+// The repository intentionally contains no signing capability, so
+// these tests carry a minimal test-local secp256k1 signer with the
+// fixed nonce k = 1 and tiny synthetic private scalars (2..=16).
+// Everything below is public/synthetic, deterministic, and
+// non-fundable test material only — it is never secret and never
+// touches the crates under test. Every produced signature is
+// cross-checked through the qk-secp verification boundary before the
+// suite relies on it.
+// ===============================================================
+
+type U256 = [u64; 4];
+
+const SECP_P: U256 = [
+    0xffff_fffe_ffff_fc2f,
+    0xffff_ffff_ffff_ffff,
+    0xffff_ffff_ffff_ffff,
+    0xffff_ffff_ffff_ffff,
+];
+const SECP_N: U256 = [
+    0xbfd2_5e8c_d036_4141,
+    0xbaae_dce6_af48_a03b,
+    0xffff_ffff_ffff_fffe,
+    0xffff_ffff_ffff_ffff,
+];
+const SECP_GX: U256 = [
+    0x59f2_815b_16f8_1798,
+    0x029b_fcdb_2dce_28d9,
+    0x55a0_6295_ce87_0b07,
+    0x79be_667e_f9dc_bbac,
+];
+const SECP_GY: U256 = [
+    0x9c47_d08f_fb10_d4b8,
+    0xfd17_b448_a685_5419,
+    0x5da4_fbfc_0e11_08a8,
+    0x483a_da77_26a3_c465,
+];
+
+fn u_cmp(a: &U256, b: &U256) -> std::cmp::Ordering {
+    for i in (0..4).rev() {
+        match a[i].cmp(&b[i]) {
+            std::cmp::Ordering::Equal => {}
+            other => return other,
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+fn u_add(a: &U256, b: &U256) -> (U256, bool) {
+    let mut r = [0u64; 4];
+    let mut carry = false;
+    for i in 0..4 {
+        let (v1, c1) = a[i].overflowing_add(b[i]);
+        let (v2, c2) = v1.overflowing_add(u64::from(carry));
+        r[i] = v2;
+        carry = c1 || c2;
+    }
+    (r, carry)
+}
+
+fn u_sub(a: &U256, b: &U256) -> (U256, bool) {
+    let mut r = [0u64; 4];
+    let mut borrow = false;
+    for i in 0..4 {
+        let (v1, b1) = a[i].overflowing_sub(b[i]);
+        let (v2, b2) = v1.overflowing_sub(u64::from(borrow));
+        r[i] = v2;
+        borrow = b1 || b2;
+    }
+    (r, borrow)
+}
+
+fn add_mod(a: &U256, b: &U256, m: &U256) -> U256 {
+    let (s, carry) = u_add(a, b);
+    if carry || u_cmp(&s, m) != std::cmp::Ordering::Less {
+        u_sub(&s, m).0
+    } else {
+        s
+    }
+}
+
+fn sub_mod(a: &U256, b: &U256, m: &U256) -> U256 {
+    let (d, borrow) = u_sub(a, b);
+    if borrow {
+        u_add(&d, m).0
+    } else {
+        d
+    }
+}
+
+fn mul_wide(a: &U256, b: &U256) -> [u64; 8] {
+    let mut w = [0u64; 8];
+    for i in 0..4 {
+        let mut carry: u128 = 0;
+        for j in 0..4 {
+            let v = u128::from(a[i]) * u128::from(b[j]) + u128::from(w[i + j]) + carry;
+            w[i + j] = v as u64;
+            carry = v >> 64;
+        }
+        w[i + 4] = carry as u64;
+    }
+    w
+}
+
+/// Reduce a 512-bit product modulo the secp256k1 field prime using
+/// 2^256 = 2^32 + 977 (mod p).
+fn reduce_p(w: &[u64; 8]) -> U256 {
+    const FOLD: u64 = 0x1_0000_03d1;
+    let mut t = [0u64; 5];
+    let mut carry: u128 = 0;
+    for i in 0..4 {
+        let v = u128::from(w[i]) + u128::from(w[i + 4]) * u128::from(FOLD) + carry;
+        t[i] = v as u64;
+        carry = v >> 64;
+    }
+    t[4] = carry as u64;
+    let prod = u128::from(t[4]) * u128::from(FOLD);
+    let (v0, c0) = t[0].overflowing_add(prod as u64);
+    let (v1a, c1a) = t[1].overflowing_add((prod >> 64) as u64);
+    let (v1, c1b) = v1a.overflowing_add(u64::from(c0));
+    let (v2, c2) = t[2].overflowing_add(u64::from(c1a || c1b));
+    let (v3, c3) = t[3].overflowing_add(u64::from(c2));
+    let mut r = [v0, v1, v2, v3];
+    if c3 {
+        r = u_add(&r, &[FOLD, 0, 0, 0]).0;
+    }
+    while u_cmp(&r, &SECP_P) != std::cmp::Ordering::Less {
+        r = u_sub(&r, &SECP_P).0;
+    }
+    r
+}
+
+fn fmul(a: &U256, b: &U256) -> U256 {
+    reduce_p(&mul_wide(a, b))
+}
+
+fn fadd(a: &U256, b: &U256) -> U256 {
+    add_mod(a, b, &SECP_P)
+}
+
+fn fsub(a: &U256, b: &U256) -> U256 {
+    sub_mod(a, b, &SECP_P)
+}
+
+/// Field inverse by Fermat: a^(p-2) mod p.
+fn finv(a: &U256) -> U256 {
+    let e = u_sub(&SECP_P, &[2, 0, 0, 0]).0;
+    let mut acc: U256 = [1, 0, 0, 0];
+    for i in (0..256).rev() {
+        acc = fmul(&acc, &acc);
+        if (e[i / 64] >> (i % 64)) & 1 == 1 {
+            acc = fmul(&acc, a);
+        }
+    }
+    acc
+}
+
+#[derive(Clone, Copy)]
+struct Pt {
+    x: U256,
+    y: U256,
+}
+
+fn pt_double(p: &Pt) -> Pt {
+    let x2 = fmul(&p.x, &p.x);
+    let num = fadd(&fadd(&x2, &x2), &x2);
+    let lambda = fmul(&num, &finv(&fadd(&p.y, &p.y)));
+    let x = fsub(&fsub(&fmul(&lambda, &lambda), &p.x), &p.x);
+    let y = fsub(&fmul(&lambda, &fsub(&p.x, &x)), &p.y);
+    Pt { x, y }
+}
+
+fn pt_add(p: &Pt, q: &Pt) -> Pt {
+    assert!(p.x != q.x, "test signer supports distinct-x addition only");
+    let lambda = fmul(&fsub(&q.y, &p.y), &finv(&fsub(&q.x, &p.x)));
+    let x = fsub(&fsub(&fmul(&lambda, &lambda), &p.x), &q.x);
+    let y = fsub(&fmul(&lambda, &fsub(&p.x, &x)), &p.y);
+    Pt { x, y }
+}
+
+/// d*G for a small synthetic scalar d >= 1, by repeated addition.
+fn g_point(d: u64) -> Pt {
+    assert!(d >= 1, "test signer scalar must be nonzero");
+    let g = Pt {
+        x: SECP_GX,
+        y: SECP_GY,
+    };
+    let mut acc = g;
+    for _ in 1..d {
+        acc = if acc.x == g.x {
+            pt_double(&acc)
+        } else {
+            pt_add(&acc, &g)
+        };
+    }
+    acc
+}
+
+fn be32(u: &U256) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for (i, limb) in u.iter().rev().enumerate() {
+        out[i * 8..(i + 1) * 8].copy_from_slice(&limb.to_be_bytes());
+    }
+    out
+}
+
+fn from_be32(b: &[u8; 32]) -> U256 {
+    let mut u = [0u64; 4];
+    for (i, chunk) in b.chunks(8).enumerate() {
+        u[3 - i] = u64::from_be_bytes(chunk.try_into().unwrap());
+    }
+    u
+}
+
+fn n_reduce(z: &U256) -> U256 {
+    if u_cmp(z, &SECP_N) == std::cmp::Ordering::Less {
+        *z
+    } else {
+        u_sub(z, &SECP_N).0
+    }
+}
+
+/// Shift-add multiplication modulo the group order.
+fn n_mul(a: &U256, b: &U256) -> U256 {
+    let mut acc: U256 = [0, 0, 0, 0];
+    for i in (0..256).rev() {
+        acc = add_mod(&acc, &acc, &SECP_N);
+        if (b[i / 64] >> (i % 64)) & 1 == 1 {
+            acc = add_mod(&acc, a, &SECP_N);
+        }
+    }
+    acc
+}
+
+/// Compressed pubkey for the synthetic scalar d.
+fn m8_pubkey(d: u64) -> [u8; 33] {
+    let p = g_point(d);
+    let mut out = [0u8; 33];
+    out[0] = if p.y[0] & 1 == 0 { 0x02 } else { 0x03 };
+    out[1..].copy_from_slice(&be32(&p.x));
+    out
+}
+
+/// Minimal DER integer bytes: strip leading zero bytes, then prepend
+/// 0x00 when the top bit is set.
+fn der_int(u: &U256) -> Vec<u8> {
+    let b = be32(u);
+    let first = b.iter().position(|&x| x != 0).unwrap_or(31);
+    let mut v = Vec::new();
+    if b[first] & 0x80 != 0 {
+        v.push(0);
+    }
+    v.extend_from_slice(&b[first..]);
+    v
+}
+
+/// ECDSA over the digest with nonce k = 1: r = Gx mod n and
+/// s = z + r*d mod n (then low-S normalized). Valid but intentionally
+/// insecure — synthetic test-only material.
+fn m8_sign_scalars(d: u64, digest: &[u8; 32]) -> (U256, U256) {
+    let z = n_reduce(&from_be32(digest));
+    let r = n_reduce(&SECP_GX);
+    let mut s = add_mod(&z, &n_mul(&r, &[d, 0, 0, 0]), &SECP_N);
+    assert_ne!(s, [0, 0, 0, 0], "test signer produced degenerate s");
+    if u_cmp(&s, &from_be32(&LOW_S_MAX)) == std::cmp::Ordering::Greater {
+        s = u_sub(&SECP_N, &s).0;
+    }
+    (r, s)
+}
+
+/// Strict-DER low-S signature value (DER || 0x01 trailing byte).
+fn m8_sign(d: u64, digest: &[u8; 32]) -> Vec<u8> {
+    let (r, s) = m8_sign_scalars(d, digest);
+    der(&der_int(&r), &der_int(&s), 0x01)
+}
+
+/// High-S form of the same signature (for M6 HighS coverage).
+fn m8_sign_high_s(d: u64, digest: &[u8; 32]) -> Vec<u8> {
+    let (r, s) = m8_sign_scalars(d, digest);
+    let high = u_sub(&SECP_N, &s).0;
+    der(&der_int(&r), &der_int(&high), 0x01)
+}
+
+/// A compressed-pubkey encoding whose x-coordinate is not on the
+/// curve, found deterministically and confirmed through qk-secp.
+fn m8_off_curve_pubkey() -> [u8; 33] {
+    for x in 1u64..200 {
+        let mut k = [0u8; 33];
+        k[0] = 0x02;
+        k[1..].copy_from_slice(&be32(&[x, 0, 0, 0]));
+        if qk_secp::pubkey_parse_compressed(&k).is_err() {
+            return k;
+        }
+    }
+    unreachable!("no off-curve x-coordinate found in the probe range");
+}
+
+// ---------------------------------------------------------------
+// M8 fixture builders.
+// ---------------------------------------------------------------
+
+fn p2wsh(ws: &[u8]) -> Vec<u8> {
+    let mut v = vec![0x00, 0x20];
+    v.extend_from_slice(&oracle_sha256(ws));
+    v
+}
+
+/// M8 input spec: witnessScript, prevout amount, prevtx salt, and
+/// extra input-map records appended after non_witness_utxo (and the
+/// witnessScript record unless omitted).
+#[derive(Clone)]
+struct M8In {
+    ws: Vec<u8>,
+    amount: u64,
+    salt: u8,
+    records: Vec<Vec<u8>>,
+    omit_ws: bool,
+    spk_override: Option<Vec<u8>>,
+}
+
+impl M8In {
+    fn new(ws: &[u8], amount: u64, salt: u8) -> Self {
+        Self {
+            ws: ws.to_vec(),
+            amount,
+            salt,
+            records: Vec::new(),
+            omit_ws: false,
+            spk_override: None,
+        }
+    }
+
+    fn with(mut self, r: Vec<u8>) -> Self {
+        self.records.push(r);
+        self
+    }
+}
+
+fn m8_prevtx(spec: &M8In) -> Vec<u8> {
+    let spk = spec.spk_override.clone().unwrap_or_else(|| p2wsh(&spec.ws));
+    prevtx_legacy(spec.salt, 1, &[], &[(spec.amount, spk)])
+}
+
+fn m8_psbt(specs: &[M8In], outs: &[(u64, Vec<u8>)]) -> Vec<u8> {
+    let ins: Vec<([u8; 32], u32)> = specs
+        .iter()
+        .map(|s| (oracle_sha256d(&m8_prevtx(s)), 0))
+        .collect();
+    let unsigned = unsigned_tx(&ins, outs);
+    let maps: Vec<Vec<Vec<u8>>> = specs
+        .iter()
+        .map(|s| {
+            let mut m = vec![r_nwutxo(&m8_prevtx(s))];
+            if !s.omit_ws {
+                m.push(r_wscript(&s.ws));
+            }
+            m.extend(s.records.iter().cloned());
+            m
+        })
+        .collect();
+    psbt(&unsigned, &maps, outs.len())
+}
+
+/// BIP143 SIGHASH_ALL digest for input `index` of the fixture that
+/// `m8_psbt` produces (version 2, all vouts 0, sequence 0xffffffff,
+/// locktime 0), computed through the crate's KAT-anchored engine.
+fn m8_digest(specs: &[M8In], outs: &[(u64, Vec<u8>)], index: usize) -> [u8; 32] {
+    use qk_psbt::bip143::{sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder};
+    let txids: Vec<[u8; 32]> = specs
+        .iter()
+        .map(|s| oracle_sha256d(&m8_prevtx(s)))
+        .collect();
+    let mut b = Bip143PrecomputeBuilder::new();
+    for t in &txids {
+        b.add_input(t, 0, 0xffff_ffff).unwrap();
+    }
+    for (amount, script) in outs {
+        b.add_output(*amount, script).unwrap();
+    }
+    let pre = b.finish().unwrap();
+    sighash_all_digest(
+        2,
+        0,
+        &pre,
+        &Bip143InputFacts {
+            outpoint_txid_wire: &txids[index],
+            outpoint_vout: 0,
+            script_code: &specs[index].ws,
+            amount_sats: specs[index].amount,
+            sequence: 0xffff_ffff,
+        },
+    )
+    .unwrap()
+}
+
+type M8Outcome = (Vec<(usize, VerifiedInputStatus)>, VerifiedAggregateStatus);
+
+fn m8_run(bytes: &[u8]) -> Result<M8Outcome, SemanticError> {
+    let view = parse(bytes, InputSource::MicroSd).expect("fixture must parse");
+    analyze_and_verify_signatures(&view).map(|v| {
+        (
+            v.verified_inputs
+                .iter()
+                .map(|f| (f.verified_signature_count, f.status))
+                .collect(),
+            v.aggregate_status,
+        )
+    })
+}
+
+fn m8_err(bytes: &[u8]) -> SemanticError {
+    m8_run(bytes).expect_err("expected M8 rejection")
+}
+
+// ---------------------------------------------------------------
+// M8 tests.
+// ---------------------------------------------------------------
+
+#[test]
+fn m8_test_signer_cross_checked_through_qk_secp() {
+    let digest = [0x42u8; 32];
+    let other = [0x43u8; 32];
+    for d in [2u64, 3, 4, 16] {
+        let key = m8_pubkey(d);
+        let pubkey = qk_secp::pubkey_parse_compressed(&key).expect("synthetic pubkey on curve");
+        let sig = m8_sign(d, &digest);
+        assert_eq!(sig.last(), Some(&0x01));
+        let der_only = &sig[..sig.len() - 1];
+        let parsed = qk_secp::signature_parse_der(der_only).expect("strict DER");
+        qk_secp::ecdsa_verify(&parsed, &digest, &pubkey).expect("synthetic signature verifies");
+        assert!(qk_secp::ecdsa_verify(&parsed, &other, &pubkey).is_err());
+        let high = m8_sign_high_s(d, &digest);
+        let parsed_high =
+            qk_secp::signature_parse_der(&high[..high.len() - 1]).expect("high-S DER parses");
+        assert!(qk_secp::ecdsa_verify(&parsed_high, &digest, &pubkey).is_err());
+    }
+    assert!(qk_secp::pubkey_parse_compressed(&m8_off_curve_pubkey()).is_err());
+}
+
+#[test]
+fn m8_verified_counts_and_threshold_single_input() {
+    let keys = [m8_pubkey(2), m8_pubkey(3), m8_pubkey(4)];
+    let ws = wscript(2, &keys);
+    let outs = vec![(80_000u64, spk())];
+    let base = M8In::new(&ws, 100_000, 0x21);
+    let digest = m8_digest(std::slice::from_ref(&base), &outs, 0);
+    let cases: Vec<(
+        Vec<u64>,
+        usize,
+        VerifiedInputStatus,
+        VerifiedAggregateStatus,
+    )> = vec![
+        (
+            vec![],
+            0,
+            VerifiedInputStatus::BelowThreshold,
+            VerifiedAggregateStatus::AllInputsBelowThreshold,
+        ),
+        (
+            vec![2],
+            1,
+            VerifiedInputStatus::BelowThreshold,
+            VerifiedAggregateStatus::AllInputsBelowThreshold,
+        ),
+        (
+            vec![2, 3],
+            2,
+            VerifiedInputStatus::CryptographicallyVerifiedThreshold,
+            VerifiedAggregateStatus::VerifyAndExportOnly,
+        ),
+        (
+            vec![2, 3, 4],
+            3,
+            VerifiedInputStatus::CryptographicallyVerifiedThreshold,
+            VerifiedAggregateStatus::VerifyAndExportOnly,
+        ),
+    ];
+    for (signers, count, status, aggregate) in cases {
+        let mut spec = base.clone();
+        for d in &signers {
+            spec = spec.with(r_sig(&m8_pubkey(*d), &m8_sign(*d, &digest)));
+        }
+        let bytes = m8_psbt(&[spec], &outs);
+        let (inputs, agg) = m8_run(&bytes).expect("verified analysis succeeds");
+        assert_eq!(inputs, vec![(count, status)], "signers {signers:?}");
+        assert_eq!(agg, aggregate, "signers {signers:?}");
+        // The M6 entrypoint stays available and unchanged on the same
+        // bytes, and the embedded candidate matches its output.
+        let view = parse(&bytes, InputSource::MicroSd).unwrap();
+        let m6 = analyze_semantic_subset(&view).unwrap();
+        let verified = analyze_and_verify_signatures(&view).unwrap();
+        assert_eq!(verified.candidate.fee, m6.fee);
+        assert_eq!(verified.candidate.inputs.len(), m6.inputs.len());
+        assert_eq!(
+            verified.candidate.inputs[0].structural_signature_candidates,
+            m6.inputs[0].structural_signature_candidates
+        );
+        assert_eq!(
+            verified.candidate.inputs[0].signature_status,
+            m6.inputs[0].signature_status
+        );
+        canonical_serialize(&view).expect("serializer unaffected");
+    }
+}
+
+#[test]
+fn m8_aggregate_statuses_multi_input() {
+    let keys = [m8_pubkey(2), m8_pubkey(3), m8_pubkey(4)];
+    let ws = wscript(2, &keys);
+    let outs = vec![(120_000u64, spk())];
+    let base = [M8In::new(&ws, 100_000, 0x31), M8In::new(&ws, 90_000, 0x32)];
+    let d0 = m8_digest(&base, &outs, 0);
+    let d1 = m8_digest(&base, &outs, 1);
+    assert_ne!(d0, d1, "per-input digests must differ");
+    let signed = |spec: &M8In, digest: &[u8; 32]| {
+        spec.clone()
+            .with(r_sig(&m8_pubkey(2), &m8_sign(2, digest)))
+            .with(r_sig(&m8_pubkey(3), &m8_sign(3, digest)))
+    };
+    let threshold = VerifiedInputStatus::CryptographicallyVerifiedThreshold;
+    let below = VerifiedInputStatus::BelowThreshold;
+
+    let all = m8_psbt(&[signed(&base[0], &d0), signed(&base[1], &d1)], &outs);
+    let (inputs, agg) = m8_run(&all).unwrap();
+    assert_eq!(inputs, vec![(2, threshold), (2, threshold)]);
+    assert_eq!(agg, VerifiedAggregateStatus::VerifyAndExportOnly);
+
+    let mixed = m8_psbt(&[signed(&base[0], &d0), base[1].clone()], &outs);
+    let (inputs, agg) = m8_run(&mixed).unwrap();
+    assert_eq!(inputs, vec![(2, threshold), (0, below)]);
+    assert_eq!(agg, VerifiedAggregateStatus::MixedInputCompleteness);
+
+    let none = m8_psbt(&base, &outs);
+    let (inputs, agg) = m8_run(&none).unwrap();
+    assert_eq!(inputs, vec![(0, below), (0, below)]);
+    assert_eq!(agg, VerifiedAggregateStatus::AllInputsBelowThreshold);
+}
+
+#[test]
+fn m8_screen_missing_witness_script_and_final_fields() {
+    let keys = [m8_pubkey(2), m8_pubkey(3)];
+    let ws = wscript(2, &keys);
+    let outs = vec![(80_000u64, spk())];
+    // Missing witnessScript: M8 rejects with its own fixed category;
+    // M6 still accepts the same bytes structurally.
+    let mut spec = M8In::new(&ws, 100_000, 0x41);
+    spec.omit_ws = true;
+    let bytes = m8_psbt(&[spec], &outs);
+    let e = m8_err(&bytes);
+    assert_eq!(e.category, SemanticCategory::MissingWitnessScript);
+    assert_eq!(e.input_index, Some(0));
+    assert_ok(&bytes);
+    // Final-script fields are unsupported for verification even when
+    // the threshold would otherwise verify; M6 accepts them.
+    let base = M8In::new(&ws, 100_000, 0x42);
+    let digest = m8_digest(std::slice::from_ref(&base), &outs, 0);
+    for final_rec in [rec(&[0x07], &[0x51]), rec(&[0x08], &[0x01, 0x00])] {
+        let spec = base
+            .clone()
+            .with(r_sig(&m8_pubkey(2), &m8_sign(2, &digest)))
+            .with(r_sig(&m8_pubkey(3), &m8_sign(3, &digest)))
+            .with(final_rec);
+        let bytes = m8_psbt(&[spec], &outs);
+        let e = m8_err(&bytes);
+        assert_eq!(e.category, SemanticCategory::UnsupportedFinalScriptFields);
+        assert_eq!(e.input_index, Some(0));
+        assert_ok(&bytes);
+    }
+}
+
+#[test]
+fn m8_codeseparator_opcode_rejected_pushed_byte_allowed() {
+    let outs = vec![(80_000u64, spk())];
+    // An actual OP_CODESEPARATOR (0xAB) opcode inside the script.
+    let keys = [m8_pubkey(2), m8_pubkey(3)];
+    let mut ws_sep = vec![0x52];
+    for k in &keys {
+        ws_sep.push(0x21);
+        ws_sep.extend_from_slice(k);
+    }
+    ws_sep.push(0xab);
+    ws_sep.push(0x52);
+    ws_sep.push(0xae);
+    let bytes = m8_psbt(&[M8In::new(&ws_sep, 100_000, 0x51)], &outs);
+    assert_eq!(
+        m8_err(&bytes).category,
+        SemanticCategory::UnsupportedCodeSeparator
+    );
+    // Frozen M8 precedence: CodeSeparator beats unsupported sighash;
+    // the frozen M6 precedence on the same bytes is unchanged.
+    let spec = M8In::new(&ws_sep, 100_000, 0x52).with(r_sighash(3));
+    let bytes = m8_psbt(&[spec], &outs);
+    assert_eq!(
+        m8_err(&bytes).category,
+        SemanticCategory::UnsupportedCodeSeparator
+    );
+    assert_eq!(
+        analyze_err(&bytes).category,
+        SemanticCategory::UnsupportedSighash
+    );
+    // A pushed 0xAB data byte never matches: a fake member key made
+    // of 0xAB bytes is push data, and the real threshold verifies.
+    let mut fake = [0xabu8; 33];
+    fake[0] = 0x02;
+    let member_keys = [m8_pubkey(2), m8_pubkey(3), fake];
+    let ws = wscript(2, &member_keys);
+    let base = M8In::new(&ws, 100_000, 0x53);
+    let digest = m8_digest(std::slice::from_ref(&base), &outs, 0);
+    let spec = base
+        .with(r_sig(&m8_pubkey(2), &m8_sign(2, &digest)))
+        .with(r_sig(&m8_pubkey(3), &m8_sign(3, &digest)));
+    let (inputs, agg) = m8_run(&m8_psbt(&[spec], &outs)).unwrap();
+    assert_eq!(
+        inputs,
+        vec![(2, VerifiedInputStatus::CryptographicallyVerifiedThreshold)]
+    );
+    assert_eq!(agg, VerifiedAggregateStatus::VerifyAndExportOnly);
+}
+
+#[test]
+fn m8_native_p2wsh_and_route_matrix() {
+    let keys = [m8_pubkey(2), m8_pubkey(3)];
+    let ws = wscript(2, &keys);
+    let other_ws = wscript(1, &[m8_pubkey(4)]);
+    let outs = vec![(80_000u64, spk())];
+    // The exact native commitment is accepted (below threshold).
+    let bytes = m8_psbt(&[M8In::new(&ws, 100_000, 0x61)], &outs);
+    let (inputs, agg) = m8_run(&bytes).unwrap();
+    assert_eq!(inputs, vec![(0, VerifiedInputStatus::BelowThreshold)]);
+    assert_eq!(agg, VerifiedAggregateStatus::AllInputsBelowThreshold);
+    // Wrong-script commitment, non-native P2WPKH, and wrapped P2SH
+    // prevouts all reject with one fixed category; M6 accepts each.
+    let mut p2sh = vec![0xa9, 0x14];
+    p2sh.extend_from_slice(&[0x77; 20]);
+    p2sh.push(0x87);
+    for bad_spk in [p2wsh(&other_ws), spk(), p2sh] {
+        let mut spec = M8In::new(&ws, 100_000, 0x62);
+        spec.spk_override = Some(bad_spk);
+        let bytes = m8_psbt(&[spec], &outs);
+        let e = m8_err(&bytes);
+        assert_eq!(
+            e.category,
+            SemanticCategory::PrevoutNotNativeWitnessScriptHash
+        );
+        assert_eq!(e.input_index, Some(0));
+        assert_ok(&bytes);
+    }
+    // A redeem-script record (wrapped route) is rejected even with a
+    // correct native commitment; M6 accepts it.
+    let spec = M8In::new(&ws, 100_000, 0x63).with(rec(&[0x04], &[0x51]));
+    let bytes = m8_psbt(&[spec], &outs);
+    assert_eq!(
+        m8_err(&bytes).category,
+        SemanticCategory::UnsupportedRedeemScriptRoute
+    );
+    assert_ok(&bytes);
+    // An unsigned output scriptPubKey at the structural cap (the
+    // parser rejects anything longer before analysis can run) flows
+    // through the digest engine without tripping its invariant.
+    let big_outs = vec![(80_000u64, vec![0x00; 10_000])];
+    let bytes = m8_psbt(&[M8In::new(&ws, 100_000, 0x64)], &big_outs);
+    let (inputs, agg) = m8_run(&bytes).unwrap();
+    assert_eq!(inputs, vec![(0, VerifiedInputStatus::BelowThreshold)]);
+    assert_eq!(agg, VerifiedAggregateStatus::AllInputsBelowThreshold);
+    assert_ok(&bytes);
+}
+
+#[test]
+fn m8_membership_pubkey_and_signature_matrix() {
+    let keys = [m8_pubkey(2), m8_pubkey(3), m8_pubkey(4)];
+    let ws = wscript(2, &keys);
+    let outs = vec![(80_000u64, spk())];
+    let base = M8In::new(&ws, 100_000, 0x71);
+    let digest = m8_digest(std::slice::from_ref(&base), &outs, 0);
+    let wrong = [0x99u8; 32];
+    // A non-member pubkey record rejects even alongside a complete
+    // valid threshold; M6 counts members only and accepts.
+    let spec = base
+        .clone()
+        .with(r_sig(&m8_pubkey(2), &m8_sign(2, &digest)))
+        .with(r_sig(&m8_pubkey(3), &m8_sign(3, &digest)))
+        .with(r_sig(&m8_pubkey(9), &m8_sign(9, &digest)));
+    let bytes = m8_psbt(&[spec], &outs);
+    let e = m8_err(&bytes);
+    assert_eq!(
+        e.category,
+        SemanticCategory::PartialSignaturePubkeyNotInWitnessScript
+    );
+    assert_eq!(e.input_index, Some(0));
+    assert_ok(&bytes);
+    // A wrong-digest signature by a member rejects.
+    let spec = base.clone().with(r_sig(&m8_pubkey(2), &m8_sign(2, &wrong)));
+    assert_eq!(
+        m8_err(&m8_psbt(&[spec], &outs)).category,
+        SemanticCategory::SignatureVerificationFailed
+    );
+    // One invalid extra signature rejects even when m good signatures
+    // exist, wherever it sits in map order.
+    let spec = base
+        .clone()
+        .with(r_sig(&m8_pubkey(2), &m8_sign(2, &digest)))
+        .with(r_sig(&m8_pubkey(3), &m8_sign(3, &digest)))
+        .with(r_sig(&m8_pubkey(4), &m8_sign(4, &wrong)));
+    let bytes = m8_psbt(&[spec], &outs);
+    assert_eq!(
+        m8_err(&bytes).category,
+        SemanticCategory::SignatureVerificationFailed
+    );
+    assert_ok(&bytes);
+    let spec = base
+        .clone()
+        .with(r_sig(&m8_pubkey(2), &m8_sign(2, &wrong)))
+        .with(r_sig(&m8_pubkey(3), &m8_sign(3, &digest)))
+        .with(r_sig(&m8_pubkey(4), &m8_sign(4, &digest)));
+    assert_eq!(
+        m8_err(&m8_psbt(&[spec], &outs)).category,
+        SemanticCategory::SignatureVerificationFailed
+    );
+    // A foreign signature (scalar 2's signature under member pubkey
+    // 3) rejects.
+    let spec = base
+        .clone()
+        .with(r_sig(&m8_pubkey(3), &m8_sign(2, &digest)));
+    assert_eq!(
+        m8_err(&m8_psbt(&[spec], &outs)).category,
+        SemanticCategory::SignatureVerificationFailed
+    );
+    // An off-curve member pubkey with a signature record: membership
+    // passes, cryptographic parsing fails.
+    let off = m8_off_curve_pubkey();
+    let ws_off = wscript(2, &[m8_pubkey(2), m8_pubkey(3), off]);
+    let base_off = M8In::new(&ws_off, 100_000, 0x72);
+    let digest_off = m8_digest(std::slice::from_ref(&base_off), &outs, 0);
+    let spec = base_off.with(r_sig(&off, &m8_sign(5, &digest_off)));
+    assert_eq!(
+        m8_err(&m8_psbt(&[spec], &outs)).category,
+        SemanticCategory::InvalidCryptographicPubkey
+    );
+    // Malformed DER and high-S records keep their M6 categories in
+    // both entrypoints.
+    let spec = base.clone().with(r_sig(&m8_pubkey(2), &[0xff; 40]));
+    let bytes = m8_psbt(&[spec], &outs);
+    assert_eq!(m8_err(&bytes).category, SemanticCategory::StrictDer);
+    assert_eq!(analyze_err(&bytes).category, SemanticCategory::StrictDer);
+    let spec = base
+        .clone()
+        .with(r_sig(&m8_pubkey(2), &m8_sign_high_s(2, &digest)));
+    let bytes = m8_psbt(&[spec], &outs);
+    assert_eq!(m8_err(&bytes).category, SemanticCategory::HighS);
+    assert_eq!(analyze_err(&bytes).category, SemanticCategory::HighS);
+}
+
+#[test]
+fn m8_fifteen_of_fifteen_threshold() {
+    let keys: Vec<[u8; 33]> = (2u64..=16).map(m8_pubkey).collect();
+    let ws = wscript(15, &keys);
+    let outs = vec![(80_000u64, spk())];
+    let base = M8In::new(&ws, 100_000, 0x81);
+    let digest = m8_digest(std::slice::from_ref(&base), &outs, 0);
+    let mut spec = base;
+    for d in 2u64..=16 {
+        spec = spec.with(r_sig(&m8_pubkey(d), &m8_sign(d, &digest)));
+    }
+    let (inputs, agg) = m8_run(&m8_psbt(&[spec], &outs)).unwrap();
+    assert_eq!(
+        inputs,
+        vec![(15, VerifiedInputStatus::CryptographicallyVerifiedThreshold)]
+    );
+    assert_eq!(agg, VerifiedAggregateStatus::VerifyAndExportOnly);
+}
+
+/// Unsigned tx with explicit version, per-input sequence, and
+/// locktime (the shared builder pins all three).
+fn unsigned_tx_v(
+    version: u32,
+    ins: &[([u8; 32], u32, u32)],
+    outs: &[(u64, Vec<u8>)],
+    locktime: u32,
+) -> Vec<u8> {
+    let mut v = version.to_le_bytes().to_vec();
+    v.extend_from_slice(&cs(ins.len() as u64));
+    for (txid, vout, sequence) in ins {
+        v.extend_from_slice(txid);
+        v.extend_from_slice(&vout.to_le_bytes());
+        v.push(0x00);
+        v.extend_from_slice(&sequence.to_le_bytes());
+    }
+    v.extend_from_slice(&cs(outs.len() as u64));
+    for (amount, script) in outs {
+        v.extend_from_slice(&amount.to_le_bytes());
+        v.extend_from_slice(&cs(script.len() as u64));
+        v.extend_from_slice(script);
+    }
+    v.extend_from_slice(&locktime.to_le_bytes());
+    v
+}
+
+#[test]
+fn m8_end_to_end_digest_sensitivity() {
+    let keys = [m8_pubkey(2), m8_pubkey(3)];
+    let ws = wscript(2, &keys);
+    // Two committed prevouts on the first prevtx (amounts differ) so
+    // an in-range vout change is purely a digest-input change.
+    let prev_a = prevtx_legacy(0x91, 1, &[], &[(60_000, p2wsh(&ws)), (60_001, p2wsh(&ws))]);
+    let txid_a = oracle_sha256d(&prev_a);
+    let prev_b = prevtx_legacy(0x92, 1, &[], &[(40_000, p2wsh(&ws))]);
+    let txid_b = oracle_sha256d(&prev_b);
+    let outs = vec![(50_000u64, spk()), (30_000u64, spk())];
+    let base_ins = [(txid_a, 0u32, 0xffff_ffffu32), (txid_b, 0, 0xffff_ffff)];
+
+    let digest_for = |ins: &[([u8; 32], u32, u32)], index: usize, amount: u64| {
+        use qk_psbt::bip143::{sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder};
+        let mut b = Bip143PrecomputeBuilder::new();
+        for (txid, vout, sequence) in ins {
+            b.add_input(txid, *vout, *sequence).unwrap();
+        }
+        for (a, script) in &outs {
+            b.add_output(*a, script).unwrap();
+        }
+        let pre = b.finish().unwrap();
+        sighash_all_digest(
+            2,
+            0,
+            &pre,
+            &Bip143InputFacts {
+                outpoint_txid_wire: &ins[index].0,
+                outpoint_vout: ins[index].1,
+                script_code: &ws,
+                amount_sats: amount,
+                sequence: ins[index].2,
+            },
+        )
+        .unwrap()
+    };
+    let d0 = digest_for(&base_ins, 0, 60_000);
+    let d1 = digest_for(&base_ins, 1, 40_000);
+    let sigs0 = [
+        r_sig(&m8_pubkey(2), &m8_sign(2, &d0)),
+        r_sig(&m8_pubkey(3), &m8_sign(3, &d0)),
+    ];
+    let sigs1 = [
+        r_sig(&m8_pubkey(2), &m8_sign(2, &d1)),
+        r_sig(&m8_pubkey(3), &m8_sign(3, &d1)),
+    ];
+    let build =
+        |version: u32, ins: &[([u8; 32], u32, u32)], outs: &[(u64, Vec<u8>)], locktime: u32| {
+            let unsigned = unsigned_tx_v(version, ins, outs, locktime);
+            let mut map0 = vec![r_nwutxo(&prev_a), r_wscript(&ws)];
+            map0.extend(sigs0.iter().cloned());
+            let mut map1 = vec![r_nwutxo(&prev_b), r_wscript(&ws)];
+            map1.extend(sigs1.iter().cloned());
+            psbt(&unsigned, &[map0, map1], outs.len())
+        };
+    // The baseline verifies completely.
+    let threshold = VerifiedInputStatus::CryptographicallyVerifiedThreshold;
+    let (inputs, agg) = m8_run(&build(2, &base_ins, &outs, 0)).unwrap();
+    assert_eq!(inputs, vec![(2, threshold), (2, threshold)]);
+    assert_eq!(agg, VerifiedAggregateStatus::VerifyAndExportOnly);
+    // Every single digest-input mutation flips verification into the
+    // fixed signature-verification rejection.
+    let mut vout_flip = base_ins;
+    vout_flip[0].1 = 1; // outpoint vout + verified amount change
+    let mut seq_flip = base_ins;
+    seq_flip[1].2 = 0xffff_fffe; // second input sequence
+    let mut amount_out = outs.clone();
+    amount_out[0].0 = 49_999; // first output amount
+    let mut script_out = outs.clone();
+    script_out[1].1[5] = 0xbb; // second output scriptPubKey
+    let mutations = [
+        build(1, &base_ins, &outs, 0), // version
+        build(2, &base_ins, &outs, 1), // locktime
+        build(2, &vout_flip, &outs, 0),
+        build(2, &seq_flip, &outs, 0),
+        build(2, &base_ins, &amount_out, 0),
+        build(2, &base_ins, &script_out, 0),
+    ];
+    for (case, bytes) in mutations.iter().enumerate() {
+        let e = m8_err(bytes);
+        assert_eq!(
+            e.category,
+            SemanticCategory::SignatureVerificationFailed,
+            "mutation {case}"
+        );
+        assert_eq!(e.input_index, Some(0), "mutation {case}");
+    }
+}
+
+#[test]
+fn m8_deterministic_and_no_panic_under_mutation() {
+    let keys = [m8_pubkey(2), m8_pubkey(3), m8_pubkey(4)];
+    let ws = wscript(2, &keys);
+    let outs = vec![(80_000u64, spk())];
+    let base = M8In::new(&ws, 100_000, 0xa1);
+    let digest = m8_digest(std::slice::from_ref(&base), &outs, 0);
+    let spec = base
+        .with(r_sig(&m8_pubkey(2), &m8_sign(2, &digest)))
+        .with(r_sig(&m8_pubkey(3), &m8_sign(3, &digest)));
+    let bytes = m8_psbt(&[spec], &outs);
+    assert!(m8_run(&bytes).is_ok());
+    let describe = |b: &[u8]| match parse(b, InputSource::MicroSd) {
+        Err(e) => format!("parse:{e:?}"),
+        Ok(view) => match analyze_and_verify_signatures(&view) {
+            Ok(v) => format!(
+                "ok:{:?}:{:?}",
+                v.aggregate_status,
+                v.verified_inputs
+                    .iter()
+                    .map(|f| (f.verified_signature_count, f.status))
+                    .collect::<Vec<_>>()
+            ),
+            Err(e) => format!("err:{}:{:?}:{}", e.category, e.input_index, e.offset),
+        },
+    };
+    for i in 0..bytes.len() {
+        let mut m = bytes.clone();
+        m[i] ^= 0x01;
+        assert_eq!(describe(&m), describe(&m), "byte {i} nondeterministic");
+    }
+    for len in 0..bytes.len() {
+        let t = &bytes[..len];
+        assert_eq!(
+            describe(t),
+            describe(t),
+            "truncation {len} nondeterministic"
+        );
+    }
+}
+
+#[test]
+fn m8_fixed_error_text_and_stable_location() {
+    let keys = [m8_pubkey(2), m8_pubkey(3)];
+    let ws = wscript(2, &keys);
+    let outs = vec![(80_000u64, spk())];
+    let mut spec = M8In::new(&ws, 100_000, 0xb1);
+    spec.omit_ws = true;
+    let bytes = m8_psbt(&[spec], &outs);
+    let first = m8_err(&bytes);
+    let second = m8_err(&bytes);
+    assert_eq!(first, second, "error must be byte-for-byte stable");
+    assert_eq!(
+        first.category.to_string(),
+        "missing witness script for signature verification"
+    );
+    // Fixed text only for every new category: no fixture bytes ever
+    // appear in the rendered error.
+    let rendered = [
+        SemanticCategory::MissingWitnessScript.to_string(),
+        SemanticCategory::UnsupportedFinalScriptFields.to_string(),
+        SemanticCategory::UnsupportedRedeemScriptRoute.to_string(),
+        SemanticCategory::UnsupportedCodeSeparator.to_string(),
+        SemanticCategory::PrevoutNotNativeWitnessScriptHash.to_string(),
+        SemanticCategory::PartialSignaturePubkeyNotInWitnessScript.to_string(),
+        SemanticCategory::InvalidCryptographicPubkey.to_string(),
+        SemanticCategory::SignatureVerificationFailed.to_string(),
+        SemanticCategory::CryptographicBackendInvariant.to_string(),
+    ];
+    for text in &rendered {
+        assert!(text.is_ascii());
+        assert!(!text.contains("0x"));
+        assert!(text.chars().all(|c| c.is_ascii_lowercase() || c == ' '));
+    }
+    assert_eq!(
+        rendered.len(),
+        rendered
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        "category texts must be distinct"
+    );
 }

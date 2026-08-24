@@ -28,7 +28,18 @@
 //! m-of-n witnessScript form — as deferred structural claims only: it
 //! performs no cryptographic verification and never decides validity,
 //! signability, completeness, or exportability, and it changes no
-//! parsing, rejection, or serialization behavior. The explicit global version field
+//! parsing, rejection, or serialization behavior. The separate M8
+//! read-only entrypoint ([`analyze_and_verify_signatures`]) upgrades
+//! those structural signature candidates to cryptographically
+//! verified facts for native P2WSH canonical-multisig inputs: it
+//! computes each input's BIP143 SIGHASH_ALL digest with the
+//! [`bip143`] engine and verifies every existing partial signature
+//! through the internal qk-secp verification boundary, returning
+//! per-input verified counts and statuses plus one aggregate
+//! disposition (including VERIFY_AND_EXPORT_ONLY as a returned fact
+//! only). It verifies existing signatures only: no signing, no
+//! signature insertion, no finalization, no export, and no
+//! authorization of any later policy gate. The explicit global version field
 //! (type 0xFB) is validated structurally: empty key data, exactly four
 //! little-endian value bytes, and the value must declare version zero;
 //! omission remains accepted.
@@ -73,8 +84,9 @@ pub use error::{ParseError, RejectCategory};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
 pub use semantic::{
-    analyze_semantic_subset, InputSemanticFacts, InputSignatureStatus, MalformedPush, MultisigForm,
-    OutputSemanticFacts, ScriptToken, ScriptTokens, SemanticCandidate, SemanticCategory,
-    SemanticError,
+    analyze_and_verify_signatures, analyze_semantic_subset, InputSemanticFacts,
+    InputSignatureStatus, MalformedPush, MultisigForm, OutputSemanticFacts, ScriptToken,
+    ScriptTokens, SemanticCandidate, SemanticCategory, SemanticError, VerifiedAggregateStatus,
+    VerifiedInputFacts, VerifiedInputStatus, VerifiedSemanticCandidate,
 };
 pub use serialize::{canonical_serialize, SerializeError};
