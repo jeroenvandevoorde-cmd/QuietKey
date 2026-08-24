@@ -213,7 +213,7 @@ fn finalize_capability(
     }
     drop(final_canonical);
     if finalized_view.unsigned_tx_bytes() != view.unsigned_tx_bytes()
-        || !allowed_finalized_delta(&view, &finalized_view, &witnesses)
+        || !allowed_finalized_delta(&view, &finalized_view, &witnesses)?
     {
         return Err(FinalizationError::ForbiddenDelta);
     }
@@ -820,14 +820,14 @@ fn allowed_finalized_delta(
     before: &PsbtView<'_>,
     after: &PsbtView<'_>,
     witnesses: &[WitnessParts<'_>],
-) -> bool {
+) -> Result<bool, FinalizationError> {
     if before.input_map_count() != after.input_map_count()
         || before.output_map_count() != after.output_map_count()
         || witnesses.len() != before.input_map_count()
         || before.global_map_span().slice(before.buffer())
             != after.global_map_span().slice(after.buffer())
     {
-        return false;
+        return Ok(false);
     }
     for output_index in 0..before.output_map_count() {
         if before
@@ -837,13 +837,13 @@ fn allowed_finalized_delta(
                 .output_map_span(output_index)
                 .and_then(|span| span.slice(after.buffer()))
         {
-            return false;
+            return Ok(false);
         }
     }
     for (input_index, witness) in witnesses.iter().enumerate() {
         let before_records = match before.input_records(input_index) {
             Some(records) => records,
-            None => return false,
+            None => return Ok(false),
         };
         let mut preserved = before_records.filter(|record| {
             !(0x02..=0x06).contains(&record.key_type)
@@ -852,40 +852,41 @@ fn allowed_finalized_delta(
         });
         let after_records = match after.input_records(input_index) {
             Some(records) => records,
-            None => return false,
+            None => return Ok(false),
         };
         let mut final_seen = false;
         for record in after_records {
             if record.key_type == 0x08 {
                 if final_seen || !record.key_data.is_empty() {
-                    return false;
+                    return Ok(false);
                 }
                 let mut expected = Vec::new();
-                if expected.try_reserve_exact(witness.encoded_len).is_err()
-                    || emit_witness(&mut expected, witness).is_err()
-                    || record.value != expected.as_slice()
-                {
-                    return false;
+                expected
+                    .try_reserve_exact(witness.encoded_len)
+                    .map_err(|_| FinalizationError::AllocationFailed)?;
+                emit_witness(&mut expected, witness)?;
+                if record.value != expected.as_slice() {
+                    return Ok(false);
                 }
                 final_seen = true;
             } else {
                 if (0x02..=0x07).contains(&record.key_type) {
-                    return false;
+                    return Ok(false);
                 }
                 let expected = match preserved.next() {
                     Some(expected) => expected,
-                    None => return false,
+                    None => return Ok(false),
                 };
                 if record.full_key != expected.full_key || record.value != expected.value {
-                    return false;
+                    return Ok(false);
                 }
             }
         }
         if !final_seen || preserved.next().is_some() {
-            return false;
+            return Ok(false);
         }
     }
-    true
+    Ok(true)
 }
 
 fn extract_raw_transaction(
@@ -939,6 +940,13 @@ fn extract_raw_transaction(
     Ok(raw)
 }
 
+#[derive(Clone, Copy)]
+struct ParsedRawWitness<'a> {
+    encoded: &'a [u8],
+    item_count: u64,
+    items: [Option<&'a [u8]>; 4],
+}
+
 fn reparse_and_rebind_raw(
     raw: &[u8],
     base: &[u8],
@@ -988,33 +996,62 @@ fn reparse_and_rebind_raw(
         append_slice(&mut stripped, script_len_bytes);
         append_slice(&mut stripped, cursor.take(script_len)?);
     }
-    for input_index in 0..input_count {
-        let expected = witnesses
-            .get(input_index)
-            .ok_or(FinalizationError::InternalInvariant)?;
+
+    let mut parsed_witnesses = Vec::new();
+    parsed_witnesses
+        .try_reserve_exact(input_count)
+        .map_err(|_| FinalizationError::AllocationFailed)?;
+    for _ in 0..input_count {
         let witness_start = cursor.position();
         let (item_count, _) = cursor.compact_size()?;
-        if item_count != 4 {
-            return Err(FinalizationError::WitnessMismatch);
-        }
         let mut parsed_items: [Option<&[u8]>; 4] = [None, None, None, None];
-        for item_index in 0..4 {
+        let mut item_index = 0u64;
+        while item_index < item_count {
             let (item_len, _) = cursor.compact_size()?;
             let item_len =
                 usize::try_from(item_len).map_err(|_| FinalizationError::RawTransactionReparse)?;
-            if item_index == 0 && item_len != 0 {
-                return Err(FinalizationError::WitnessMismatch);
-            }
             let item = cursor.take(item_len)?;
-            let slot = parsed_items
-                .get_mut(item_index)
-                .ok_or(FinalizationError::InternalInvariant)?;
-            *slot = Some(item);
+            if item_index < 4 {
+                let index = usize::try_from(item_index)
+                    .map_err(|_| FinalizationError::RawTransactionReparse)?;
+                let slot = parsed_items
+                    .get_mut(index)
+                    .ok_or(FinalizationError::InternalInvariant)?;
+                *slot = Some(item);
+            }
+            item_index = item_index
+                .checked_add(1)
+                .ok_or(FinalizationError::RawTransactionReparse)?;
         }
         let witness_end = cursor.position();
-        let first = parsed_items[1].ok_or(FinalizationError::WitnessMismatch)?;
-        let second = parsed_items[2].ok_or(FinalizationError::WitnessMismatch)?;
-        let script = parsed_items[3].ok_or(FinalizationError::WitnessMismatch)?;
+        let encoded = raw
+            .get(witness_start..witness_end)
+            .ok_or(FinalizationError::RawTransactionReparse)?;
+        parsed_witnesses.push(ParsedRawWitness {
+            encoded,
+            item_count,
+            items: parsed_items,
+        });
+    }
+    append_slice(&mut stripped, cursor.take(4)?);
+    if !cursor.at_end() {
+        return Err(FinalizationError::RawTransactionReparse);
+    }
+    if stripped != base {
+        return Err(FinalizationError::BaseTransactionMismatch);
+    }
+
+    if parsed_witnesses.len() != witnesses.len() {
+        return Err(FinalizationError::InternalInvariant);
+    }
+    for (input_index, (parsed, expected)) in parsed_witnesses.iter().zip(witnesses).enumerate() {
+        let empty_dummy = matches!(parsed.items[0], Some(dummy) if dummy.is_empty());
+        if parsed.item_count != 4 || !empty_dummy {
+            return Err(FinalizationError::WitnessMismatch);
+        }
+        let first = parsed.items[1].ok_or(FinalizationError::WitnessMismatch)?;
+        let second = parsed.items[2].ok_or(FinalizationError::WitnessMismatch)?;
+        let script = parsed.items[3].ok_or(FinalizationError::WitnessMismatch)?;
         if first == expected.second_signature && second == expected.first_signature {
             return Err(FinalizationError::WitnessOrderMismatch);
         }
@@ -1029,16 +1066,9 @@ fn reparse_and_rebind_raw(
             .ok_or(FinalizationError::InternalInvariant)?
             .find(|record| record.key_type == 0x08)
             .ok_or(FinalizationError::WitnessMismatch)?;
-        if raw.get(witness_start..witness_end) != Some(final_witness.value) {
+        if parsed.encoded != final_witness.value {
             return Err(FinalizationError::WitnessMismatch);
         }
-    }
-    append_slice(&mut stripped, cursor.take(4)?);
-    if !cursor.at_end() {
-        return Err(FinalizationError::RawTransactionReparse);
-    }
-    if stripped != base {
-        return Err(FinalizationError::BaseTransactionMismatch);
     }
     Ok(())
 }
@@ -1210,7 +1240,19 @@ mod tests {
     #[test]
     fn compact_size_writer_and_parser_cover_all_widths_and_reject_nonminimal() {
         let max_u32 = usize::try_from(u32::MAX).expect("u32 fits usize on HOST");
-        for value in [0usize, 252, 253, 65_535, 65_536, max_u32] {
+        let first_u64 = usize::try_from(u64::from(u32::MAX) + 1).ok();
+        for value in [
+            Some(0usize),
+            Some(252),
+            Some(253),
+            Some(65_535),
+            Some(65_536),
+            Some(max_u32),
+            first_u64,
+        ]
+        .into_iter()
+        .flatten()
+        {
             let mut encoded = Vec::new();
             write_compact_size(&mut encoded, value).expect("encode");
             assert_eq!(encoded.len(), compact_size_len(value));
@@ -1220,6 +1262,13 @@ mod tests {
             assert_eq!(original, encoded.as_slice());
             assert!(cursor.at_end());
         }
+        let first_u64_encoded = [0xff, 0, 0, 0, 0, 1, 0, 0, 0];
+        let mut first_u64_cursor = RawCursor::new(&first_u64_encoded);
+        assert_eq!(
+            first_u64_cursor.compact_size(),
+            Ok((u64::from(u32::MAX) + 1, first_u64_encoded.as_slice()))
+        );
+        assert!(first_u64_cursor.at_end());
         for nonminimal in [
             &[0xfd, 0xfc, 0x00][..],
             &[0xfe, 0xff, 0xff, 0x00, 0x00],
@@ -1326,6 +1375,27 @@ mod tests {
         assert_eq!(
             reparse_and_rebind_raw(&swapped, &base, &finalized_view, &[witness]),
             Err(FinalizationError::WitnessOrderMismatch)
+        );
+
+        let mut mismatched_base_for_swapped = base.clone();
+        *mismatched_base_for_swapped
+            .last_mut()
+            .expect("locktime byte") = 1;
+        assert_eq!(
+            reparse_and_rebind_raw(
+                &swapped,
+                &mismatched_base_for_swapped,
+                &finalized_view,
+                &[witness]
+            ),
+            Err(FinalizationError::BaseTransactionMismatch)
+        );
+
+        let mut swapped_with_trailing = swapped;
+        swapped_with_trailing.push(0);
+        assert_eq!(
+            reparse_and_rebind_raw(&swapped_with_trailing, &base, &finalized_view, &[witness]),
+            Err(FinalizationError::RawTransactionReparse)
         );
 
         let mut other_base = base;
