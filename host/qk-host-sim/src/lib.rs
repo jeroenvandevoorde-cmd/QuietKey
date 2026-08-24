@@ -19,9 +19,14 @@
 
 #![forbid(unsafe_code)]
 
+use qk_descriptor::DescriptorPair;
 use qk_host_model::transaction_policy::{
     transaction_transition, TransactionEvent, TransactionState, TransactionTransitionError,
     TransactionTransitionOutcome,
+};
+use qk_psbt::{
+    build_review, parse, InputSource, ParseError, PsbtView, ReviewContext, ReviewError, ReviewHash,
+    ReviewNetwork,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -285,5 +290,592 @@ impl TransactionWorkflow {
         self.end_locked();
         self.rejected += 1;
         ApplyOutcome::RejectLocked(rejection)
+    }
+}
+
+/// Events accepted by [`ReviewBoundWorkflow`].
+///
+/// The binding assertions are deliberately absent: validation and review
+/// construction are performed from the retained S0 internally, and
+/// revalidation is performed by [`ReviewBoundWorkflow::revalidate`].
+/// `SignatureProduced` is not available through this production seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewWorkflowEvent {
+    Wake,
+    BeginValidation,
+    RequestApproval,
+    Approve,
+    BeginRevalidation,
+    SignatureVerified,
+    OutputReparsed,
+    Sleep,
+    Cancel,
+    Timeout,
+    MediaRemoved,
+    Restart,
+    PowerLoss,
+    ValidationFailed,
+    ReviewConstructionFailed,
+    ApprovalRejected,
+    RevalidationFailed,
+    SignatureInvalid,
+    OutputInvalid,
+}
+
+impl ReviewWorkflowEvent {
+    fn model_event(self) -> TransactionEvent {
+        match self {
+            Self::Wake => TransactionEvent::Wake,
+            Self::BeginValidation => TransactionEvent::BeginValidation,
+            Self::RequestApproval => TransactionEvent::RequestApproval,
+            Self::Approve => TransactionEvent::Approve,
+            Self::BeginRevalidation => TransactionEvent::BeginRevalidation,
+            Self::SignatureVerified => TransactionEvent::SignatureVerified,
+            Self::OutputReparsed => TransactionEvent::OutputReparsed,
+            Self::Sleep => TransactionEvent::Sleep,
+            Self::Cancel => TransactionEvent::Cancel,
+            Self::Timeout => TransactionEvent::Timeout,
+            Self::MediaRemoved => TransactionEvent::MediaRemoved,
+            Self::Restart => TransactionEvent::Restart,
+            Self::PowerLoss => TransactionEvent::PowerLoss,
+            Self::ValidationFailed => TransactionEvent::ValidationFailed,
+            Self::ReviewConstructionFailed => TransactionEvent::ReviewConstructionFailed,
+            Self::ApprovalRejected => TransactionEvent::ApprovalRejected,
+            Self::RevalidationFailed => TransactionEvent::RevalidationFailed,
+            Self::SignatureInvalid => TransactionEvent::SignatureInvalid,
+            Self::OutputInvalid => TransactionEvent::OutputInvalid,
+        }
+    }
+}
+
+/// Errors specific to the closed review-binding seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewBindingError {
+    /// The underlying workflow had already reached its terminal state.
+    Finished,
+    /// Revalidation was requested without a stored review commitment.
+    MissingReviewHash,
+    /// Revalidation was requested without its approved cycle token.
+    MissingApprovedToken,
+    /// The runner's active token no longer equals the approved token.
+    TokenMismatch,
+    /// Rebuilding the D-09 review changed its exact commitment.
+    ReviewHashMismatch,
+    /// The retained S0 could not be parsed during revalidation.
+    ReparseFailed,
+    /// Semantic review construction failed during revalidation.
+    RebuildFailed(ReviewError),
+    /// Computing the rebuilt review commitment failed.
+    RehashFailed,
+}
+
+/// Production wrapper binding an immutable exact S0 and authenticated
+/// provenance/descriptor to the unchanged symbolic workflow.
+///
+/// This type intentionally has no API accepting review bytes, a hash, a
+/// token, or any critical model event. It neither signs nor exports.
+pub struct ReviewBoundWorkflow<'a> {
+    s0: &'a [u8],
+    source: InputSource,
+    descriptor: &'a DescriptorPair,
+    inner: TransactionWorkflow,
+    approved_hash: Option<ReviewHash>,
+    approved_token: Option<CycleToken>,
+    #[cfg(test)]
+    last_parse_identity: Option<(*const u8, usize)>,
+}
+
+impl<'a> ReviewBoundWorkflow<'a> {
+    /// Borrow exact S0 bytes and the authenticated descriptor pair for
+    /// the wrapper's full lifetime, while retaining source provenance.
+    /// Safe Rust prevents mutable access to S0 while this wrapper lives.
+    pub fn new(s0: &'a [u8], descriptor: &'a DescriptorPair, source: InputSource) -> Self {
+        Self {
+            s0,
+            source,
+            descriptor,
+            inner: TransactionWorkflow::new(),
+            approved_hash: None,
+            approved_token: None,
+            #[cfg(test)]
+            last_parse_identity: None,
+        }
+    }
+
+    /// Current symbolic state.
+    pub fn state(&self) -> TransactionState {
+        self.inner.state()
+    }
+
+    /// Whether the underlying workflow has terminated.
+    pub fn is_finished(&self) -> bool {
+        self.inner.is_finished()
+    }
+
+    /// Whether a constructed review hash is currently retained.
+    pub fn has_review_binding(&self) -> bool {
+        self.approved_hash.is_some()
+    }
+
+    /// Whether the approval token currently retained by this seam exists.
+    pub fn has_approved_token(&self) -> bool {
+        self.approved_token.is_some()
+    }
+
+    /// Apply an ordinary event. Beginning validation performs the two
+    /// critical construction transitions internally before returning.
+    pub fn apply(
+        &mut self,
+        event: ReviewWorkflowEvent,
+    ) -> Result<ApplyOutcome, ReviewBindingError> {
+        let model_event = event.model_event();
+        let outcome = self
+            .inner
+            .apply(WorkflowEvent::Plain(model_event))
+            .map_err(|_| ReviewBindingError::Finished)?;
+        self.clean_after(&outcome);
+        if model_event == TransactionEvent::BeginValidation
+            && matches!(
+                outcome,
+                ApplyOutcome::Continue(TransactionState::Validating)
+            )
+        {
+            return Ok(self.validate_and_construct());
+        }
+        if model_event == TransactionEvent::Approve
+            && matches!(outcome, ApplyOutcome::Continue(TransactionState::Approved))
+        {
+            self.approved_token = self.inner.minted_token();
+            if self.approved_token.is_none() {
+                return Ok(self.fail(TransactionEvent::ApprovalRejected));
+            }
+        }
+        Ok(outcome)
+    }
+
+    /// Reparse retained S0 and internally assert revalidation only after
+    /// exact hash and token binding checks succeed.
+    pub fn revalidate(&mut self) -> Result<ApplyOutcome, ReviewBindingError> {
+        let hash = match self.approved_hash {
+            Some(hash) => hash,
+            None => return Err(self.binding_failure(ReviewBindingError::MissingReviewHash)),
+        };
+        let token = match self.approved_token {
+            Some(token) => token,
+            None => return Err(self.binding_failure(ReviewBindingError::MissingApprovedToken)),
+        };
+        if self.inner.minted_token() != Some(token) {
+            return Err(self.binding_failure(ReviewBindingError::TokenMismatch));
+        }
+        let view = match self.parse_retained() {
+            Ok(view) => view,
+            Err(_) => return Err(self.binding_failure(ReviewBindingError::ReparseFailed)),
+        };
+        let review = match build_review(
+            &view,
+            self.descriptor,
+            ReviewContext {
+                network: ReviewNetwork::BitcoinMainnet,
+                input_source: self.source,
+            },
+        ) {
+            Ok(review) => review,
+            Err(error) => {
+                return Err(self.binding_failure(ReviewBindingError::RebuildFailed(error)))
+            }
+        };
+        let rebuilt = match review.review_hash() {
+            Ok(hash) => hash,
+            Err(_) => return Err(self.binding_failure(ReviewBindingError::RehashFailed)),
+        };
+        if rebuilt != hash {
+            return Err(self.binding_failure(ReviewBindingError::ReviewHashMismatch));
+        }
+        let outcome = self
+            .inner
+            .apply(WorkflowEvent::RevalidationPassed(token))
+            .map_err(|_| ReviewBindingError::Finished)?;
+        self.clean_after(&outcome);
+        Ok(outcome)
+    }
+
+    fn validate_and_construct(&mut self) -> ApplyOutcome {
+        if self.parse_retained().is_err() {
+            return self.fail(TransactionEvent::ValidationFailed);
+        }
+        let validated = match self
+            .inner
+            .apply(WorkflowEvent::Plain(TransactionEvent::ValidationPassed))
+        {
+            Ok(outcome) => outcome,
+            Err(_) => return self.fail(TransactionEvent::ValidationFailed),
+        };
+        if !matches!(
+            validated,
+            ApplyOutcome::Continue(TransactionState::ConstructingReview)
+        ) {
+            self.clean_after(&validated);
+            return validated;
+        }
+        let view = match self.parse_retained() {
+            Ok(view) => view,
+            Err(_) => return self.fail(TransactionEvent::ValidationFailed),
+        };
+        let review = match build_review(
+            &view,
+            self.descriptor,
+            ReviewContext {
+                network: ReviewNetwork::BitcoinMainnet,
+                input_source: self.source,
+            },
+        ) {
+            Ok(review) => review,
+            Err(_) => return self.fail(TransactionEvent::ReviewConstructionFailed),
+        };
+        let constructed = match self
+            .inner
+            .apply(WorkflowEvent::Plain(TransactionEvent::ReviewConstructed))
+        {
+            Ok(outcome) => outcome,
+            Err(_) => return self.fail(TransactionEvent::ReviewConstructionFailed),
+        };
+        if matches!(
+            constructed,
+            ApplyOutcome::Continue(TransactionState::ReviewReady)
+        ) {
+            self.approved_hash = match review.review_hash() {
+                Ok(hash) => Some(hash),
+                Err(_) => {
+                    return self.fail(TransactionEvent::ReviewConstructionFailed);
+                }
+            };
+        }
+        self.clean_after(&constructed);
+        constructed
+    }
+
+    fn binding_failure(&mut self, error: ReviewBindingError) -> ReviewBindingError {
+        self.fail(TransactionEvent::RevalidationFailed);
+        error
+    }
+
+    fn fail(&mut self, event: TransactionEvent) -> ApplyOutcome {
+        let outcome = self
+            .inner
+            .apply(WorkflowEvent::Plain(event))
+            .unwrap_or(ApplyOutcome::HaltLocked);
+        self.clear_binding();
+        outcome
+    }
+
+    fn clean_after(&mut self, outcome: &ApplyOutcome) {
+        if matches!(
+            outcome,
+            ApplyOutcome::HaltLocked
+                | ApplyOutcome::RejectLocked(_)
+                | ApplyOutcome::Continue(TransactionState::Ready)
+        ) {
+            self.clear_binding();
+        }
+    }
+
+    fn clear_binding(&mut self) {
+        self.approved_hash = None;
+        self.approved_token = None;
+    }
+
+    fn parse_retained(&mut self) -> Result<PsbtView<'a>, ParseError> {
+        #[cfg(test)]
+        {
+            self.last_parse_identity = Some((self.s0.as_ptr(), self.s0.len()));
+        }
+        parse(self.s0, self.source)
+    }
+}
+
+#[cfg(test)]
+mod review_bound_tests {
+    use super::*;
+    use qk_descriptor::parse_descriptor_pair;
+
+    const REVIEW_FIXTURE: &str = include_str!("../../qk-psbt/tests/fixtures/review_binding.txt");
+    const DESCRIPTOR_FIXTURE: &str =
+        include_str!("../../qk-psbt/tests/fixtures/descriptor_ownership.txt");
+
+    fn field<'a>(text: &'a str, name: &str) -> &'a str {
+        text.lines()
+            .find_map(|line| line.strip_prefix(name))
+            .expect("fixture field must exist")
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                u8::from_str_radix(
+                    core::str::from_utf8(pair).expect("fixture hex is ASCII"),
+                    16,
+                )
+                .expect("fixture hex is valid")
+            })
+            .collect()
+    }
+
+    fn descriptor() -> DescriptorPair {
+        parse_descriptor_pair(
+            field(DESCRIPTOR_FIXTURE, "receive: ").as_bytes(),
+            field(DESCRIPTOR_FIXTURE, "change: ").as_bytes(),
+        )
+        .expect("descriptor fixture is valid")
+    }
+
+    fn reach_revalidating<'a>(
+        s0: &'a [u8],
+        descriptor: &'a DescriptorPair,
+    ) -> ReviewBoundWorkflow<'a> {
+        let mut workflow = ReviewBoundWorkflow::new(s0, descriptor, InputSource::MicroSd);
+        assert!(matches!(
+            workflow.apply(ReviewWorkflowEvent::Wake),
+            Ok(ApplyOutcome::Continue(TransactionState::Ready))
+        ));
+        assert!(matches!(
+            workflow.apply(ReviewWorkflowEvent::BeginValidation),
+            Ok(ApplyOutcome::Continue(TransactionState::ReviewReady))
+        ));
+        assert!(matches!(
+            workflow.apply(ReviewWorkflowEvent::RequestApproval),
+            Ok(ApplyOutcome::Continue(TransactionState::Confirming))
+        ));
+        assert!(matches!(
+            workflow.apply(ReviewWorkflowEvent::Approve),
+            Ok(ApplyOutcome::Continue(TransactionState::Approved))
+        ));
+        assert!(matches!(
+            workflow.apply(ReviewWorkflowEvent::BeginRevalidation),
+            Ok(ApplyOutcome::Continue(TransactionState::Revalidating))
+        ));
+        workflow
+    }
+
+    fn assert_clean_locked(workflow: &ReviewBoundWorkflow<'_>) {
+        assert_eq!(workflow.state(), TransactionState::Locked);
+        assert!(workflow.is_finished());
+        assert!(!workflow.has_review_binding());
+        assert!(!workflow.has_approved_token());
+    }
+
+    #[test]
+    fn retained_slice_pointer_and_length_are_identical_through_revalidation() {
+        let s0 = decode_hex(field(REVIEW_FIXTURE, "s0_hex: "));
+        let descriptor = descriptor();
+        let pointer = s0.as_ptr();
+        let length = s0.len();
+        let mut workflow = reach_revalidating(&s0, &descriptor);
+        assert_eq!(workflow.last_parse_identity, Some((pointer, length)));
+        assert_eq!(workflow.s0.as_ptr(), pointer);
+        assert_eq!(workflow.s0.len(), length);
+        assert!(matches!(
+            workflow.revalidate(),
+            Ok(ApplyOutcome::Continue(TransactionState::SignPermitted))
+        ));
+        assert_eq!(workflow.last_parse_identity, Some((pointer, length)));
+        assert_eq!(workflow.s0.as_ptr(), pointer);
+        assert_eq!(workflow.s0.len(), length);
+    }
+
+    #[test]
+    fn missing_or_wrong_binding_and_token_fail_closed() {
+        let s0 = decode_hex(field(REVIEW_FIXTURE, "s0_hex: "));
+        let descriptor = descriptor();
+
+        let mut missing_hash = reach_revalidating(&s0, &descriptor);
+        missing_hash.approved_hash = None;
+        assert_eq!(
+            missing_hash.revalidate(),
+            Err(ReviewBindingError::MissingReviewHash)
+        );
+        assert_clean_locked(&missing_hash);
+
+        let mut missing_token = reach_revalidating(&s0, &descriptor);
+        missing_token.approved_token = None;
+        assert_eq!(
+            missing_token.revalidate(),
+            Err(ReviewBindingError::MissingApprovedToken)
+        );
+        assert_clean_locked(&missing_token);
+
+        let mut wrong_hash = reach_revalidating(&s0, &descriptor);
+        wrong_hash.approved_hash.as_mut().expect("hash exists")[0] ^= 1;
+        assert_eq!(
+            wrong_hash.revalidate(),
+            Err(ReviewBindingError::ReviewHashMismatch)
+        );
+        assert_clean_locked(&wrong_hash);
+
+        let foreign = reach_revalidating(&s0, &descriptor)
+            .approved_token
+            .expect("foreign token exists");
+        let mut wrong_token = reach_revalidating(&s0, &descriptor);
+        wrong_token.approved_token = Some(foreign);
+        assert_eq!(
+            wrong_token.revalidate(),
+            Err(ReviewBindingError::TokenMismatch)
+        );
+        assert_clean_locked(&wrong_token);
+
+        let mut stale_token = reach_revalidating(&s0, &descriptor);
+        let stale = stale_token.approved_token.expect("approved token exists");
+        assert!(matches!(
+            stale_token.revalidate(),
+            Ok(ApplyOutcome::Continue(TransactionState::SignPermitted))
+        ));
+        assert_eq!(
+            stale_token
+                .inner
+                .apply(WorkflowEvent::SignatureProduced(stale)),
+            Ok(ApplyOutcome::Continue(TransactionState::VerifyingSignature))
+        );
+        assert!(matches!(
+            stale_token.apply(ReviewWorkflowEvent::SignatureVerified),
+            Ok(ApplyOutcome::Continue(TransactionState::ReparsingOutput))
+        ));
+        assert!(matches!(
+            stale_token.apply(ReviewWorkflowEvent::OutputReparsed),
+            Ok(ApplyOutcome::Continue(TransactionState::Ready))
+        ));
+        assert!(matches!(
+            stale_token.apply(ReviewWorkflowEvent::BeginValidation),
+            Ok(ApplyOutcome::Continue(TransactionState::ReviewReady))
+        ));
+        assert!(matches!(
+            stale_token.apply(ReviewWorkflowEvent::RequestApproval),
+            Ok(ApplyOutcome::Continue(TransactionState::Confirming))
+        ));
+        assert!(matches!(
+            stale_token.apply(ReviewWorkflowEvent::Approve),
+            Ok(ApplyOutcome::Continue(TransactionState::Approved))
+        ));
+        assert!(matches!(
+            stale_token.apply(ReviewWorkflowEvent::BeginRevalidation),
+            Ok(ApplyOutcome::Continue(TransactionState::Revalidating))
+        ));
+        assert_ne!(stale_token.approved_token, Some(stale));
+        stale_token.approved_token = Some(stale);
+        assert_eq!(
+            stale_token.revalidate(),
+            Err(ReviewBindingError::TokenMismatch)
+        );
+        assert_clean_locked(&stale_token);
+    }
+
+    #[test]
+    fn retained_raw_substitution_and_reparse_failure_fail_closed() {
+        let s0 = decode_hex(field(REVIEW_FIXTURE, "s0_hex: "));
+        let changed = decode_hex(field(
+            REVIEW_FIXTURE
+                .split("case: M14-RAW-MUTATION")
+                .nth(1)
+                .expect("mutation case exists"),
+            "s0_hex: ",
+        ));
+        let descriptor = descriptor();
+
+        let mut substituted = reach_revalidating(&s0, &descriptor);
+        substituted.s0 = &changed;
+        assert_eq!(
+            substituted.revalidate(),
+            Err(ReviewBindingError::ReviewHashMismatch)
+        );
+        assert_clean_locked(&substituted);
+
+        let corrupt = &s0[..20];
+        let mut invalid = reach_revalidating(&s0, &descriptor);
+        invalid.s0 = corrupt;
+        assert_eq!(invalid.revalidate(), Err(ReviewBindingError::ReparseFailed));
+        assert_clean_locked(&invalid);
+    }
+
+    #[test]
+    fn ordinary_rejection_approval_rejection_and_interruptions_clear() {
+        let s0 = decode_hex(field(REVIEW_FIXTURE, "s0_hex: "));
+        let descriptor = descriptor();
+
+        let mut invalid = reach_revalidating(&s0, &descriptor);
+        assert!(matches!(
+            invalid.apply(ReviewWorkflowEvent::Wake),
+            Ok(ApplyOutcome::RejectLocked(_))
+        ));
+        assert_clean_locked(&invalid);
+
+        let terminal_events = [
+            ReviewWorkflowEvent::Sleep,
+            ReviewWorkflowEvent::Cancel,
+            ReviewWorkflowEvent::Timeout,
+            ReviewWorkflowEvent::MediaRemoved,
+            ReviewWorkflowEvent::Restart,
+            ReviewWorkflowEvent::PowerLoss,
+            ReviewWorkflowEvent::ValidationFailed,
+            ReviewWorkflowEvent::ReviewConstructionFailed,
+            ReviewWorkflowEvent::ApprovalRejected,
+            ReviewWorkflowEvent::RevalidationFailed,
+            ReviewWorkflowEvent::SignatureInvalid,
+            ReviewWorkflowEvent::OutputInvalid,
+        ];
+        for event in terminal_events {
+            let mut workflow = reach_revalidating(&s0, &descriptor);
+            assert_eq!(workflow.apply(event), Ok(ApplyOutcome::HaltLocked));
+            assert_clean_locked(&workflow);
+        }
+
+        let mut rejected = ReviewBoundWorkflow::new(&s0, &descriptor, InputSource::MicroSd);
+        rejected.apply(ReviewWorkflowEvent::Wake).expect("live");
+        rejected
+            .apply(ReviewWorkflowEvent::BeginValidation)
+            .expect("valid");
+        rejected
+            .apply(ReviewWorkflowEvent::RequestApproval)
+            .expect("live");
+        assert_eq!(
+            rejected.apply(ReviewWorkflowEvent::ApprovalRejected),
+            Ok(ApplyOutcome::HaltLocked)
+        );
+        assert_clean_locked(&rejected);
+    }
+
+    #[test]
+    fn completed_inner_cycle_clears_wrapper_binding_without_public_signature_event() {
+        let s0 = decode_hex(field(REVIEW_FIXTURE, "s0_hex: "));
+        let descriptor = descriptor();
+        let mut workflow = reach_revalidating(&s0, &descriptor);
+        assert!(matches!(
+            workflow.revalidate(),
+            Ok(ApplyOutcome::Continue(TransactionState::SignPermitted))
+        ));
+
+        // Private test-only access proves cleanup after the unchanged
+        // runner's completed cycle. Production callers have no event
+        // capable of making this transition.
+        let token = workflow
+            .inner
+            .minted_token()
+            .expect("approved cycle token exists");
+        assert_eq!(
+            workflow
+                .inner
+                .apply(WorkflowEvent::SignatureProduced(token)),
+            Ok(ApplyOutcome::Continue(TransactionState::VerifyingSignature))
+        );
+        assert_eq!(
+            workflow.apply(ReviewWorkflowEvent::SignatureVerified),
+            Ok(ApplyOutcome::Continue(TransactionState::ReparsingOutput))
+        );
+        assert_eq!(
+            workflow.apply(ReviewWorkflowEvent::OutputReparsed),
+            Ok(ApplyOutcome::Continue(TransactionState::Ready))
+        );
+        assert!(!workflow.has_review_binding());
+        assert!(!workflow.has_approved_token());
+        assert_eq!(workflow.inner.minted_token(), None);
     }
 }
