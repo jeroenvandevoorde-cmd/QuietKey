@@ -3,7 +3,7 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only HOST seams: a legacy symbolic runner plus D-09 review binding and final-only insertion of externally produced signatures. No signature generation, finalization, extraction, media output, UI, or target claim."
+description = "Library-only HOST seams: symbolic workflow, D-09 review binding, final-only external-signature insertion, and capability-only native-P2WSH finalization/extraction. No signing, arbitrary finalizer, RPC, media output, UI, or target claim."
 
 [dependencies]
 qk-host-model = { path = "../qk-host-model" }

@@ -6,14 +6,18 @@
 //! [`ReviewBoundWorkflow`] is the distinct production HOST D-09 seam:
 //! it retains and reparses S0, then gates revalidation on the exact
 //! review hash and current runner token, then performs M15 final-only
-//! signature insertion and canonical PSBT emission. Scope: see the
+//! signature insertion and canonical PSBT emission. The resulting
+//! capability is the sole M16 entry for exact native-P2WSH witness
+//! finalization and raw-transaction extraction. Scope: see the
 //! canonical disclaimer in `qk_host_model::transaction_policy`.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
-//! No signing or signature generation, finalization, transaction
-//! extraction, media output, or persistence. M15 only inserts supplied
-//! externally produced signatures and returns a threshold-complete PSBT.
+//! No signing or signature generation, arbitrary finalizer, transaction
+//! parser API, media output, persistence, RPC, network, or broadcast.
+//! M15 only inserts supplied externally produced signatures; M16 can
+//! consume only that threshold-complete capability and returns no
+//! intermediate artifact.
 //!
 //! Beyond the model's mandatory event order, the runner makes the
 //! approval→revalidation→signature binding STRUCTURAL: accepting
@@ -26,8 +30,13 @@
 
 #![forbid(unsafe_code)]
 
+mod finalization;
 mod insertion;
 
+#[path = "../../qk-psbt/src/sha256.rs"]
+mod transaction_sha256;
+
+pub use finalization::{FinalizationError, FinalizedTransaction};
 pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
 };

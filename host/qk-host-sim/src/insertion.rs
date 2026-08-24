@@ -52,7 +52,8 @@ pub struct SubmittedSignature<'a> {
 /// Construction is final-only: intermediate insertion buffers never
 /// inhabit this type and cannot be returned by the production seam.
 pub struct ThresholdCompletePsbt {
-    bytes: Vec<u8>,
+    pub(super) bytes: Vec<u8>,
+    pub(super) source: InputSource,
 }
 
 impl ThresholdCompletePsbt {
@@ -343,7 +344,10 @@ impl ReviewBoundWorkflow<'_> {
             return Err(SignatureInsertionError::InternalInvariant);
         }
         self.clean_after(&reparsed);
-        Ok(ThresholdCompletePsbt { bytes: current })
+        Ok(ThresholdCompletePsbt {
+            bytes: current,
+            source: self.source,
+        })
     }
 }
 
