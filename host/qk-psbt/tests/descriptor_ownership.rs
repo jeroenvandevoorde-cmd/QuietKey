@@ -535,6 +535,15 @@ fn assert_rejection(
     expected: SemanticCategory,
 ) {
     fixture_case(name, "named-rejection", &format!("{expected:?}"));
+    assert_rejection_behavior(name, bytes, descriptor, expected);
+}
+
+fn assert_rejection_behavior(
+    name: &str,
+    bytes: &[u8],
+    descriptor: &DescriptorPair,
+    expected: SemanticCategory,
+) {
     let original = bytes.to_vec();
     let view = parse(bytes, InputSource::MicroSd).unwrap();
     let canonical_before = canonical_serialize(&view).unwrap();
@@ -554,6 +563,46 @@ fn assert_rejection(
     assert_eq!(
         canonical_before,
         canonical_serialize(&reparsed).unwrap(),
+        "{name}"
+    );
+}
+
+fn assert_measured_rejection(
+    name: &str,
+    bytes: &[u8],
+    descriptor: &DescriptorPair,
+    expected: SemanticCategory,
+    expected_allocations: usize,
+) {
+    let original = bytes.to_vec();
+    let view = parse(bytes, InputSource::MicroSd).unwrap();
+    let canonical_before = canonical_serialize(&view).unwrap();
+    reset_allocation_ledger();
+    LEDGER_ENABLED.store(true, Ordering::SeqCst);
+    let measured = catch_unwind(AssertUnwindSafe(|| {
+        analyze_descriptor_ownership(&view, descriptor)
+    }));
+    LEDGER_ENABLED.store(false, Ordering::SeqCst);
+    let error = measured
+        .unwrap_or_else(|_| panic!("{name} panicked"))
+        .unwrap_err();
+    assert_eq!(error.category, expected, "{name}");
+    assert_eq!(
+        ALLOCATIONS_165.load(Ordering::Relaxed),
+        expected_allocations,
+        "{name}"
+    );
+    assert_eq!(
+        BYTES_165.load(Ordering::Relaxed),
+        expected_allocations * 165,
+        "{name}"
+    );
+    assert_eq!(MAX_LIVE_165.load(Ordering::Relaxed), 1, "{name}");
+    assert_eq!(LIVE_165.load(Ordering::Relaxed), 0, "{name}");
+    assert_eq!(bytes, original, "{name}");
+    assert_eq!(
+        canonical_before,
+        canonical_serialize(&view).unwrap(),
         "{name}"
     );
 }
@@ -1111,6 +1160,69 @@ fn descriptor_ownership_closed_inventory() {
         &bytes,
         &descriptor,
         SemanticCategory::DescriptorDerivationPath,
+    );
+
+    let mut coherent_partial_cases = 0usize;
+    for local_roles in [1, 2] {
+        let bytes = build_psbt(
+            &[owned_input(&descriptor, 0, 0, true)],
+            &[descriptor_output(&descriptor, 1, 0, local_roles)],
+        );
+        let view = parse(&bytes, InputSource::MicroSd).unwrap();
+        reset_allocation_ledger();
+        LEDGER_ENABLED.store(true, Ordering::SeqCst);
+        let measured = catch_unwind(AssertUnwindSafe(|| {
+            analyze_descriptor_ownership(&view, &descriptor)
+        }));
+        LEDGER_ENABLED.store(false, Ordering::SeqCst);
+        let analysis = measured.unwrap().unwrap();
+        assert_eq!(analysis.wallet.outputs[0], OutputOwnership::NotProvenOwned);
+        assert_eq!(ALLOCATIONS_165.load(Ordering::Relaxed), 12);
+        assert_eq!(BYTES_165.load(Ordering::Relaxed), 1_980);
+        assert_eq!(MAX_LIVE_165.load(Ordering::Relaxed), 1);
+        assert_eq!(LIVE_165.load(Ordering::Relaxed), 0);
+        coherent_partial_cases += 1;
+    }
+    assert_eq!(coherent_partial_cases, 2);
+
+    let mut partial_contradiction_cases = 0usize;
+    for (name, local_roles, role, wrong_key) in [
+        ("one-role-wrong-key", 1, 0, route_keys(0, 0)[0]),
+        ("two-role-wrong-key", 2, 1, route_keys(0, 0)[1]),
+        (
+            "one-role-off-curve-key",
+            1,
+            0,
+            decode_hex("02fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"),
+        ),
+    ] {
+        let mut output = descriptor_output(&descriptor, 1, 0, local_roles);
+        set_claim_key(&mut output.claims[role], &wrong_key);
+        let bytes = build_psbt(&[owned_input(&descriptor, 0, 0, true)], &[output]);
+        assert_measured_rejection(
+            name,
+            &bytes,
+            &descriptor,
+            SemanticCategory::DescriptorDerivationKeyMismatch,
+            12,
+        );
+        partial_contradiction_cases += 1;
+    }
+    assert_eq!(partial_contradiction_cases, 3);
+
+    let invalid_signature = [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+    let mut input = owned_input(&descriptor, 0, 0, true);
+    input
+        .extra_records
+        .push(raw_record(0x02, &route_keys(0, 0)[0], &invalid_signature));
+    let mut output = descriptor_output(&descriptor, 1, 0, 1);
+    set_claim_key(&mut output.claims[0], &route_keys(0, 0)[0]);
+    let bytes = build_psbt(&[input], &[output]);
+    assert_rejection_behavior(
+        "invalid-signature-before-output-contradiction",
+        &bytes,
+        &descriptor,
+        SemanticCategory::SignatureVerificationFailed,
     );
 
     let mutation_seed = build_psbt(

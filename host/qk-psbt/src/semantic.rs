@@ -1895,8 +1895,7 @@ struct DescriptorCoordinates {
 }
 
 struct DescriptorClaims {
-    keys: [[u8; 33]; 3],
-    seen: [bool; 3],
+    keys: [Option<[u8; 33]>; 3],
     coordinates: Option<DescriptorCoordinates>,
     relevant_count: usize,
 }
@@ -1904,8 +1903,7 @@ struct DescriptorClaims {
 impl DescriptorClaims {
     const fn new() -> Self {
         Self {
-            keys: [[0u8; 33]; 3],
-            seen: [false; 3],
+            keys: [None; 3],
             coordinates: None,
             relevant_count: 0,
         }
@@ -1919,12 +1917,12 @@ impl DescriptorClaims {
         input_index: Option<usize>,
         offset: usize,
     ) -> Result<(), SemanticError> {
-        let seen = self.seen.get_mut(role).ok_or(SemanticError {
+        let slot = self.keys.get(role).ok_or(SemanticError {
             category: SemanticCategory::InternalInvariant,
             input_index,
             offset,
         })?;
-        if *seen {
+        if slot.is_some() {
             return Err(SemanticError {
                 category: SemanticCategory::DuplicateDescriptorRole,
                 input_index,
@@ -1949,8 +1947,7 @@ impl DescriptorClaims {
             input_index,
             offset,
         })?;
-        *slot = key;
-        *seen = true;
+        *slot = Some(key);
         self.relevant_count = self.relevant_count.saturating_add(1);
         Ok(())
     }
@@ -2196,12 +2193,12 @@ fn classify_descriptor_output(
     descriptor: &DescriptorPair,
     fingerprints: &[[u8; 4]; 3],
     output_index: usize,
-    output: &UnsignedOutputFacts,
+    output: &OutputSemanticFacts<'_>,
     calls: &mut usize,
 ) -> Result<OutputOwnership, SemanticError> {
     let map_start = view
         .output_map_span(output_index)
-        .map_or(output.script.start, |span| span.start);
+        .map_or(0, |span| span.start);
     let records = view
         .output_records(output_index)
         .ok_or(SemanticError::global(
@@ -2223,22 +2220,18 @@ fn classify_descriptor_output(
         let (key, coordinates) = parse_descriptor_claim(record, None)?;
         claims.add(role, key, coordinates, None, record.value_span.start)?;
     }
-    if claims.relevant_count < 3 {
+    if claims.relevant_count == 0 {
         return Ok(OutputOwnership::NotProvenOwned);
     }
 
     let derived = match_descriptor_claims(descriptor, &claims, calls, None, map_start)?;
-    let script = output
-        .script
-        .slice(view.buffer())
-        .ok_or(SemanticError::global(
-            SemanticCategory::InternalInvariant,
-            output.script.start,
-        ))?;
-    if script != derived.script_pubkey {
+    if claims.relevant_count < 3 {
+        return Ok(OutputOwnership::NotProvenOwned);
+    }
+    if output.script_pubkey != derived.script_pubkey {
         return Err(SemanticError::global(
             SemanticCategory::DescriptorOutputScriptMismatch,
-            output.script.start,
+            map_start,
         ));
     }
     let coordinates = claims.coordinates.ok_or(SemanticError::global(
@@ -2303,13 +2296,16 @@ pub fn analyze_descriptor_ownership<'a>(
         effective_scripts.push(script);
     }
 
-    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
-    reserve_exact(
-        &mut wallet_outputs,
-        state.facts.outputs.len(),
-        global_offset,
+    let candidate = assemble(view, state)?;
+    let (verified_inputs, aggregate_status) = verification_phase(
+        view,
+        &candidate,
+        VerificationScriptSource::Descriptor(&effective_scripts),
     )?;
-    for (output_index, output) in state.facts.outputs.iter().enumerate() {
+
+    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
+    for (output_index, output) in candidate.outputs.iter().enumerate() {
         wallet_outputs.push(classify_descriptor_output(
             view,
             descriptor,
@@ -2320,12 +2316,6 @@ pub fn analyze_descriptor_ownership<'a>(
         )?);
     }
 
-    let candidate = assemble(view, state)?;
-    let (verified_inputs, aggregate_status) = verification_phase(
-        view,
-        &candidate,
-        VerificationScriptSource::Descriptor(&effective_scripts),
-    )?;
     Ok(DescriptorOwnershipAnalysis {
         candidate,
         verified_inputs,

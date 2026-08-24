@@ -396,10 +396,14 @@ fn match_derivation_claims(
     pair: &DescriptorPair,
     branch: u32,
     index: u32,
-    claimed_role_keys: &[[u8; 33]; ACCOUNT_COUNT],
+    claimed_role_keys: &[Option<[u8; 33]>; ACCOUNT_COUNT],
 ) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
     let role_keys = derive_role_keys_with(pair, branch, index, derive_public_child)?;
-    if &role_keys != claimed_role_keys {
+    if role_keys
+        .iter()
+        .zip(claimed_role_keys.iter())
+        .any(|(derived, claimed)| claimed.is_some_and(|claimed| claimed != *derived))
+    {
         return Ok(None);
     }
     Ok(Some(assemble_script(role_keys)))
@@ -421,22 +425,24 @@ pub fn derive_change_script(
     derive_with(pair, 1, index, derive_public_child)
 }
 
-/// Match supplied role A/B/C receive-branch key claims before BIP67
-/// sorting and, on exact equality, return the canonical script facts.
+/// Match supplied present A/B/C receive-branch key claims before BIP67
+/// sorting and, on exact equality of every present role, return canonical
+/// script facts.
 pub fn match_receive_derivation_claims(
     pair: &DescriptorPair,
     index: u32,
-    claimed_role_keys: &[[u8; 33]; ACCOUNT_COUNT],
+    claimed_role_keys: &[Option<[u8; 33]>; ACCOUNT_COUNT],
 ) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
     match_derivation_claims(pair, 0, index, claimed_role_keys)
 }
 
-/// Match supplied role A/B/C change-branch key claims before BIP67
-/// sorting and, on exact equality, return the canonical script facts.
+/// Match supplied present A/B/C change-branch key claims before BIP67
+/// sorting and, on exact equality of every present role, return canonical
+/// script facts.
 pub fn match_change_derivation_claims(
     pair: &DescriptorPair,
     index: u32,
-    claimed_role_keys: &[[u8; 33]; ACCOUNT_COUNT],
+    claimed_role_keys: &[Option<[u8; 33]>; ACCOUNT_COUNT],
 ) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
     match_derivation_claims(pair, 1, index, claimed_role_keys)
 }
@@ -482,11 +488,11 @@ mod tests {
         .unwrap()
     }
 
-    fn role_keys(block: &str) -> [[u8; 33]; 3] {
+    fn role_keys(block: &str) -> [Option<[u8; 33]>; 3] {
         [
-            hex(field(block, "role_a")),
-            hex(field(block, "role_b")),
-            hex(field(block, "role_c")),
+            Some(hex(field(block, "role_a"))),
+            Some(hex(field(block, "role_b"))),
+            Some(hex(field(block, "role_c"))),
         ]
     }
 
@@ -599,10 +605,17 @@ mod tests {
         );
 
         let receive_keys = role_keys(receive_zero);
-        let receive = match_receive_derivation_claims(&pair, 0, &receive_keys).unwrap();
+        let receive = match_receive_derivation_claims(&pair, 0, &receive_keys)
+            .unwrap()
+            .unwrap();
         assert_eq!(
-            receive.unwrap().witness_script,
+            receive.witness_script,
             hex(field(receive_zero, "witness_script"))
+        );
+        let receive_partial = [receive_keys[0], None, None];
+        assert_eq!(
+            match_receive_derivation_claims(&pair, 0, &receive_partial).unwrap(),
+            Some(receive)
         );
         let mut reordered = receive_keys;
         reordered.swap(0, 1);
@@ -612,9 +625,11 @@ mod tests {
         );
 
         let change_keys = role_keys(change_zero);
-        let change = match_change_derivation_claims(&pair, 0, &change_keys).unwrap();
+        let change = match_change_derivation_claims(&pair, 0, &change_keys)
+            .unwrap()
+            .unwrap();
         assert_eq!(
-            change.unwrap().script_pubkey,
+            change.script_pubkey,
             hex(field(change_zero, "script_pubkey"))
         );
     }

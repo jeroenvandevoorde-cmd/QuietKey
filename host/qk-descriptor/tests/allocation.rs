@@ -56,11 +56,11 @@ fn hex<const N: usize>(value: &str) -> [u8; N] {
     output
 }
 
-fn role_keys(block: &str) -> [[u8; 33]; 3] {
+fn role_keys(block: &str) -> [Option<[u8; 33]>; 3] {
     [
-        hex(field(block, "role_a")),
-        hex(field(block, "role_b")),
-        hex(field(block, "role_c")),
+        Some(hex(field(block, "role_a"))),
+        Some(hex(field(block, "role_b"))),
+        Some(hex(field(block, "role_c"))),
     ]
 }
 
@@ -134,6 +134,14 @@ fn direct_work_is_zero_allocation_and_inherited_counts_are_exact() {
     reset_counts();
     start_counting();
     let matched = match_receive_derivation_claims(&pair, 0, &receive_role_keys).unwrap();
+    stop_counting();
+    assert_counts(6);
+    assert_eq!(matched, Some(receive_script));
+
+    let partial_receive_role_keys = [receive_role_keys[0], None, None];
+    reset_counts();
+    start_counting();
+    let matched = match_receive_derivation_claims(&pair, 0, &partial_receive_role_keys).unwrap();
     stop_counting();
     assert_counts(6);
     assert_eq!(matched, Some(receive_script));
