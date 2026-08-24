@@ -508,7 +508,11 @@ fn normalize_submissions<'a>(
         let projected = existing
             .checked_add(*requested)
             .ok_or(SignatureInsertionError::InternalInvariant)?;
-        if projected > THRESHOLD {
+        // M15 never inserts beyond threshold on a targeted input. An
+        // untouched input may already carry all three verified descriptor
+        // roles while another input is completed; M16 deliberately accepts
+        // that preexisting shape and selects the first two script positions.
+        if *requested != 0 && projected > THRESHOLD {
             return Err(SignatureInsertionError::ThresholdWouldBeExceeded);
         }
     }
