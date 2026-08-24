@@ -432,8 +432,10 @@ fn malformed_high_s_wrong_role_and_wrong_digest_fail_through_existing_engine() {
 }
 
 #[test]
-fn public_surface_exposes_no_signer_finalizer_or_intermediate_artifact() {
-    let source = include_str!("../src/insertion.rs");
+fn m15_m16_public_surface_has_one_consuming_finalizer_and_an_opaque_result() {
+    let insertion = include_str!("../src/insertion.rs");
+    let finalization = include_str!("../src/finalization.rs");
+    let library = include_str!("../src/lib.rs");
     for forbidden in [
         "fn sign(",
         "ecdsa_sign",
@@ -445,12 +447,51 @@ fn public_surface_exposes_no_signer_finalizer_or_intermediate_artifact() {
         "extract_transaction",
         "intermediate_bytes",
     ] {
-        assert!(!source.contains(forbidden), "{forbidden}");
+        assert!(!insertion.contains(forbidden), "{forbidden}");
     }
-    assert!(source.contains("canonical_serialize"));
-    assert!(source.contains("WorkflowEvent::SignatureProduced(token)"));
-    assert_eq!(source.matches("build_review(").count(), 3);
-    assert!(!source.contains("previous_review"));
-    assert!(!source.contains("final_review"));
-    assert!(!source.contains("qk_secp"));
+    assert!(insertion.contains("canonical_serialize"));
+    assert!(insertion.contains("WorkflowEvent::SignatureProduced(token)"));
+    assert_eq!(insertion.matches("build_review(").count(), 3);
+    assert!(!insertion.contains("previous_review"));
+    assert!(!insertion.contains("final_review"));
+    assert!(!insertion.contains("qk_secp"));
+
+    assert_eq!(
+        finalization.matches("pub fn finalize_and_extract(").count(),
+        1
+    );
+    assert!(finalization.contains("pub fn finalize_and_extract(self)"));
+    assert!(finalization.contains("impl ThresholdCompletePsbt"));
+    assert!(!finalization.contains("pub fn finalize_and_extract(&self)"));
+    assert!(!finalization.contains("pub fn finalize_and_extract(&mut self)"));
+    assert!(library.contains("pub use finalization::{FinalizationError, FinalizedTransaction};"));
+
+    let opaque_body = finalization
+        .split_once("pub struct FinalizedTransaction {")
+        .expect("opaque result declaration")
+        .1
+        .split_once("}\n")
+        .expect("opaque result body")
+        .0;
+    assert!(!opaque_body.contains("pub "));
+    assert!(!finalization.contains("impl From<"));
+    assert!(!finalization.contains("impl Default for FinalizedTransaction"));
+    for forbidden in [
+        "pub fn new(",
+        "pub fn from_psbt",
+        "pub fn from_transaction",
+        "pub fn parse",
+        "pub fn set_witness",
+        "pub fn with_witness",
+        "pub fn witness_mut",
+        "pub fn finalized_psbt_mut",
+        "pub fn raw_transaction_mut",
+    ] {
+        assert!(!finalization.contains(forbidden), "{forbidden}");
+    }
+    assert!(library.contains("mod transaction_sha256;"));
+    assert!(!library.contains("pub mod transaction_sha256;"));
+    assert!(finalization.contains("use crate::transaction_sha256::sha256d;"));
+    assert!(!finalization.contains("pub fn sha256"));
+    assert!(!finalization.contains("pub fn sha256d"));
 }
