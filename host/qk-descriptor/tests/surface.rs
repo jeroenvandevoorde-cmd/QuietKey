@@ -1,4 +1,4 @@
-//! Source and manifest restrictions for the frozen M11 public boundary.
+//! Source and manifest restrictions for the narrow M12 public boundary.
 
 const LIB: &str = include_str!("../src/lib.rs");
 const DESCRIPTOR: &str = include_str!("../src/descriptor.rs");
@@ -16,9 +16,12 @@ fn public_exports_are_exact_and_pair_stays_opaque() {
         "parse_descriptor_pair",
         "derive_receive_script",
         "derive_change_script",
+        "match_receive_derivation_claims",
+        "match_change_derivation_claims",
     ] {
         assert!(LIB.contains(required), "{required}");
     }
+    assert!(DESCRIPTOR.contains("pub const fn origin_fingerprints"));
     assert!(!LIB.contains("pub mod "));
     assert!(!DESCRIPTOR.contains("pub enum Branch"));
     assert!(!DESCRIPTOR.contains("pub fn checksum"));

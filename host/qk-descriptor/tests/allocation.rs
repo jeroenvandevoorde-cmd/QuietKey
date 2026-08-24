@@ -1,6 +1,9 @@
 //! Direct M11 work is fixed-memory; inherited M9 allocations stay exact.
 
-use qk_descriptor::{derive_change_script, derive_receive_script, parse_descriptor_pair};
+use qk_descriptor::{
+    derive_change_script, derive_receive_script, match_change_derivation_claims,
+    match_receive_derivation_claims, parse_descriptor_pair,
+};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -43,6 +46,22 @@ fn field<'a>(block: &'a str, name: &str) -> &'a str {
         .lines()
         .find_map(|line| line.strip_prefix(&prefix))
         .expect("fixture field")
+}
+
+fn hex<const N: usize>(value: &str) -> [u8; N] {
+    let mut output = [0u8; N];
+    for (slot, pair) in output.iter_mut().zip(value.as_bytes().chunks_exact(2)) {
+        *slot = u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap();
+    }
+    output
+}
+
+fn role_keys(block: &str) -> [[u8; 33]; 3] {
+    [
+        hex(field(block, "role_a")),
+        hex(field(block, "role_b")),
+        hex(field(block, "role_c")),
+    ]
 }
 
 fn reset_counts() {
@@ -100,6 +119,31 @@ fn direct_work_is_zero_allocation_and_inherited_counts_are_exact() {
     stop_counting();
     assert_counts(6);
     assert_ne!(receive_script, change_script);
+
+    let receive_zero = block
+        .split("derivation: ")
+        .find(|part| part.starts_with("receive-0\n"))
+        .unwrap();
+    let change_zero = block
+        .split("derivation: ")
+        .find(|part| part.starts_with("change-0\n"))
+        .unwrap();
+    let receive_role_keys = role_keys(receive_zero);
+    let change_role_keys = role_keys(change_zero);
+
+    reset_counts();
+    start_counting();
+    let matched = match_receive_derivation_claims(&pair, 0, &receive_role_keys).unwrap();
+    stop_counting();
+    assert_counts(6);
+    assert_eq!(matched, Some(receive_script));
+
+    reset_counts();
+    start_counting();
+    let matched = match_change_derivation_claims(&pair, 0, &change_role_keys).unwrap();
+    stop_counting();
+    assert_counts(6);
+    assert_eq!(matched, Some(change_script));
 
     reset_counts();
     start_counting();

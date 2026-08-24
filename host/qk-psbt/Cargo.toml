@@ -3,7 +3,8 @@ name = "qk-psbt"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Bounded PSBT v0 structural parser, canonical structural serializer, bounded semantic-subset analyzer, and read-only cryptographic verification of existing signatures over a bounded BIP143 SIGHASH_ALL digest engine (facts only, no signing, no export). HOST evidence only. Not product code. Not a wallet. No conformance or target-RAM claim."
+description = "Bounded PSBT v0 structural parser, canonical structural serializer, bounded semantic-subset analyzer, read-only cryptographic verification, and HOST-only descriptor-backed ownership facts (no signing, no export). HOST evidence only. Not product code. Not a wallet. No conformance or target-RAM claim."
 
 [dependencies]
+qk-descriptor = { path = "../qk-descriptor" }
 qk-secp = { path = "../qk-secp" }

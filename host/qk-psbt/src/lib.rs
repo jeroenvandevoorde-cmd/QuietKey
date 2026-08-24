@@ -56,8 +56,9 @@
 //! capability, file or device access, clocks, randomness, logging,
 //! network, environment access, threads, processes, FFI, persistence,
 //! or hardware code, and has no external dependencies; its only
-//! dependency is the internal verification-only `qk-secp` path crate
-//! (M8), whose audited FFI boundary lives entirely in that crate. The
+//! dependencies are the internal `qk-descriptor` public-derivation
+//! path crate (M12) and verification-only `qk-secp` path crate (M8),
+//! whose audited FFI boundary lives entirely in that crate. The
 //! [`bip143`] module computes BIP143 SIGHASH_ALL digests only
 //! (QK-DEC-044): it computes hashes, never signatures, and authorizes
 //! nothing.
@@ -84,9 +85,10 @@ pub use error::{ParseError, RejectCategory};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
 pub use semantic::{
-    analyze_and_verify_signatures, analyze_semantic_subset, InputSemanticFacts,
-    InputSignatureStatus, MalformedPush, MultisigForm, OutputSemanticFacts, ScriptToken,
-    ScriptTokens, SemanticCandidate, SemanticCategory, SemanticError, VerifiedAggregateStatus,
-    VerifiedInputFacts, VerifiedInputStatus, VerifiedSemanticCandidate,
+    analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_semantic_subset,
+    DescriptorOwnershipAnalysis, DescriptorWalletFacts, InputSemanticFacts, InputSignatureStatus,
+    MalformedPush, MultisigForm, OutputOwnership, OutputSemanticFacts, ProvenWalletInput,
+    ScriptToken, ScriptTokens, SemanticCandidate, SemanticCategory, SemanticError,
+    VerifiedAggregateStatus, VerifiedInputFacts, VerifiedInputStatus, VerifiedSemanticCandidate,
 };
 pub use serialize::{canonical_serialize, SerializeError};

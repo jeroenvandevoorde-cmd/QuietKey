@@ -29,10 +29,17 @@ const BRANCH_POSITIONS: [usize; ACCOUNT_COUNT] = [153, 292, 431];
 /// nodes are intentionally not observable.
 pub struct DescriptorPair {
     account_nodes: [PublicNode; ACCOUNT_COUNT],
+    origin_fingerprints: [[u8; 4]; ACCOUNT_COUNT],
     wallet_id: [u8; 32],
 }
 
 impl DescriptorPair {
+    /// Return the exact origin fingerprints in descriptor role A/B/C
+    /// order. This is role metadata only; it authenticates nothing.
+    pub const fn origin_fingerprints(&self) -> [[u8; 4]; ACCOUNT_COUNT] {
+        self.origin_fingerprints
+    }
+
     /// Return the hash of the exact validated receive/checksum, raw-zero
     /// separator, and change/checksum transcript.
     pub fn wallet_id(&self) -> [u8; 32] {
@@ -123,6 +130,29 @@ fn origin_matches(body: &[u8], start: usize) -> bool {
             .iter()
             .all(|&byte| is_lower_hex(byte))
         && &body[start + 9..start + 23] == ORIGIN_SUFFIX
+}
+
+fn lower_hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn parse_origin_fingerprints(body: &[u8]) -> Option<[[u8; 4]; ACCOUNT_COUNT]> {
+    let mut fingerprints = [[0u8; 4]; ACCOUNT_COUNT];
+    for (fingerprint, start) in fingerprints.iter_mut().zip(ORIGIN_STARTS) {
+        for (slot, pair) in fingerprint
+            .iter_mut()
+            .zip(body.get(start + 1..start + 9)?.chunks_exact(2))
+        {
+            let high = lower_hex_value(*pair.first()?)?;
+            let low = lower_hex_value(*pair.get(1)?)?;
+            *slot = high.checked_mul(16)?.checked_add(low)?;
+        }
+    }
+    Some(fingerprints)
 }
 
 fn grammar_matches(input: &[u8], branch: u8) -> bool {
@@ -232,6 +262,8 @@ where
     if !pair_bodies_match(receive, change) {
         return Err(DescriptorParseError::DescriptorPairMismatch);
     }
+    let origin_fingerprints = parse_origin_fingerprints(&receive[..BODY_LEN])
+        .ok_or(DescriptorParseError::NonCanonicalDescriptor)?;
 
     let decoded = [
         decode(&receive[XPUB_STARTS[0]..XPUB_STARTS[0] + XPUB_LEN]),
@@ -270,6 +302,7 @@ where
     debug_assert_eq!(receive.len() + 1 + change.len(), WALLET_TRANSCRIPT_LEN);
     Ok(DescriptorPair {
         account_nodes,
+        origin_fingerprints,
         wallet_id: hash.finalize(),
     })
 }
@@ -321,12 +354,12 @@ fn assemble_script(mut keys: [[u8; 33]; ACCOUNT_COUNT]) -> DerivedScript {
     }
 }
 
-fn derive_with<F>(
+fn derive_role_keys_with<F>(
     pair: &DescriptorPair,
     branch: u32,
     index: u32,
     mut derive: F,
-) -> Result<DerivedScript, DescriptorDeriveError>
+) -> Result<[[u8; 33]; ACCOUNT_COUNT], DescriptorDeriveError>
 where
     F: FnMut(&PublicNode, u32) -> Result<PublicNode, CkdPubError>,
 {
@@ -342,7 +375,34 @@ where
     if keys[0] == keys[1] || keys[0] == keys[2] || keys[1] == keys[2] {
         return Err(DescriptorDeriveError::DuplicateDerivedKey);
     }
-    Ok(assemble_script(keys))
+    Ok(keys)
+}
+
+fn derive_with<F>(
+    pair: &DescriptorPair,
+    branch: u32,
+    index: u32,
+    derive: F,
+) -> Result<DerivedScript, DescriptorDeriveError>
+where
+    F: FnMut(&PublicNode, u32) -> Result<PublicNode, CkdPubError>,
+{
+    Ok(assemble_script(derive_role_keys_with(
+        pair, branch, index, derive,
+    )?))
+}
+
+fn match_derivation_claims(
+    pair: &DescriptorPair,
+    branch: u32,
+    index: u32,
+    claimed_role_keys: &[[u8; 33]; ACCOUNT_COUNT],
+) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
+    let role_keys = derive_role_keys_with(pair, branch, index, derive_public_child)?;
+    if &role_keys != claimed_role_keys {
+        return Ok(None);
+    }
+    Ok(Some(assemble_script(role_keys)))
 }
 
 /// Derive the fixed receive branch and exact supplied nonhardened index.
@@ -361,10 +421,31 @@ pub fn derive_change_script(
     derive_with(pair, 1, index, derive_public_child)
 }
 
+/// Match supplied role A/B/C receive-branch key claims before BIP67
+/// sorting and, on exact equality, return the canonical script facts.
+pub fn match_receive_derivation_claims(
+    pair: &DescriptorPair,
+    index: u32,
+    claimed_role_keys: &[[u8; 33]; ACCOUNT_COUNT],
+) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
+    match_derivation_claims(pair, 0, index, claimed_role_keys)
+}
+
+/// Match supplied role A/B/C change-branch key claims before BIP67
+/// sorting and, on exact equality, return the canonical script facts.
+pub fn match_change_derivation_claims(
+    pair: &DescriptorPair,
+    index: u32,
+    claimed_role_keys: &[[u8; 33]; ACCOUNT_COUNT],
+) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
+    match_derivation_claims(pair, 1, index, claimed_role_keys)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        assemble_script, derive_with, parse_descriptor_pair, parse_with_decoder, sort_keys,
+        assemble_script, derive_with, match_change_derivation_claims,
+        match_receive_derivation_claims, parse_descriptor_pair, parse_with_decoder, sort_keys,
         DescriptorDeriveError, DescriptorParseError, PublicNode,
     };
     use crate::sha256::Sha256;
@@ -399,6 +480,14 @@ mod tests {
             field(block, "change").as_bytes(),
         )
         .unwrap()
+    }
+
+    fn role_keys(block: &str) -> [[u8; 33]; 3] {
+        [
+            hex(field(block, "role_a")),
+            hex(field(block, "role_b")),
+            hex(field(block, "role_c")),
+        ]
     }
 
     fn node(byte: u8) -> PublicNode {
@@ -483,6 +572,51 @@ mod tests {
         assert_eq!(calls[3].0, 5);
         assert_eq!(calls[4].0, 4);
         assert_eq!(calls[5].0, 5);
+    }
+
+    #[test]
+    fn origin_fingerprints_are_role_ordered_and_claims_match_before_sorting() {
+        let golden = PAIRS
+            .split("\n\n")
+            .find(|block| block.contains("case: GOLDEN"))
+            .unwrap();
+        let receive_zero = golden
+            .split("derivation: ")
+            .find(|block| block.starts_with("receive-0\n"))
+            .unwrap();
+        let change_zero = golden
+            .split("derivation: ")
+            .find(|block| block.starts_with("change-0\n"))
+            .unwrap();
+        let pair = pair();
+        assert_eq!(
+            pair.origin_fingerprints(),
+            [
+                [0x11, 0x22, 0x33, 0x44],
+                [0x55, 0x66, 0x77, 0x88],
+                [0x99, 0xaa, 0xbb, 0xcc],
+            ]
+        );
+
+        let receive_keys = role_keys(receive_zero);
+        let receive = match_receive_derivation_claims(&pair, 0, &receive_keys).unwrap();
+        assert_eq!(
+            receive.unwrap().witness_script,
+            hex(field(receive_zero, "witness_script"))
+        );
+        let mut reordered = receive_keys;
+        reordered.swap(0, 1);
+        assert_eq!(
+            match_receive_derivation_claims(&pair, 0, &reordered).unwrap(),
+            None
+        );
+
+        let change_keys = role_keys(change_zero);
+        let change = match_change_derivation_claims(&pair, 0, &change_keys).unwrap();
+        assert_eq!(
+            change.unwrap().script_pubkey,
+            hex(field(change_zero, "script_pubkey"))
+        );
     }
 
     #[test]

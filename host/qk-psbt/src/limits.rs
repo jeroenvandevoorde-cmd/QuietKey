@@ -80,3 +80,14 @@ pub const MAX_PREVTX_WITNESS_ITEMS: usize = 1000;
 /// previous transaction. HOST-scaffold candidate; no conformance
 /// claim; final registry value OPEN.
 pub const MAX_PREVTX_WITNESS_ITEM_BYTES: usize = 10_000;
+
+/// CANDIDATE (QK-DEC-063, QK-LIM-PSBT-011): maximum descriptor child
+/// index accepted by the HOST-only M12 ownership route. Candidate
+/// only under QK-DEC-034; final registry value remains OPEN.
+pub const MAX_CHILD_INDEX: u32 = 65_535;
+
+/// CANDIDATE (QK-DEC-063, QK-LIM-PSBT-025): maximum inherited CKDpub
+/// calls in one HOST-only M12 ownership analysis: 132 possible routes
+/// times six calls. Candidate only under QK-DEC-034; final registry
+/// value remains OPEN.
+pub const MAX_CHILD_DERIVATIONS: usize = 792;

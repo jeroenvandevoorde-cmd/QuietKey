@@ -48,9 +48,12 @@ use crate::bip143::{
 };
 use crate::limits;
 use crate::parse::PsbtView;
-use crate::raw::{decode_compact_size, Span};
+use crate::raw::{decode_compact_size, Record, Span};
 use crate::sha256::{sha256, sha256d};
 use core::fmt;
+use qk_descriptor::{
+    match_change_derivation_claims, match_receive_derivation_claims, DerivedScript, DescriptorPair,
+};
 
 /// MoneyRange upper bound in satoshis (Bitcoin Core `MAX_MONEY`),
 /// applied to every used amount and running total: `0..=MAX_MONEY`.
@@ -160,6 +163,45 @@ pub enum SemanticCategory {
     /// M8: the cryptographic backend or digest engine reported an
     /// unexpected condition; fails closed.
     CryptographicBackendInvariant,
+    /// M12: descriptor origin fingerprints do not uniquely map A/B/C.
+    AmbiguousDescriptorFingerprints,
+    /// M12: an input does not carry exactly three BIP32 derivation
+    /// records.
+    DescriptorDerivationRecordCount,
+    /// M12: a relevant derivation record key is not one exact
+    /// compressed public key.
+    DescriptorDerivationPublicKey,
+    /// M12: a relevant derivation record does not carry the exact
+    /// BIP48 prefix and path depth.
+    DescriptorDerivationPath,
+    /// M12: an input derivation fingerprint does not map to D.
+    ForeignInputDescriptorRole,
+    /// M12: two relevant derivation records map to the same D role.
+    DuplicateDescriptorRole,
+    /// M12: relevant derivation records disagree on branch or index.
+    MixedDescriptorCoordinates,
+    /// M12: a relevant derivation branch is not receive 0 or change 1.
+    DescriptorBranchOutOfRange,
+    /// M12: a relevant descriptor child index exceeds
+    /// `limits::MAX_CHILD_INDEX`.
+    DescriptorChildIndexOutOfRange,
+    /// M12: role-preserving public derivation does not equal the
+    /// supplied A/B/C keys.
+    DescriptorDerivationKeyMismatch,
+    /// M12: a present witnessScript is not byte-equal to the script
+    /// reconstructed from D.
+    DescriptorWitnessScriptMismatch,
+    /// M12: the selected QK-DEC-032 prevout scriptPubKey is not the
+    /// exact native P2WSH commitment reconstructed from D.
+    DescriptorPrevoutScriptMismatch,
+    /// M12: a complete output A/B/C set does not match the exact
+    /// unsigned-output scriptPubKey.
+    DescriptorOutputScriptMismatch,
+    /// M12: bounded public descriptor derivation failed.
+    DescriptorDerivationFailed,
+    /// M12: descriptor CKDpub calls would exceed the candidate
+    /// `limits::MAX_CHILD_DERIVATIONS`.
+    DescriptorChildDerivationLimitExceeded,
 }
 
 impl fmt::Display for SemanticCategory {
@@ -210,6 +252,39 @@ impl fmt::Display for SemanticCategory {
                 "partial signature failed cryptographic verification"
             }
             Self::CryptographicBackendInvariant => "cryptographic backend invariant failed",
+            Self::AmbiguousDescriptorFingerprints => {
+                "descriptor origin fingerprints do not uniquely map roles"
+            }
+            Self::DescriptorDerivationRecordCount => {
+                "input does not have exactly three descriptor derivation records"
+            }
+            Self::DescriptorDerivationPublicKey => {
+                "descriptor derivation key is not exact compressed form"
+            }
+            Self::DescriptorDerivationPath => "descriptor derivation path is not exact BIP48 form",
+            Self::ForeignInputDescriptorRole => {
+                "input derivation fingerprint does not map to descriptor"
+            }
+            Self::DuplicateDescriptorRole => "duplicate descriptor role",
+            Self::MixedDescriptorCoordinates => "mixed descriptor branch or child index",
+            Self::DescriptorBranchOutOfRange => "descriptor branch is not receive or change",
+            Self::DescriptorChildIndexOutOfRange => "descriptor child index exceeds cap",
+            Self::DescriptorDerivationKeyMismatch => {
+                "descriptor-derived role key does not match claim"
+            }
+            Self::DescriptorWitnessScriptMismatch => {
+                "witness script does not equal descriptor reconstruction"
+            }
+            Self::DescriptorPrevoutScriptMismatch => {
+                "prevout script does not equal descriptor reconstruction"
+            }
+            Self::DescriptorOutputScriptMismatch => {
+                "output script does not equal descriptor reconstruction"
+            }
+            Self::DescriptorDerivationFailed => "bounded descriptor derivation failed",
+            Self::DescriptorChildDerivationLimitExceeded => {
+                "descriptor child derivation cap exceeded"
+            }
         };
         f.write_str(s)
     }
@@ -1429,18 +1504,15 @@ fn map_bip143(e: Bip143Error, input_index: Option<usize>, offset: usize) -> Sema
     }
 }
 
-/// M8 pre-verification screen, inputs ascending, before any
-/// cryptographic call: require a witnessScript record; reject
-/// final-script fields; reject a malformed witnessScript push; reject
-/// an actual OP_CODESEPARATOR opcode by parsed opcode semantics
-/// (never a raw byte scan; pushed 0xAB data never matches); require
-/// the canonical bounded m-of-n form; require the selected prevout
-/// scriptPubKey to be the exact native P2WSH commitment
-/// `00 20 SHA256(witnessScript)` (a coherence check, not an ownership
-/// claim); reject a redeem-script (wrapped) route.
+/// Shared M8/M12 pre-verification screen, inputs ascending, before any
+/// cryptographic call. Public M8 requires a witnessScript and checks
+/// its selected-prevout commitment. M12 permits an absent record and
+/// defers both exact script equalities until after reconstruction from
+/// D. All other existing screen rules run before M12 wallet analysis.
 fn verification_screen(
     view: &PsbtView<'_>,
     state: &AnalysisState<'_>,
+    witness_required: bool,
 ) -> Result<(), SemanticError> {
     for (i, w) in state.work.iter().enumerate() {
         let map_start = view.input_map_span(i).map_or(0, |s| s.start);
@@ -1465,11 +1537,13 @@ fn verification_screen(
                 _ => {}
             }
         }
-        let ws = witness_script.ok_or(SemanticError::at_input(
-            SemanticCategory::MissingWitnessScript,
-            i,
-            map_start,
-        ))?;
+        if witness_required && witness_script.is_none() {
+            return Err(SemanticError::at_input(
+                SemanticCategory::MissingWitnessScript,
+                i,
+                map_start,
+            ));
+        }
         if let Some(r) = final_field {
             return Err(SemanticError::at_input(
                 SemanticCategory::UnsupportedFinalScriptFields,
@@ -1477,45 +1551,49 @@ fn verification_screen(
                 r.value_span.start,
             ));
         }
-        for token in ScriptTokens::new(ws.value) {
-            match token {
-                Err(m) => {
-                    return Err(SemanticError::at_input(
-                        SemanticCategory::MalformedScriptPush,
-                        i,
-                        ws.value_span.start.saturating_add(m.offset),
-                    ));
+        if let Some(ws) = witness_script {
+            for token in ScriptTokens::new(ws.value) {
+                match token {
+                    Err(m) => {
+                        return Err(SemanticError::at_input(
+                            SemanticCategory::MalformedScriptPush,
+                            i,
+                            ws.value_span.start.saturating_add(m.offset),
+                        ));
+                    }
+                    Ok(ScriptToken::Opcode(0xab)) => {
+                        return Err(SemanticError::at_input(
+                            SemanticCategory::UnsupportedCodeSeparator,
+                            i,
+                            ws.value_span.start,
+                        ));
+                    }
+                    Ok(_) => {}
                 }
-                Ok(ScriptToken::Opcode(0xab)) => {
-                    return Err(SemanticError::at_input(
-                        SemanticCategory::UnsupportedCodeSeparator,
-                        i,
-                        ws.value_span.start,
-                    ));
-                }
-                Ok(_) => {}
             }
-        }
-        if parse_multisig_form(ws.value).is_none() {
-            return Err(SemanticError::at_input(
-                SemanticCategory::WitnessScriptForm,
-                i,
-                ws.value_span.start,
-            ));
-        }
-        let commitment = sha256(&[ws.value]).map_err(|_| {
-            SemanticError::at_input(SemanticCategory::HashFailure, i, ws.value_span.start)
-        })?;
-        let native = w.prevout_script.len() == 34
-            && w.prevout_script.first() == Some(&0x00)
-            && w.prevout_script.get(1) == Some(&0x20)
-            && w.prevout_script.get(2..) == Some(commitment.as_slice());
-        if !native {
-            return Err(SemanticError::at_input(
-                SemanticCategory::PrevoutNotNativeWitnessScriptHash,
-                i,
-                w.prevout_script_offset,
-            ));
+            if parse_multisig_form(ws.value).is_none() {
+                return Err(SemanticError::at_input(
+                    SemanticCategory::WitnessScriptForm,
+                    i,
+                    ws.value_span.start,
+                ));
+            }
+            if witness_required {
+                let commitment = sha256(&[ws.value]).map_err(|_| {
+                    SemanticError::at_input(SemanticCategory::HashFailure, i, ws.value_span.start)
+                })?;
+                let native = w.prevout_script.len() == 34
+                    && w.prevout_script.first() == Some(&0x00)
+                    && w.prevout_script.get(1) == Some(&0x20)
+                    && w.prevout_script.get(2..) == Some(commitment.as_slice());
+                if !native {
+                    return Err(SemanticError::at_input(
+                        SemanticCategory::PrevoutNotNativeWitnessScriptHash,
+                        i,
+                        w.prevout_script_offset,
+                    ));
+                }
+            }
         }
         if let Some(r) = redeem_script {
             return Err(SemanticError::at_input(
@@ -1537,9 +1615,15 @@ fn verification_screen(
 /// sighash byte bound to [`SIGHASH_ALL`], then a DER-only signature
 /// parse (the trailing byte is never passed on), then digest
 /// verification. Any failing record rejects the whole result.
+enum VerificationScriptSource<'a> {
+    Recorded,
+    Descriptor(&'a [DerivedScript]),
+}
+
 fn verification_phase(
     view: &PsbtView<'_>,
     candidate: &SemanticCandidate<'_>,
+    script_source: VerificationScriptSource<'_>,
 ) -> Result<(Vec<VerifiedInputFacts>, VerifiedAggregateStatus), SemanticError> {
     let global_offset = view.unsigned_tx().span.start;
     let mut builder = Bip143PrecomputeBuilder::new();
@@ -1567,31 +1651,47 @@ fn verification_phase(
         let map_start = view.input_map_span(i).map_or(0, |s| s.start);
         let invariant = SemanticError::at_input(SemanticCategory::InternalInvariant, i, map_start);
         let records = view.input_records(i).ok_or(invariant)?;
-        let mut witness_script = None;
-        for r in records.clone() {
-            if r.key_type == 0x05 {
-                witness_script = Some(r);
+        let (script_code, form, script_offset) = match script_source {
+            VerificationScriptSource::Recorded => {
+                let mut witness_script = None;
+                for r in records.clone() {
+                    if r.key_type == 0x05 {
+                        witness_script = Some(r);
+                    }
+                }
+                let ws = witness_script.ok_or(invariant)?;
+                let form = input.multisig_form.ok_or(invariant)?;
+                (ws.value, form, ws.value_span.start)
             }
-        }
-        let ws = witness_script.ok_or(invariant)?;
-        let form = input.multisig_form.ok_or(invariant)?;
+            VerificationScriptSource::Descriptor(scripts) => {
+                let derived = scripts.get(i).ok_or(invariant)?;
+                (
+                    derived.witness_script.as_slice(),
+                    MultisigForm {
+                        required_m: 2,
+                        total_n: 3,
+                    },
+                    map_start,
+                )
+            }
+        };
         let txid: &[u8; 32] = input.outpoint_txid_wire.try_into().map_err(|_| invariant)?;
         let facts = Bip143InputFacts {
             outpoint_txid_wire: txid,
             outpoint_vout: input.outpoint_vout,
-            script_code: ws.value,
+            script_code,
             amount_sats: input.prevout_amount,
             sequence: input.sequence,
         };
         let digest =
             sighash_all_digest(candidate.version, candidate.locktime, &precomputed, &facts)
-                .map_err(|e| map_bip143(e, Some(i), ws.value_span.start))?;
+                .map_err(|e| map_bip143(e, Some(i), script_offset))?;
         let mut verified = 0usize;
         for r in records.clone() {
             if r.key_type != 0x02 {
                 continue;
             }
-            if !multisig_contains_key(ws.value, r.key_data) {
+            if !multisig_contains_key(script_code, r.key_data) {
                 return Err(SemanticError::at_input(
                     SemanticCategory::PartialSignaturePubkeyNotInWitnessScript,
                     i,
@@ -1716,14 +1816,523 @@ pub fn analyze_and_verify_signatures<'a>(
     view: &PsbtView<'a>,
 ) -> Result<VerifiedSemanticCandidate<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
-    verification_screen(view, &state)?;
+    verification_screen(view, &state, true)?;
     signature_phase(view, &mut state.work)?;
     token_phase(view, &state)?;
     let candidate = assemble(view, state)?;
-    let (verified_inputs, aggregate_status) = verification_phase(view, &candidate)?;
+    let (verified_inputs, aggregate_status) =
+        verification_phase(view, &candidate, VerificationScriptSource::Recorded)?;
     Ok(VerifiedSemanticCandidate {
         candidate,
         verified_inputs,
         aggregate_status,
+    })
+}
+
+// ====================================================================
+// M12 HOST-only descriptor-backed ownership facts (QK-DEC-060..064).
+// ====================================================================
+
+const CHILD_DERIVATIONS_PER_ROUTE: usize = 6;
+const DESCRIPTOR_PATH_VALUE_BYTES: usize = 28;
+const BIP48_PURPOSE: u32 = 0x8000_0030;
+const BIP48_COIN_TYPE: u32 = 0x8000_0000;
+const BIP48_ACCOUNT: u32 = 0x8000_0000;
+const BIP48_SCRIPT_TYPE: u32 = 0x8000_0002;
+
+/// One input whose exact A/B/C derivation claims, reconstructed script,
+/// optional witnessScript, and selected prevout all cohered with D.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProvenWalletInput {
+    /// Descriptor branch: receive 0 or change 1.
+    pub branch: u32,
+    /// Nonhardened descriptor child index.
+    pub index: u32,
+}
+
+/// Descriptor-backed fact about one unsigned transaction output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputOwnership {
+    /// No complete coherent A/B/C proof was present. This is neither
+    /// recipient authorization nor a renderability decision.
+    NotProvenOwned,
+    /// Exact branch-1 descriptor script at this child index.
+    ProvenChange(u32),
+    /// Exact branch-0 descriptor script at this child index.
+    ProvenSelfTransfer(u32),
+}
+
+/// M12 wallet facts, separate from structural and cryptographic facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DescriptorWalletFacts {
+    /// Every input, in unsigned-transaction order.
+    pub inputs: Vec<ProvenWalletInput>,
+    /// One descriptor-backed classification per unsigned output.
+    pub outputs: Vec<OutputOwnership>,
+}
+
+/// M12 result: a record-truthful semantic candidate, existing
+/// cryptographic facts over D-reconstructed effective scripts, and
+/// separate wallet facts. No field authenticates D or authorizes a
+/// recipient, signing, finalization, or export.
+#[derive(Debug, Clone)]
+pub struct DescriptorOwnershipAnalysis<'a> {
+    /// Record-truthful M6 candidate; a missing witnessScript remains
+    /// visibly absent here.
+    pub candidate: SemanticCandidate<'a>,
+    /// Existing-signature cryptographic facts, in input order.
+    pub verified_inputs: Vec<VerifiedInputFacts>,
+    /// Existing aggregate cryptographic status.
+    pub aggregate_status: VerifiedAggregateStatus,
+    /// Descriptor-backed input and output facts.
+    pub wallet: DescriptorWalletFacts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DescriptorCoordinates {
+    branch: u32,
+    index: u32,
+}
+
+struct DescriptorClaims {
+    keys: [[u8; 33]; 3],
+    seen: [bool; 3],
+    coordinates: Option<DescriptorCoordinates>,
+    relevant_count: usize,
+}
+
+impl DescriptorClaims {
+    const fn new() -> Self {
+        Self {
+            keys: [[0u8; 33]; 3],
+            seen: [false; 3],
+            coordinates: None,
+            relevant_count: 0,
+        }
+    }
+
+    fn add(
+        &mut self,
+        role: usize,
+        key: [u8; 33],
+        coordinates: DescriptorCoordinates,
+        input_index: Option<usize>,
+        offset: usize,
+    ) -> Result<(), SemanticError> {
+        let seen = self.seen.get_mut(role).ok_or(SemanticError {
+            category: SemanticCategory::InternalInvariant,
+            input_index,
+            offset,
+        })?;
+        if *seen {
+            return Err(SemanticError {
+                category: SemanticCategory::DuplicateDescriptorRole,
+                input_index,
+                offset,
+            });
+        }
+        if self
+            .coordinates
+            .is_some_and(|existing| existing != coordinates)
+        {
+            return Err(SemanticError {
+                category: SemanticCategory::MixedDescriptorCoordinates,
+                input_index,
+                offset,
+            });
+        }
+        if self.coordinates.is_none() {
+            self.coordinates = Some(coordinates);
+        }
+        let slot = self.keys.get_mut(role).ok_or(SemanticError {
+            category: SemanticCategory::InternalInvariant,
+            input_index,
+            offset,
+        })?;
+        *slot = key;
+        *seen = true;
+        self.relevant_count = self.relevant_count.saturating_add(1);
+        Ok(())
+    }
+}
+
+fn little_endian_u32_at(value: &[u8], offset: usize) -> Option<u32> {
+    let end = offset.checked_add(4)?;
+    let bytes: [u8; 4] = value.get(offset..end)?.try_into().ok()?;
+    Some(u32::from_le_bytes(bytes))
+}
+
+fn descriptor_role(fingerprints: &[[u8; 4]; 3], candidate: &[u8]) -> Option<usize> {
+    fingerprints
+        .iter()
+        .position(|fingerprint| fingerprint.as_slice() == candidate)
+}
+
+fn parse_descriptor_claim(
+    record: Record<'_>,
+    input_index: Option<usize>,
+) -> Result<([u8; 33], DescriptorCoordinates), SemanticError> {
+    let error = |category, offset| SemanticError {
+        category,
+        input_index,
+        offset,
+    };
+    let key: [u8; 33] = record.key_data.try_into().map_err(|_| {
+        error(
+            SemanticCategory::DescriptorDerivationPublicKey,
+            record.key_data_span.start,
+        )
+    })?;
+    if !matches!(key.first(), Some(0x02 | 0x03)) {
+        return Err(error(
+            SemanticCategory::DescriptorDerivationPublicKey,
+            record.key_data_span.start,
+        ));
+    }
+    if record.value.len() != DESCRIPTOR_PATH_VALUE_BYTES {
+        return Err(error(
+            SemanticCategory::DescriptorDerivationPath,
+            record.value_span.start,
+        ));
+    }
+    for (offset, expected) in [
+        (4, BIP48_PURPOSE),
+        (8, BIP48_COIN_TYPE),
+        (12, BIP48_ACCOUNT),
+        (16, BIP48_SCRIPT_TYPE),
+    ] {
+        if little_endian_u32_at(record.value, offset) != Some(expected) {
+            return Err(error(
+                SemanticCategory::DescriptorDerivationPath,
+                record.value_span.start.saturating_add(offset),
+            ));
+        }
+    }
+    let branch = little_endian_u32_at(record.value, 20).ok_or_else(|| {
+        error(
+            SemanticCategory::DescriptorDerivationPath,
+            record.value_span.start,
+        )
+    })?;
+    if branch > 1 {
+        return Err(error(
+            SemanticCategory::DescriptorBranchOutOfRange,
+            record.value_span.start.saturating_add(20),
+        ));
+    }
+    let index = little_endian_u32_at(record.value, 24).ok_or_else(|| {
+        error(
+            SemanticCategory::DescriptorDerivationPath,
+            record.value_span.start,
+        )
+    })?;
+    if index > limits::MAX_CHILD_INDEX {
+        return Err(error(
+            SemanticCategory::DescriptorChildIndexOutOfRange,
+            record.value_span.start.saturating_add(24),
+        ));
+    }
+    Ok((key, DescriptorCoordinates { branch, index }))
+}
+
+fn unique_descriptor_fingerprints(
+    descriptor: &DescriptorPair,
+    offset: usize,
+) -> Result<[[u8; 4]; 3], SemanticError> {
+    let fingerprints = descriptor.origin_fingerprints();
+    let [a, b, c] = fingerprints;
+    if a == b || a == c || b == c {
+        return Err(SemanticError::global(
+            SemanticCategory::AmbiguousDescriptorFingerprints,
+            offset,
+        ));
+    }
+    Ok(fingerprints)
+}
+
+fn consume_descriptor_route(
+    calls: &mut usize,
+    input_index: Option<usize>,
+    offset: usize,
+) -> Result<(), SemanticError> {
+    let next = calls
+        .checked_add(CHILD_DERIVATIONS_PER_ROUTE)
+        .ok_or(SemanticError {
+            category: SemanticCategory::DescriptorChildDerivationLimitExceeded,
+            input_index,
+            offset,
+        })?;
+    if next > limits::MAX_CHILD_DERIVATIONS {
+        return Err(SemanticError {
+            category: SemanticCategory::DescriptorChildDerivationLimitExceeded,
+            input_index,
+            offset,
+        });
+    }
+    *calls = next;
+    Ok(())
+}
+
+fn match_descriptor_claims(
+    descriptor: &DescriptorPair,
+    claims: &DescriptorClaims,
+    calls: &mut usize,
+    input_index: Option<usize>,
+    offset: usize,
+) -> Result<DerivedScript, SemanticError> {
+    let coordinates = claims.coordinates.ok_or(SemanticError {
+        category: SemanticCategory::InternalInvariant,
+        input_index,
+        offset,
+    })?;
+    consume_descriptor_route(calls, input_index, offset)?;
+    let matched = match coordinates.branch {
+        0 => match_receive_derivation_claims(descriptor, coordinates.index, &claims.keys),
+        1 => match_change_derivation_claims(descriptor, coordinates.index, &claims.keys),
+        _ => {
+            return Err(SemanticError {
+                category: SemanticCategory::InternalInvariant,
+                input_index,
+                offset,
+            })
+        }
+    }
+    .map_err(|_| SemanticError {
+        category: SemanticCategory::DescriptorDerivationFailed,
+        input_index,
+        offset,
+    })?;
+    matched.ok_or(SemanticError {
+        category: SemanticCategory::DescriptorDerivationKeyMismatch,
+        input_index,
+        offset,
+    })
+}
+
+fn prove_descriptor_input(
+    view: &PsbtView<'_>,
+    descriptor: &DescriptorPair,
+    fingerprints: &[[u8; 4]; 3],
+    input_index: usize,
+    work: &InputWork<'_>,
+    calls: &mut usize,
+) -> Result<(ProvenWalletInput, DerivedScript), SemanticError> {
+    let map_start = view
+        .input_map_span(input_index)
+        .map_or(0, |span| span.start);
+    let invariant =
+        SemanticError::at_input(SemanticCategory::InternalInvariant, input_index, map_start);
+    let records = view.input_records(input_index).ok_or(invariant)?;
+    let derivation_count = records
+        .clone()
+        .filter(|record| record.key_type == 0x06)
+        .count();
+    if derivation_count != 3 {
+        return Err(SemanticError::at_input(
+            SemanticCategory::DescriptorDerivationRecordCount,
+            input_index,
+            map_start,
+        ));
+    }
+
+    let mut claims = DescriptorClaims::new();
+    let mut witness_script = None;
+    for record in records {
+        if record.key_type == 0x05 {
+            witness_script = Some(record);
+            continue;
+        }
+        if record.key_type != 0x06 {
+            continue;
+        }
+        let fingerprint = record.value.get(..4).ok_or(invariant)?;
+        let role = descriptor_role(fingerprints, fingerprint).ok_or_else(|| {
+            SemanticError::at_input(
+                SemanticCategory::ForeignInputDescriptorRole,
+                input_index,
+                record.value_span.start,
+            )
+        })?;
+        let (key, coordinates) = parse_descriptor_claim(record, Some(input_index))?;
+        claims.add(
+            role,
+            key,
+            coordinates,
+            Some(input_index),
+            record.value_span.start,
+        )?;
+    }
+
+    let derived =
+        match_descriptor_claims(descriptor, &claims, calls, Some(input_index), map_start)?;
+    if let Some(record) = witness_script {
+        if record.value != derived.witness_script {
+            return Err(SemanticError::at_input(
+                SemanticCategory::DescriptorWitnessScriptMismatch,
+                input_index,
+                record.value_span.start,
+            ));
+        }
+    }
+    if work.prevout_script != derived.script_pubkey {
+        return Err(SemanticError::at_input(
+            SemanticCategory::DescriptorPrevoutScriptMismatch,
+            input_index,
+            work.prevout_script_offset,
+        ));
+    }
+    let coordinates = claims.coordinates.ok_or(invariant)?;
+    Ok((
+        ProvenWalletInput {
+            branch: coordinates.branch,
+            index: coordinates.index,
+        },
+        derived,
+    ))
+}
+
+fn classify_descriptor_output(
+    view: &PsbtView<'_>,
+    descriptor: &DescriptorPair,
+    fingerprints: &[[u8; 4]; 3],
+    output_index: usize,
+    output: &UnsignedOutputFacts,
+    calls: &mut usize,
+) -> Result<OutputOwnership, SemanticError> {
+    let map_start = view
+        .output_map_span(output_index)
+        .map_or(output.script.start, |span| span.start);
+    let records = view
+        .output_records(output_index)
+        .ok_or(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            map_start,
+        ))?;
+    let mut claims = DescriptorClaims::new();
+    for record in records {
+        if record.key_type != 0x02 {
+            continue;
+        }
+        let fingerprint = record.value.get(..4).ok_or(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            record.value_span.start,
+        ))?;
+        let Some(role) = descriptor_role(fingerprints, fingerprint) else {
+            continue;
+        };
+        let (key, coordinates) = parse_descriptor_claim(record, None)?;
+        claims.add(role, key, coordinates, None, record.value_span.start)?;
+    }
+    if claims.relevant_count < 3 {
+        return Ok(OutputOwnership::NotProvenOwned);
+    }
+
+    let derived = match_descriptor_claims(descriptor, &claims, calls, None, map_start)?;
+    let script = output
+        .script
+        .slice(view.buffer())
+        .ok_or(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            output.script.start,
+        ))?;
+    if script != derived.script_pubkey {
+        return Err(SemanticError::global(
+            SemanticCategory::DescriptorOutputScriptMismatch,
+            output.script.start,
+        ));
+    }
+    let coordinates = claims.coordinates.ok_or(SemanticError::global(
+        SemanticCategory::InternalInvariant,
+        map_start,
+    ))?;
+    match coordinates.branch {
+        0 => Ok(OutputOwnership::ProvenSelfTransfer(coordinates.index)),
+        1 => Ok(OutputOwnership::ProvenChange(coordinates.index)),
+        _ => Err(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            map_start,
+        )),
+    }
+}
+
+/// Analyze one structurally parsed PSBT v0 against one caller-supplied,
+/// already-authenticated descriptor pair (M12, QK-DEC-060..064).
+///
+/// HOST-ONLY READ-ONLY FACTS. This route authenticates neither D nor
+/// recipients and performs no signing, insertion, finalization,
+/// serialization, persistence, export, or policy authorization.
+/// Structural/QK-DEC-032 and the existing M8 screen and signature
+/// syntax phases run before descriptor wallet analysis. Every input
+/// must then prove exact A/B/C ownership by D reconstruction and both
+/// script equalities. Missing witnessScript is allowed only here; the
+/// reconstructed, selected-prevout-bound script is used for existing
+/// signature cryptography while the returned semantic candidate stays
+/// truthful to records.
+///
+/// # Errors
+///
+/// Returns the first [`SemanticError`] in deterministic phase, input,
+/// record, then output order.
+pub fn analyze_descriptor_ownership<'a>(
+    view: &PsbtView<'a>,
+    descriptor: &DescriptorPair,
+) -> Result<DescriptorOwnershipAnalysis<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    verification_screen(view, &state, false)?;
+    signature_phase(view, &mut state.work)?;
+    token_phase(view, &state)?;
+
+    let global_offset = view.unsigned_tx().span.start;
+    let fingerprints = unique_descriptor_fingerprints(descriptor, global_offset)?;
+    let mut derivation_calls = 0usize;
+
+    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
+    let mut effective_scripts: Vec<DerivedScript> = Vec::new();
+    reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
+    for (input_index, work) in state.work.iter().enumerate() {
+        let (wallet_input, script) = prove_descriptor_input(
+            view,
+            descriptor,
+            &fingerprints,
+            input_index,
+            work,
+            &mut derivation_calls,
+        )?;
+        wallet_inputs.push(wallet_input);
+        effective_scripts.push(script);
+    }
+
+    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    reserve_exact(
+        &mut wallet_outputs,
+        state.facts.outputs.len(),
+        global_offset,
+    )?;
+    for (output_index, output) in state.facts.outputs.iter().enumerate() {
+        wallet_outputs.push(classify_descriptor_output(
+            view,
+            descriptor,
+            &fingerprints,
+            output_index,
+            output,
+            &mut derivation_calls,
+        )?);
+    }
+
+    let candidate = assemble(view, state)?;
+    let (verified_inputs, aggregate_status) = verification_phase(
+        view,
+        &candidate,
+        VerificationScriptSource::Descriptor(&effective_scripts),
+    )?;
+    Ok(DescriptorOwnershipAnalysis {
+        candidate,
+        verified_inputs,
+        aggregate_status,
+        wallet: DescriptorWalletFacts {
+            inputs: wallet_inputs,
+            outputs: wallet_outputs,
+        },
     })
 }
