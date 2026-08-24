@@ -2460,13 +2460,37 @@ fn is_bare_pubkey(script: &[u8]) -> bool {
     }
 }
 
-fn malformed_push_offset(script: &[u8]) -> Option<usize> {
-    for token in ScriptTokens::new(script) {
-        if let Err(malformed) = token {
-            return Some(malformed.offset);
-        }
+const fn is_push_opcode(opcode: u8) -> bool {
+    matches!(opcode, 0x00..=0x4f | 0x51..=0x60)
+}
+
+fn complete_op_return_push(
+    script: &[u8],
+    script_span: Span,
+    data_start: usize,
+    data_len: usize,
+) -> Result<(), SemanticError> {
+    let data_end = data_start.checked_add(data_len).ok_or_else(|| {
+        SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
+    })?;
+    if script.len() < data_end {
+        return Err(SemanticError::global(
+            SemanticCategory::MalformedScriptPush,
+            script_span.start.saturating_add(1),
+        ));
     }
-    None
+    if let Some(trailing) = script.get(data_end).copied() {
+        let category = if is_push_opcode(trailing) {
+            SemanticCategory::OpReturnMultiplePushes
+        } else {
+            SemanticCategory::UnsupportedRecipientScript
+        };
+        return Err(SemanticError::global(
+            category,
+            script_span.start.saturating_add(data_end),
+        ));
+    }
+    Ok(())
 }
 
 fn classify_op_return<'a>(
@@ -2487,32 +2511,13 @@ fn classify_op_return<'a>(
         return recipient_fact(RecipientType::OpReturn, script, script_span, 1, 0);
     };
     if opcode == 0x00 {
-        if rest.len() != 1 {
-            return Err(SemanticError::global(
-                SemanticCategory::OpReturnMultiplePushes,
-                script_span.start.saturating_add(2),
-            ));
-        }
+        complete_op_return_push(script, script_span, 2, 0)?;
         return recipient_fact(RecipientType::OpReturn, script, script_span, 2, 0);
     }
     if (0x01..=0x4b).contains(&opcode) {
         let data_len = usize::from(opcode);
         let data_start = 2usize;
-        let data_end = data_start.checked_add(data_len).ok_or_else(|| {
-            SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
-        })?;
-        if script.len() < data_end {
-            return Err(SemanticError::global(
-                SemanticCategory::MalformedScriptPush,
-                script_span.start.saturating_add(1),
-            ));
-        }
-        if script.len() > data_end {
-            return Err(SemanticError::global(
-                SemanticCategory::OpReturnMultiplePushes,
-                script_span.start.saturating_add(data_end),
-            ));
-        }
+        complete_op_return_push(script, script_span, data_start, data_len)?;
         return recipient_fact(
             RecipientType::OpReturn,
             script,
@@ -2530,21 +2535,7 @@ fn classify_op_return<'a>(
         };
         let data_len = usize::from(declared);
         let data_start = 3usize;
-        let data_end = data_start.checked_add(data_len).ok_or_else(|| {
-            SemanticError::global(SemanticCategory::InternalInvariant, script_span.start)
-        })?;
-        if script.len() < data_end {
-            return Err(SemanticError::global(
-                SemanticCategory::MalformedScriptPush,
-                script_span.start.saturating_add(1),
-            ));
-        }
-        if script.len() > data_end {
-            return Err(SemanticError::global(
-                SemanticCategory::OpReturnMultiplePushes,
-                script_span.start.saturating_add(data_end),
-            ));
-        }
+        complete_op_return_push(script, script_span, data_start, data_len)?;
         if data_len <= 75 {
             return Err(SemanticError::global(
                 SemanticCategory::OpReturnNonMinimalPush,
@@ -2565,14 +2556,78 @@ fn classify_op_return<'a>(
             data_len,
         );
     }
-    if let Some(offset) = malformed_push_offset(rest) {
+    if opcode == 0x4d {
+        let declared: [u8; 2] = rest
+            .get(1..3)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| {
+                SemanticError::global(
+                    SemanticCategory::MalformedScriptPush,
+                    script_span.start.saturating_add(1),
+                )
+            })?;
+        let data_len = usize::from(u16::from_le_bytes(declared));
+        let data_start = 4usize;
+        complete_op_return_push(script, script_span, data_start, data_len)?;
+        let category = if data_len <= usize::from(u8::MAX) {
+            SemanticCategory::OpReturnNonMinimalPush
+        } else {
+            SemanticCategory::OpReturnPayloadTooLong
+        };
         return Err(SemanticError::global(
-            SemanticCategory::MalformedScriptPush,
-            script_span.start.saturating_add(1).saturating_add(offset),
+            category,
+            script_span
+                .start
+                .saturating_add(if data_len <= usize::from(u8::MAX) {
+                    1
+                } else {
+                    data_start
+                }),
+        ));
+    }
+    if opcode == 0x4e {
+        let declared: [u8; 4] = rest
+            .get(1..5)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| {
+                SemanticError::global(
+                    SemanticCategory::MalformedScriptPush,
+                    script_span.start.saturating_add(1),
+                )
+            })?;
+        let data_len = usize::try_from(u32::from_le_bytes(declared)).map_err(|_| {
+            SemanticError::global(
+                SemanticCategory::MalformedScriptPush,
+                script_span.start.saturating_add(1),
+            )
+        })?;
+        let data_start = 6usize;
+        complete_op_return_push(script, script_span, data_start, data_len)?;
+        let category = if data_len <= usize::from(u16::MAX) {
+            SemanticCategory::OpReturnNonMinimalPush
+        } else {
+            SemanticCategory::OpReturnPayloadTooLong
+        };
+        return Err(SemanticError::global(
+            category,
+            script_span
+                .start
+                .saturating_add(if data_len <= usize::from(u16::MAX) {
+                    1
+                } else {
+                    data_start
+                }),
+        ));
+    }
+    if matches!(opcode, 0x4f | 0x51..=0x60) {
+        complete_op_return_push(script, script_span, 2, 0)?;
+        return Err(SemanticError::global(
+            SemanticCategory::OpReturnNonMinimalPush,
+            script_span.start.saturating_add(1),
         ));
     }
     Err(SemanticError::global(
-        SemanticCategory::OpReturnNonMinimalPush,
+        SemanticCategory::UnsupportedRecipientScript,
         script_span.start.saturating_add(1),
     ))
 }
@@ -2673,39 +2728,61 @@ pub fn analyze_recipient_script_facts<'a>(
     descriptor: &DescriptorPair,
 ) -> Result<RecipientScriptAnalysis<'a>, SemanticError> {
     let ownership = analyze_descriptor_ownership(view, descriptor)?;
-    let unsigned = unsigned_facts(view)?;
+    let tx_span = view.unsigned_tx().span;
+    let inv = SemanticError::global(SemanticCategory::InternalInvariant, tx_span.start);
+    let mut cursor = TxCursor::new(view.buffer(), tx_span);
+    let version = cursor.u32_le().ok_or(inv)?;
+    let input_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if version != ownership.candidate.version || input_count != ownership.candidate.inputs.len() {
+        return Err(inv);
+    }
+    for _ in 0..input_count {
+        cursor.take(32).ok_or(inv)?;
+        cursor.u32_le().ok_or(inv)?;
+        if cursor.compact().ok_or(inv)? != 0 {
+            return Err(inv);
+        }
+        cursor.u32_le().ok_or(inv)?;
+    }
+    let output_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
     if ownership.wallet.outputs.len() != ownership.candidate.outputs.len()
-        || unsigned.outputs.len() != ownership.candidate.outputs.len()
+        || output_count != ownership.candidate.outputs.len()
     {
         return Err(SemanticError::global(
             SemanticCategory::InternalInvariant,
-            view.unsigned_tx().span.start,
+            tx_span.start,
         ));
     }
 
     let mut recipient_outputs: Vec<Option<RecipientScriptFacts<'a>>> = Vec::new();
-    reserve_exact(
-        &mut recipient_outputs,
-        ownership.candidate.outputs.len(),
-        view.unsigned_tx().span.start,
-    )?;
+    reserve_exact(&mut recipient_outputs, output_count, tx_span.start)?;
     let mut op_return_seen = false;
-    for ((owner, output), raw) in ownership
+    for (owner, output) in ownership
         .wallet
         .outputs
         .iter()
         .zip(&ownership.candidate.outputs)
-        .zip(&unsigned.outputs)
     {
+        let amount = cursor.u64_le().ok_or(inv)?;
+        let script_len = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+        let script_span = cursor.take(script_len).ok_or(inv)?;
+        if amount != output.amount || script_span.slice(view.buffer()) != Some(output.script_pubkey)
+        {
+            return Err(inv);
+        }
         let recipient = match owner {
             OutputOwnership::NotProvenOwned => Some(classify_recipient_output(
                 output,
-                raw.script,
+                script_span,
                 &mut op_return_seen,
             )?),
             OutputOwnership::ProvenChange(_) | OutputOwnership::ProvenSelfTransfer(_) => None,
         };
         recipient_outputs.push(recipient);
+    }
+    let locktime = cursor.u32_le().ok_or(inv)?;
+    if locktime != ownership.candidate.locktime || !cursor.at_end() {
+        return Err(inv);
     }
 
     Ok(RecipientScriptAnalysis {

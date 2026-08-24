@@ -3,13 +3,17 @@
 
 use qk_descriptor::{parse_descriptor_pair, DescriptorPair};
 use qk_psbt::{
-    analyze_recipient_script_facts, canonical_serialize, parse, InputSource, OutputOwnership,
-    RecipientType, SemanticCategory,
+    analyze_descriptor_ownership, analyze_recipient_script_facts, canonical_serialize, parse,
+    InputSource, OutputOwnership, RecipientScriptFacts, RecipientType, SemanticCategory,
 };
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const FIXTURE: &str = include_str!("fixtures/recipient_script_facts.txt");
 const M11: &str = include_str!("fixtures/descriptor_ownership.txt");
+const SEMANTIC_SOURCE: &str = include_str!("../src/semantic.rs");
 const FP: [[u8; 4]; 3] = [
     [0x11, 0x22, 0x33, 0x44],
     [0x55, 0x66, 0x77, 0x88],
@@ -28,6 +32,39 @@ const CHANGE_KEYS: [&str; 3] = [
 const WITNESS: &str = "5221022dadaac032a994507b3311d28eba41ef24976a4162b326c90c348175d7073dc3210322919fd8f093161ff0e6a33007c96ddfa63e03394b38e433a4edebfe410ec92521034e22740e550d90ccc0a008c4f01b2b3c20abff713214cdd7243cff56515e5af153ae";
 const OWNED: &str = "0020094bba024177bbe0d8df875c26e2f8c4d46afb1f7cdd8fa6566c85b271d5955e";
 const CHANGE: &str = "002085015c1a505f29cd6038af4d389808e0bab86e97adb6e9989ced032a972713ba";
+
+struct AllocationLedger;
+
+static LEDGER_ENABLED: AtomicBool = AtomicBool::new(false);
+static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+static ALLOCATED_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+unsafe impl GlobalAlloc for AllocationLedger {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let pointer = unsafe { System.alloc(layout) };
+        if LEDGER_ENABLED.load(Ordering::Relaxed) {
+            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+            ALLOCATED_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(pointer, layout) }
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let pointer = unsafe { System.realloc(pointer, layout, new_size) };
+        if LEDGER_ENABLED.load(Ordering::Relaxed) {
+            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+            ALLOCATED_BYTES.fetch_add(new_size, Ordering::Relaxed);
+        }
+        pointer
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: AllocationLedger = AllocationLedger;
 
 fn hex(s: &str) -> Vec<u8> {
     (0..s.len())
@@ -236,13 +273,99 @@ fn op(n: usize) -> Vec<u8> {
     s
 }
 
+fn op_pushdata2(n: u16) -> Vec<u8> {
+    let mut script = vec![0x6a, 0x4d];
+    script.extend_from_slice(&n.to_le_bytes());
+    script.extend(std::iter::repeat_n(0x66, usize::from(n)));
+    script
+}
+
+fn op_pushdata4(n: u32) -> Vec<u8> {
+    let mut script = vec![0x6a, 0x4e];
+    script.extend_from_slice(&n.to_le_bytes());
+    script.extend(std::iter::repeat_n(0x66, n as usize));
+    script
+}
+
+fn compact_at(bytes: &[u8], position: &mut usize) -> usize {
+    let first = bytes[*position];
+    *position += 1;
+    match first {
+        0..=252 => usize::from(first),
+        253 => {
+            let value = u16::from_le_bytes(bytes[*position..*position + 2].try_into().unwrap());
+            *position += 2;
+            usize::from(value)
+        }
+        _ => panic!("test PSBT CompactSize exceeds supported fixture shape"),
+    }
+}
+
+fn output_script_span(bytes: &[u8], output_index: usize) -> std::ops::Range<usize> {
+    let mut position = 5;
+    assert_eq!(compact_at(bytes, &mut position), 1);
+    assert_eq!(bytes[position], 0);
+    position += 1;
+    let unsigned_len = compact_at(bytes, &mut position);
+    let unsigned_end = position + unsigned_len;
+    position += 4;
+    let input_count = compact_at(bytes, &mut position);
+    for _ in 0..input_count {
+        position += 32 + 4;
+        let script_len = compact_at(bytes, &mut position);
+        position += script_len + 4;
+    }
+    let output_count = compact_at(bytes, &mut position);
+    assert!(output_index < output_count);
+    for index in 0..output_count {
+        position += 8;
+        let script_len = compact_at(bytes, &mut position);
+        let span = position..position + script_len;
+        if index == output_index {
+            return span;
+        }
+        position += script_len;
+    }
+    assert_eq!(position + 4, unsigned_end);
+    unreachable!()
+}
+
+fn assert_data_span(
+    bytes: &[u8],
+    output_index: usize,
+    data_offset: usize,
+    data_len: usize,
+    facts: RecipientScriptFacts<'_>,
+) {
+    let script = output_script_span(bytes, output_index);
+    assert_eq!(facts.data_span.start, script.start + data_offset);
+    assert_eq!(facts.data_span.end, script.start + data_offset + data_len);
+    assert_eq!(
+        &bytes[facts.data_span.start..facts.data_span.end],
+        facts.data
+    );
+}
+
+fn measure_allocations<T>(f: impl FnOnce() -> T) -> (T, usize, usize) {
+    ALLOCATIONS.store(0, Ordering::Relaxed);
+    ALLOCATED_BYTES.store(0, Ordering::Relaxed);
+    LEDGER_ENABLED.store(true, Ordering::Relaxed);
+    let value = f();
+    LEDGER_ENABLED.store(false, Ordering::Relaxed);
+    (
+        value,
+        ALLOCATIONS.load(Ordering::Relaxed),
+        ALLOCATED_BYTES.load(Ordering::Relaxed),
+    )
+}
+
 #[test]
 fn recipient_script_facts_closed_matrix() {
     assert_eq!(FIXTURE.len(), 3_043);
     assert!(FIXTURE.ends_with('\n'));
     assert_eq!(
         sha256(FIXTURE.as_bytes()),
-        hex("e47af371aeb2eea7ad065fe487be6930121d139559eb9f4f41f15d8a5e3f8b1d").as_slice()
+        hex("e391096d66a69b9508155ed2c6aece3831419348dd023832fa64b999f300f3d0").as_slice()
     );
     assert_eq!(
         FIXTURE.lines().filter(|x| x.starts_with("case: ")).count(),
@@ -263,6 +386,16 @@ fn recipient_script_facts_closed_matrix() {
         14
     );
     assert_eq!(qk_psbt::limits::MAX_OP_RETURN_PAYLOAD_BYTES, 80);
+    let p2tr_program = vec![0xff; 32];
+    let old_p2tr_program = vec![0x33; 32];
+    assert!(FIXTURE.contains(&format!("p2tr: 5120{}", "ff".repeat(32))));
+    assert!(!FIXTURE.contains(&format!("p2tr: 5120{}", "33".repeat(32))));
+    assert_ne!(p2tr_program, old_p2tr_program);
+    for public_key in KEYS.iter().chain(&CHANGE_KEYS) {
+        assert_ne!(p2tr_program, hex(public_key)[1..]);
+        assert!(!FIXTURE.contains(&public_key[2..]));
+    }
+    assert!(!FIXTURE.contains(WITNESS));
     for (category, display) in [
         (
             SemanticCategory::BarePubkeyRecipientScript,
@@ -360,7 +493,7 @@ fn recipient_script_facts_closed_matrix() {
             _ => 20,
         };
         assert_eq!(f.data, &script[start..start + len]);
-        assert_eq!(&b[f.data_span.start..f.data_span.end], f.data)
+        assert_data_span(&b, 0, start, len, f);
     }
     for (case, n, label) in [
         ("R07", 0, "op-return-op-zero-empty-data"),
@@ -380,6 +513,7 @@ fn recipient_script_facts_closed_matrix() {
             &bytes[facts.data_span.start..facts.data_span.end],
             facts.data
         );
+        assert_data_span(&bytes, 0, if n <= 75 { 2 } else { 3 }, n, facts);
     }
     fixture("R12", "returned-fact", "one-op-return-zero-value");
     ok(&psbt(
@@ -400,7 +534,7 @@ fn recipient_script_facts_closed_matrix() {
     let s = [
         hex("00141111111111111111111111111111111111111111"),
         hex("00202222222222222222222222222222222222222222222222222222222222222222"),
-        hex("51203333333333333333333333333333333333333333333333333333333333333333"),
+        hex("5120ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
         hex("76a914444444444444444444444444444444444444444488ac"),
         hex("a914555555555555555555555555555555555555555587"),
         op(1),
@@ -428,6 +562,10 @@ fn recipient_script_facts_closed_matrix() {
             RecipientType::OpReturn,
         ]
     );
+    for (index, data_offset) in [2, 2, 2, 3, 2, 2].into_iter().enumerate() {
+        let facts = analysis.recipient_outputs[index].unwrap();
+        assert_data_span(&mixed_bytes, index, data_offset, facts.data.len(), facts);
+    }
     fixture("R15", "returned-fact", "proven-change-preserved");
     let bytes = psbt(&[(9000, hex(CHANGE))], Some((0, 1)), false);
     let a = ok(&bytes);
@@ -452,23 +590,26 @@ fn recipient_script_facts_closed_matrix() {
         .recipient_outputs
         .iter()
         .all(|facts| facts.is_some_and(|fact| fact.recipient_type == RecipientType::P2wpkh)));
+    let nums_key = hex(KEYS[0]);
+    let old_constructed_key = [vec![0x02], vec![0x01; 32]].concat();
+    assert_eq!(
+        nums_key,
+        hex("034e22740e550d90ccc0a008c4f01b2b3c20abff713214cdd7243cff56515e5af1")
+    );
+    assert_ne!(nums_key, old_constructed_key);
+    let bare_pubkey = [vec![0x21], nums_key.clone(), vec![0xac]].concat();
+    let bare_multisig = [vec![0x51, 0x21], nums_key.clone(), vec![0x51, 0xae]].concat();
+    assert_eq!(&bare_pubkey[1..34], nums_key);
+    assert_eq!(&bare_multisig[2..35], nums_key);
     for (case, script, cat) in [
         (
             "E01",
-            vec![0x21, 2]
-                .into_iter()
-                .chain(std::iter::repeat_n(1, 32))
-                .chain([0xac])
-                .collect(),
+            bare_pubkey,
             SemanticCategory::BarePubkeyRecipientScript,
         ),
         (
             "E02",
-            vec![0x51, 0x21, 2]
-                .into_iter()
-                .chain(std::iter::repeat_n(1, 32))
-                .chain([0x51, 0xae])
-                .collect(),
+            bare_multisig,
             SemanticCategory::BareMultisigRecipientScript,
         ),
         (
@@ -508,6 +649,30 @@ fn recipient_script_facts_closed_matrix() {
         };
         reject(&psbt(&[(0, s)], None, false), cat)
     }
+    for script in [
+        vec![0x6a, 0x61],
+        vec![0x6a, 0x01, 0x66, 0x61],
+        vec![0x6a, 0x00, 0x61],
+        vec![0x6a, 0x76],
+        vec![0x6a, 0x01, 0x66, 0x76],
+    ] {
+        reject(
+            &psbt(&[(0, script)], None, false),
+            SemanticCategory::UnsupportedRecipientScript,
+        );
+    }
+    for script in [vec![0x6a, 0x01, 0x66, 0x01, 0x67], vec![0x6a, 0x00, 0x51]] {
+        reject(
+            &psbt(&[(0, script)], None, false),
+            SemanticCategory::OpReturnMultiplePushes,
+        );
+    }
+    for script in [vec![0x6a, 0x4f], vec![0x6a, 0x51], vec![0x6a, 0x60]] {
+        reject(
+            &psbt(&[(0, script)], None, false),
+            SemanticCategory::OpReturnNonMinimalPush,
+        );
+    }
     fixture("E06", "named-rejection", "OpReturnNonZeroValue");
     reject(
         &psbt(&[(1, op(1))], None, false),
@@ -536,12 +701,34 @@ fn recipient_script_facts_closed_matrix() {
         &psbt(&[(0, op(81))], None, false),
         SemanticCategory::OpReturnPayloadTooLong,
     );
+    reject(
+        &psbt(&[(0, op_pushdata2(76))], None, false),
+        SemanticCategory::OpReturnNonMinimalPush,
+    );
+    reject(
+        &psbt(&[(0, op_pushdata2(255))], None, false),
+        SemanticCategory::OpReturnNonMinimalPush,
+    );
+    reject(
+        &psbt(&[(0, op_pushdata2(256))], None, false),
+        SemanticCategory::OpReturnPayloadTooLong,
+    );
+    for length in [76, 256, 9_994] {
+        reject(
+            &psbt(&[(0, op_pushdata4(length))], None, false),
+            SemanticCategory::OpReturnNonMinimalPush,
+        );
+    }
     for script in [vec![0x6a, 1, 1, 1, 2], nonminimal_75.clone(), op(81)] {
         reject(
             &psbt(&[(1, script)], None, false),
             SemanticCategory::OpReturnNonZeroValue,
         );
     }
+    reject(
+        &psbt(&[(1, vec![0x6a, 0x61])], None, false),
+        SemanticCategory::OpReturnNonZeroValue,
+    );
     reject(
         &psbt(&[(1, vec![0x6a, 2, 1])], None, false),
         SemanticCategory::MalformedScriptPush,
@@ -552,6 +739,10 @@ fn recipient_script_facts_closed_matrix() {
             SemanticCategory::MultipleOpReturnOutputs,
         );
     }
+    reject(
+        &psbt(&[(0, op(1)), (1, vec![0x6a, 0x61])], None, false),
+        SemanticCategory::MultipleOpReturnOutputs,
+    );
     reject(
         &psbt(&[(0, op(1)), (1, vec![0x6a, 2, 1])], None, false),
         SemanticCategory::MalformedScriptPush,
@@ -664,4 +855,30 @@ fn recipient_script_facts_closed_matrix() {
             assert_eq!(x, original)
         }
     }
+
+    let recipient_source = SEMANTIC_SOURCE
+        .split_once("pub fn analyze_recipient_script_facts")
+        .unwrap()
+        .1;
+    assert!(!recipient_source.contains("unsigned_facts(view)"));
+    assert!(!recipient_source.contains(".zip(&unsigned.outputs)"));
+    assert!(recipient_source.contains("TxCursor::new"));
+
+    let outputs = (0..32)
+        .map(|_| (9000, hex("00141111111111111111111111111111111111111111")))
+        .collect::<Vec<_>>();
+    let bytes = psbt(&outputs, None, false);
+    let view = parse(&bytes, InputSource::MicroSd).unwrap();
+    let descriptor = descriptor();
+    drop(analyze_descriptor_ownership(&view, &descriptor).unwrap());
+    drop(analyze_recipient_script_facts(&view, &descriptor).unwrap());
+    let (_, ownership_allocations, ownership_bytes) =
+        measure_allocations(|| analyze_descriptor_ownership(&view, &descriptor).unwrap());
+    let (analysis, recipient_allocations, recipient_bytes) =
+        measure_allocations(|| analyze_recipient_script_facts(&view, &descriptor).unwrap());
+    assert_eq!(analysis.recipient_outputs.len(), 32);
+    assert_eq!(analysis.recipient_outputs.capacity(), 32);
+    let result_vector_bytes = 32 * size_of::<Option<qk_psbt::RecipientScriptFacts<'static>>>();
+    assert_eq!(recipient_allocations, ownership_allocations + 1);
+    assert_eq!(recipient_bytes, ownership_bytes + result_vector_bytes);
 }
