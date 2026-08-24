@@ -1599,9 +1599,17 @@ fn verification_phase(
                 ));
             }
             let key: &[u8; 33] = r.key_data.try_into().map_err(|_| invariant)?;
-            let pubkey = qk_secp::pubkey_parse_compressed(key).map_err(|_| {
+            // A normal parse failure is an attacker-input rejection;
+            // an unknown backend return code is never attributed to
+            // input and fails closed as a backend invariant.
+            let pubkey = qk_secp::pubkey_parse_compressed(key).map_err(|e| {
                 SemanticError::at_input(
-                    SemanticCategory::InvalidCryptographicPubkey,
+                    match e {
+                        qk_secp::SecpError::UnknownReturnCode => {
+                            SemanticCategory::CryptographicBackendInvariant
+                        }
+                        _ => SemanticCategory::InvalidCryptographicPubkey,
+                    },
                     i,
                     r.key_data_span.start,
                 )
@@ -1614,9 +1622,17 @@ fn verification_phase(
                     r.value_span.end.saturating_sub(1),
                 ));
             }
-            let signature = qk_secp::signature_parse_der(der).map_err(|_| {
+            // Same fail-closed split for signature parsing: unknown
+            // backend return codes are a backend invariant, never an
+            // ordinary attacker-input rejection.
+            let signature = qk_secp::signature_parse_der(der).map_err(|e| {
                 SemanticError::at_input(
-                    SemanticCategory::SignatureVerificationFailed,
+                    match e {
+                        qk_secp::SecpError::UnknownReturnCode => {
+                            SemanticCategory::CryptographicBackendInvariant
+                        }
+                        _ => SemanticCategory::SignatureVerificationFailed,
+                    },
                     i,
                     r.value_span.start,
                 )
