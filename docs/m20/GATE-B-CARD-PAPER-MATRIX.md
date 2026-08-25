@@ -4,19 +4,24 @@ EXPERIMENTAL - PAPER STUDY ONLY - NO CARD SELECTED - NO GATE CLOSED
 
 ## Scope and result
 
-This paper study implements QK-DEC-098. It compares three exact catalog
-paths against the seven assertions of QK-TST-BENCH-002 and the matching
-QK-F2 experiment templates. It records current sourcing facts and the work
-that only an exact card, applet, reader, and registered run can answer.
+This paper study implements QK-DEC-098 and the QK-DEC-099 contact-only
+addendum. It compares three base catalog paths against the seven assertions
+of QK-TST-BENCH-002 and the matching QK-F2 experiment templates, then records
+exact contact-only sibling paths without carrying evidence across variants.
+It records current sourcing facts and the work that only an exact card,
+applet, reader, and registered run can answer.
 
 The paper result is:
 
-- carry the NXP JCOP 4 SECID J3R180 dual-interface configuration forward as
-  the lead paper candidate;
-- retain NXP.J3D081.DI as a historically documented secp256k1 compatibility
-  control, not as the preferred production base; and
-- retain FEITIAN A40CR only as a conditional supplier-diversity probe until
-  secp256k1 support is established.
+- carry the exact contact-only NXP JCOP 4 SECID J2R180/SCP03-00 configuration
+  forward as the lead paper procurement path, while retaining the original
+  dual-interface J3R180/SCP03-10 path only as a fallback;
+- retain contact-only J2D081, whose registered current purchase path is an
+  exact development-kit listing, as the preferred form of the historical
+  secp256k1 compatibility control over dual-interface J3D081; and
+- retain FEITIAN A40CR only as a conditional dual-interface
+  supplier-diversity probe: no qualifying purchasable contact-only FEITIAN
+  Java Card was located in the registered public catalogs.
 
 No item is a production-card selection. OD-02 remains open,
 QK-TST-BENCH-002 remains `PLANNED - NOT RUN`, every QK-F2 experiment below
@@ -45,11 +50,15 @@ or physical endurance on a particular card. Those facts remain owed by the
 exact-card records named below.
 
 Core Architecture v1 places only the direct contact card bus inside the
-trusted terminal boundary. All three catalog paths are dual-interface, so
-their paper disposition is conditional: the QuietKey applet and every
-bearer-authorized operation must be unreachable over ISO-14443, or the Owner
-must explicitly ratify a widened interface before a candidate can advance.
-M20 authorizes no contactless QuietKey path.
+trusted terminal boundary. The three base C1/C2/C3 catalog paths are
+dual-interface, so their paper disposition is conditional: the QuietKey
+applet and every bearer-authorized operation must be unreachable over
+ISO-14443, or the Owner must explicitly ratify a widened interface before a
+base candidate can advance. C1-CO and C2-CO are positively documented as
+contact-only exact models; for those variants the ISO-14443 hardware attack
+surface and applet-level contactless-exclusion condition do not exist. This
+changes no other exact-card obligation. M20 authorizes no contactless
+QuietKey path.
 
 ## Fact classifications
 
@@ -75,6 +84,25 @@ not expressly included by the seller, and authorize no acquisition.
 | C1 | NXP JCOP 4 SECID `J3R180 (Dual-Interface)` with `SCP03-10`; CardLogix variation `46905`, SKU `3900157` | JCOP 4 / Java Card 3.0.5 Classic / GlobalPlatform 2.3; ID-1-size dual-interface seller configuration; GlobalPlatform loading route | CardLogix, US: USD 11.95, in stock, configured variation. Cardomatic, Germany: EUR 17.80 excluding VAT and delivery, in stock, `J3R180 JCOP 4 SecID`; its SCP configuration is not stated. | Carry forward as lead paper candidate; no specimen or batch selected | No public primary source names secp256k1 for the exact configured card. The CardLogix snapshot also contains a duplicate matching variation `51632`, SKU `9001543`; variation `46905` is used here because its response carries explicit in-stock markup and finite quantity, but supplier identity confirmation remains owed. Destination-specific delivery, hardware revision, management-key custody, and exact library options are unresolved. |
 | C2 | NXP `NXP.J3D081.DI`, J3D081 JCOP v2.4.2 R2, dual-interface | P5CD081; Java Card 3.0.1 Classic / GlobalPlatform 2.2.1; 1FF ID-1; SCP02 default with other SCP profiles project-dependent | MoTechno, Germany: EUR 29.99 excluding 19% VAT and shipping, add-to-cart, MOQ 1; seller requires a verified business customer and warns of export controls. | Retain as historically documented secp256k1 compatibility control; not the preferred production base | The platform is old, public longevity is not established, SHA-512 is absent from the exact seller sheet, and the cited third-party applet is not the QuietKey applet. |
 | C3 | FEITIAN `SC-JAVA-A40CR-WO-APPLET`, MPN `C020400`, A40CR without ePass2003 applet | Infineon SLE77-based FT-JCOS; Java Card 3.0.4 / GlobalPlatform 2.1.1; dual-interface; no ePass2003 applet installed | FEITIAN US-locale exact variant `31445690941483`: USD 17.65, in stock, US storefront; taxes and shipping are not included in the recorded fact. | Retain conditionally as supplier-diversity probe | Public model material says only generic ECC; secp256k1, exact ECDSA profile, RNG, endurance, transaction-buffer size, card dimensions, and tear behavior are unresolved. |
+
+## Contact-only shortlist addendum
+
+These are dated procurement paths, not selections. Seller availability is a
+`vendor claim`; platform/interface statements use the fact classification
+shown in each row.
+
+| ID | Exact identity and procurement path | Contact-only basis | Sourcing snapshot | Paper disposition | Variant-specific uncertainty |
+|---|---|---|---|---|---|
+| C1-CO | NXP JCOP 4 P71 `J2R180 (Contact Only)` with `SCP03-00`; CardLogix variation `42473`, SKU `3900158` | `vendor claim`: the Aventra-authored certified security target defines J2R as contact-only and J3R as dual-interface, with J2R180 as its explicit example; the seller response names that exact J2R180 configuration | CardLogix, US, 2026-08-25: USD 7.95, in stock and purchasable, reported maximum quantity 940 | Carry forward as the lead paper procurement path; C1 remains a dual-interface fallback, and neither is selected | C1-CO has SCP03-00 rather than C1's SCP03-10. Exact library options, management-key custody, destination delivery, revision and all seven specimen records remain unresolved; receipt must establish the ordered SKU/model before any result can attach to it. |
+| C2-CO | NXP `J2D081 v2.4.2 R2`, module `PCM1.1`, contact ISO-7816, 80 KB, no MIFARE; present in CardLogix AdvanIDe Developer TOOL KIT product/SKU `24864` | `direct documentation`: the NXP-authored JCOP 2.4.2 R2 security target states ISO-14443 T=CL is unavailable on J2D081_M59 and J2D081_M61. `vendor claim`: the seller table names the contact/7816 J2D081 model. | CardLogix, US, 2026-08-25: the USD 2,990 kit was in stock and purchasable and listed 45 mixed NXP contact and dual-interface test cards including J2D081; that listing provides no standalone card SKU or unit price | Retain as the exact contact-only compatibility-control purchase route, not as the preferred production base | Exact delivered mask, SCP profile, management keys, kit composition at fulfilment, standalone supply and all seven specimen records remain unresolved. Mask 61 lacks SCP03; the ordered specimen identity must be recorded before any result can attach to it. |
+| C3-CO-NONE | No qualifying exact contact-only FEITIAN Java Card located in the registered public catalogs | `unresolved`, bounded to the registered catalogs: the FEITIAN US catalog exposed 47 products and four available Java Card entries; three stated dual interface and A50CR did not state an interface. The FEITIAN global smart-card category exposed one purchasable product and it was dual-interface. Seller material lists A43C and A50CSU as project-based and not in inventory. | FEITIAN US and global public catalogs plus the Grama seller material, retrieved 2026-08-25; no self-service contact-only SKU/price/stock path found | C3 remains the original conditional dual-interface probe and keeps its ISO-14443 exclusion condition | Custom, quote-only, other-region and unindexed supply remain unknown because vendor contact was excluded. This is not a universal nonexistence claim. A43C also lacks ECC in the registered comparison sheet; A50CSU adds USB/SWP and is not inventoried. |
+
+C1-CO and C2-CO are exact sibling paths, not aliases for C1 and C2. They do
+not inherit any positive exact-card finding from the 21 base-candidate cells
+below. If either advances, all seven QK-TST-BENCH-002 assertions still apply.
+For assertion (d), the applet-level ISO-14443 exclusion branch is inapplicable
+to a documented contact-only model; delivered identity, ISO-7816 behavior and
+the rest of the interface record remain required.
 
 ## Seven-assertion oracle alignment
 
@@ -119,7 +147,7 @@ QK-TST-BENCH-002 item and future experiment:
 
 ## Cross-cutting contract gaps
 
-| Contract item | C1 | C2 | C3 | Required future record |
+| Contract item | Base C1 | Base C2 | Base C3 | Required future record |
 |---|---|---|---|---|
 | Atomic one-time provisioning and one commit point | `unresolved` | `unresolved` | `unresolved` | QK-F2E-005 plus a future role/payload template expansion; no platform transaction name substitutes for power-cut behavior. |
 | A2 persistent storage and bearer-authorized export | `unresolved` | `unresolved` | `unresolved` | Exact payload bytes, readback behavior, lifecycle guards, and no PIN/password/pairing/vendor-account dependency. |
@@ -130,6 +158,11 @@ QK-TST-BENCH-002 item and future experiment:
 | Bus-pass-style ID-1 exterior | `vendor claim` | `vendor claim` | `inference` from product class | Exact delivered dimensions, print/branding state, antenna/contact form, and QK-REQ-CARD-007 presentation check. |
 | Production availability and lifecycle | `unresolved` beyond two dated stock pages | `unresolved`; legacy controller | `unresolved` beyond one dated stock page | Manufacturer lifecycle notice, exact revision/batch identity, repeatable supply, region, MOQ, and unit economics. |
 
+For C1-CO and C2-CO, registered platform and exact-model sources establish
+the absence of ISO-14443 hardware, so the contactless bearer-operation row is
+not a software-policy condition. All other cross-cutting rows remain
+`unresolved` for those variants. C3 has no qualifying contact-only row.
+
 ## Source map
 
 External sources are registered in `docs/SOURCE-REGISTER.md`; none is
@@ -137,8 +170,11 @@ authority for QuietKey requirements and no external code or document was
 imported.
 
 - J3R180: [CardLogix configured product](https://www.cardlogix.com/product/nxp-jcop-4-java-card-3-0-5-classic/), [Cardomatic EU listing](https://www.cardomatic.de/en/p/j3r180-card), [NXP P71D321 fact sheet](https://cache.nxp.com/docs/en/fact-sheet/P71D321.pdf), and [Satochip J3R180 applet-loading guide](https://satochip.io/build-your-own-satochip-hardware-wallet/).
+- J2R180: [CardLogix configured product](https://www.cardlogix.com/product/nxp-jcop-4-java-card-3-0-5-classic/) and [Aventra MyEID security target for JCOP4 P71](https://www.commoncriteriaportal.org/nfs/ccpfiles/files/epfiles/1200b_pdf.pdf).
 - J3D081: [MoTechno exact product](https://www.motechno.com/product/j3d081-dual-interface-javacard-3-0-1/), [MoTechno exact-card sheet](https://www.motechno.com/wp-content/uploads/J3D081-JCOP2.4.2-1.pdf), [NXP P5CD081 family sheet](https://cache.nxp.com/docs/en/data-sheet/P5CD016_021_041_Cx081_FAM_SDS.pdf), and pinned SatochipApplet commit `8cbaa1d6531df7e20c7a3d47d95766db51d9a136`.
+- J2D081: [CardLogix development-kit listing](https://www.cardlogix.com/product/jcop-java-card-development-kit-sdk/), [BSI certification record](https://www.bsi.bund.de/SharedDocs/Zertifikate_CC/CC/SmartCards_Betriebssysteme_Anwendungen/0784.html), its NXP-authored security target, and the same pinned SatochipApplet commit.
 - A40CR: [FEITIAN US exact variant](https://ftsafe.us/products/feitian-java-card-without-epass2003-applet-a40cr?country=US&variant=31445690941483), [FEITIAN global A40CR page](https://www.ftsafe.com/store/product/dual-interface-java-card-smart-card-with-cc-eal5/), and [Infineon SLE77 jTOP ID Flex product brief](https://www.infineon.com/dgdl/Infineon-jTOP_ID_Flex-PB-v04_17-EN.pdf?fileId=5546d4624cb7f111014d56a031077a88) as controller-family context only.
+- FEITIAN contact-only search: [US product catalog](https://ftsafe.us/products.json?limit=250), [global smart-card category](https://www.ftsafe.com/store/product-category/smart-card/), and [Grama's FEITIAN comparison sheet](https://www.grama.es/wp-content/uploads/2016/04/feitian_grama_cards.pdf).
 
 ## Gate B remainder
 
@@ -148,7 +184,8 @@ through OD-02; authorize, register, and execute the seven exact-card records;
 resolve and publish the APDU protocol and limits; demonstrate low-S signing,
 policy/path enforcement, the complete B/C shared/distinct state model,
 atomic lifecycle behavior, endurance, RNG behavior, SEC1210 reachability,
-commodity-CCID rescue, contactless exclusion, and normal-operation signer
-private-key non-exportability. Assertion (g) also needs a separately
+commodity-CCID rescue, contactless exclusion for every dual-interface path,
+delivered-variant identity for any contact-only path, and normal-operation
+signer private-key non-exportability. Assertion (g) also needs a separately
 ratified experiment-template expansion beyond QK-F2E-013's identities/A2
 scope. M20 supplies no measurement record for any of those obligations.
