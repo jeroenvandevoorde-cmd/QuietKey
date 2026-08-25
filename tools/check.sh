@@ -92,18 +92,26 @@ else
   else
     fail 'cargo fmt --check reported formatting differences'
   fi
-  if ! cargo clippy --version >/dev/null 2>&1; then
+  if ! clippy_version=$(cargo clippy --version 2>/dev/null); then
     fail 'clippy unavailable; required clippy check cannot run'
-  # Clippy 1.98 introduced two style-only lints over frozen pre-M17 source.
-  # Keep all warnings denied while exempting only those non-semantic rewrites;
-  # the frozen crates remain byte-identical.
-  elif cargo clippy --workspace --manifest-path host/Cargo.toml \
-      --offline --quiet -- -D warnings \
-      -A clippy::chunks_exact_to_as_chunks \
-      -A clippy::collapsible_match >/dev/null 2>&1; then
-    ok 'cargo clippy (warnings denied) passed'
   else
-    fail 'cargo clippy (warnings denied) failed'
+    clippy_patch=$(printf '%s\n' "$clippy_version" |
+      sed -n 's/^clippy 0\.1\.\([0-9][0-9]*\) .*/\1/p')
+    if [ -z "$clippy_patch" ]; then
+      fail "unrecognized clippy version: $clippy_version"
+    elif [ "$clippy_patch" -lt 98 ]; then
+      fail "clippy 1.98 or newer required; found $clippy_version"
+    # Clippy 1.98 introduced two style-only lints over frozen pre-M17 source.
+    # Keep all warnings denied while exempting only those non-semantic rewrites;
+    # the frozen crates remain byte-identical.
+    elif cargo clippy --workspace --manifest-path host/Cargo.toml \
+        --offline --quiet -- -D warnings \
+        -A clippy::chunks_exact_to_as_chunks \
+        -A clippy::collapsible_match >/dev/null 2>&1; then
+      ok 'cargo clippy (warnings denied) passed'
+    else
+      fail 'cargo clippy (warnings denied) failed'
+    fi
   fi
   if cargo test --workspace --manifest-path host/Cargo.toml \
       --offline --quiet >/dev/null 2>&1; then
