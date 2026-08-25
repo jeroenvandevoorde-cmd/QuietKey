@@ -91,3 +91,4 @@ No third-party code may enter this repository until its exact commit, license, p
   - `10-qk2-component-map.pdf` — `2e65229b025f36c75516f6f9e45f28e295673ceb30cc7b3fd79ce483cf53ca18`
   - `11-qk2-04-system-device-blueprint.pdf` — `24cef5b74e7b1f6c58322abf9fed98e9f1dcd216ce5fc1fce5ff79a4fbc1547d`
   - `12-qk2-hw-p0-1-hardware-blueprint.pdf` — `93126505453236103cd8f730a128efc6018cecd0ad06649408c6770f77cea2e0`
+  - Package completion on 2026-08-25 preserves the two non-authority carriers verbatim: `MANIFEST.md` — `de8c60b929d0769553102a58cc33e088d7581c087a650f355dc6e529ed5f0d42`; `SHA256SUMS` — `ab068666fccfaaa0a8c507fa1acac8c2a37b03758d0502904101c60769c2d9d6`.
