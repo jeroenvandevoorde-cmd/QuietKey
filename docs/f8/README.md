@@ -70,8 +70,13 @@ selected future live-evidence format.
 - `SPECIMEN-REGISTER.md`: empty enrollment ledger and exact intake schema.
 - `APPARATUS-REGISTER.md`: empty apparatus ledger and exact identity schema.
 - `NONMUTATING-ALLOWLIST.md`: empty live APDU registration.
+- `ARRIVAL-ALLOWLIST-DRAFT.md`: fillable, explicitly inactive paperwork for
+  the later delivered-card non-mutating command registration; it contains
+  zero command bytes and does not alter the active empty list.
 - `RUN-REGISTER.md`: seven complete future-design packets, all blocked and
   `NOT RUN` until exact physical bindings and later execution authority exist.
+- `EXECUTION-PACKETS.md`: seven execution-ready fillable run-instance forms;
+  every physical, count, command and authority field remains inactive.
 
 Raw photographs, private serial-to-alias mappings, card traces, PC/SC logs,
 power traces and other media remain outside Git. Committed manifests later
