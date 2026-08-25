@@ -1,0 +1,73 @@
+# QUIETKEY_M18_A1_SPIKE_REENCODE_EVIDENCE_V1
+# status=EXPERIMENTAL; PUBLIC PATTERNED TEST MATERIAL; NEVER-FUND; NO PROFILE SELECTION OR TARGET CLAIM
+# decision_rows=QK-DEC-090,QK-DEC-091,QK-DEC-092,QK-DEC-093
+# bench_commit=aec25bb6ab30790faf3cbf55169a3b4777572d6c
+# source_tokens_json=artifacts/cloakvault/spike/tokens.json; 5461 bytes; 95 LF; SHA-256 241c6eb7accd7d1a68c1991563b74e0875382ec0f935615a2445c12edf5ec9d1
+# source_verdict_json=artifacts/cloakvault/spike/results/verdict_tokens.json; 21101 bytes; 1621 LF; SHA-256 b6063a2cd6b7b773abce57fe80916841381f2b3a2c9afdd1bec6323833040fd4
+# source_locate_json=artifacts/cloakvault/spike/results/locate_results.json; 586 bytes; 55 LF; SHA-256 58c551bf23d72c85a45ba17c2c334fdf746a73c2efdd7ad5c808440ae4465661
+# source_capture_manifest=docs/evidence/M17-A1-SPIKE-CAPTURES.sha256; 4061 bytes; 49 LF; SHA-256 b32cb252412099f33950e63c56ae2ca986e752ccab8c36df373215d2a23fc6d1
+# source_capture_entry_block_sha256=bdb0cd18c5f752546b1239cbd739b272347f1311410ea22d9e5ac1330b4d4174
+# legacy_boundary=The six bench T0..T5 capsules are legacy 49-byte public spike values. None is padded, relabelled, or encoded as a current QK-DEC-089 body.
+# current_construction=Six fresh current 67-byte capsules use the exact patterned public T0..T5 Seed-A/A2 values, fixed public nonces, M11 GOLDEN wallet_id, M17 HKDF-SHA256, and ChaCha20-Poly1305.
+# print_construction=Each exact current capsule[7..67] body is encoded under all three QK-DEC-091 profiles using alphabet 23456789abcdefghijkmnpqrstuvwxyz and MSB-first packing.
+# fixture=host/qk-a1-codec/tests/fixtures/spike_reencode.txt; 133374 bytes; 2912 LF; SHA-256 839cd6fc016bcbc47eb02b4e99f4837ee52c3cfeea4df44a9b1e68fa2adac970; Git blob 10734221f2020c21b4f716f14bb1af53d5f0a29d
+# fixture_payload_block=18 blocks; 34164 bytes; 504 LF; SHA-256 2d72e3b6903b11d7429517fbe33716689d949c6c46cd269e8d1020f9b0b306db
+# fixture_instance_block=137 blocks; 92721 bytes; 2329 LF; SHA-256 a1fe3cb834c7891c17fd036433252fd2043bdd6b69e0e62ff00713fcd0a1f566
+# fixture_test=host/qk-a1-codec/tests/spike_reencode.rs; 16463 bytes; 432 LF; SHA-256 966f9ee11231055ac9c7813b3fc3c3bc68680c1808de6a2f43074741432631df; Git blob e66005f1d3df8593d83887a78703f18fa24abf22
+# inventory=6 current capsules; 18 exact profile payloads; 29 capture names; 137 legacy outcome mappings; 135 verdict instances with 118 true and 17 false; 2 locate instances with 2 true and 0 false.
+# python=CPython 3.12.13; cryptography 48.0.1; HMAC/HKDF plus ChaCha20Poly1305; parent-RS shortening; generator SHA-256 c77d7d012c7a12d4ee9cba055791e045b13861eace79bdb4b667a307e4902cea
+# node=Node.js v24.19.0; OpenSSL 3.5.7; HMAC plus chacha20-poly1305; direct shortened-RS division; generator SHA-256 22fa43c9362a16e5b2151e12b2cd84af75ad5b5b0cc2de0c9cc16339a71ad4e9
+# agreement=Complete 18-payload plus 137-instance generated block is byte-for-byte equal: 126885 bytes; 2833 LF; SHA-256 8e56088385a06517a26a026ab901d9d4ea333602861a2f1e1b3b443f410ca535.
+# media_access=Both procedures accepted only the committed repository capture manifest and frozen public constants. They performed zero bench-media reads, copies, writes, renames, or deletions and did not receive any bench-media path.
+# current_bench_rehash=Not performed; unchanged-original identity remains bounded to the pinned bench commit and the M17 hashes, with no statement about later uncommitted bench state.
+# destruction=The dedicated outside-Git generation directory, both generator sources, and every intermediate output were deleted after repository recording and execution of the fixture checks.
+# calibration=The 137 legacy outcomes are historical per-token labels only. Zero physical captures contain the ratified alphabet; bounded retry count/order and page-level recovery probability remain open and cannot be derived from this deterministic re-encode.
+# payload_line_format=payload ordinal id capsule_sha256 body_sha256 codeword_sha256 token_sha256
+payload 00 T0-Rs72_60 d6ead3d3393a92c56b8b291966a1e46410324f96e9d4617ea42b31202a32992b c6c57a2c7ef9bb3c9c3525a0c741d0b3a32dfd30631ea166e879ff0c469d7f74 9b4de2fa64ddf55367faa01b0dc3ff6cca518a4a37557e0b659e64dcfb8ae480 e6ba56bfa0292affe5f0747495e0a2aa67f39eeb98b76484f005597226a6da99
+payload 01 T0-Rs76_60 d6ead3d3393a92c56b8b291966a1e46410324f96e9d4617ea42b31202a32992b c6c57a2c7ef9bb3c9c3525a0c741d0b3a32dfd30631ea166e879ff0c469d7f74 145755ab3462e0fe2de16593f955400fdba08dcf8e6c3aa52f20848ad2eab06c 38d85f4aa94aff7d653f211244a6a32d410716414eabedc4b1e05c8ebb9c015b
+payload 02 T0-Rs80_60 d6ead3d3393a92c56b8b291966a1e46410324f96e9d4617ea42b31202a32992b c6c57a2c7ef9bb3c9c3525a0c741d0b3a32dfd30631ea166e879ff0c469d7f74 dbe89a8b5e64b70fd8be63ee2c44bb59c1eae282ba1838e9f21b18a11b370a2b ae87f22fddbf5e364552963f7d4073a7882c8abb1e68a2fd4952a17a4c3f43a5
+payload 03 T1-Rs72_60 0d3dfbb819bca26e9a7feefeeb05c0289defc3dbb26d36be76f65a20d0515fe8 8b023576784021ef3c87dfe42efc3945d873a703455d0f20304a17b7d37915c8 3b5f1185fde3fd0ef8e17af4b7fa9d32cd17bd041840f6ab0fea6506185e8bd4 20b585654e879f21de4b20a23994fe1600172fa0ebd48044780a622b9a29f03b
+payload 04 T1-Rs76_60 0d3dfbb819bca26e9a7feefeeb05c0289defc3dbb26d36be76f65a20d0515fe8 8b023576784021ef3c87dfe42efc3945d873a703455d0f20304a17b7d37915c8 6086af2b0095493b28a920b3f07b7b8056ad39f8526bed42a89f30403d20bcbb 7464e9b00ecb9503a32983092ce3438800b6efea4ded8d159d9db1b1b14a3847
+payload 05 T1-Rs80_60 0d3dfbb819bca26e9a7feefeeb05c0289defc3dbb26d36be76f65a20d0515fe8 8b023576784021ef3c87dfe42efc3945d873a703455d0f20304a17b7d37915c8 60b1f05781a5e3cd3eddf446c2b717df8d721de83e2781a8723a2911ee03f963 edccbcbbd8641f71e2ba569e4d987538f2e9fc3657d395d13e617aa65207b01a
+payload 06 T2-Rs72_60 4e2c234e9967a4a04dc261456deb22f0c39302e234efc522f9ce0449e12ac47c a05ec7824ff5e119c2f3e47cdda0e056bd4a38aee79c4db69235259339189ac2 239ccfa0bad59de20fe02212702b32f046b31a51f52431cd3e68a0e118646d34 c09cd5ccf0a53dea63b9485469d0e50960c95c8d244ca7f877beb428ab823c96
+payload 07 T2-Rs76_60 4e2c234e9967a4a04dc261456deb22f0c39302e234efc522f9ce0449e12ac47c a05ec7824ff5e119c2f3e47cdda0e056bd4a38aee79c4db69235259339189ac2 7a9860cbc3917f3a9d67b5a95ef0cbf0135f900f81eadb0732145019e89e3833 11bf09a48fb989c13e51166e4deef2294cc7b8388c5ad9ec45b3471dbf1d0c8b
+payload 08 T2-Rs80_60 4e2c234e9967a4a04dc261456deb22f0c39302e234efc522f9ce0449e12ac47c a05ec7824ff5e119c2f3e47cdda0e056bd4a38aee79c4db69235259339189ac2 7b29eb55dbcf640ac2d9d003d217ee22d07974a997e088b7317ed7ef3c759d27 7f0d64cb75432b81de57014460c4ac9b38155dd3a5302e0bf173143580c14a14
+payload 09 T3-Rs72_60 87bae000c972bbe9b1f666a54b8bfa10f3b072a00a709a0455a8aa45b365bf28 50c72f3f1f40e82a40b63baefbb6610f960aae395a09d4e0fa94f99be342c5fa 44bf6fdc9f8770e6fcdbbe1c2c52c5f69b579fe3210a2bac1115a9cb2226c4b4 604fc27a4cb7714370b57811c148e921ca0908e752f216715aa00d0b9b35d818
+payload 10 T3-Rs76_60 87bae000c972bbe9b1f666a54b8bfa10f3b072a00a709a0455a8aa45b365bf28 50c72f3f1f40e82a40b63baefbb6610f960aae395a09d4e0fa94f99be342c5fa 3c9278af151e3a845d9700e3f1fdf50303872f53f104c79a32f1e7b824e564b7 7354178679d626d75781441aaeda00726d66b554418a10f3306243b9cecbe10f
+payload 11 T3-Rs80_60 87bae000c972bbe9b1f666a54b8bfa10f3b072a00a709a0455a8aa45b365bf28 50c72f3f1f40e82a40b63baefbb6610f960aae395a09d4e0fa94f99be342c5fa af13017b3b55c3ec0912b56134c5ebc4958e9efd50c1d4232888f1e07da457d9 9e59903c25aa5f3d40cb8b1cdb084ba41df9fd39ea39f09d26e2c0e17b211441
+payload 12 T4-Rs72_60 24ad779671352c1a3b0be1e43ed7355061f682b500b2d66003513afa0bd90664 bd2d613f808504824431cc14356e115920df0654f075922d3f48a1255f94bfd9 d2589093c6701f78468b0cab2ae40e20c4102da998bd74f08a3e92220767d0b5 8c81827fb0cf93bfb838bb6ebe82a4d202e3dce178a65197a1fdd10d6395a233
+payload 13 T4-Rs76_60 24ad779671352c1a3b0be1e43ed7355061f682b500b2d66003513afa0bd90664 bd2d613f808504824431cc14356e115920df0654f075922d3f48a1255f94bfd9 420f251bb280bd6e3a593c137834a0caa2cbd49dd5022a3fd3e5b38809d49587 b8d65a12501d992d2c5563919f47f601ef3f08202ae8d409e9e6e17598c47f4b
+payload 14 T4-Rs80_60 24ad779671352c1a3b0be1e43ed7355061f682b500b2d66003513afa0bd90664 bd2d613f808504824431cc14356e115920df0654f075922d3f48a1255f94bfd9 7abc8741d5df05f318180761aa79efacfd512f73e934d28939d287e06f3aa877 b4b3fdd4103a027837f684a43f4404da57976f690fe42d17f8ce8df0d9de54c2
+payload 15 T5-Rs72_60 6440483b683f3391415f3805b904f7923b3cd0ceb1ae169aaf06f2fb3fd618ac 7ff5b5c6ed8892cd7a00ffa4023c6cbb5bafcd3bf94307100cb1e4fbf78f3702 f80d2c8b0b37a472263a16011dc31e23a3375414d33ae4bd141f8e06ef5b64e3 f73f1303b634eb10d8197b705eddb7649170d0c014f1cfbfeca002f65cb3e1e0
+payload 16 T5-Rs76_60 6440483b683f3391415f3805b904f7923b3cd0ceb1ae169aaf06f2fb3fd618ac 7ff5b5c6ed8892cd7a00ffa4023c6cbb5bafcd3bf94307100cb1e4fbf78f3702 d080ffdebb8385c4714c6735fccdeab85e809d93ec76d10d6eed24916be402a0 24e005d4899dc4df19604e837de76fe1161fce591759a8d433366efbd1b1b275
+payload 17 T5-Rs80_60 6440483b683f3391415f3805b904f7923b3cd0ceb1ae169aaf06f2fb3fd618ac 7ff5b5c6ed8892cd7a00ffa4023c6cbb5bafcd3bf94307100cb1e4fbf78f3702 8eac4f2a3cb1345eadad3792d78f5e3710d51c2f7e66506326e5c03d92538c17 a7a8e6a1f0cc59a840e5ca9c6ef05e3157433d7c3b5a7552dc5db333f2fafe70
+# capture_line_format=capture sha256 two-spaces path lineages current-instance-count historical-ok historical-not-ok
+capture b1d6ef1297e3ac98574f5a1c59f2237dff21018e3ff39e21c26830c880307de1  captures/baseline-0-dim-S01.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=2  legacy_not_ok=3
+capture 1d247c7d1476f52d23c850077670981c64256efd11e31e2ec04e83dcb38b7389  captures/baseline-0-glare-S02.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=4  legacy_not_ok=1
+capture c8064f8ce898bcbfb64d8b52be3b361f662254e1781009fdf3ebb267f3dd23d3  captures/baseline-0-std-S01.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture e0123dfe7a4d7e8dfa71cb17665d847a68b9bf1723922b65fc7b79ef2decdebb  captures/baseline-0-std-S02.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 21444c0d547cfda7524c9b50ea3022a4f4cc18321318ec9e7de58d80efbd4ce2  captures/coffee-1-std-S03.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 2f4ff7d56ca816c8a2a579f002965e9f735cc50d72e7f793b7e298e096f826d6  captures/coffee-2-std-S04.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=3  legacy_not_ok=2
+capture 50907647a2458dbbd8bf09d727996796f0e7093386b73af38bbab4c0b68efd5d  captures/coffee-3-std-S05.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 657ae087a18b3eb0650fbc0a9fcd64397cdc09643a692aa1dbfc313a580e9187  captures/crumple-1-std-S21.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=3  legacy_not_ok=2
+capture 88e244aedbe1b3780269cb1253511bc92b6c57cfaf61d4e69bba1b967265c66c  captures/crumple-2-std-S22.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=1  legacy_not_ok=4
+capture e60eddfd703c01e10234433f3b2ff2b09192ac3cf75967a78b324a5fab28ef1c  captures/edge-1-std-S23.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 8c5bd868ad8f052a06bd58a2d040115a6349ef4ce4689ea513fbac77bb2dd647  captures/edge-2-std-S24.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 0ff78cd1fd39f35503c8ea4d9862240a25f3cf72212684eae026a97e46a82490  captures/edge-3-std-S25.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 0d3c52e741f9fb43439c1828ffdf39c02fdbb0ba67fd1484fa150582d4d91d9d  captures/fade-1-std-S12.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture ee404915a232d0cefc02dbb19575a28f68eb26ca4aac4da8d25c5b75f02ebdef  captures/fade-2-std-S13.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 9b95e8f0cbbb1bd4bb4568680e5bcd4cdb3e72b34456f23119f95d902e1f4b5b  captures/fade-3-std-S14.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture f4bc5eb641382b1722de89b4632154a8788f125aef1d0929a5f4a1462099b396  captures/fold-1-std-S18.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture c587f8696e4eea1af23075cde3c1db1f9ef474058320a6fc2fe3ccbc4c19afb0  captures/fold-2-std-S19.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 0c1bc6cff5d3a36a587e655cb310fbf5de24d61e3b532d0638412b25056529bc  captures/fold-3-std-S20.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=4  legacy_not_ok=1
+capture f4b8c5a0061a43bfac894242e7c71181a3d13bb3795dbf2da0225f3b4c7d1ead  captures/locate-0-std-S26.jpeg  lineages=T5  instances=1  legacy_ok=1  legacy_not_ok=0
+capture 9b308ca4c927ea95672c08a4e18ba75e62b793d321ffd44e4c82a3596c56cb82  captures/locate-1-std-S27.jpeg  lineages=T5  instances=1  legacy_ok=1  legacy_not_ok=0
+capture ae687c729edbe5a666c70d697f52f04d697dd0e7dd2b76771827bc90ba40865d  captures/scratch-1-std-S15.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 1ba3de0b2b512780cbb8d06cd486a175726c14a12de829bfc63db5b7bfc772ec  captures/scratch-2-std-S16.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture f724c13300ffd65eea6baef7b0e599a4de42412ee131709bc58754dedb193829  captures/scratch-3-std-S17.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 3fc759bdf63576b601d2f88066baee99f855cdf96599123f1ef7da6354c079df  captures/scuff-1-std-S09.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 02110fe1b109b00cac1c39094dd05e54bb754b213169ee029aa53d5e458f2101  captures/scuff-2-std-S10.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture c3496c19efefb76c05b9fec6afaf458cb03427cd693c6af9a3a3b8e64e163b0b  captures/scuff-3-std-S11.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture 6f8476121349a71c7a3504219b69bcb9844c70f72ef4009a2863e494da3dbbbc  captures/water-1-std-S06.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=5  legacy_not_ok=0
+capture a53449b5ede0b8658ec13ddc13908708e29c5006e7cc8910246aa94ba1c0de5a  captures/water-2-std-S07.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=3  legacy_not_ok=2
+capture faef2f9a1dcb51d4c7273371ae7b3b7d47e3984e0d7b62cae7835c2e7cdcb18b  captures/water-3-std-S08.jpeg  lineages=T0,T1,T2,T3,T4  instances=5  legacy_ok=3  legacy_not_ok=2
