@@ -33,5 +33,5 @@ LLVM version: 22.1.8
 
 - HOST evidence only (the executed snapshot above is x86_64 macOS; the tracked Replit selector is a separate host bootstrap). Never TARGET evidence. Establishes no production compatibility, memory safety, security, air-gap behavior, target performance, or fitness for funds.
 - This module/channel combination is a reversible host bootstrap toolchain only; it does not select the production toolchain and does not resolve OD-01.
-- Workspace: `host/` only; stable Rust, edition 2021, resolver 2; all eight current workspace crates set `publish = false`; no license fields while OD-08 remains open; zero external dependencies; release overflow checks enabled and release panic strategy abort; first-party unsafe code forbidden at crate roots.
+- Workspace: `host/` only; stable Rust, edition 2021, resolver 2; all nine current workspace crates set `publish = false`; no license fields while OD-08 remains open; zero external dependencies; release overflow checks enabled and release panic strategy abort; first-party unsafe code forbidden at crate roots.
 - Authorization: QK-AUTH-F3F4-001 (docs/HOST-WORK-AUTHORIZATION.md).

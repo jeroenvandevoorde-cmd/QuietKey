@@ -1,0 +1,10 @@
+[package]
+name = "qk-a1-smoke"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Fixture-only HOST harness for three designated QuietKey M19 scrap transcriptions. Not a reader, OCR path, production decoder, or wallet."
+
+[dependencies]
+qk-a1 = { path = "../qk-a1" }
+qk-a1-codec = { path = "../qk-a1-codec" }
