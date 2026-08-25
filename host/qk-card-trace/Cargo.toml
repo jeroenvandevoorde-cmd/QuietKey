@@ -1,0 +1,8 @@
+[package]
+name = "qk-card-trace"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Bounded offline HOST checker for registered QuietKey card-bench traces. No card, PC/SC, applet, secret, or production protocol surface."
+
+[dependencies]
