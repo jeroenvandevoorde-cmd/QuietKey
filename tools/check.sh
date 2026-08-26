@@ -53,7 +53,16 @@ else
   fail 'fuzz dependency allowlist check failed'
 fi
 
-# --- 4. Lexical secret scan of tracked files -----------------------------
+# --- 4. Persistent fuzz corpus registry ---------------------------------
+if [ ! -x tools/check-fuzz-corpora.sh ]; then
+  fail 'tools/check-fuzz-corpora.sh is missing or not executable'
+elif tools/check-fuzz-corpora.sh; then
+  ok 'fuzz corpora match the registered byte counts and hashes'
+else
+  fail 'fuzz corpus registry check failed'
+fi
+
+# --- 5. Lexical secret scan of tracked files -----------------------------
 p_key='-----BEGIN [A-Z ]*PRIVATE KEY-----'
 p_xprv='xprv[1-9A-HJ-NP-Za-km-z]{40,}'
 p_aws='AKIA[0-9A-Z]{16}'
@@ -94,7 +103,7 @@ else
   fail 'secret scan self-test failed; scanner unreliable'
 fi
 
-# --- 5. Rust checks (host workspace, locked/offline) ----------------------
+# --- 6. Rust checks (host workspace, locked/offline) ----------------------
 if [ ! -f host/Cargo.toml ]; then
   fail 'host/Cargo.toml is missing'
 elif ! command -v cargo >/dev/null 2>&1; then

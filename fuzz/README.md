@@ -52,3 +52,5 @@ SHA-256 as its filename and registered before any fix. `CORPUS-MANIFEST.tsv`
 registers every retained seed or finding by target, byte count, and SHA-256.
 A reproduced parser finding follows QK-DEC-106: ordinary fix commit, minimized
 regression fixture, and a decision row when the affected crate is frozen.
+Every retained unit can be replayed once under the pinned build with
+`fuzz/replay-corpus.sh TARGET`.
