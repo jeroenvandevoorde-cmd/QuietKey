@@ -3,9 +3,10 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only HOST seams: symbolic workflow, D-09 review binding, final-only external-signature insertion, and capability-only native-P2WSH finalization/extraction. No signing, arbitrary finalizer, RPC, media output, UI, or target claim."
+description = "Library-only HOST seams: symbolic workflow, D-09 review binding, bounded M24 terminal signing, deterministic insertion, and capability-only native-P2WSH finalization/extraction. No approval authority, card session, RPC, media output, UI, or target claim."
 
 [dependencies]
 qk-host-model = { path = "../qk-host-model" }
 qk-psbt = { path = "../qk-psbt" }
 qk-descriptor = { path = "../qk-descriptor" }
+qk-secp = { path = "../qk-secp" }

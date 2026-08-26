@@ -32,7 +32,8 @@ const _: [(); MIN_FINALIZED_PSBT_SHRINK_PER_INPUT] = [(); 3 * DERIVATION_RECORD_
 /// One fully checked finalized PSBT and its exact extracted transaction.
 ///
 /// Fields are private and the type has no constructor. It can be obtained
-/// only by consuming the M15 [`ThresholdCompletePsbt`] capability.
+/// only by consuming a checked [`ThresholdCompletePsbt`] capability through
+/// the M15 external-signature path or the separate M24 HOST continuation.
 pub struct FinalizedTransaction {
     finalized_psbt: Vec<u8>,
     raw_transaction: Vec<u8>,
@@ -150,8 +151,8 @@ struct WitnessParts<'a> {
 }
 
 impl ThresholdCompletePsbt {
-    /// Consume this M15 capability, finalize every exact native-P2WSH input,
-    /// and extract one reparsed witness transaction.
+    /// Consume this threshold-complete capability, finalize every exact
+    /// native-P2WSH input, and extract one reparsed witness transaction.
     ///
     /// # Errors
     ///
@@ -947,15 +948,20 @@ struct ParsedRawWitness<'a> {
     items: [Option<&'a [u8]>; 4],
 }
 
-fn reparse_and_rebind_raw(
-    raw: &[u8],
+/// Exact signature/script items obtained by an M24-only fresh parse of a
+/// finalized raw transaction. The empty dummy and four-item shape have
+/// already been checked, and every slice borrows the final raw bytes.
+pub(super) struct FreshFinalWitness<'a> {
+    pub(super) first_signature: &'a [u8],
+    pub(super) second_signature: &'a [u8],
+    pub(super) witness_script: &'a [u8],
+}
+
+fn parse_and_rebind_raw<'a>(
+    raw: &'a [u8],
     base: &[u8],
     finalized_view: &PsbtView<'_>,
-    witnesses: &[WitnessParts<'_>],
-) -> Result<(), FinalizationError> {
-    if witnesses.len() != finalized_view.input_map_count() {
-        return Err(FinalizationError::InternalInvariant);
-    }
+) -> Result<Vec<ParsedRawWitness<'a>>, FinalizationError> {
     let mut cursor = RawCursor::new(raw);
     let mut stripped = Vec::new();
     stripped
@@ -1041,10 +1047,43 @@ fn reparse_and_rebind_raw(
         return Err(FinalizationError::BaseTransactionMismatch);
     }
 
+    Ok(parsed_witnesses)
+}
+
+fn rebind_final_witness_records(
+    parsed_witnesses: &[ParsedRawWitness<'_>],
+    finalized_view: &PsbtView<'_>,
+) -> Result<(), FinalizationError> {
+    if parsed_witnesses.len() != finalized_view.input_map_count() {
+        return Err(FinalizationError::InternalInvariant);
+    }
+    for (input_index, parsed) in parsed_witnesses.iter().enumerate() {
+        let final_witness = finalized_view
+            .input_records(input_index)
+            .ok_or(FinalizationError::InternalInvariant)?
+            .find(|record| record.key_type == 0x08)
+            .ok_or(FinalizationError::WitnessMismatch)?;
+        if parsed.encoded != final_witness.value {
+            return Err(FinalizationError::WitnessMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn reparse_and_rebind_raw(
+    raw: &[u8],
+    base: &[u8],
+    finalized_view: &PsbtView<'_>,
+    witnesses: &[WitnessParts<'_>],
+) -> Result<(), FinalizationError> {
+    if witnesses.len() != finalized_view.input_map_count() {
+        return Err(FinalizationError::InternalInvariant);
+    }
+    let parsed_witnesses = parse_and_rebind_raw(raw, base, finalized_view)?;
     if parsed_witnesses.len() != witnesses.len() {
         return Err(FinalizationError::InternalInvariant);
     }
-    for (input_index, (parsed, expected)) in parsed_witnesses.iter().zip(witnesses).enumerate() {
+    for (parsed, expected) in parsed_witnesses.iter().zip(witnesses) {
         let empty_dummy = matches!(parsed.items[0], Some(dummy) if dummy.is_empty());
         if parsed.item_count != 4 || !empty_dummy {
             return Err(FinalizationError::WitnessMismatch);
@@ -1061,16 +1100,38 @@ fn reparse_and_rebind_raw(
         {
             return Err(FinalizationError::WitnessMismatch);
         }
-        let final_witness = finalized_view
-            .input_records(input_index)
-            .ok_or(FinalizationError::InternalInvariant)?
-            .find(|record| record.key_type == 0x08)
-            .ok_or(FinalizationError::WitnessMismatch)?;
-        if parsed.encoded != final_witness.value {
+    }
+    rebind_final_witness_records(&parsed_witnesses, finalized_view)
+}
+
+/// Reparse a completed M24 result from byte zero through EOF and return only
+/// its two selected signatures and exact witness script per input. This is a
+/// second parse after M16 finalization, not a reuse of M16's parser result.
+pub(super) fn fresh_final_witnesses<'a>(
+    finalized: &'a FinalizedTransaction,
+    source: InputSource,
+    base: &[u8],
+) -> Result<Vec<FreshFinalWitness<'a>>, FinalizationError> {
+    let view = parse(finalized.finalized_psbt(), source)
+        .map_err(|_| FinalizationError::FinalizedPsbtReparse)?;
+    let parsed = parse_and_rebind_raw(finalized.raw_transaction(), base, &view)?;
+    rebind_final_witness_records(&parsed, &view)?;
+    let mut witnesses = Vec::new();
+    witnesses
+        .try_reserve_exact(parsed.len())
+        .map_err(|_| FinalizationError::AllocationFailed)?;
+    for witness in parsed {
+        let empty_dummy = matches!(witness.items[0], Some(dummy) if dummy.is_empty());
+        if witness.item_count != 4 || !empty_dummy {
             return Err(FinalizationError::WitnessMismatch);
         }
+        witnesses.push(FreshFinalWitness {
+            first_signature: witness.items[1].ok_or(FinalizationError::WitnessMismatch)?,
+            second_signature: witness.items[2].ok_or(FinalizationError::WitnessMismatch)?,
+            witness_script: witness.items[3].ok_or(FinalizationError::WitnessMismatch)?,
+        });
     }
-    Ok(())
+    Ok(witnesses)
 }
 
 struct RawCursor<'a> {

@@ -90,8 +90,11 @@ impl From<WorkflowFinished> for ReviewReadyError {
 /// Immutable M23 result. It privately retains the exact owned S0 alongside
 /// the fully owned, session-free review and its exact domain-separated hash.
 ///
-/// There is intentionally no approval, token, signature, insertion,
+/// There is intentionally no approval, token, signing, insertion,
 /// finalization, extraction, serialization, or export operation on this type.
+/// The containing [`ReviewReadyWorkflow`] may instead be consumed by the
+/// separate non-authorizing M24 continuation; the immutable result itself has
+/// no such method and exposes none of its retained S0 bytes.
 pub struct ReviewReady {
     s0: OwnedS0,
     review: ReviewV2,
@@ -127,6 +130,10 @@ impl ReviewReady {
     #[must_use]
     pub const fn input_source(&self) -> InputSource {
         self.s0.source()
+    }
+
+    pub(super) fn into_m24_parts(self) -> (OwnedS0, ReviewV2, ReviewV2Hash) {
+        (self.s0, self.review, self.review_hash)
     }
 }
 
@@ -290,6 +297,14 @@ impl ReviewReadyWorkflow {
             review_hash,
         });
         Ok(())
+    }
+
+    pub(super) fn into_m24_parts(mut self) -> Option<(DescriptorPair, ReviewReady)> {
+        if self.inner.is_finished() || self.inner.state() != TransactionState::ReviewReady {
+            return None;
+        }
+        let ready = self.ready.take()?;
+        Some((self.descriptor, ready))
     }
 
     fn build_once(&self, rebuilding: bool) -> Result<(ReviewV2, ReviewV2Hash), ReviewReadyError> {

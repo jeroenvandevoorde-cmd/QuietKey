@@ -524,7 +524,7 @@ fn normalize_submissions<'a>(
     Ok(normalized)
 }
 
-fn insert_partial_signature(
+pub(super) fn insert_partial_signature(
     view: &PsbtView<'_>,
     bytes: &[u8],
     source: InputSource,
@@ -591,7 +591,12 @@ fn insert_partial_signature(
     Ok((next, insertion_offset, record_len))
 }
 
-fn exact_insert_delta(previous: &[u8], next: &[u8], offset: usize, inserted: usize) -> bool {
+pub(super) fn exact_insert_delta(
+    previous: &[u8],
+    next: &[u8],
+    offset: usize,
+    inserted: usize,
+) -> bool {
     let suffix = match offset.checked_add(inserted) {
         Some(value) => value,
         None => return false,

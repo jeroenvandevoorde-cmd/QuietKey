@@ -10,17 +10,19 @@
 //! capability is the sole M16 entry for exact native-P2WSH witness
 //! finalization and raw-transaction extraction. Scope: see the
 //! canonical disclaimer in `qk_host_model::transaction_policy`.
-//! [`ReviewReadyWorkflow`] is the separate M23 owned-S0 slice. It ends
-//! at an immutable D-09 schema-v2 [`ReviewReady`] fact and exposes no
-//! approval or signing continuation.
+//! [`ReviewReadyWorkflow`] begins as the separate M23 owned-S0 slice. It
+//! reaches an immutable D-09 schema-v2 [`ReviewReady`] fact, which M24
+//! may consume for bounded terminal-role signing, verified mock-card
+//! insertion, M16 finalization, and a fresh final-transaction check.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
-//! No signing or signature generation, arbitrary finalizer, transaction
-//! parser API, media output, persistence, RPC, network, or broadcast.
-//! M15 only inserts supplied externally produced signatures; M16 can
-//! consume only that threshold-complete capability and returns no
-//! intermediate artifact.
+//! No approval authority, real card session, arbitrary finalizer,
+//! transaction parser API, media output, persistence, RPC, network, or
+//! broadcast. M15 only inserts supplied externally produced signatures;
+//! M24 is a separate non-authorizing HOST evidence path whose terminal
+//! key remains opaque inside qk-secp, and M16 can consume only a
+//! threshold-complete capability and returns no intermediate artifact.
 //!
 //! Beyond the model's mandatory event order, the runner makes the
 //! approval→revalidation→signature binding STRUCTURAL: accepting
@@ -35,6 +37,7 @@
 
 mod finalization;
 mod insertion;
+mod m24_signing;
 mod review_ready;
 
 #[path = "../../qk-psbt/src/sha256.rs"]
@@ -44,6 +47,7 @@ pub use finalization::{FinalizationError, FinalizedTransaction};
 pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
 };
+pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, TerminalInputKey};
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
 
 use qk_descriptor::DescriptorPair;
