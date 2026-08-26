@@ -215,6 +215,7 @@ version = "0.0.1"
 name = "qk-host-sim"
 version = "0.0.1"
 dependencies = [
+ "qk-bbqr",
  "qk-descriptor",
  "qk-host-model",
  "qk-psbt",

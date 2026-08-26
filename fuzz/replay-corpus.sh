@@ -14,6 +14,7 @@ case "$target" in
   qk_psbt_m23) max_len=4096; seed=23001 ;;
   qk_host_sim_m23) max_len=4096; seed=23002 ;;
   qk_host_sim_m24) max_len=4096; seed=24001 ;;
+  qk_host_sim_m25) max_len=4096; seed=25001 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 

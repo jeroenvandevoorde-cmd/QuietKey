@@ -88,6 +88,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "qk_host_sim_m25"
+path = "fuzz_targets/qk_host_sim_m25.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 overflow-checks = true
 debug-assertions = true

@@ -3,13 +3,18 @@
 EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-ten libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+eleven libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. The M24 target uses
 only the public, permanently NEVER-FUND fixture lineage and asserts secret
 import-source wiping, named rejection, exact golden completion, absence of
 partial output, and repeat consistency over hostile PSBT and mock controls. It
+also includes the M25 `qk-host-sim` export boundary: that target reconstructs
+the dedicated public threshold-complete NEVER-FUND fixture without any secret,
+then drives tier/artifact selection, every mock-SD edge, nonce-derived names,
+and finalized-PSBT-only BBQr framing twice while asserting exact golden facts,
+stable named outcomes, input preservation, and per-artifact failure atomicity. It
 changes no product behavior and reaches no card, camera, network, filesystem
 parser, real signing authority, or production target.
 
@@ -45,6 +50,7 @@ fuzz/run-bounded.sh qk_bbqr_reassembly 100000
 fuzz/run-bounded.sh qk_psbt_m23 100000
 fuzz/run-bounded.sh qk_host_sim_m23 100000
 fuzz/run-bounded.sh qk_host_sim_m24 100000
+fuzz/run-bounded.sh qk_host_sim_m25 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
