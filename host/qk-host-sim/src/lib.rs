@@ -14,12 +14,16 @@
 //! reaches an immutable D-09 schema-v2 [`ReviewReady`] fact, which M24
 //! may consume for bounded terminal-role signing, verified mock-card
 //! insertion, M16 finalization, and a fresh final-transaction check.
+//! M25 consumes only that checked finalization capability, binds exact
+//! immutable export facts, models each mock-SD artifact lifecycle, and
+//! exposes file-type-P BBQr framing only for the finalized PSBT.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
 //! No approval authority, real card session, arbitrary finalizer,
-//! transaction parser API, media output, persistence, RPC, network, or
-//! broadcast. M15 only inserts supplied externally produced signatures;
+//! transaction parser API, real media I/O, persistence, RPC, network, or
+//! broadcast. The M25 filesystem is a deterministic in-memory model and
+//! makes no physical-media claim. M15 only inserts supplied signatures;
 //! M24 is a separate non-authorizing HOST evidence path whose terminal
 //! key remains opaque inside qk-secp, and M16 can consume only a
 //! threshold-complete capability and returns no intermediate artifact.
@@ -35,6 +39,7 @@
 
 #![forbid(unsafe_code)]
 
+mod export;
 mod finalization;
 mod insertion;
 mod m24_signing;
@@ -43,6 +48,12 @@ mod review_ready;
 #[path = "../../qk-psbt/src/sha256.rs"]
 mod transaction_sha256;
 
+pub use export::{
+    ArtifactBindingError, ExportArtifactKind, ExportArtifacts, ExportNonce, FinalizedPsbtArtifact,
+    KitTier, MockFileKind, MockSdFilesystem, RawTransactionArtifact, SdArtifactMetadata,
+    SdArtifactNames, SdBbqrFrame, SdExportError, SdExportFault, SdFileName, SdLifecycleEvent,
+    SdPublishedArtifact, SequentialPsbtBbqr, TierArtifacts,
+};
 pub use finalization::{FinalizationError, FinalizedTransaction};
 pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
