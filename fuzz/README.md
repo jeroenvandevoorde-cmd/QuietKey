@@ -19,6 +19,8 @@ package outside the allowlist or any inactive allowlist row. `tools/check.sh`
 exempts only `fuzz/**/Cargo.toml` from the general dependency ban and fails
 closed on non-top-level dependency tables, patches, replacements, or any
 manifest/allowlist/closure mismatch.
+A fresh clone must run `cargo fetch --manifest-path fuzz/Cargo.toml --locked`
+once with network access before `tools/check.sh` can pass offline.
 
 Every optimized fuzz build has overflow checks and debug assertions enabled by
 both the workspace profile and cargo-fuzz's default build mode. The targets
