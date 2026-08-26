@@ -1,5 +1,5 @@
 QK-M25-CORPUS-MANIFEST-V1
-campaign_source	716e216e84d5a693ac8aa1abe07e3e0ca1f4f31e
+campaign_source	33fdd062828306a20f69660a09f782efc6363aa5
 target_order	qk_host_sim_m25
 target	qk_host_sim_m25	count	30	bytes	166	entries_sha256	253646c54b2f7026921eea395b7e10ffc0bef5d72ef2960ee8126d48aa44ddca
 aggregate	count	30	bytes	166	entries_sha256	253646c54b2f7026921eea395b7e10ffc0bef5d72ef2960ee8126d48aa44ddca

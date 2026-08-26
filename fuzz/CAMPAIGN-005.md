@@ -3,7 +3,7 @@
 Status: PREREGISTERED — QUALIFYING RUN NOT EXECUTED.
 
 Fuzz-target source commit:
-`716e216e84d5a693ac8aa1abe07e3e0ca1f4f31e`.
+`33fdd062828306a20f69660a09f782efc6363aa5`.
 
 The fixed tool identities are cargo-fuzz 0.13.2; `nightly-2026-08-25`;
 rustc `1.100.0-nightly (e7769602a 2026-08-24)`; AddressSanitizer; release-profile
@@ -53,4 +53,6 @@ Before a qualifying run, an initial invocation was interrupted after exactly
 reported 39 new engine units, zero slowest-unit seconds, peak RSS 440 MiB and
 zero artifact files; its 26 untracked corpus additions were discarded. The
 seed control byte was corrected and the manifest regenerated before restart.
+The campaign source was then rebound to the commit that completed the fixture's
+recorded entropy-generation procedure; no constructed transaction fact changed.
 No result from the interrupted invocation is part of campaign 005.
