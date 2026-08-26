@@ -10,6 +10,9 @@
 //! capability is the sole M16 entry for exact native-P2WSH witness
 //! finalization and raw-transaction extraction. Scope: see the
 //! canonical disclaimer in `qk_host_model::transaction_policy`.
+//! [`ReviewReadyWorkflow`] is the separate M23 owned-S0 slice. It ends
+//! at an immutable D-09 schema-v2 [`ReviewReady`] fact and exposes no
+//! approval or signing continuation.
 //!
 //! No binary, server, UI, REPL, stdin, files, environment, network,
 //! database, service, port, preview, deployment, or background process.
@@ -32,6 +35,7 @@
 
 mod finalization;
 mod insertion;
+mod review_ready;
 
 #[path = "../../qk-psbt/src/sha256.rs"]
 mod transaction_sha256;
@@ -40,6 +44,7 @@ pub use finalization::{FinalizationError, FinalizedTransaction};
 pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
 };
+pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
 
 use qk_descriptor::DescriptorPair;
 use qk_host_model::transaction_policy::{
