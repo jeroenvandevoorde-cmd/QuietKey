@@ -11,6 +11,8 @@ case "$target" in
   qk_card_trace) max_len=4096; seed=21005 ;;
   qk_bbqr_codec) max_len=4297; seed=22001 ;;
   qk_bbqr_reassembly) max_len=16384; seed=22002 ;;
+  qk_psbt_m23) max_len=4096; seed=23001 ;;
+  qk_host_sim_m23) max_len=4096; seed=23002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 

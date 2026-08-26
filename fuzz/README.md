@@ -3,10 +3,11 @@
 EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-seven libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
-`qk-a1-codec`, `qk-card-trace`, and M22 `qk-bbqr` codec and reassembly byte
-boundaries. It changes no product behavior and reaches no card, camera,
-network, filesystem parser, signing authority, or production target.
+nine libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+`qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
+`qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries. It
+changes no product behavior and reaches no card, camera, network, filesystem
+parser, signing authority, or production target.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
@@ -37,6 +38,8 @@ fuzz/run-bounded.sh qk_a1_codec 100000
 fuzz/run-bounded.sh qk_card_trace 100000
 fuzz/run-bounded.sh qk_bbqr_codec 100000
 fuzz/run-bounded.sh qk_bbqr_reassembly 100000
+fuzz/run-bounded.sh qk_psbt_m23 100000
+fuzz/run-bounded.sh qk_host_sim_m23 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a

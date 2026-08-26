@@ -208,6 +208,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "qk-host-model"
+version = "0.0.1"
+
+[[package]]
+name = "qk-host-sim"
+version = "0.0.1"
+dependencies = [
+ "qk-descriptor",
+ "qk-host-model",
+ "qk-psbt",
+]
+
+[[package]]
 name = "qk-psbt"
 version = "0.0.1"
 dependencies = [
@@ -229,6 +242,7 @@ dependencies = [
  "qk-bbqr",
  "qk-card-trace",
  "qk-descriptor",
+ "qk-host-sim",
  "qk-psbt",
 ]
 
