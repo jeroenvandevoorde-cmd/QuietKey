@@ -87,6 +87,7 @@
 
 pub mod bip143;
 pub mod error;
+mod intake;
 pub mod limits;
 mod parse;
 mod raw;
@@ -96,6 +97,7 @@ mod serialize;
 mod sha256;
 
 pub use error::{ParseError, RejectCategory};
+pub use intake::{IntakeError, OwnedS0};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
 pub use review::{
