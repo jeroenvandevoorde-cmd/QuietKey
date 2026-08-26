@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+[ "$#" = 2 ] || { printf 'usage: %s TARGET CORPUS_DIRECTORY\n' "$0" >&2; exit 2; }
+target=$1
+corpus=$2
+case "$target" in
+  qk_psbt) max_len=4096 ;;
+  qk_descriptor) max_len=891 ;;
+  qk_a1) max_len=96 ;;
+  qk_a1_codec) max_len=512 ;;
+  qk_card_trace) max_len=4096 ;;
+  *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
+esac
+[ -d "$corpus" ] || { printf 'missing corpus directory: %s\n' "$corpus" >&2; exit 2; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 2
+cd "$root"
+[ "$(cargo fuzz --version)" = 'cargo-fuzz 0.13.2' ] || {
+  printf 'cargo-fuzz 0.13.2 is required\n' >&2
+  exit 2
+}
+[ "$(rustc +nightly-2026-08-25 --version)" = \
+  'rustc 1.100.0-nightly (e7769602a 2026-08-24)' ] || {
+  printf 'nightly-2026-08-25 toolchain identity mismatch\n' >&2
+  exit 2
+}
+
+export CARGO_NET_OFFLINE=true
+exec cargo +nightly-2026-08-25 fuzz cmin "$target" "$corpus" \
+  --fuzz-dir fuzz --sanitizer address -- \
+  "-max_len=$max_len" -timeout=2 -reload=0

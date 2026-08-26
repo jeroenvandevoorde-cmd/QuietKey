@@ -1,0 +1,58 @@
+[package]
+name = "quietkey-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = { version = "=0.4.13" }
+qk-a1 = { path = "../host/qk-a1", version = "=0.0.1" }
+qk-a1-codec = { path = "../host/qk-a1-codec", version = "=0.0.1" }
+qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
+qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
+qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
+
+[[bin]]
+name = "qk_psbt"
+path = "fuzz_targets/qk_psbt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_descriptor"
+path = "fuzz_targets/qk_descriptor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_a1"
+path = "fuzz_targets/qk_a1.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_a1_codec"
+path = "fuzz_targets/qk_a1_codec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_card_trace"
+path = "fuzz_targets/qk_card_trace.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+overflow-checks = true
+debug-assertions = true
+
+[workspace]
+members = ["."]

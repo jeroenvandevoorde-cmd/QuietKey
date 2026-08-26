@@ -1,0 +1,16 @@
+# QuietKey M21 reviewed active dependency closure; tab-separated; QK-DEC-106.
+# kind	name	version	checksum_sha256	provenance_or_checksum_subject	license	purpose
+registry	arbitrary	1.4.2	c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1	crates.io-package	MIT OR Apache-2.0	libfuzzer-sys input bridge
+registry	cc	1.4.4	0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273	crates.io-package	MIT OR Apache-2.0	libFuzzer native build helper
+registry	find-msvc-tools	0.1.11	d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890	crates.io-package	MIT OR Apache-2.0	cc platform tool discovery
+registry	jobserver	0.1.35	1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3	crates.io-package	MIT OR Apache-2.0	cc bounded build coordination
+registry	libc	0.2.189	3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2	crates.io-package	MIT OR Apache-2.0	jobserver platform interface
+registry	libfuzzer-sys	0.4.13	a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2	crates.io-package	(MIT OR Apache-2.0) AND NCSA	ring-fenced libFuzzer runtime only
+registry	shlex	2.0.1	f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba	crates.io-package	MIT OR Apache-2.0	cc environment flag parser
+path	qk-a1	0.0.1	c46ba899b73c9020222741309e6b10921b9e11eafc7999bba04f2a0cdf7fed68	host/qk-a1/Cargo.toml	QuietKey license open under OD-08	A1 capsule parser target
+path	qk-a1-codec	0.0.1	112bfc494f220cd835154a1c811d72975cbecf2a912fc0ac8c440e865892d1cb	host/qk-a1-codec/Cargo.toml	QuietKey license open under OD-08	A1 codec parser target
+path	qk-bip32	0.0.1	e28cb9b74f2885962e9f73fdc7cedbb5311fe874702b77c62292112e5fd56939	host/qk-bip32/Cargo.toml	QuietKey license open under OD-08	descriptor parser transitive boundary
+path	qk-card-trace	0.0.1	92384347443bb4bc7945b358a3bcd0faf5a40e12e6a23049187c85377e8f8348	host/qk-card-trace/Cargo.toml	QuietKey license open under OD-08	card-trace parser target
+path	qk-descriptor	0.0.1	516214ccaae09bdde3b3a159f39e0795643a9a9a58e27cd34a56df989597fc9f	host/qk-descriptor/Cargo.toml	QuietKey license open under OD-08	descriptor-pair parser target and PSBT transitive boundary
+path	qk-psbt	0.0.1	039ac8dc9cdc211dbb42ec3aadeb6b348c4bdf518a0eeb66fee1e3de8a71b52e	host/qk-psbt/Cargo.toml	QuietKey license open under OD-08	PSBT-v0 parser target
+path	qk-secp	0.0.1	74b589e5ddfdf2c4d4253ed614ac78644a39024c1cb3ef7b73b25c020602244c	host/qk-secp/Cargo.toml	QuietKey license open under OD-08	PSBT verification transitive boundary

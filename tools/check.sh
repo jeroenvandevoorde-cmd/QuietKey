@@ -23,6 +23,12 @@ if [ -z "$manifests" ]; then
   fail 'no tracked Cargo.toml found'
 else
   for m in $manifests; do
+    case "$m" in
+      fuzz/Cargo.toml|fuzz/*/Cargo.toml)
+        info "$m is governed by the reviewed fuzz dependency allowlist"
+        continue
+        ;;
+    esac
     n=$(awk '
       /^[[:space:]]*\[/ { insec = ($0 ~ /dependencies/) ? 1 : 0; next }
       insec && $0 !~ /^[[:space:]]*(#|$)/ {
@@ -38,7 +44,16 @@ else
   done
 fi
 
-# --- 3. Lexical secret scan of tracked files -----------------------------
+# --- 3. Ring-fenced fuzz dependency policy -------------------------------
+if [ ! -x tools/check-fuzz-dependencies.sh ]; then
+  fail 'tools/check-fuzz-dependencies.sh is missing or not executable'
+elif tools/check-fuzz-dependencies.sh; then
+  ok 'fuzz manifests match the reviewed pinned dependency allowlist'
+else
+  fail 'fuzz dependency allowlist check failed'
+fi
+
+# --- 4. Lexical secret scan of tracked files -----------------------------
 p_key='-----BEGIN [A-Z ]*PRIVATE KEY-----'
 p_xprv='xprv[1-9A-HJ-NP-Za-km-z]{40,}'
 p_aws='AKIA[0-9A-Z]{16}'
@@ -79,7 +94,7 @@ else
   fail 'secret scan self-test failed; scanner unreliable'
 fi
 
-# --- 4. Rust checks (host workspace, locked/offline) ----------------------
+# --- 5. Rust checks (host workspace, locked/offline) ----------------------
 if [ ! -f host/Cargo.toml ]; then
   fail 'host/Cargo.toml is missing'
 elif ! command -v cargo >/dev/null 2>&1; then
