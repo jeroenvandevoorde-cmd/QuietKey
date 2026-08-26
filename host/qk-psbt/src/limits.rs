@@ -105,3 +105,20 @@ pub const MAX_CANONICAL_REVIEW_BYTES: usize = 19_272;
 
 const _: [(); MAX_CANONICAL_REVIEW_BYTES] = [(); 124 + 5_535 + (100 * 107) + (185 + 31 * 88)];
 const _: [(); 19_296] = [(); MAX_CANONICAL_REVIEW_BYTES + 23 + 1];
+
+/// CANDIDATE (QK-DEC-110): exact maximum byte length of a D-09 v2
+/// canonical review under QK-FEE-POLICY-V1. HOST candidate only; no
+/// target-RAM or conformance claim.
+pub const MAX_CANONICAL_REVIEW_V2_BYTES: usize = 18_934;
+
+/// CANDIDATE (QK-DEC-110): maximum estimated fully signed virtual size
+/// under the fixed v1 two-signature witness template. HOST candidate only.
+pub const MAX_ESTIMATED_VSIZE: u32 = 11_886;
+
+/// CANDIDATE (QK-DEC-110): exact maximum bytes hashed for one D-09 v2
+/// review, including the 40-byte domain and one-byte separator.
+pub const MAX_REVIEW_V2_HASH_TRANSCRIPT_BYTES: usize = 18_975;
+
+const _: [(); MAX_CANONICAL_REVIEW_V2_BYTES] = [(); 162 + 5_535 + (100 * 102) + (185 + 31 * 92)];
+const _: [(); MAX_REVIEW_V2_HASH_TRANSCRIPT_BYTES] = [(); MAX_CANONICAL_REVIEW_V2_BYTES + 40 + 1];
+const _: [(); MAX_ESTIMATED_VSIZE as usize] = [(); 47_542_usize.div_ceil(4)];

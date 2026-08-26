@@ -1,7 +1,7 @@
 //! M6 bounded HOST-only semantic-subset analyzer (QK-DEC-037,
 //! QK-DEC-038, QK-DEC-039; recorded under the QK-DEC-034 process).
 //!
-//! This module extracts a STRUCTURAL CANDIDATE view of one already
+//! The M6 route extracts a STRUCTURAL CANDIDATE view of one already
 //! structurally parsed PSBT v0. It performs no cryptographic
 //! signature verification, no signing, no curve arithmetic, and no
 //! policy evaluation. Nothing here decides validity, signability,
@@ -49,6 +49,14 @@
 //! [`OutputOwnership::NotProvenOwned`] outputs against six exact
 //! destination templates. Descriptor-proven change and self-transfer
 //! outputs remain unchanged and receive no recipient fact.
+//!
+//! M23 (QK-DEC-110) adds a separate no-signature-verification route,
+//! [`analyze_review_v2_semantics`], for schema-v2 facts. It retains the
+//! M6 syntax and M12 descriptor proofs, classifies every non-change
+//! output (including self-transfer), and evaluates the fixed
+//! QK-FEE-POLICY-V1 arithmetic. It returns no verified-signature or
+//! completion state. The M6, M8, M12, and M13 entrypoints and behavior
+//! remain unchanged.
 
 use crate::bip143::{
     sighash_all_digest, Bip143Error, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL,
@@ -56,6 +64,7 @@ use crate::bip143::{
 use crate::limits;
 use crate::parse::PsbtView;
 use crate::raw::{decode_compact_size, Record, Span};
+use crate::review_v2::{apply_fee_policy, FeePolicyFacts, ReviewV2Error};
 use crate::sha256::{sha256, sha256d};
 use core::fmt;
 use qk_descriptor::{
@@ -232,6 +241,12 @@ pub enum SemanticCategory {
     /// M13: an OP_RETURN payload exceeds
     /// `limits::MAX_OP_RETURN_PAYLOAD_BYTES`.
     OpReturnPayloadTooLong,
+    /// M23: the exact transaction fee is strictly greater than the
+    /// QK-FEE-POLICY-V1 emergency ceiling.
+    EmergencyFeeCeilingExceeded,
+    /// M23: checked weight, virtual-size, fee-rate, or fee-share
+    /// arithmetic could not be represented.
+    FeePolicyArithmeticOverflow,
 }
 
 impl fmt::Display for SemanticCategory {
@@ -325,6 +340,8 @@ impl fmt::Display for SemanticCategory {
             Self::OpReturnMultiplePushes => "OP_RETURN has multiple pushes",
             Self::OpReturnNonMinimalPush => "OP_RETURN push encoding nonminimal",
             Self::OpReturnPayloadTooLong => "OP_RETURN payload exceeds byte cap",
+            Self::EmergencyFeeCeilingExceeded => "emergency fee ceiling exceeded",
+            Self::FeePolicyArithmeticOverflow => "fee policy arithmetic overflow",
         };
         f.write_str(s)
     }
@@ -752,6 +769,7 @@ struct SelectedPrevout {
     amount: u64,
     amount_offset: usize,
     script: Span,
+    serialized: Span,
 }
 
 /// Streaming bounded parse of one previous transaction carried in a
@@ -838,6 +856,10 @@ fn parse_prevtx(
                 amount,
                 amount_offset,
                 script,
+                serialized: Span {
+                    start: amount_offset,
+                    end: c.pos,
+                },
             });
         }
         j = j.saturating_add(1);
@@ -1183,25 +1205,19 @@ fn structural_phase<'a>(view: &PsbtView<'a>) -> Result<AnalysisState<'a>, Semant
             sel.script.start,
         ))?;
         if let Some(w) = witness_utxo {
-            // QK-DEC-032 byte equality: amount and scriptPubKey of the
-            // witness_utxo must equal the selected prevtx output. The
-            // witness_utxo value is one fully consumed TxOut; its
-            // structure was already enforced by the parser.
+            // QK-DEC-032/QK-DEC-110 exact serialized TxOut equality.
+            // Both values were already structurally checked with minimal
+            // CompactSize framing, so compare the complete amount, length,
+            // and script bytes directly without field normalization.
             let wmis = SemanticError::at_input(
                 SemanticCategory::WitnessUtxoMismatch,
                 i,
                 w.value_span.start,
             );
-            let winv =
-                SemanticError::at_input(SemanticCategory::InternalInvariant, i, w.value_span.start);
-            let mut wc = TxCursor::new(buf, w.value_span);
-            let w_amount = wc.u64_le().ok_or(winv)?;
-            let w_script_len = usize::try_from(wc.compact().ok_or(winv)?).map_err(|_| winv)?;
-            let w_script = wc.bytes(w_script_len).ok_or(winv)?;
-            if !wc.at_end() {
-                return Err(winv);
-            }
-            if w_amount != sel.amount || w_script != sel_script {
+            let selected_serialized = sel.serialized.slice(buf).ok_or_else(|| {
+                SemanticError::at_input(SemanticCategory::InternalInvariant, i, sel.amount_offset)
+            })?;
+            if w.value != selected_serialized {
                 return Err(wmis);
             }
         }
@@ -2788,5 +2804,265 @@ pub fn analyze_recipient_script_facts<'a>(
     Ok(RecipientScriptAnalysis {
         ownership,
         recipient_outputs,
+    })
+}
+
+// ====================================================================
+// M23 HOST-only review-v2 semantic and fee-policy facts (QK-DEC-110).
+// ====================================================================
+
+/// One M23 input fact. Existing signatures have passed syntax, strict-DER,
+/// low-S, and SIGHASH_ALL checks only; no cryptographic status is carried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReviewV2SemanticInput<'a> {
+    /// 32 outpoint txid bytes exactly as serialized in the unsigned tx.
+    pub outpoint_txid_wire: &'a [u8],
+    /// Selected previous-output index.
+    pub outpoint_vout: u32,
+    /// MoneyRange-proven previous-output amount.
+    pub prevout_amount: u64,
+    /// MoneyRange-proven previous-output scriptPubKey.
+    pub prevout_script_pubkey: &'a [u8],
+    /// Raw unsigned-transaction sequence.
+    pub sequence: u32,
+    /// Effective sighash type; always SIGHASH_ALL after the M6 syntax phase.
+    pub effective_sighash: u32,
+    /// Descriptor-proven receive/change branch.
+    pub branch: u32,
+    /// Descriptor-proven nonhardened child index.
+    pub index: u32,
+    /// Exact descriptor-reconstructed witness script used by the fixed
+    /// BIP141 witness-size estimate. This is public descriptor material.
+    pub witness_script: [u8; 105],
+}
+
+/// M23 ownership plus destination facts for one unsigned output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReviewV2SemanticOutputOwnership<'a> {
+    /// No descriptor ownership proof; exact selected recipient type and data.
+    NotOwned(RecipientScriptFacts<'a>),
+    /// Exact branch-1 descriptor change output.
+    ProvenChange(u32),
+    /// Exact branch-0 descriptor output, additionally classified as the
+    /// required P2WSH destination and carrying its exact 32-byte program.
+    ProvenSelfTransfer {
+        /// Descriptor child index.
+        index: u32,
+        /// Exact P2WSH destination fact borrowed from the unsigned tx.
+        recipient: RecipientScriptFacts<'a>,
+    },
+}
+
+/// One M23 output in unsigned-transaction order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReviewV2SemanticOutput<'a> {
+    /// MoneyRange-checked output amount.
+    pub amount: u64,
+    /// Exact borrowed output scriptPubKey bytes.
+    pub script_pubkey: &'a [u8],
+    /// Descriptor ownership and, for every non-change output, destination.
+    pub ownership: ReviewV2SemanticOutputOwnership<'a>,
+}
+
+/// Complete no-signature-verification M23 facts consumed by review schema v2.
+/// This type intentionally carries no signature count, threshold state,
+/// aggregate completion state, authorization, or export disposition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewV2SemanticAnalysis<'a> {
+    /// Raw transaction version.
+    pub version: u32,
+    /// Raw transaction locktime.
+    pub locktime: u32,
+    /// Proven input facts in unsigned-transaction order.
+    pub inputs: Vec<ReviewV2SemanticInput<'a>>,
+    /// Classified output facts in unsigned-transaction order.
+    pub outputs: Vec<ReviewV2SemanticOutput<'a>>,
+    /// MoneyRange-checked selected-input total.
+    pub total_input_amount: u64,
+    /// MoneyRange-checked unsigned-output total.
+    pub total_output_amount: u64,
+    /// Exact checked fee.
+    pub fee: u64,
+    /// Fixed-witness BIP141 estimate, fee rate, and ordered nonfatal warnings.
+    pub fee_policy: FeePolicyFacts,
+}
+
+fn map_fee_policy_error(error: ReviewV2Error, offset: usize) -> SemanticError {
+    let category = match error {
+        ReviewV2Error::EmergencyFeeCeilingExceeded => SemanticCategory::EmergencyFeeCeilingExceeded,
+        ReviewV2Error::FeePolicyArithmeticOverflow => SemanticCategory::FeePolicyArithmeticOverflow,
+        _ => SemanticCategory::InternalInvariant,
+    };
+    SemanticError::global(category, offset)
+}
+
+/// Build the M23 semantic and QK-FEE-POLICY-V1 facts without verifying any
+/// existing partial signature cryptographically.
+///
+/// This follows the existing structural, SIGHASH_ALL/signature-syntax, token,
+/// and M12 descriptor proof phases. Every branch-1 descriptor output remains
+/// change; every other output, including branch-0 self-transfer, is passed
+/// through the unchanged six-template M13 classifier. The returned surface
+/// contains no cryptographic completeness or authorization state.
+///
+/// # Errors
+///
+/// Returns the first existing structural/M6/M12/M13 rejection, followed by
+/// checked fee-policy arithmetic, the strict emergency ceiling, and warning
+/// construction in QK-DEC-110 order.
+pub(crate) fn analyze_review_v2_semantics<'a>(
+    view: &PsbtView<'a>,
+    descriptor: &DescriptorPair,
+) -> Result<ReviewV2SemanticAnalysis<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    verification_screen(view, &state, false)?;
+    signature_phase(view, &mut state.work)?;
+    token_phase(view, &state)?;
+
+    let tx_span = view.unsigned_tx().span;
+    let global_offset = tx_span.start;
+    let fingerprints = unique_descriptor_fingerprints(descriptor, global_offset)?;
+    let mut derivation_calls = 0usize;
+
+    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
+    let mut effective_scripts: Vec<DerivedScript> = Vec::new();
+    reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
+    for (input_index, work) in state.work.iter().enumerate() {
+        let (wallet_input, script) = prove_descriptor_input(
+            view,
+            descriptor,
+            &fingerprints,
+            input_index,
+            work,
+            &mut derivation_calls,
+        )?;
+        wallet_inputs.push(wallet_input);
+        effective_scripts.push(script);
+    }
+
+    let candidate = assemble(view, state)?;
+    if candidate.inputs.len() != wallet_inputs.len()
+        || candidate.inputs.len() != effective_scripts.len()
+    {
+        return Err(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            global_offset,
+        ));
+    }
+
+    let mut inputs: Vec<ReviewV2SemanticInput<'a>> = Vec::new();
+    reserve_exact(&mut inputs, candidate.inputs.len(), global_offset)?;
+    for ((input, wallet), script) in candidate
+        .inputs
+        .iter()
+        .zip(&wallet_inputs)
+        .zip(&effective_scripts)
+    {
+        inputs.push(ReviewV2SemanticInput {
+            outpoint_txid_wire: input.outpoint_txid_wire,
+            outpoint_vout: input.outpoint_vout,
+            prevout_amount: input.prevout_amount,
+            prevout_script_pubkey: input.prevout_script_pubkey,
+            sequence: input.sequence,
+            effective_sighash: u32::from(SIGHASH_ALL),
+            branch: wallet.branch,
+            index: wallet.index,
+            witness_script: script.witness_script,
+        });
+    }
+
+    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
+    for (output_index, output) in candidate.outputs.iter().enumerate() {
+        wallet_outputs.push(classify_descriptor_output(
+            view,
+            descriptor,
+            &fingerprints,
+            output_index,
+            output,
+            &mut derivation_calls,
+        )?);
+    }
+
+    let inv = SemanticError::global(SemanticCategory::InternalInvariant, global_offset);
+    let mut cursor = TxCursor::new(view.buffer(), tx_span);
+    let version = cursor.u32_le().ok_or(inv)?;
+    let input_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if version != candidate.version || input_count != candidate.inputs.len() {
+        return Err(inv);
+    }
+    for _ in 0..input_count {
+        cursor.take(32).ok_or(inv)?;
+        cursor.u32_le().ok_or(inv)?;
+        if cursor.compact().ok_or(inv)? != 0 {
+            return Err(inv);
+        }
+        cursor.u32_le().ok_or(inv)?;
+    }
+    let output_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if output_count != candidate.outputs.len() || output_count != wallet_outputs.len() {
+        return Err(inv);
+    }
+
+    let mut outputs: Vec<ReviewV2SemanticOutput<'a>> = Vec::new();
+    reserve_exact(&mut outputs, output_count, global_offset)?;
+    let mut op_return_seen = false;
+    for (owner, output) in wallet_outputs.iter().zip(&candidate.outputs) {
+        let amount = cursor.u64_le().ok_or(inv)?;
+        let script_len = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+        let script_span = cursor.take(script_len).ok_or(inv)?;
+        if amount != output.amount || script_span.slice(view.buffer()) != Some(output.script_pubkey)
+        {
+            return Err(inv);
+        }
+
+        let ownership = match owner {
+            OutputOwnership::NotProvenOwned => ReviewV2SemanticOutputOwnership::NotOwned(
+                classify_recipient_output(output, script_span, &mut op_return_seen)?,
+            ),
+            OutputOwnership::ProvenChange(index) => {
+                ReviewV2SemanticOutputOwnership::ProvenChange(*index)
+            }
+            OutputOwnership::ProvenSelfTransfer(index) => {
+                let recipient =
+                    classify_recipient_output(output, script_span, &mut op_return_seen)?;
+                if recipient.recipient_type != RecipientType::P2wsh {
+                    return Err(inv);
+                }
+                ReviewV2SemanticOutputOwnership::ProvenSelfTransfer {
+                    index: *index,
+                    recipient,
+                }
+            }
+        };
+        outputs.push(ReviewV2SemanticOutput {
+            amount: output.amount,
+            script_pubkey: output.script_pubkey,
+            ownership,
+        });
+    }
+    let locktime = cursor.u32_le().ok_or(inv)?;
+    if locktime != candidate.locktime || !cursor.at_end() {
+        return Err(inv);
+    }
+
+    let fee_policy = apply_fee_policy(
+        view.unsigned_tx_bytes().len(),
+        effective_scripts.len(),
+        candidate.fee,
+        candidate.total_input_amount,
+    )
+    .map_err(|error| map_fee_policy_error(error, global_offset))?;
+
+    Ok(ReviewV2SemanticAnalysis {
+        version: candidate.version,
+        locktime: candidate.locktime,
+        inputs,
+        outputs,
+        total_input_amount: candidate.total_input_amount,
+        total_output_amount: candidate.total_output_amount,
+        fee: candidate.fee,
+        fee_policy,
     })
 }

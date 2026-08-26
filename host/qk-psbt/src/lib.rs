@@ -55,6 +55,14 @@
 //! only accepted source provenance; a conflicting review context rejects
 //! before analysis or review allocation. The review remains session-free,
 //! and its domain-separated SHA-256 commitment is computed on request.
+//! The separate M23 entrypoint ([`build_review_v2`]) deliberately does not
+//! cryptographically promote existing partial signatures. It requires the
+//! full descriptor ownership/change route, classifies every non-change
+//! output, applies `QK-FEE-POLICY-V1`, and returns an owned, session-free
+//! schema-v2 review whose exact immutable-S0 identity, transaction facts,
+//! fee facts, ordered warnings, sequences, and derived RBF signals are bound
+//! by the v2 domain-separated hash. It performs no signing, approval,
+//! threshold-completeness decision, finalization, or export.
 //!
 //! The unsigned transaction is parsed only as far as necessary to
 //! validate its structure and derive the input/output map counts.
@@ -92,6 +100,7 @@ pub mod limits;
 mod parse;
 mod raw;
 mod review;
+mod review_v2;
 mod semantic;
 mod serialize;
 mod sha256;
@@ -103,6 +112,12 @@ pub use raw::{Record, Records, Span};
 pub use review::{
     build_review, Review, ReviewContext, ReviewError, ReviewHash, ReviewInput, ReviewNetwork,
     ReviewOutput, ReviewOutputOwnership, ReviewRecipient,
+};
+pub use review_v2::{
+    build_review_v2, DirectRbf, FeePolicyFacts, FeeWarning, ReviewV2, ReviewV2Error, ReviewV2Hash,
+    ReviewV2Input, ReviewV2Output, ReviewV2OutputOwnership, FEE_POLICY_IDENTIFIER,
+    MAX_CANONICAL_REVIEW_V2_BYTES, MAX_ESTIMATED_VSIZE, MAX_FEE_WARNINGS,
+    MAX_REVIEW_V2_HASH_TRANSCRIPT_BYTES, REVIEW_V2_HASH_DOMAIN, REVIEW_V2_SCHEMA_VERSION,
 };
 pub use semantic::{
     analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_recipient_script_facts,
