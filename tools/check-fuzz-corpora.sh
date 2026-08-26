@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify QK-DEC-106's persistent corpus registry.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -24,49 +24,26 @@ size_file() {
   fi
 }
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'not inside a Git worktree'
-cd "$root" || fail 'cannot enter worktree root'
+validate_source_commit() {
+  source_commit=$1
+  case "$source_commit" in
+    *[!0-9a-f]*|'') fail 'campaign_source must be lowercase hexadecimal' ;;
+  esac
+  [ "${#source_commit}" = 40 ] || \
+    fail 'campaign_source must be a full 40-character commit id'
+}
 
-manifest='fuzz/CORPUS-MANIFEST.tsv'
-targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
-target_order='qk_psbt,qk_descriptor,qk_a1,qk_a1_codec,qk_card_trace'
-
-mode=check
-source_commit=''
-case "$#" in
-  0)
-    [ -f "$manifest" ] || fail "$manifest is missing"
-    git ls-files --error-unmatch -- "$manifest" >/dev/null 2>&1 || fail "$manifest is untracked"
-    source_count=$(awk -F '\t' '$1 == "campaign_source" { count++ } END { print count + 0 }' "$manifest")
-    [ "$source_count" = 1 ] || fail 'corpus manifest must contain one campaign_source row'
-    source_commit=$(awk -F '\t' '$1 == "campaign_source" { print $2 }' "$manifest")
-    ;;
-  2)
-    [ "$1" = '--render' ] || fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT]'
-    mode=render
-    source_commit=$2
-    ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT]' ;;
-esac
-case "$source_commit" in
-  *[!0-9a-f]*|'') fail 'campaign_source must be lowercase hexadecimal' ;;
-esac
-[ "${#source_commit}" = 40 ] || fail 'campaign_source must be a full 40-character commit id'
-
-entries_tmp=$(mktemp) || fail 'mktemp failed for corpus entries'
-expected_tmp=$(mktemp) || fail 'mktemp failed for corpus manifest'
-target_tmp=$(mktemp) || fail 'mktemp failed for target entries'
-paths_tmp=$(mktemp) || fail 'mktemp failed for corpus paths'
-tracked_tmp=$(mktemp) || fail 'mktemp failed for tracked paths'
-trap 'rm -f "$entries_tmp" "$expected_tmp" "$target_tmp" "$paths_tmp" "$tracked_tmp"' EXIT HUP INT TERM
-
-unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
-  ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
-  ! -name qk_a1_codec ! -name qk_card_trace -print -quit)
-[ -z "$unexpected" ] || fail "unexpected corpus root entry: $unexpected"
-for target in $targets; do
-  [ -d "fuzz/corpus/$target" ] || fail "required corpus target directory is missing: fuzz/corpus/$target"
-done
+manifest_source() {
+  manifest=$1
+  source_count=$(awk -F '\t' \
+    '$1 == "campaign_source" { count++ } END { print count + 0 }' "$manifest") || \
+    fail "cannot inspect campaign_source in $manifest"
+  [ "$source_count" = 1 ] || fail "$manifest must contain one campaign_source row"
+  source_commit=$(awk -F '\t' '$1 == "campaign_source" { print $2 }' "$manifest") || \
+    fail "cannot read campaign_source from $manifest"
+  validate_source_commit "$source_commit"
+  printf '%s\n' "$source_commit"
+}
 
 emit_directory() {
   class=$1
@@ -77,10 +54,12 @@ emit_directory() {
     [ "$required" = no ] && return 0
     fail "required corpus directory is missing: $directory"
   fi
+  [ ! -L "$directory" ] || fail "corpus directory must not be a symlink: $directory"
   if find "$directory" -mindepth 1 ! -type f -print -quit | grep -q .; then
     fail "corpus directory contains a non-regular or nested entry: $directory"
   fi
-  files=$(find "$directory" -mindepth 1 -maxdepth 1 -type f | LC_ALL=C sort)
+  files=$(find "$directory" -mindepth 1 -maxdepth 1 -type f | LC_ALL=C sort) || \
+    fail "cannot list corpus directory: $directory"
   if [ -z "$files" ]; then
     [ "$required" = no ] && return 0
     fail "required corpus directory is empty: $directory"
@@ -93,66 +72,216 @@ emit_directory() {
   done
 }
 
+emit_partition_entries() {
+  targets=$1
+  destination=$2
+  : > "$destination" || fail "cannot initialize corpus entries: $destination"
+  for target in $targets; do
+    emit_directory corpus "$target" "fuzz/corpus/$target" yes >> "$destination" || \
+      fail "cannot register corpus directory for $target"
+    emit_directory finding "$target" "fuzz/findings/$target" no >> "$destination" || \
+      fail "cannot register finding directory for $target"
+  done
+}
+
+render_partition() {
+  version=$1
+  source_commit=$2
+  targets=$3
+  target_order=$4
+  entries=$5
+  destination=$6
+
+  validate_source_commit "$source_commit"
+  total_count=$(wc -l < "$entries" | tr -d ' ')
+  total_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$entries")
+  total_hash=$(sha256_file "$entries") || fail 'cannot hash aggregate corpus entries'
+
+  {
+    printf '%s\n' "$version"
+    printf 'campaign_source\t%s\n' "$source_commit"
+    printf 'target_order\t%s\n' "$target_order"
+    for target in $targets; do
+      awk -F '\t' -v wanted="$target" '$2 == wanted' "$entries" > "$target_tmp" || \
+        fail "cannot select corpus entries for $target"
+      count=$(wc -l < "$target_tmp" | tr -d ' ')
+      [ "$count" -gt 0 ] || fail "no registered entries for $target"
+      bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$target_tmp")
+      digest=$(sha256_file "$target_tmp") || fail "cannot hash corpus entries for $target"
+      printf 'target\t%s\tcount\t%s\tbytes\t%s\tentries_sha256\t%s\n' \
+        "$target" "$count" "$bytes" "$digest"
+    done
+    printf 'aggregate\tcount\t%s\tbytes\t%s\tentries_sha256\t%s\n' \
+      "$total_count" "$total_bytes" "$total_hash"
+    printf 'entries_begin\n'
+    printf 'class\ttarget\tbytes\tsha256\tpath\n'
+    sed -n 'p' "$entries"
+  } > "$destination" || fail "cannot render corpus manifest: $destination"
+}
+
+extract_manifest_paths() {
+  manifest=$1
+  allowed_targets=$2
+  destination=$3
+  if ! awk -F '\t' -v allowed="$allowed_targets" '
+    BEGIN {
+      count = split(allowed, list, ",")
+      for (item = 1; item <= count; item++) permitted[list[item]] = 1
+    }
+    $0 == "entries_begin" { entries = 1; next }
+    !entries { next }
+    entries && !header {
+      if ($0 != "class\ttarget\tbytes\tsha256\tpath") bad = 1
+      header = 1
+      next
+    }
+    {
+      if (NF != 5 || !($2 in permitted) || ($1 != "corpus" && $1 != "finding")) {
+        bad = 1
+        next
+      }
+      root = ($1 == "corpus") ? "fuzz/corpus/" : "fuzz/findings/"
+      prefix = root $2 "/"
+      if (index($5, prefix) != 1 || length($5) <= length(prefix)) {
+        bad = 1
+        next
+      }
+      print $5
+    }
+    END { if (!entries || !header || bad) exit 1 }
+  ' "$manifest" > "$destination"; then
+    fail "$manifest contains malformed or cross-partition corpus entries"
+  fi
+}
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'not inside a Git worktree'
+cd "$root" || fail 'cannot enter worktree root'
+
+m21_manifest='fuzz/CORPUS-MANIFEST.tsv'
+m22_manifest='fuzz/CORPUS-MANIFEST-M22.tsv'
+m21_targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
+m22_targets='qk_bbqr_codec qk_bbqr_reassembly'
+all_targets="$m21_targets $m22_targets"
+m21_order='qk_psbt,qk_descriptor,qk_a1,qk_a1_codec,qk_card_trace'
+m22_order='qk_bbqr_codec,qk_bbqr_reassembly'
+
+mode=check
+render_source=''
+case "$#" in
+  0) ;;
+  2)
+    case "$1" in
+      --render) mode=render_m21 ;;
+      --render-m22) mode=render_m22 ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT]' ;;
+    esac
+    render_source=$2
+    validate_source_commit "$render_source"
+    ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT]' ;;
+esac
+
+if [ "$mode" = check ]; then
+  for manifest in "$m21_manifest" "$m22_manifest"; do
+    [ -f "$manifest" ] || fail "$manifest is missing"
+    [ ! -L "$manifest" ] || fail "$manifest must not be a symlink"
+    git ls-files --error-unmatch -- "$manifest" >/dev/null 2>&1 || \
+      fail "$manifest is untracked"
+  done
+fi
+
+[ -d fuzz/corpus ] || fail 'fuzz/corpus is missing or is not a directory'
+[ ! -L fuzz/corpus ] || fail 'fuzz/corpus must not be a symlink'
+unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
+  ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
+  ! -name qk_a1_codec ! -name qk_card_trace \
+  ! -name qk_bbqr_codec ! -name qk_bbqr_reassembly -print -quit) || \
+  fail 'cannot inspect fuzz/corpus roots'
+[ -z "$unexpected" ] || fail "unexpected corpus root entry: $unexpected"
+for target in $all_targets; do
+  [ -d "fuzz/corpus/$target" ] || \
+    fail "required corpus target directory is missing: fuzz/corpus/$target"
+  [ ! -L "fuzz/corpus/$target" ] || \
+    fail "corpus target directory must not be a symlink: fuzz/corpus/$target"
+done
+
 if [ -e fuzz/findings ] && [ ! -d fuzz/findings ]; then
   fail 'fuzz/findings exists but is not a directory'
 fi
 if [ -d fuzz/findings ]; then
+  [ ! -L fuzz/findings ] || fail 'fuzz/findings must not be a symlink'
   unexpected=$(find fuzz/findings -mindepth 1 -maxdepth 1 \
     ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
-    ! -name qk_a1_codec ! -name qk_card_trace -print -quit)
+    ! -name qk_a1_codec ! -name qk_card_trace \
+    ! -name qk_bbqr_codec ! -name qk_bbqr_reassembly -print -quit) || \
+    fail 'cannot inspect fuzz/findings roots'
   [ -z "$unexpected" ] || fail "unexpected finding root entry: $unexpected"
-  for target in $targets; do
+  for target in $all_targets; do
     if [ -e "fuzz/findings/$target" ] && [ ! -d "fuzz/findings/$target" ]; then
       fail "finding target entry is not a directory: fuzz/findings/$target"
+    fi
+    if [ -L "fuzz/findings/$target" ]; then
+      fail "finding target directory must not be a symlink: fuzz/findings/$target"
     fi
   done
 fi
 
-: > "$entries_tmp"
-for target in $targets; do
-  emit_directory corpus "$target" "fuzz/corpus/$target" yes >> "$entries_tmp" || \
-    fail "cannot register corpus directory for $target"
-  emit_directory finding "$target" "fuzz/findings/$target" no >> "$entries_tmp" || \
-    fail "cannot register finding directory for $target"
-done
+m21_entries=$(mktemp) || fail 'mktemp failed for M21 corpus entries'
+m22_entries=$(mktemp) || fail 'mktemp failed for M22 corpus entries'
+m21_expected=$(mktemp) || fail 'mktemp failed for M21 corpus manifest'
+m22_expected=$(mktemp) || fail 'mktemp failed for M22 corpus manifest'
+m21_paths=$(mktemp) || fail 'mktemp failed for M21 corpus paths'
+m22_paths=$(mktemp) || fail 'mktemp failed for M22 corpus paths'
+all_paths=$(mktemp) || fail 'mktemp failed for combined corpus paths'
+tracked_tmp=$(mktemp) || fail 'mktemp failed for tracked paths'
+target_tmp=$(mktemp) || fail 'mktemp failed for target entries'
+manifest_m21_paths=$(mktemp) || fail 'mktemp failed for M21 manifest paths'
+manifest_m22_paths=$(mktemp) || fail 'mktemp failed for M22 manifest paths'
+trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
+  "$m21_paths" "$m22_paths" "$all_paths" "$tracked_tmp" "$target_tmp" \
+  "$manifest_m21_paths" "$manifest_m22_paths"' EXIT HUP INT TERM
 
-cut -f 5 "$entries_tmp" | LC_ALL=C sort > "$paths_tmp" || fail 'cannot list corpus paths'
+emit_partition_entries "$m21_targets" "$m21_entries"
+emit_partition_entries "$m22_targets" "$m22_entries"
+cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'
+cut -f 5 "$m22_entries" | LC_ALL=C sort > "$m22_paths" || fail 'cannot list M22 corpus paths'
+cat "$m21_paths" "$m22_paths" | LC_ALL=C sort > "$all_paths" || \
+  fail 'cannot combine corpus paths'
+duplicate=$(uniq -d "$all_paths" | sed -n '1p')
+[ -z "$duplicate" ] || fail "corpus path is owned by both partitions: $duplicate"
+
 git ls-files | LC_ALL=C sort > "$tracked_tmp" || fail 'cannot list tracked paths'
-if [ -n "$(uniq -d "$paths_tmp")" ]; then
-  fail 'duplicate corpus path in generated entries'
-fi
-untracked=$(comm -23 "$paths_tmp" "$tracked_tmp") || fail 'cannot compare corpus paths with tracked files'
+untracked=$(comm -23 "$all_paths" "$tracked_tmp") || fail 'cannot compare corpus paths with tracked files'
 [ -z "$untracked" ] || fail "untracked corpus file: $(printf '%s\n' "$untracked" | sed -n '1p')"
 
-total_count=$(wc -l < "$entries_tmp" | tr -d ' ')
-total_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$entries_tmp")
-total_hash=$(sha256_file "$entries_tmp") || fail 'cannot hash aggregate corpus entries'
-
-{
-  printf 'QK-M21-CORPUS-MANIFEST-V1\n'
-  printf 'campaign_source\t%s\n' "$source_commit"
-  printf 'target_order\t%s\n' "$target_order"
-  for target in $targets; do
-    awk -F '\t' -v wanted="$target" '$2 == wanted' "$entries_tmp" > "$target_tmp" || \
-      fail "cannot select corpus entries for $target"
-    count=$(wc -l < "$target_tmp" | tr -d ' ')
-    [ "$count" -gt 0 ] || fail "no registered entries for $target"
-    bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$target_tmp")
-    digest=$(sha256_file "$target_tmp") || fail "cannot hash corpus entries for $target"
-    printf 'target\t%s\tcount\t%s\tbytes\t%s\tentries_sha256\t%s\n' \
-      "$target" "$count" "$bytes" "$digest"
-  done
-  printf 'aggregate\tcount\t%s\tbytes\t%s\tentries_sha256\t%s\n' \
-    "$total_count" "$total_bytes" "$total_hash"
-  printf 'entries_begin\n'
-  printf 'class\ttarget\tbytes\tsha256\tpath\n'
-  sed -n 'p' "$entries_tmp"
-} > "$expected_tmp"
-
-if [ "$mode" = render ]; then
-  sed -n 'p' "$expected_tmp"
-elif ! cmp -s "$manifest" "$expected_tmp"; then
-  fail "$manifest does not match the tracked corpus bytes"
-fi
+case "$mode" in
+  check)
+    m21_source=$(manifest_source "$m21_manifest")
+    m22_source=$(manifest_source "$m22_manifest")
+    render_partition 'QK-M21-CORPUS-MANIFEST-V1' "$m21_source" "$m21_targets" \
+      "$m21_order" "$m21_entries" "$m21_expected"
+    render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$m22_source" "$m22_targets" \
+      "$m22_order" "$m22_entries" "$m22_expected"
+    extract_manifest_paths "$m21_manifest" "$m21_order" "$manifest_m21_paths"
+    extract_manifest_paths "$m22_manifest" "$m22_order" "$manifest_m22_paths"
+    duplicate=$(cat "$manifest_m21_paths" "$manifest_m22_paths" | LC_ALL=C sort | \
+      uniq -d | sed -n '1p')
+    [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
+    cmp -s "$m21_manifest" "$m21_expected" || \
+      fail "$m21_manifest does not match the tracked M21 corpus bytes"
+    cmp -s "$m22_manifest" "$m22_expected" || \
+      fail "$m22_manifest does not match the tracked M22 corpus bytes"
+    ;;
+  render_m21)
+    render_partition 'QK-M21-CORPUS-MANIFEST-V1' "$render_source" "$m21_targets" \
+      "$m21_order" "$m21_entries" "$m21_expected"
+    sed -n 'p' "$m21_expected"
+    ;;
+  render_m22)
+    render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$render_source" "$m22_targets" \
+      "$m22_order" "$m22_entries" "$m22_expected"
+    sed -n 'p' "$m22_expected"
+    ;;
+esac
 
 exit 0
