@@ -60,10 +60,12 @@ paths_tmp=$(mktemp) || fail 'mktemp failed for corpus paths'
 tracked_tmp=$(mktemp) || fail 'mktemp failed for tracked paths'
 trap 'rm -f "$entries_tmp" "$expected_tmp" "$target_tmp" "$paths_tmp" "$tracked_tmp"' EXIT HUP INT TERM
 
-for directory in fuzz/corpus/*; do
-  [ -d "$directory" ] || fail 'fuzz/corpus must contain only target directories'
-  target=${directory##*/}
-  case " $targets " in *" $target "*) ;; *) fail "unexpected corpus target directory: $directory" ;; esac
+unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
+  ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
+  ! -name qk_a1_codec ! -name qk_card_trace -print -quit)
+[ -z "$unexpected" ] || fail "unexpected corpus root entry: $unexpected"
+for target in $targets; do
+  [ -d "fuzz/corpus/$target" ] || fail "required corpus target directory is missing: fuzz/corpus/$target"
 done
 
 emit_directory() {
@@ -95,11 +97,14 @@ if [ -e fuzz/findings ] && [ ! -d fuzz/findings ]; then
   fail 'fuzz/findings exists but is not a directory'
 fi
 if [ -d fuzz/findings ]; then
-  for directory in fuzz/findings/*; do
-    [ -e "$directory" ] || break
-    [ -d "$directory" ] || fail 'fuzz/findings must contain only target directories'
-    target=${directory##*/}
-    case " $targets " in *" $target "*) ;; *) fail "unexpected finding target directory: $directory" ;; esac
+  unexpected=$(find fuzz/findings -mindepth 1 -maxdepth 1 \
+    ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
+    ! -name qk_a1_codec ! -name qk_card_trace -print -quit)
+  [ -z "$unexpected" ] || fail "unexpected finding root entry: $unexpected"
+  for target in $targets; do
+    if [ -e "fuzz/findings/$target" ] && [ ! -d "fuzz/findings/$target" ]; then
+      fail "finding target entry is not a directory: fuzz/findings/$target"
+    fi
   done
 fi
 

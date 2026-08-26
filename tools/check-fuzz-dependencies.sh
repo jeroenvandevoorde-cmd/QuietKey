@@ -46,7 +46,8 @@ for manifest in $fuzz_manifests; do
       dependency_section = ($0 == "[dependencies]" ||
         $0 == "[dev-dependencies]" || $0 == "[build-dependencies]")
       if (!dependency_section &&
-          ($0 ~ /(^|\.)((dev-|build-)?dependencies)(\.|\])/) ) {
+          ($0 ~ /^[[:space:]]*\[((dev-|build-)?dependencies)(\.|\])/ ||
+           $0 ~ /\.((dev-|build-)?dependencies)(\.|\])/) ) {
         print "ERROR|" manifest "|" NR "|non-top-level dependency tables are forbidden"
       }
       if ($0 ~ /^\[(patch|replace)(\.|\])/) {
