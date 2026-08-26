@@ -186,6 +186,10 @@ name = "qk-a1-codec"
 version = "0.0.1"
 
 [[package]]
+name = "qk-bbqr"
+version = "0.0.1"
+
+[[package]]
 name = "qk-bip32"
 version = "0.0.1"
 dependencies = [
@@ -222,6 +226,7 @@ dependencies = [
  "libfuzzer-sys",
  "qk-a1",
  "qk-a1-codec",
+ "qk-bbqr",
  "qk-card-trace",
  "qk-descriptor",
  "qk-psbt",

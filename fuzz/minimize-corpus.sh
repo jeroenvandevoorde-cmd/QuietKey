@@ -10,6 +10,8 @@ case "$target" in
   qk_a1) max_len=96 ;;
   qk_a1_codec) max_len=512 ;;
   qk_card_trace) max_len=4096 ;;
+  qk_bbqr_codec) max_len=4297 ;;
+  qk_bbqr_reassembly) max_len=16384 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -d "$corpus" ] || { printf 'missing corpus directory: %s\n' "$corpus" >&2; exit 2; }

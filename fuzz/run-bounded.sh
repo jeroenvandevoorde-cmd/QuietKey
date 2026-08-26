@@ -10,6 +10,8 @@ case "$target" in
   qk_a1) max_len=96; seed=21003 ;;
   qk_a1_codec) max_len=512; seed=21004 ;;
   qk_card_trace) max_len=4096; seed=21005 ;;
+  qk_bbqr_codec) max_len=4297; seed=22001 ;;
+  qk_bbqr_reassembly) max_len=16384; seed=22002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac

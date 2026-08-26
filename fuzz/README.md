@@ -1,12 +1,12 @@
-# QuietKey M21 ring-fenced parser campaigns
+# QuietKey ring-fenced parser campaigns
 
 EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 
-This independent Cargo workspace is outside `host/Cargo.toml`. It contains five
-libFuzzer targets for the existing `qk-psbt`, `qk-descriptor`, `qk-a1`,
-`qk-a1-codec`, and `qk-card-trace` byte boundaries. It changes no product
-behavior and reaches no card, camera, network, filesystem parser, signing
-authority, or production target.
+This independent Cargo workspace is outside `host/Cargo.toml`. It contains
+seven libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+`qk-a1-codec`, `qk-card-trace`, and M22 `qk-bbqr` codec and reassembly byte
+boundaries. It changes no product behavior and reaches no card, camera,
+network, filesystem parser, signing authority, or production target.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
@@ -35,6 +35,8 @@ fuzz/run-bounded.sh qk_descriptor 100000
 fuzz/run-bounded.sh qk_a1 100000
 fuzz/run-bounded.sh qk_a1_codec 100000
 fuzz/run-bounded.sh qk_card_trace 100000
+fuzz/run-bounded.sh qk_bbqr_codec 100000
+fuzz/run-bounded.sh qk_bbqr_reassembly 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -50,8 +52,9 @@ content hashes must agree before one becomes persistent. Build products, raw
 crash artifacts, coverage output, and transient logs stay ignored. A raw
 artifact is reproduced with `reproduce.sh`, minimized with
 `minimize-finding.sh`, then copied under `fuzz/findings/TARGET/` using its
-SHA-256 as its filename and registered before any fix. `CORPUS-MANIFEST.tsv`
-registers every retained seed or finding by target, byte count, and SHA-256.
+SHA-256 as its filename and registered before any fix. The applicable campaign
+manifest registers every retained seed or finding by target, byte count, and
+SHA-256.
 A reproduced parser finding follows QK-DEC-106: ordinary fix commit, minimized
 regression fixture, and a decision row when the affected crate is frozen.
 Every retained unit can be replayed once under the pinned build with
