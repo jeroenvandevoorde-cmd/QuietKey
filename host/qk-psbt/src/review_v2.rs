@@ -528,8 +528,6 @@ pub enum ReviewV2Error {
     SourceMismatch,
     /// Hostile-input semantic analysis rejected under its stable category.
     Semantic(SemanticError),
-    /// Effective input sighash is not SIGHASH_ALL.
-    UnsupportedSighash,
     /// Checked QK-FEE-POLICY-V1 arithmetic overflowed or produced zero vsize.
     FeePolicyArithmeticOverflow,
     /// Exact fee exceeds 5,000,000 satoshis.
@@ -565,7 +563,6 @@ impl fmt::Display for ReviewV2Error {
                 f.write_str("review context input source differs from parsed PSBT source")
             }
             Self::Semantic(error) => write!(f, "review-v2 semantic analysis failed: {error}"),
-            Self::UnsupportedSighash => f.write_str("unsupported effective sighash"),
             Self::FeePolicyArithmeticOverflow => {
                 f.write_str("QK-FEE-POLICY-V1 arithmetic overflow")
             }
@@ -593,7 +590,15 @@ impl std::error::Error for ReviewV2Error {}
 
 impl From<SemanticError> for ReviewV2Error {
     fn from(value: SemanticError) -> Self {
-        Self::Semantic(value)
+        match value.category {
+            crate::semantic::SemanticCategory::FeePolicyArithmeticOverflow => {
+                Self::FeePolicyArithmeticOverflow
+            }
+            crate::semantic::SemanticCategory::EmergencyFeeCeilingExceeded => {
+                Self::EmergencyFeeCeilingExceeded
+            }
+            _ => Self::Semantic(value),
+        }
     }
 }
 
@@ -796,7 +801,7 @@ fn validate_facts(facts: &ReviewV2Facts<'_>) -> Result<(), ReviewV2Error> {
             return Err(ReviewV2Error::InputIndexMismatch);
         }
         if input.effective_sighash != SIGHASH_ALL {
-            return Err(ReviewV2Error::UnsupportedSighash);
+            return Err(ReviewV2Error::InternalInvariant);
         }
         if input.branch > 1
             || input.child_index > limits::MAX_CHILD_INDEX
@@ -1397,5 +1402,60 @@ mod tests {
         assert_eq!(review.review_hash().unwrap(), expected);
         let missing_separator = sha256(&[REVIEW_V2_HASH_DOMAIN, review.canonical_bytes()]).unwrap();
         assert_ne!(review.review_hash().unwrap(), missing_separator);
+    }
+
+    #[test]
+    fn published_review_v2_fixture_contract_is_frozen() {
+        const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/review_v2.txt");
+        const REQUIRED_FIELDS: [&str; 25] = [
+            "s0_len",
+            "s0_sha256",
+            "s0_hex",
+            "unsigned_tx_hex",
+            "wallet_id",
+            "case",
+            "source_fixture",
+            "source_case",
+            "canonical_review_v2_len",
+            "canonical_review_v2_hex",
+            "domain_ascii",
+            "domain_hex",
+            "separator_hex",
+            "review_hash",
+            "estimated_vsize",
+            "fee_rate_msat_vb",
+            "warning_count",
+            "warning_tags",
+            "warning_names",
+            "arithmetic_unsigned_tx",
+            "arithmetic_witness_per_input",
+            "arithmetic_weight_vsize",
+            "arithmetic_fee_rate",
+            "arithmetic_warnings",
+            "arithmetic_v2_length",
+        ];
+        const EXPECTED_SHA256: [u8; 32] = [
+            0xcb, 0x72, 0xe6, 0x16, 0xb3, 0x31, 0x25, 0x2d, 0x8c, 0x61, 0x12, 0xcd, 0x4e, 0x0c,
+            0x51, 0x7a, 0x5c, 0xe7, 0x82, 0x7c, 0x58, 0x3c, 0x4a, 0x6d, 0xfd, 0x02, 0x11, 0x98,
+            0x40, 0xfa, 0x55, 0x8d,
+        ];
+
+        assert_eq!(FIXTURE.len(), 5_985);
+        assert_eq!(FIXTURE.iter().filter(|&&byte| byte == b'\n').count(), 35);
+        assert_eq!(FIXTURE.iter().filter(|&&byte| byte == b'\r').count(), 0);
+        assert_eq!(FIXTURE.last(), Some(&b'\n'));
+        assert_eq!(sha256(&[FIXTURE]).unwrap(), EXPECTED_SHA256);
+
+        let text = core::str::from_utf8(FIXTURE).unwrap();
+        for field in REQUIRED_FIELDS {
+            let prefix = format!("{field}: ");
+            assert_eq!(
+                text.lines()
+                    .filter(|line| line.starts_with(&prefix))
+                    .count(),
+                1,
+                "{field}"
+            );
+        }
     }
 }
