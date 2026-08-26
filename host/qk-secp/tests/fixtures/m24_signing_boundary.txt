@@ -1,20 +1,78 @@
 # PERMANENTLY NEVER-FUND
-# M24 qk-secp deterministic-signing boundary fixture; never reuse this lineage outside M24.
-# The raw scalar below is deliberately public test material and is the sole fixture-file exception authorized by QK-DEC-111.
+# M24-only qk-secp deterministic-signing boundary fixture; the branch-1/index-65535 route signing key is never reused by any other fixture or purpose, while the mandated public seed lineage is shared only as documented.
+# The public seed, master scalar, every child scalar, and RFC6979 nonce below are deliberately public, permanently valueless test material and the sole raw-key exception authorized by QK-DEC-111.
 # Exact public BIP32 seed strings (ASCII); only role A is consumed by this boundary fixture.
 # role-A: QuietKey/M24/NEVER-FUND/fixture-only/role-A/v1
 # role-B: QuietKey/M24/NEVER-FUND/fixture-only/role-B/v1
 # role-C: QuietKey/M24/NEVER-FUND/fixture-only/role-C/v1
-# Derivation: I=HMAC-SHA512(key=ASCII "Bitcoin seed", data=the exact seed bytes); master_secret=IL; chain_code=IR.
+# Master: I=HMAC-SHA512(key=ASCII "Bitcoin seed", data=the exact role-A seed bytes); master secret=IL, master chain=IR.
+# CKDpriv path: m/48'/0'/0'/2'/1/65535. At each coordinate, index is serialized as four-byte big-endian; hardened data is 0x00 || ser256(parent secret) || ser32(index|0x80000000), non-hardened data is serP(parent public key) || ser32(index); I=HMAC-SHA512(key=parent chain, data=data), child secret=(parse256(IL)+parent secret) mod n, child chain=IR; IL>=n or child secret zero rejects rather than skipping.
+# Distinct boundary coordinate: branch 1, child index 65535. This route is intentionally different from the M24 pipeline fixture route.
 # Message digest: SHA256(ASCII "QuietKey/M24/qk-secp/signing-boundary/v1").
 # Signature: RFC6979 HMAC-SHA256 with bits2octets(message digest), no extra data; ECDSA secp256k1; low-S; strict DER; no sighash byte.
-# Two separately written outside-Git implementations agreed byte-for-byte: Python 3.9.6 hashlib/hmac plus integer curve arithmetic, and Ruby 2.6.10/LibreSSL 3.3.6 HMAC/digest plus separately written integer curve arithmetic.
-# Both temporary programs existed only as command input outside the repository; no generator or intermediate file was retained.
+# Two separately written outside-Git implementations agreed byte-for-byte: Python 3.9.6 hashlib/hmac plus integer curve arithmetic, and Ruby 2.6.10/LibreSSL 3.3.6 OpenSSL HMAC/digest plus separately written integer curve arithmetic.
+# Python generator SHA-256: 93b6c3b6810599f1587c1d7d5b72a0c6ecabf35c02f2a6326eae22e1b309fa30.
+# Ruby generator SHA-256: d938cb09563b08074aabd07d99a5cb7fdb389d3637b9024bfd4e515f9253f128.
+# Agreed 58-field transcript: 3992 bytes, 58 LF, SHA-256 6da7a5ad21c2db4bfee7a1be485f6ca71f92379d3f8199cd1db0459d87ec6878.
+# Public screening report SHA-256: 69ce2e724e0a0bbd1cdc9f4c502b6f7858f52afb9ee135f9675d14652d5cebf5; procedure SHA-256: c210fc7ecfc6e5f19242cb3f364eb1bcb850d37cb3872fba86757641a2a03458.
+# Screening source: repository commit feed2e306d0b4403154b3d88fabd38ec3bf41348, 2070 tracked files, 29613317 bytes.
+# Screening covered the route public key and signature r in raw, lowercase/uppercase hex, lowercase/uppercase hex escapes, lowercase/uppercase Rust hex arrays, decimal, Base64, and Base58 against all tracked material including committed KAT, QK-DEC-059/064 NUMS, and QK-DEC-078/084 signing sets, plus 1G through 4096G. Collisions: zero.
+# Both temporary generators, their intermediate files, and the screening program/report are destroyed after repository fixture verification; no secret has product value.
 seed_ascii=QuietKey/M24/NEVER-FUND/fixture-only/role-A/v1
+path=m/48'/0'/0'/2'/1/65535
+branch=1
+child_index=65535
 master_secret_hex=a2ed3ca54d47359d7280e3544626ffff57e94232d9c288a190afb217daf36656
-chain_code_hex=88a5e26eb45b26484b0dbecaa6f9566c0e24c2498a5d9acfa3c805e5876a8575
-compressed_public_key_hex=0285aaf4d5a3ea03a6983afbea11c092a9609dd7557c0fb43ddc02d72700a10c8a
+master_chain_code_hex=88a5e26eb45b26484b0dbecaa6f9566c0e24c2498a5d9acfa3c805e5876a8575
+master_public_key_hex=0285aaf4d5a3ea03a6983afbea11c092a9609dd7557c0fb43ddc02d72700a10c8a
+step_1_coordinate=48'
+step_1_index_be_hex=80000030
+step_1_data_hex=00a2ed3ca54d47359d7280e3544626ffff57e94232d9c288a190afb217daf3665680000030
+step_1_il_hex=f62f104b82cfb6cd23121446dd22f465cab2e1a5dac679feb5634fb4170027e2
+step_1_ir_hex=2d6c8b3862169e3c6449f42185bd83e5d51bdf29ce86eb8d03edfa18767bbe5d
+step_1_secret_hex=991c4cf0d016ec6a9592f79b2349f46667ed46f2054062648640a33f21bd4cf7
+step_1_public_key_hex=026e1d76b7cfec4ef2540fd4be7c367df29f73fc780e38a5f6b9ab992a48bd7cda
+step_2_coordinate=0'
+step_2_index_be_hex=80000000
+step_2_data_hex=00991c4cf0d016ec6a9592f79b2349f46667ed46f2054062648640a33f21bd4cf780000000
+step_2_il_hex=9aba797416781ff5b98192f626b77654be52501021c5fd88aa71dde13d60cf27
+step_2_ir_hex=6afdbbdab23c63a76cc62b1ca564f61bf9156d0a62a8b7354aed4708b954186e
+step_2_secret_hex=33d6c664e68f0c604f148a914a016abc6b90ba1b77bdbfb170e022938ee7dadd
+step_2_public_key_hex=038cdca8cd53706f65abc45d8d0f0fe835b9d373b2879dba76bb35f7151feb1a64
+step_3_coordinate=0'
+step_3_index_be_hex=80000000
+step_3_data_hex=0033d6c664e68f0c604f148a914a016abc6b90ba1b77bdbfb170e022938ee7dadd80000000
+step_3_il_hex=ff52ec6dea32e0e39a0a7270138beeab34c628ba7bd0abc711689fad81f2a25b
+step_3_ir_hex=487bfc4abd7c729804d07e84985fcc08bd5966897909d8fff899e6f4446af508
+step_3_secret_hex=3329b2d2d0c1ed43e91efd015d8d5968e5a805ef4445cb3cc27663b440a43bf7
+step_3_public_key_hex=02f450b12c36e211aaea956e623f19e952cfb2cdd7c26b35148cf500a37d88cf50
+step_4_coordinate=2'
+step_4_index_be_hex=80000002
+step_4_data_hex=003329b2d2d0c1ed43e91efd015d8d5968e5a805ef4445cb3cc27663b440a43bf780000002
+step_4_il_hex=5d5fece02a50e1c5fedd8e1900f4945e7556b93c824c75bec53bae0ed5a030e0
+step_4_ir_hex=c39b3de8baa0ff3400b4ef3f4f28bb9cf751a9fe7ab372f58fdd134a253e1294
+step_4_secret_hex=90899fb2fb12cf09e7fc8b1a5e81edc75afebf2bc69240fb87b211c316446cd7
+step_4_public_key_hex=021bd7fa8f707fb3d935ebfab441800289a5bc99353c63781a6130e0e0807f13c2
+step_5_coordinate=1
+step_5_index_be_hex=00000001
+step_5_data_hex=021bd7fa8f707fb3d935ebfab441800289a5bc99353c63781a6130e0e0807f13c200000001
+step_5_il_hex=085f10bdc413e2b1e2409e04e60292cded060e1287de9e46be88f0ce3e3b0d32
+step_5_ir_hex=345525cf031a91b834dbf4fa902a194229da41e2e702a3d2157b79b59614a77d
+step_5_secret_hex=98e8b070bf26b1bbca3d291f448480954804cd3e4e70df42463b0291547f7a09
+step_5_public_key_hex=026fde0ef1542f9259cfc8284e73f1d6769bef9f109f4a5170068af0ffe1a88100
+step_6_coordinate=65535
+step_6_index_be_hex=0000ffff
+step_6_data_hex=026fde0ef1542f9259cfc8284e73f1d6769bef9f109f4a5170068af0ffe1a881000000ffff
+step_6_il_hex=d428b1c7779d328a9aa17cf1e8549430645e9dcc6a64d0576a3efa2a1e7d81fe
+step_6_ir_hex=d90d15c33a64b94d230265e4c28611225769a53f5b15f2864ceadc9cef3974cc
+step_6_secret_hex=6d11623836c3e44664dea6112cd914c6f1b48e24098d0f5df0a79e2ea2c6bac6
+step_6_public_key_hex=022f3c9f9bec490c5cda913c8e5ff6a575fa1340e477eaccfd52c06e7d3233a04c
+route_secret_hex=6d11623836c3e44664dea6112cd914c6f1b48e24098d0f5df0a79e2ea2c6bac6
+route_chain_code_hex=d90d15c33a64b94d230265e4c28611225769a53f5b15f2864ceadc9cef3974cc
+route_public_key_hex=022f3c9f9bec490c5cda913c8e5ff6a575fa1340e477eaccfd52c06e7d3233a04c
 message_ascii=QuietKey/M24/qk-secp/signing-boundary/v1
 digest_hex=6435fddc18ed4de8e724a767570fd461a24a1b1647f2edc2ba5f3f73863dcc5f
-rfc6979_nonce_hex=4b663e19cab5b60d1610992410611efbf41e357df8b9e5f78ec2b25ddb054f1a
-low_s_der_hex=3044022056b1ee77dbd2f75112953676d79bf3221a37f754338f7147d8b4fca52719146002202bcdff912bda36212b9ccf2a518d54d0af6fb174ffc4ad8542e5caa6e5ed68e1
+rfc6979_nonce_hex=5e70e13b0829f8b79aa7733b5e33034d3df987ea92243b16ef642d72119c5fba
+signature_r_hex=52c219de14dd91a57e30e18b5f6f86e052846934a6ecb8b7fdbe27cb8f8ea53f
+signature_s_low_hex=198e6799a6f2fe7ba0aa55a0bbdaa6fc37b613ecdddf25d28ef5733a78e304d1
+low_s_der_hex=3044022052c219de14dd91a57e30e18b5f6f86e052846934a6ecb8b7fdbe27cb8f8ea53f0220198e6799a6f2fe7ba0aa55a0bbdaa6fc37b613ecdddf25d28ef5733a78e304d1

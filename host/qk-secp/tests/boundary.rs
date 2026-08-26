@@ -241,6 +241,12 @@ fn secret_owner_surface_is_opaque_and_nonduplicating() {
         core::mem::align_of::<qk_secp::SecretKey>(),
         core::mem::align_of::<usize>()
     );
+    const DROP_IMPL: &str = "impl Drop for SecretKey {\n    fn drop(&mut self) {\n        ffi::wipe_secret(self.bytes.as_mut());\n    }\n}";
+    assert_eq!(
+        LIB_SRC.matches(DROP_IMPL).count(),
+        1,
+        "SecretKey Drop must stay coupled directly to the volatile wipe boundary"
+    );
 }
 
 #[test]
@@ -394,6 +400,22 @@ fn tweak_at_or_beyond_group_boundaries_is_rejected() {
         pubkey_tweak_add(&g, &[0xffu8; 32]),
         Err(SecpError::TweakRejected)
     ));
+}
+
+#[test]
+fn secret_import_accepts_n_minus_one_rejects_n_and_always_wipes_source() {
+    let mut accepted_source = ORDER_N_MINUS_1;
+    let accepted = secret_key_import(&mut accepted_source)
+        .expect("the maximum in-range secret scalar must import");
+    assert_eq!(accepted_source, [0u8; 32]);
+    drop(accepted);
+
+    let mut rejected_source = ORDER_N;
+    assert!(matches!(
+        secret_key_import(&mut rejected_source),
+        Err(SecpError::SecretKeyRejected)
+    ));
+    assert_eq!(rejected_source, [0u8; 32]);
 }
 
 #[test]
