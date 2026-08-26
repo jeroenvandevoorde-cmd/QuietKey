@@ -13,9 +13,9 @@ use qk_psbt::InputSource;
 mod fixture_sha256;
 
 const FIXTURE: &[u8] = include_bytes!("fixtures/m25_export.txt");
-const FIXTURE_BYTES: usize = 14_624;
-const FIXTURE_LF: usize = 111;
-const FIXTURE_SHA256: &str = "8f93bbda0b46ea85ed9fed7175037139b06bd93d5f3e6593c08caafce6a4fc07";
+const FIXTURE_BYTES: usize = 15_221;
+const FIXTURE_LF: usize = 114;
+const FIXTURE_SHA256: &str = "9d3a25305004e60d3566adf609217b93f3ab96c1eb324c5916899b661509d6bf";
 
 fn global(name: &str) -> &'static str {
     FIXTURE

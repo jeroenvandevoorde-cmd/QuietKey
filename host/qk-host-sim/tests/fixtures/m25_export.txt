@@ -1,6 +1,9 @@
 # PERMANENTLY NEVER-FUND
 # QuietKey M25 HOST export fixture; this distinct high-entropy lineage and every derived key are M25-only and must never be reused.
 # The account scalars, child scalars, and unique per-signature high-entropy nonces never enter Git.
+# Secret-generation procedure: CPython 3.9.6 secrets.token_bytes backed by its operating-system CSPRNG; procedure SHA-256 bff6b8d6c1bf6c6293f348b9530cd2016cb18f8e4d52e8ef0daaa8ef2e14ce39.
+# Each scalar and per-role signature nonce is a fresh 32-byte big-endian candidate accepted only when 1 <= candidate < secp256k1 n; each chain code is a fresh 32-byte result.
+# Origin fingerprints are fresh 4-byte results accepted only when nonzero and unique, sorted bytewise before assignment to roles A, B, and C; three nonce candidates were generated and the two signatures consumed distinct role nonces.
 # Constructor 1: CPython 3.9.6 with coincurve 21.0.0; independently implements public CKD, descriptors, BIP143, ECDSA, PSBT, finalization, raw transaction, and BBQr assembly.
 # Constructor 2: CPython 3.9.6 with ecdsa 0.19.1; separately implements the same complete public transcript.
 # Both outside-Git constructors emitted this exact LF-only file and agreed byte-for-byte before commit.
