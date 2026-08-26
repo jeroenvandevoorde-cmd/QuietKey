@@ -218,6 +218,7 @@ dependencies = [
  "qk-descriptor",
  "qk-host-model",
  "qk-psbt",
+ "qk-secp",
 ]
 
 [[package]]
@@ -244,6 +245,7 @@ dependencies = [
  "qk-descriptor",
  "qk-host-sim",
  "qk-psbt",
+ "qk-secp",
 ]
 
 [[package]]

@@ -16,6 +16,7 @@ qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1" }
 qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
+qk-secp = { path = "../host/qk-secp", version = "=0.0.1" }
 
 [[bin]]
 name = "qk_psbt"
@@ -76,6 +77,13 @@ bench = false
 [[bin]]
 name = "qk_host_sim_m23"
 path = "fuzz_targets/qk_host_sim_m23.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_host_sim_m24"
+path = "fuzz_targets/qk_host_sim_m24.rs"
 test = false
 doc = false
 bench = false

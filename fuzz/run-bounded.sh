@@ -14,6 +14,7 @@ case "$target" in
   qk_bbqr_reassembly) max_len=16384; seed=22002 ;;
   qk_psbt_m23) max_len=4096; seed=23001 ;;
   qk_host_sim_m23) max_len=4096; seed=23002 ;;
+  qk_host_sim_m24) max_len=4096; seed=24001 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac
