@@ -1,6 +1,6 @@
 # M25 campaign 005
 
-Status: PREREGISTERED — NOT EXECUTED.
+Status: PREREGISTERED — QUALIFYING RUN NOT EXECUTED.
 
 Fuzz-target source commit:
 `716e216e84d5a693ac8aa1abe07e3e0ca1f4f31e`.
@@ -46,3 +46,11 @@ persistent corpus. The retained manifest is then rendered against the unchanged
 source commit above and replayed once with `fuzz/replay-corpus.sh`.
 
 No campaign result is recorded by this preregistration.
+
+Before a qualifying run, an initial invocation was interrupted after exactly
+54,082 inputs when inspection found that `simple_psbt_part_four` selected the
+7-byte geometry instead of its named 4-byte geometry. That partial invocation
+reported 39 new engine units, zero slowest-unit seconds, peak RSS 440 MiB and
+zero artifact files; its 26 untracked corpus additions were discarded. The
+seed control byte was corrected and the manifest regenerated before restart.
+No result from the interrupted invocation is part of campaign 005.
