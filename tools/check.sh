@@ -47,6 +47,11 @@ fi
 # --- 3. Ring-fenced fuzz dependency policy -------------------------------
 if [ ! -x tools/check-fuzz-dependencies.sh ]; then
   fail 'tools/check-fuzz-dependencies.sh is missing or not executable'
+elif ! command -v cargo >/dev/null 2>&1; then
+  fail 'cargo unavailable; cannot prepare the host dependency lock'
+elif ! cargo generate-lockfile --manifest-path host/Cargo.toml \
+    --offline >/dev/null 2>&1; then
+  fail 'host Cargo.lock generation failed offline'
 elif tools/check-fuzz-dependencies.sh; then
   ok 'fuzz manifests match the reviewed pinned dependency allowlist'
 else
