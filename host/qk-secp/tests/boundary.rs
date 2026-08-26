@@ -1,4 +1,4 @@
-//! Boundary tests for the verification-only FFI surface (QK-DEC-042).
+//! Boundary tests for the bounded FFI surface (QK-DEC-042/QK-DEC-111).
 //!
 //! HOST evidence only. Covers the approved-surface source scan, ABI
 //! shape from outside the crate, generator parse/round-trip, invalid
@@ -8,8 +8,9 @@
 //! Wycheproof harness.
 
 use qk_secp::{
-    ecdsa_verify, pubkey_parse_compressed, pubkey_serialize_compressed, pubkey_tweak_add,
-    signature_parse_der, PublicKey, SecpError, Signature,
+    ecdsa_sign_rfc6979, ecdsa_verify, pubkey_parse_compressed, pubkey_serialize_compressed,
+    pubkey_tweak_add, secret_key_import, signature_parse_der, signature_serialize_der, PublicKey,
+    SecpError, Signature,
 };
 
 const LIB_SRC: &str = include_str!("../src/lib.rs");
@@ -138,10 +139,16 @@ fn unsafe_appears_only_in_the_ffi_module() {
 #[test]
 fn extern_declarations_are_exactly_the_approved_surface() {
     let approved_fns = [
+        "secp256k1_context_create",
+        "secp256k1_context_destroy",
         "secp256k1_ec_pubkey_parse",
         "secp256k1_ec_pubkey_serialize",
         "secp256k1_ec_pubkey_tweak_add",
+        "secp256k1_ec_seckey_verify",
+        "secp256k1_ecdsa_sign",
+        "secp256k1_ecdsa_signature_normalize",
         "secp256k1_ecdsa_signature_parse_der",
+        "secp256k1_ecdsa_signature_serialize_der",
         "secp256k1_ecdsa_verify",
     ];
     let mut idents = prefixed_identifiers(FFI_SRC, "secp256k1_");
@@ -149,10 +156,11 @@ fn extern_declarations_are_exactly_the_approved_surface() {
     idents.dedup();
     let mut expected: Vec<String> = approved_fns.iter().map(|s| s.to_string()).collect();
     expected.push("secp256k1_context_static".to_string());
+    expected.push("secp256k1_nonce_function_rfc6979".to_string());
     expected.sort();
     assert_eq!(
         idents, expected,
-        "ffi.rs must reference exactly the approved static and five functions"
+        "ffi.rs must reference exactly the approved two statics and eleven functions"
     );
     for name in approved_fns {
         assert_eq!(
@@ -165,19 +173,26 @@ fn extern_declarations_are_exactly_the_approved_surface() {
         standalone_count(FFI_SRC, "static secp256k1_context_static"),
         1
     );
+    assert_eq!(
+        standalone_count(FFI_SRC, "static secp256k1_nonce_function_rfc6979"),
+        1
+    );
     // No other crate file references any native identifier.
     assert!(prefixed_identifiers(LIB_SRC, "secp256k1_").is_empty());
     assert!(prefixed_identifiers(BUILD_SRC, "secp256k1_").is_empty());
 }
 
 #[test]
-fn public_function_surface_is_exactly_the_approved_five() {
+fn public_function_surface_is_exactly_the_approved_eight() {
     let approved = [
         "pub fn pubkey_parse_compressed",
         "pub fn pubkey_serialize_compressed",
         "pub fn pubkey_tweak_add",
         "pub fn signature_parse_der",
         "pub fn ecdsa_verify",
+        "pub fn secret_key_import",
+        "pub fn signature_serialize_der",
+        "pub fn ecdsa_sign_rfc6979",
     ];
     for decl in approved {
         assert_eq!(standalone_count(LIB_SRC, decl), 1, "missing {decl}");
@@ -185,11 +200,80 @@ fn public_function_surface_is_exactly_the_approved_five() {
     assert_eq!(
         LIB_SRC.matches("pub fn ").count(),
         approved.len(),
-        "lib.rs must expose exactly the five approved public functions"
+        "lib.rs must expose exactly the eight approved public functions"
     );
     assert_eq!(FFI_SRC.matches("pub fn ").count(), 0);
     let kw = ["uns", "afe"].concat();
     assert_eq!(LIB_SRC.matches(&format!("pub {kw}")).count(), 0);
+}
+
+#[test]
+fn secret_owner_surface_is_opaque_and_nonduplicating() {
+    assert_eq!(standalone_count(LIB_SRC, "pub struct SecretKey"), 1);
+    assert_eq!(standalone_count(LIB_SRC, "impl Drop for SecretKey"), 1);
+    assert_eq!(standalone_count(LIB_SRC, "impl SecretKey"), 0);
+    for forbidden in [
+        "impl Clone for SecretKey",
+        "impl Copy for SecretKey",
+        "impl core::fmt::Debug for SecretKey",
+        "impl fmt::Debug for SecretKey",
+        "impl core::fmt::Display for SecretKey",
+        "impl fmt::Display for SecretKey",
+        "impl PartialEq for SecretKey",
+        "impl Eq for SecretKey",
+    ] {
+        assert_eq!(standalone_count(LIB_SRC, forbidden), 0, "{forbidden}");
+    }
+    let struct_position = LIB_SRC
+        .find("pub struct SecretKey")
+        .expect("SecretKey declaration exists");
+    let prefix_start = struct_position.saturating_sub(160);
+    let declaration_prefix = &LIB_SRC[prefix_start..struct_position];
+    assert!(
+        !declaration_prefix.contains("#[derive"),
+        "SecretKey must not acquire derived traits"
+    );
+    assert_eq!(
+        core::mem::size_of::<qk_secp::SecretKey>(),
+        core::mem::size_of::<usize>()
+    );
+    assert_eq!(
+        core::mem::align_of::<qk_secp::SecretKey>(),
+        core::mem::align_of::<usize>()
+    );
+}
+
+#[test]
+fn signing_surface_is_bound_to_normalize_serialize_parse_verify_order() {
+    let start = LIB_SRC
+        .find("pub fn ecdsa_sign_rfc6979")
+        .expect("signing function exists");
+    let body = &LIB_SRC[start..];
+    let sign = body
+        .find("ffi::ecdsa_sign_rfc6979")
+        .expect("native signing call exists");
+    let normalize = body
+        .find("ffi::signature_normalize")
+        .expect("normalization call exists");
+    let serialize = body
+        .find("signature_serialize_der")
+        .expect("DER serialization call exists");
+    let parse = body
+        .find("signature_parse_der")
+        .expect("DER parse call exists");
+    let verify = body
+        .find("ecdsa_verify")
+        .expect("self-verification call exists");
+    assert!(sign < normalize);
+    assert!(normalize < serialize);
+    assert!(serialize < parse);
+    assert!(parse < verify);
+
+    // Keep all newly approved names type-checked from outside the crate.
+    let _: fn(&mut [u8; 32]) -> Result<qk_secp::SecretKey, SecpError> = secret_key_import;
+    let _: fn(&qk_secp::SecretKey, &[u8; 32], &PublicKey) -> Result<Signature, SecpError> =
+        ecdsa_sign_rfc6979;
+    let _: fn(&Signature, &mut [u8; 72]) -> Result<usize, SecpError> = signature_serialize_der;
 }
 
 #[test]

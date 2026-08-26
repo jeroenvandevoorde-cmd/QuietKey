@@ -1,0 +1,20 @@
+# PERMANENTLY NEVER-FUND
+# M24 qk-secp deterministic-signing boundary fixture; never reuse this lineage outside M24.
+# The raw scalar below is deliberately public test material and is the sole fixture-file exception authorized by QK-DEC-111.
+# Exact public BIP32 seed strings (ASCII); only role A is consumed by this boundary fixture.
+# role-A: QuietKey/M24/NEVER-FUND/fixture-only/role-A/v1
+# role-B: QuietKey/M24/NEVER-FUND/fixture-only/role-B/v1
+# role-C: QuietKey/M24/NEVER-FUND/fixture-only/role-C/v1
+# Derivation: I=HMAC-SHA512(key=ASCII "Bitcoin seed", data=the exact seed bytes); master_secret=IL; chain_code=IR.
+# Message digest: SHA256(ASCII "QuietKey/M24/qk-secp/signing-boundary/v1").
+# Signature: RFC6979 HMAC-SHA256 with bits2octets(message digest), no extra data; ECDSA secp256k1; low-S; strict DER; no sighash byte.
+# Two separately written outside-Git implementations agreed byte-for-byte: Python 3.9.6 hashlib/hmac plus integer curve arithmetic, and Ruby 2.6.10/LibreSSL 3.3.6 HMAC/digest plus separately written integer curve arithmetic.
+# Both temporary programs existed only as command input outside the repository; no generator or intermediate file was retained.
+seed_ascii=QuietKey/M24/NEVER-FUND/fixture-only/role-A/v1
+master_secret_hex=a2ed3ca54d47359d7280e3544626ffff57e94232d9c288a190afb217daf36656
+chain_code_hex=88a5e26eb45b26484b0dbecaa6f9566c0e24c2498a5d9acfa3c805e5876a8575
+compressed_public_key_hex=0285aaf4d5a3ea03a6983afbea11c092a9609dd7557c0fb43ddc02d72700a10c8a
+message_ascii=QuietKey/M24/qk-secp/signing-boundary/v1
+digest_hex=6435fddc18ed4de8e724a767570fd461a24a1b1647f2edc2ba5f3f73863dcc5f
+rfc6979_nonce_hex=4b663e19cab5b60d1610992410611efbf41e357df8b9e5f78ec2b25ddb054f1a
+low_s_der_hex=3044022056b1ee77dbd2f75112953676d79bf3221a37f754338f7147d8b4fca52719146002202bcdff912bda36212b9ccf2a518d54d0af6fb174ffc4ad8542e5caa6e5ed68e1

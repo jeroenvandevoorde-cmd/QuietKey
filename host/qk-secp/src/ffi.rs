@@ -3,9 +3,10 @@
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET — NO TARGET CLAIM.
 //!
 //! This is the only module in the crate that may contain the unsafe
-//! keyword. It declares the immutable static context object and
-//! exactly five upstream functions — the ratified Rust-declared and
-//! callable wrapper surface. The unmodified native archive contains
+//! keyword. It declares the immutable static context object and the
+//! original five verification functions plus QK-DEC-111's exact six
+//! signing additions and explicit RFC6979 nonce pointer. The
+//! unmodified native archive contains
 //! other dormant base symbols; none are declared or callable here.
 //! Upstream default abort callbacks are retained as defense in depth;
 //! the fixed-size inputs and prechecks below make illegal-argument
@@ -16,8 +17,10 @@
 #![allow(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use core::ffi::{c_int, c_uchar, c_uint};
+use core::ffi::{c_int, c_uchar, c_uint, c_void};
 use core::mem::MaybeUninit;
+use core::ptr;
+use core::sync::atomic::{compiler_fence, Ordering};
 
 /// Byte size of the opaque public-key object.
 pub(crate) const PUBKEY_OBJ_BYTES: usize = 64;
@@ -29,6 +32,18 @@ pub(crate) const COMPRESSED_PUBKEY_BYTES: usize = 33;
 pub(crate) const SCALAR_BYTES: usize = 32;
 /// Upstream compressed-serialization flag value (258).
 const FLAG_COMPRESSED: c_uint = 258;
+/// Upstream `SECP256K1_CONTEXT_NONE` flag value.
+const CONTEXT_NONE: c_uint = 1;
+
+/// Exact upstream RFC6979 nonce callback ABI.
+type NonceFunction = unsafe extern "C" fn(
+    nonce32: *mut c_uchar,
+    msg32: *const c_uchar,
+    key32: *const c_uchar,
+    algo16: *const c_uchar,
+    data: *mut c_void,
+    attempt: c_uint,
+) -> c_int;
 
 /// Opaque upstream context type; never instantiated from Rust.
 #[repr(C)]
@@ -50,6 +65,9 @@ pub(crate) struct RawSignature {
 
 extern "C" {
     static secp256k1_context_static: *const RawContext;
+    static secp256k1_nonce_function_rfc6979: NonceFunction;
+    fn secp256k1_context_create(flags: c_uint) -> *mut RawContext;
+    fn secp256k1_context_destroy(ctx: *mut RawContext);
     fn secp256k1_ec_pubkey_parse(
         ctx: *const RawContext,
         pubkey: *mut RawPubkey,
@@ -80,6 +98,52 @@ extern "C" {
         msghash32: *const c_uchar,
         pubkey: *const RawPubkey,
     ) -> c_int;
+    fn secp256k1_ec_seckey_verify(ctx: *const RawContext, seckey: *const c_uchar) -> c_int;
+    fn secp256k1_ecdsa_sign(
+        ctx: *const RawContext,
+        sig: *mut RawSignature,
+        msghash32: *const c_uchar,
+        seckey: *const c_uchar,
+        noncefp: NonceFunction,
+        ndata: *const c_void,
+    ) -> c_int;
+    fn secp256k1_ecdsa_signature_normalize(
+        ctx: *const RawContext,
+        sigout: *mut RawSignature,
+        sigin: *const RawSignature,
+    ) -> c_int;
+    fn secp256k1_ecdsa_signature_serialize_der(
+        ctx: *const RawContext,
+        output: *mut c_uchar,
+        outputlen: *mut usize,
+        sig: *const RawSignature,
+    ) -> c_int;
+}
+
+/// RAII owner for one non-static native signing context.
+struct SigningContext {
+    raw: *mut RawContext,
+}
+
+impl SigningContext {
+    fn create() -> Option<Self> {
+        // SAFETY: CONTEXT_NONE is the exact valid upstream flag. A
+        // non-null result is uniquely owned until Drop.
+        let raw = unsafe { secp256k1_context_create(CONTEXT_NONE) };
+        if raw.is_null() {
+            None
+        } else {
+            Some(Self { raw })
+        }
+    }
+}
+
+impl Drop for SigningContext {
+    fn drop(&mut self) {
+        // SAFETY: raw is non-null and came from exactly one successful
+        // context_create call; this owner is non-Clone and drops once.
+        unsafe { secp256k1_context_destroy(self.raw) };
+    }
 }
 
 /// The one static verification-only context.
@@ -192,9 +256,90 @@ pub(crate) fn ecdsa_verify(
     unsafe { secp256k1_ecdsa_verify(context(), &raw_sig, digest.as_ptr(), &raw_key) }
 }
 
+/// Validate one fixed secret scalar through the static context.
+pub(crate) fn secret_key_verify(secret: &[u8; SCALAR_BYTES]) -> c_int {
+    // SAFETY: context is immutable and secret is one live fixed-size
+    // buffer. Upstream permits secret-key validation on the static
+    // context and does not retain the input pointer.
+    unsafe { secp256k1_ec_seckey_verify(context(), secret.as_ptr()) }
+}
+
+/// Sign through one freshly created non-static context using the
+/// explicit pinned RFC6979 function and null additional data.
+pub(crate) fn ecdsa_sign_rfc6979(
+    secret: &[u8; SCALAR_BYTES],
+    digest: &[u8; SCALAR_BYTES],
+) -> Option<(c_int, [u8; SIG_OBJ_BYTES])> {
+    let signing_context = SigningContext::create()?;
+    let mut obj = MaybeUninit::<RawSignature>::uninit();
+    // SAFETY: the context is non-static and uniquely live; obj is a
+    // valid out-pointer; digest and secret are fixed-size live
+    // buffers; the nonce callback is the pinned upstream function;
+    // additional nonce data is deliberately null.
+    let code = unsafe {
+        secp256k1_ecdsa_sign(
+            signing_context.raw,
+            obj.as_mut_ptr(),
+            digest.as_ptr(),
+            secret.as_ptr(),
+            secp256k1_nonce_function_rfc6979,
+            ptr::null(),
+        )
+    };
+    if code == 1 {
+        // SAFETY: upstream initializes the signature exactly on code 1.
+        Some((code, unsafe { obj.assume_init() }.data))
+    } else {
+        Some((code, [0u8; SIG_OBJ_BYTES]))
+    }
+}
+
+/// Normalize an opaque signature. Return zero means it was already
+/// low-S; one means the output was changed to low-S.
+pub(crate) fn signature_normalize(obj: &[u8; SIG_OBJ_BYTES]) -> (c_int, [u8; SIG_OBJ_BYTES]) {
+    let input = RawSignature { data: *obj };
+    let mut output = RawSignature {
+        data: [0u8; SIG_OBJ_BYTES],
+    };
+    // SAFETY: context is immutable and both opaque objects are valid
+    // fixed-size signature representations.
+    let code = unsafe { secp256k1_ecdsa_signature_normalize(context(), &mut output, &input) };
+    (code, output.data)
+}
+
+/// Serialize an opaque signature into a fixed 72-byte DER container.
+pub(crate) fn signature_serialize_der(obj: &[u8; SIG_OBJ_BYTES]) -> (c_int, usize, [u8; 72]) {
+    let signature = RawSignature { data: *obj };
+    let mut output = [0u8; 72];
+    let mut outputlen = output.len();
+    // SAFETY: context is immutable; output/outputlen form one valid
+    // bounded destination; signature is a valid opaque object copy.
+    let code = unsafe {
+        secp256k1_ecdsa_signature_serialize_der(
+            context(),
+            output.as_mut_ptr(),
+            &mut outputlen,
+            &signature,
+        )
+    };
+    (code, outputlen, output)
+}
+
+/// Volatile wipe for the sole safe-wrapper secret owner and its import
+/// source. The fence prevents reordering across the completed wipe.
+pub(crate) fn wipe_secret(secret: &mut [u8; SCALAR_BYTES]) {
+    for byte in secret {
+        // SAFETY: byte is a uniquely borrowed live byte. Volatile
+        // writes make the clearing operation observable to the
+        // abstract machine and prevent dead-store elimination.
+        unsafe { ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{context, RawContext, RawPubkey, RawSignature};
+    use super::{context, wipe_secret, RawContext, RawPubkey, RawSignature};
     use core::ffi::c_int;
     use core::mem::{align_of, size_of};
 
@@ -211,5 +356,12 @@ mod tests {
     #[test]
     fn static_context_is_present() {
         assert!(!context().is_null());
+    }
+
+    #[test]
+    fn volatile_wipe_clears_every_byte() {
+        let mut secret = [0xa5u8; 32];
+        wipe_secret(&mut secret);
+        assert_eq!(secret, [0u8; 32]);
     }
 }

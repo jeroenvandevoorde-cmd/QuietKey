@@ -1,12 +1,15 @@
-//! Verification-only libsecp256k1 FFI boundary (QK-DEC-040..043).
+//! Bounded libsecp256k1 FFI boundary (QK-DEC-040..043, QK-DEC-111).
 //!
 //! HOST SCAFFOLD ONLY — NOT PRODUCT CODE — NOT A WALLET — NO TARGET CLAIM.
 //!
 //! This crate links the vendored pinned libsecp256k1 v0.8.0 product
-//! closure (QK-DEC-041) and exposes exactly five public functions over
-//! one private FFI module (QK-DEC-042): compressed public-key parse,
-//! compressed serialize, public-key tweak-add, DER signature parse,
-//! and ECDSA verify. All representations are fixed-size and owned:
+//! closure (QK-DEC-041). The original verification surface remains:
+//! compressed public-key parse and serialization, public-key
+//! tweak-add, DER signature parse, and ECDSA verify. M24 adds only an
+//! opaque move-stable secret-key owner, deterministic RFC6979 ECDSA
+//! signing with mandatory low-S normalization and immediate
+//! verification, and bounded DER serialization. All public
+//! representations are fixed-size and owned:
 //! compressed keys are `[u8; 33]` with an 02/03 prefix, digests and
 //! tweaks are `[u8; 32]`, DER input is copied into a bounded
 //! `[u8; 72]` container with length 8..=72 before any FFI call, and
@@ -15,11 +18,20 @@
 //! return code is mapped explicitly and any other code fails closed.
 //! Error values carry fixed text only, never attacker bytes.
 //!
-//! This Rust wrapper declares and calls no signing or secret-key
-//! function and accepts no secret-key input; it creates, randomizes,
-//! or destroys no context, normalizes no signature, and integrates
-//! with no PSBT flow; it decides nothing about validity,
-//! signability, or completeness of any transaction. It contains no
+//! Secret-key import always wipes the caller's mutable source. The
+//! opaque owner is deliberately non-Clone, non-Copy, non-Debug and
+//! non-Display, and volatile-wipes its move-stable allocation on
+//! Drop. Signing uses a fresh non-static context, the explicit pinned
+//! RFC6979 function with no extra data, normalization, DER
+//! serialization, then the unchanged parse/verify path against a
+//! caller-supplied expected public key before anything is returned.
+//! The context is destroyed on every native return path. This is HOST
+//! behavior only and makes no target remanence, context-randomization,
+//! side-channel, constant-time, or Gate-C claim.
+//!
+//! This wrapper integrates with no PSBT flow and decides nothing about
+//! transaction validity, signability, threshold completeness, or
+//! authorization. It contains no
 //! file or device access, clocks, randomness, logging, network,
 //! environment access, threads, processes, or persistence, and has no
 //! Cargo dependencies.
@@ -41,6 +53,8 @@ use core::fmt;
 const DER_MIN_BYTES: usize = 8;
 /// Maximum accepted DER signature length in bytes.
 const DER_MAX_BYTES: usize = 72;
+/// Maximum DER length produced by a normalized low-S signature.
+const LOW_S_DER_MAX_BYTES: usize = 71;
 
 /// Opaque parsed public key. The 64-byte internal object never
 /// escapes; obtain bytes only through compressed serialization.
@@ -54,6 +68,22 @@ pub struct PublicKey {
 #[derive(Clone, Copy)]
 pub struct Signature {
     obj: [u8; ffi::SIG_OBJ_BYTES],
+}
+
+/// Opaque move-stable secret-key owner.
+///
+/// Construction is only through [`secret_key_import`], which wipes its
+/// mutable source on every return path. This type deliberately
+/// implements none of `Clone`, `Copy`, `Debug`, `Display`, equality, or
+/// byte-access traits.
+pub struct SecretKey {
+    bytes: Box<[u8; ffi::SCALAR_BYTES]>,
+}
+
+impl Drop for SecretKey {
+    fn drop(&mut self) {
+        ffi::wipe_secret(self.bytes.as_mut());
+    }
 }
 
 /// Fail-closed error categories for the verification boundary. Fixed
@@ -73,6 +103,16 @@ pub enum SecpError {
     SignatureParseFailed,
     /// The signature did not verify over the digest and key.
     VerificationFailed,
+    /// Secret-key bytes do not encode a scalar in `1..n`.
+    SecretKeyRejected,
+    /// A non-static signing context could not be obtained.
+    SigningContextUnavailable,
+    /// Deterministic ECDSA signing failed.
+    SigningFailed,
+    /// A normalized signature could not be serialized as bounded DER.
+    SignatureSerializeFailed,
+    /// A newly produced signature did not verify against the expected key.
+    SelfVerificationFailed,
     /// The native call returned a code other than 0 or 1; fail closed.
     UnknownReturnCode,
 }
@@ -86,6 +126,11 @@ impl fmt::Display for SecpError {
             Self::TweakRejected => "public key tweak rejected",
             Self::SignatureParseFailed => "der signature rejected",
             Self::VerificationFailed => "signature verification failed",
+            Self::SecretKeyRejected => "secret key rejected",
+            Self::SigningContextUnavailable => "signing context unavailable",
+            Self::SigningFailed => "deterministic signing failed",
+            Self::SignatureSerializeFailed => "signature serialization failed",
+            Self::SelfVerificationFailed => "produced signature self-verification failed",
             Self::UnknownReturnCode => "native call returned an unknown code",
         };
         f.write_str(text)
@@ -182,9 +227,103 @@ pub fn ecdsa_verify(
     }
 }
 
+/// Import one 32-byte secret scalar into opaque move-stable storage.
+///
+/// `source` is volatile-wiped before this function returns, whether
+/// the scalar is accepted, rejected, or the native boundary reports an
+/// unexpected status. No byte accessor exists on [`SecretKey`].
+pub fn secret_key_import(source: &mut [u8; 32]) -> Result<SecretKey, SecpError> {
+    // Allocate the move-stable destination before introducing secret
+    // bytes into it; copy directly from the caller's source rather
+    // than constructing a by-value secret array temporary.
+    let mut owned = SecretKey {
+        bytes: Box::new([0u8; ffi::SCALAR_BYTES]),
+    };
+    owned.bytes.copy_from_slice(source);
+    ffi::wipe_secret(source);
+    let status = ffi::secret_key_verify(owned.bytes.as_ref());
+    if map_status(status)? {
+        Ok(owned)
+    } else {
+        Err(SecpError::SecretKeyRejected)
+    }
+}
+
+/// Serialize an opaque signature as strict bounded DER.
+///
+/// `output` is changed only after the native call succeeds and its
+/// reported length is inside 8..=72. Bytes after the returned length
+/// are zero.
+pub fn signature_serialize_der(
+    sig: &Signature,
+    output: &mut [u8; DER_MAX_BYTES],
+) -> Result<usize, SecpError> {
+    let (code, len, serialized) = ffi::signature_serialize_der(&sig.obj);
+    if !map_status(code)? || !(DER_MIN_BYTES..=DER_MAX_BYTES).contains(&len) {
+        return Err(SecpError::SignatureSerializeFailed);
+    }
+    let mut committed = [0u8; DER_MAX_BYTES];
+    let Some(destination) = committed.get_mut(..len) else {
+        return Err(SecpError::SignatureSerializeFailed);
+    };
+    let Some(source) = serialized.get(..len) else {
+        return Err(SecpError::SignatureSerializeFailed);
+    };
+    destination.copy_from_slice(source);
+    *output = committed;
+    Ok(len)
+}
+
+/// Produce one deterministic RFC6979 ECDSA signature.
+///
+/// The native signature is always normalized, serialized to strict
+/// low-S DER, reparsed through [`signature_parse_der`], and verified
+/// through [`ecdsa_verify`] against `expected_key` and the exact digest
+/// before the opaque result is released. No additional nonce data is
+/// supplied.
+pub fn ecdsa_sign_rfc6979(
+    secret: &SecretKey,
+    digest32: &[u8; 32],
+    expected_key: &PublicKey,
+) -> Result<Signature, SecpError> {
+    let Some((sign_code, signed_obj)) = ffi::ecdsa_sign_rfc6979(secret.bytes.as_ref(), digest32)
+    else {
+        return Err(SecpError::SigningContextUnavailable);
+    };
+    if !map_status(sign_code)? {
+        return Err(SecpError::SigningFailed);
+    }
+
+    let (normalize_code, normalized_obj) = ffi::signature_normalize(&signed_obj);
+    // Both ordinary statuses are successful: zero means the signer
+    // already returned low-S; one means normalization changed S.
+    let _was_high = map_status(normalize_code)?;
+    let normalized = Signature {
+        obj: normalized_obj,
+    };
+
+    let mut der = [0u8; DER_MAX_BYTES];
+    let der_len = signature_serialize_der(&normalized, &mut der)?;
+    if der_len > LOW_S_DER_MAX_BYTES {
+        return Err(SecpError::SignatureSerializeFailed);
+    }
+    let Some(der_bytes) = der.get(..der_len) else {
+        return Err(SecpError::SignatureSerializeFailed);
+    };
+    let reparsed = signature_parse_der(der_bytes).map_err(|error| match error {
+        SecpError::UnknownReturnCode => SecpError::UnknownReturnCode,
+        _ => SecpError::SignatureSerializeFailed,
+    })?;
+    match ecdsa_verify(&reparsed, digest32, expected_key) {
+        Ok(()) => Ok(reparsed),
+        Err(SecpError::VerificationFailed) => Err(SecpError::SelfVerificationFailed),
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{map_status, SecpError};
+    use super::{map_status, secret_key_import, SecpError};
 
     #[test]
     fn return_mapping_covers_every_seam() {
@@ -205,5 +344,20 @@ mod tests {
             SecpError::VerificationFailed.to_string(),
             "signature verification failed"
         );
+        assert_eq!(
+            SecpError::SelfVerificationFailed.to_string(),
+            "produced signature self-verification failed"
+        );
+    }
+
+    #[test]
+    fn rejected_secret_sources_are_always_wiped() {
+        for mut source in [[0u8; 32], [0xffu8; 32]] {
+            assert!(matches!(
+                secret_key_import(&mut source),
+                Err(SecpError::SecretKeyRejected)
+            ));
+            assert_eq!(source, [0u8; 32]);
+        }
     }
 }
