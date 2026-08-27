@@ -213,3 +213,6 @@ mod public_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod fixture_tests;
