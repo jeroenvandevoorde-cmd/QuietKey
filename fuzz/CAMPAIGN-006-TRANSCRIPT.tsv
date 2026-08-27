@@ -1,0 +1,82 @@
+QK-M26-CAMPAIGN-TRANSCRIPT-V1
+campaign	006
+milestone	M26
+fuzz_target_source	e64b7a5e4d594e903c88a76cd85fa399044433a8
+qualifying_source	23325f58d71d1ad1832c64e7fffcb637ce976e00
+tool	cargo-fuzz	0.13.2
+tool	rustc	1.100.0-nightly (e7769602a 2026-08-24)
+toolchain	nightly-2026-08-25
+sanitizer	address
+profile	release	overflow-checks=true	debug-assertions=true
+dependency_resolution	offline
+shard_arithmetic	16666+16666+16666+16666+16666+16670=100000 per target
+command_template	CARGO_NET_OFFLINE=true PATH=/private/tmp/qk-cargo-fuzz/bin:$PATH cargo +nightly-2026-08-25 fuzz run TARGET TEMP_CORPUS --fuzz-dir fuzz --sanitizer address -- -runs=RUNS -seed=SEED -max_len=MAX_LEN -reload=0 -timeout=2 -rss_limit_mb=2048 -print_final_stats=1 -artifact_prefix=TEMP_ARTIFACT/
+initial	target	files	bytes
+initial	qk_provisioning_inputs_m26	26	76
+initial	qk_provisioning_chain_m26	3	53
+shard	target	part	runs	seed	max_len	exit	seconds	avg_exec_s	new_units	cov	features	engine_files	engine_bytes	limit	peak_rss_mb	slowest_s	artifacts
+shard	qk_provisioning_inputs_m26	1/6	16666	26001	1024	0	1499	11	163	1353	2739	140	2117	48	424	0	0
+shard	qk_provisioning_inputs_m26	2/6	16666	26003	1024	0	1593	10	177	1352	2750	143	2111	48	424	0	0
+shard	qk_provisioning_inputs_m26	3/6	16666	26005	1024	0	1604	10	158	1353	2740	142	2022	48	424	0	0
+shard	qk_provisioning_inputs_m26	4/6	16666	26007	1024	0	1478	11	151	1352	2720	136	1866	43	424	0	0
+shard	qk_provisioning_inputs_m26	5/6	16666	26009	1024	0	1664	10	156	1353	2715	130	1901	53	424	0	0
+shard	qk_provisioning_inputs_m26	6/6	16670	26011	1024	0	1639	10	169	1353	2741	143	2002	43	424	0	0
+shard	qk_provisioning_chain_m26	1/6	16666	26002	512	0	3066	5	154	1308	1933	138	3021	110	421	0	0
+shard	qk_provisioning_chain_m26	2/6	16666	26004	512	0	3062	5	142	1308	1940	133	3121	110	421	0	0
+shard	qk_provisioning_chain_m26	3/6	16666	26006	512	0	3062	5	170	1308	1936	144	3030	80	421	0	0
+shard	qk_provisioning_chain_m26	4/6	16666	26008	512	0	3064	5	161	1308	1940	143	3257	104	422	0	0
+shard	qk_provisioning_chain_m26	5/6	16666	26010	512	0	3062	5	154	1308	1938	136	3249	104	421	0	0
+shard	qk_provisioning_chain_m26	6/6	16670	26012	512	0	3064	5	149	1308	1937	132	3089	98	421	0	0
+shard_total	qk_provisioning_inputs_m26	100000	9477	974	0
+shard_total	qk_provisioning_chain_m26	100000	18380	930	0
+post_run	target	part	files	bytes	artifacts
+post_run	qk_provisioning_inputs_m26	1/6	161	2181	0
+post_run	qk_provisioning_inputs_m26	2/6	164	2176	0
+post_run	qk_provisioning_inputs_m26	3/6	166	2094	0
+post_run	qk_provisioning_inputs_m26	4/6	160	1938	0
+post_run	qk_provisioning_inputs_m26	5/6	152	1969	0
+post_run	qk_provisioning_inputs_m26	6/6	165	2069	0
+post_run	qk_provisioning_chain_m26	1/6	138	3021	0
+post_run	qk_provisioning_chain_m26	2/6	133	3121	0
+post_run	qk_provisioning_chain_m26	3/6	144	3030	0
+post_run	qk_provisioning_chain_m26	4/6	142	3256	0
+post_run	qk_provisioning_chain_m26	5/6	136	3249	0
+post_run	qk_provisioning_chain_m26	6/6	132	3089	0
+correction	union-build	duplicate-builders-detected	both-exited-before-process-check	all-six-union-and-cmin-directories-emptied	one-serial-rebuild-from-immutable-shard-directories	no-raced-output-accepted
+union	target	files	bytes	set_bytes	set_sha256
+union	qk_provisioning_inputs_m26	733	11849	49645	bc9e6c1379e1ee94f79ca7e96938d8d284d4d26313802a02f3883cea0373a32c
+union	qk_provisioning_chain_m26	805	18495	54607	9f1c8cf9c2f097e6b56bfc32b029ee1ca5f45aeadc4fafda17753943a8a544eb
+minimization	target	stage	order	input_files	output_files	output_bytes	set_bytes	set_sha256	cov	features	result
+minimization	qk_provisioning_inputs_m26	union-first	sha256-asc	733	141	1857	9538	a50a34685f9dfd1db8dbaf0f713c54adb4506a99751a0c78810445881aa8931f	1364	2779	REJECTED_MISMATCH
+minimization	qk_provisioning_inputs_m26	union-first	sha256-desc	733	141	1852	9538	f7393a19cfc0701a4020153ed231368407c9b903ccb0a4620e7f95a8fe1d2ace	1364	2779	REJECTED_MISMATCH
+minimization	qk_provisioning_chain_m26	union-first	sha256-asc	805	127	1229	8559	7d1c21fc58b156d239b0d575a8126bf980fe2f6da168686180b25b12e4252205	1319	1955	REJECTED_MISMATCH
+minimization	qk_provisioning_chain_m26	union-first	sha256-desc	805	127	1249	8561	6da478d93ca7076f9a233623d6ab52f66a18c37b100346c2e98eac5cb6d4b9d4	1319	1955	REJECTED_MISMATCH
+minimization	qk_provisioning_inputs_m26	candidate-self1	sha256-asc	141	132	1735	8929	0c099d0476921949b6fa07c0eb9e53449733cce3823014a9fdb1ade92b4466a6	1364	2779	REJECTED_MISMATCH
+minimization	qk_provisioning_inputs_m26	candidate-self1	sha256-desc	141	132	1714	8928	cc494b368c9371104c899eae8897dc4f2a7f2b71bce6ef894da5dedd6aa8d9d0	1364	2779	REJECTED_MISMATCH
+minimization	qk_provisioning_chain_m26	candidate-self1	sha256-asc	127	117	1158	7886	2950ad821bf90b43eb808b00c31b946fad4ac43707159c7c2eaea3ac931397b1	1319	1955	REJECTED_MISMATCH
+minimization	qk_provisioning_chain_m26	candidate-self1	sha256-desc	127	118	1160	7953	692e0e3f2eccbf0dae94df5e3c9db01d5d9a2861541084ecc7a42b2a01a61f93	1319	1955	REJECTED_MISMATCH
+minimization	qk_provisioning_inputs_m26	canonical-i2	sha256-asc	132	129	1681	8725	05dbc8df1a36ff9fd2af78cb407dbde6fbfe8bf0a2ac99d654707761b0951878	1364	2779	CONTINUE
+minimization	qk_provisioning_inputs_m26	canonical-i3	sha256-asc	129	128	1663	8657	5e21ab5433e2e7aab2bfda9c2247a59d17f21ae2fece876db5f55ee099f78ade	1364	2779	CONTINUE
+minimization	qk_provisioning_inputs_m26	canonical-i4	sha256-asc	128	126	1626	8521	367ef441e1affd13775ff72a3391f004fd211ff12f331cbd24a342fe9d4e82da	1364	2779	CONTINUE
+minimization	qk_provisioning_inputs_m26	canonical-i5	sha256-asc	126	126	1626	8521	367ef441e1affd13775ff72a3391f004fd211ff12f331cbd24a342fe9d4e82da	1364	2779	CANONICAL_FIXED_POINT
+minimization	qk_provisioning_chain_m26	canonical-i2	sha256-asc	117	115	1135	7751	9a513f0fa2e25d51e65bbed05ab79bbe572bc33ba8afafbb637a0378cbbc64db	1319	1955	CONTINUE
+minimization	qk_provisioning_chain_m26	canonical-i3	sha256-asc	115	115	1135	7751	9a513f0fa2e25d51e65bbed05ab79bbe572bc33ba8afafbb637a0378cbbc64db	1319	1955	CANONICAL_FIXED_POINT
+minimization	qk_provisioning_inputs_m26	proof1	sha256-asc	126	126	1626	8521	367ef441e1affd13775ff72a3391f004fd211ff12f331cbd24a342fe9d4e82da	1364	2779	PROOF_PASS
+minimization	qk_provisioning_inputs_m26	proof1	sha256-desc	126	126	1626	8521	367ef441e1affd13775ff72a3391f004fd211ff12f331cbd24a342fe9d4e82da	1364	2779	PROOF_PASS
+minimization	qk_provisioning_chain_m26	proof1	sha256-asc	115	115	1135	7751	9a513f0fa2e25d51e65bbed05ab79bbe572bc33ba8afafbb637a0378cbbc64db	1319	1955	REJECTED_MISMATCH
+minimization	qk_provisioning_chain_m26	proof1	sha256-desc	115	114	1126	7684	0b38a91176fc15e0e6685b2e76e3958bd7f73ce24deff3b8921f74bc17dcf2a4	1319	1955	REJECTED_MISMATCH
+minimization	qk_provisioning_chain_m26	proof2	sha256-asc	114	114	1126	7684	0b38a91176fc15e0e6685b2e76e3958bd7f73ce24deff3b8921f74bc17dcf2a4	1319	1955	PROOF_PASS
+minimization	qk_provisioning_chain_m26	proof2	sha256-desc	114	114	1126	7684	0b38a91176fc15e0e6685b2e76e3958bd7f73ce24deff3b8921f74bc17dcf2a4	1319	1955	PROOF_PASS
+retained	target	files	bytes	set_bytes	set_sha256	entries_sha256
+retained	qk_provisioning_inputs_m26	126	1626	8521	367ef441e1affd13775ff72a3391f004fd211ff12f331cbd24a342fe9d4e82da	139bac58e340d7e6640c532b0abefa56dcb2d13570920109e3f1a630b7325384
+retained	qk_provisioning_chain_m26	114	1126	7684	0b38a91176fc15e0e6685b2e76e3958bd7f73ce24deff3b8921f74bc17dcf2a4	4edb8dc567d3c66821d771cc19dd8f7999b66f1d7209b045aa2f4973c27b03f2
+manifest	fuzz/CORPUS-MANIFEST-M26.tsv	248	43911	0dbb8c82515f34e48b96ed9c90a10832bc727a7d68c58590001db6f39f22b028	aggregate-count=240	aggregate-bytes=2752	aggregate-entries-sha256=4b2211d8efaad6c6094215813d4ab191f9d7f9ae59e4ffe862c9a2200a5fc7e0
+replay	target	loaded_files	loaded_bytes	executed	exit	seconds	avg_exec_s	cov	features	engine_files	engine_bytes	limit	peak_rss_mb	new_units	slowest_s	artifacts
+replay	qk_provisioning_inputs_m26	126	1626	127	0	13	9	1353	2768	125	1608	33	356	0	0	0
+replay	qk_provisioning_chain_m26	114	1126	115	0	17	6	1308	1944	114	1126	73	417	0	0	0
+outcome	scheduled_executions	200000
+outcome	artifacts	0
+outcome	timeouts	0
+outcome	slowest_unit_seconds	0
+outcome	sanitizer_findings	0
+outcome	qualifying_product_findings	0
