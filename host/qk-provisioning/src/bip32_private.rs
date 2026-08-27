@@ -32,10 +32,14 @@ fn map_pubkey(
     secret: &[u8; 32],
     invalid: ProvisioningError,
 ) -> Result<[u8; 33], ProvisioningError> {
-    qk_secp::provisioning_pubkey_create(secret).map_err(|error| match error {
+    qk_secp::provisioning_pubkey_create(secret).map_err(|error| map_pubkey_error(error, invalid))
+}
+
+fn map_pubkey_error(error: qk_secp::SecpError, invalid: ProvisioningError) -> ProvisioningError {
+    match error {
         qk_secp::SecpError::ProvisioningPublicKeyCreateFailed => invalid,
         _ => ProvisioningError::CryptographicBackend,
-    })
+    }
 }
 
 fn fingerprint(pubkey: &[u8; 33]) -> [u8; 4] {
@@ -199,13 +203,20 @@ pub(crate) fn derive_account(seed: &[u8; 64]) -> Result<AccountPublic, Provision
 
 #[cfg(test)]
 mod tests {
-    use super::{add_child_scalar, base58_encode};
+    use super::{
+        add_child_scalar, base58_encode, derive_hardened, map_pubkey, map_pubkey_error, master,
+    };
     use crate::ProvisioningError;
 
     const ORDER_N: [u8; 32] = [
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36,
         0x41, 0x41,
+    ];
+    const ORDER_N_MINUS_ONE: [u8; 32] = [
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36,
+        0x41, 0x40,
     ];
 
     #[test]
@@ -219,8 +230,32 @@ mod tests {
         parent[31] = 1;
         assert_eq!(add_child_scalar(&parent, &[0u8; 32]), Ok(parent));
         assert_eq!(
+            add_child_scalar(&parent, &ORDER_N_MINUS_ONE),
+            Err(ProvisioningError::ZeroChild)
+        );
+        assert_eq!(
             add_child_scalar(&parent, &ORDER_N),
             Err(ProvisioningError::InvalidChildTweak)
+        );
+    }
+
+    #[test]
+    fn master_and_fixed_path_failures_keep_their_named_categories() {
+        assert_eq!(
+            map_pubkey(&[0u8; 32], ProvisioningError::InvalidMasterScalar),
+            Err(ProvisioningError::InvalidMasterScalar)
+        );
+        let node = master(&[0u8; 64]).expect("fixed seed produces a valid master node");
+        assert!(matches!(
+            derive_hardened(node, 0),
+            Err(ProvisioningError::CryptographicInvariant)
+        ));
+        assert_eq!(
+            map_pubkey_error(
+                qk_secp::SecpError::ProvisioningContextUnavailable,
+                ProvisioningError::InvalidMasterScalar,
+            ),
+            ProvisioningError::CryptographicBackend
         );
     }
 }

@@ -164,3 +164,24 @@ pub(crate) fn build_wallet(
         ],
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::build_wallet;
+    use crate::bip32_private::derive_account;
+    use crate::ProvisioningError;
+
+    #[test]
+    fn duplicate_generated_accounts_are_a_named_descriptor_rejection() {
+        let seed = [0x42u8; 64];
+        let accounts = [
+            derive_account(&seed).expect("public test account A"),
+            derive_account(&seed).expect("public test account B"),
+            derive_account(&seed).expect("public test account C"),
+        ];
+        assert!(matches!(
+            build_wallet(accounts),
+            Err(ProvisioningError::GeneratedDescriptorInvalid)
+        ));
+    }
+}
