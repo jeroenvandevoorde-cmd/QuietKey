@@ -23,6 +23,9 @@ mod poly1305;
 #[allow(dead_code)]
 #[path = "../src/sha256.rs"]
 mod sha256;
+#[allow(dead_code)]
+#[path = "../src/wipe.rs"]
+mod wipe;
 
 use std::collections::BTreeMap;
 

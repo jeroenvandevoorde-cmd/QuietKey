@@ -7,6 +7,7 @@ const HKDF: &str = include_str!("../src/hkdf_sha256.rs");
 const HMAC: &str = include_str!("../src/hmac_sha256.rs");
 const POLY1305: &str = include_str!("../src/poly1305.rs");
 const SHA256: &str = include_str!("../src/sha256.rs");
+const WIPE: &str = include_str!("../src/wipe.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
 fn production_prefix(source: &str) -> &str {
@@ -62,7 +63,7 @@ fn public_surface_is_exactly_one_error_and_two_capsule_operations() {
     assert!(!LIB.contains("pub mod "));
     assert!(!LIB.contains("pub const "));
     assert!(!LIB.contains("pub use "));
-    for source in [AEAD, CHACHA20, HKDF, HMAC, POLY1305, SHA256] {
+    for source in [AEAD, CHACHA20, HKDF, HMAC, POLY1305, SHA256, WIPE] {
         assert!(!source.contains("pub fn "), "no public primitive function");
         assert!(!source.contains("pub struct "), "no public primitive type");
         assert!(!source.contains("pub enum "), "no public primitive error");
@@ -86,7 +87,7 @@ fn capsule_wire_and_key_schedule_pins_are_present_in_production_source() {
         assert!(LIB.contains(required), "{required}");
     }
     assert!(HKDF.contains("const DOCUMENT_INFO: &[u8; 14] = b\"QuietKey/A1/v1\";"));
-    assert!(HKDF.contains("extract(wallet_id, a2)"));
+    assert!(HKDF.contains("extract_into(wallet_id, a2, &mut prk);"));
     assert!(LIB.contains("aad[..HEADER_LEN].copy_from_slice(&capsule[..HEADER_LEN]);"));
     assert!(LIB.contains("aad[HEADER_LEN..].copy_from_slice(wallet_id);"));
 }
@@ -101,6 +102,7 @@ fn production_sources_have_no_allocation_unsafe_io_randomness_or_general_api() {
         production_prefix(HMAC),
         production_prefix(POLY1305),
         production_prefix(SHA256),
+        production_prefix(WIPE),
     ] {
         for forbidden in [
             "Vec<",
@@ -151,6 +153,90 @@ fn production_sources_have_no_allocation_unsafe_io_randomness_or_general_api() {
         assert!(
             !LIB.contains(general_name),
             "general API remains private: {general_name}"
+        );
+    }
+}
+
+#[test]
+fn secret_scratch_uses_one_optimization_resistant_cleanup_boundary() {
+    assert_eq!(WIPE.matches("#[inline(never)]").count(), 3);
+    assert_eq!(WIPE.matches("value.fill(0);").count(), 3);
+    assert_eq!(WIPE.matches("core::hint::black_box(value);").count(), 3);
+    for source in [LIB, AEAD, CHACHA20, HKDF, HMAC, POLY1305, SHA256] {
+        assert!(
+            source.contains("wipe::"),
+            "every primitive layer routes cleanup"
+        );
+    }
+    for required in [
+        "wipe::bytes(&mut key);",
+        "wipe::bytes(&mut candidate);",
+        "wipe::bytes(&mut first_block);",
+        "wipe::bytes(&mut poly_key);",
+        "wipe::bytes(&mut expected);",
+        "wipe::bytes(&mut stream);",
+        "wipe::words32(&mut initial);",
+        "wipe::words32(&mut working);",
+        "wipe::bytes(&mut block);",
+        "wipe::bytes(&mut previous);",
+        "wipe::bytes(&mut prk);",
+        "wipe::bytes(&mut key_block);",
+        "wipe::bytes(&mut inner_pad);",
+        "wipe::bytes(&mut outer_pad);",
+        "wipe::bytes(&mut inner_digest);",
+        "wipe::words32(&mut self.state);",
+        "wipe::bytes(&mut self.buffer);",
+        "wipe::words32(&mut schedule);",
+        "wipe::words32(&mut scratch);",
+        "wipe::words32(&mut self.r);",
+        "wipe::words32(&mut self.scaled);",
+        "wipe::words32(&mut self.h);",
+        "wipe::words32(&mut self.pad);",
+        "wipe::words64(&mut products);",
+        "wipe::words32(&mut g);",
+        "wipe::words64(&mut words);",
+        "wipe::words64(&mut sums);",
+        "wipe::words32(&mut final_words);",
+        "impl Drop for Poly1305",
+    ] {
+        assert!(
+            [LIB, AEAD, CHACHA20, HKDF, HMAC, POLY1305, SHA256]
+                .iter()
+                .any(|source| source.contains(required)),
+            "locked cleanup route {required}"
+        );
+    }
+    for required in [
+        "fn normalized_key(key: &[u8], block: &mut [u8; BLOCK_LEN])",
+        "pub(crate) fn hmac_sha256_parts_into(",
+        "pub(crate) fn extract_into(",
+        "pub(crate) fn derive_document_key(",
+        "pub(crate) fn block_into(",
+        "fn one_time_key(key: &[u8; 32], nonce: &[u8; 12], poly_key: &mut [u8; 32])",
+        "fn finish(&mut self, tag: &mut [u8; 16])",
+        "pub(crate) fn sha256_into(",
+    ] {
+        assert!(
+            [AEAD, CHACHA20, HKDF, HMAC, POLY1305, SHA256]
+                .iter()
+                .any(|source| production_prefix(source).contains(required)),
+            "secret result is caller-owned: {required}"
+        );
+    }
+    for forbidden in [
+        "fn normalized_key(key: &[u8]) ->",
+        "fn hmac_sha256_parts(key: &[u8], message_parts: &[&[u8]]) ->",
+        "fn extract(salt: &[u8], ikm: &[u8]) ->",
+        "fn derive_document_key(a2: &[u8; 32], wallet_id: &[u8; 32]) ->",
+        "fn block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) ->",
+        "fn one_time_key(key: &[u8; 32], nonce: &[u8; 12]) ->",
+        "fn finish(mut self)",
+    ] {
+        assert!(
+            [AEAD, CHACHA20, HKDF, HMAC, POLY1305, SHA256]
+                .iter()
+                .all(|source| !production_prefix(source).contains(forbidden)),
+            "no by-value secret helper remains: {forbidden}"
         );
     }
 }

@@ -1,13 +1,14 @@
 //! Private HKDF-SHA256 following RFC 5869.
 
-use crate::hmac_sha256::{hmac_sha256, hmac_sha256_parts};
+use crate::hmac_sha256::{hmac_sha256_into, hmac_sha256_parts_into};
+use crate::wipe;
 
 const HASH_LEN: usize = 32;
 const MAX_OUTPUT_LEN: usize = 255 * HASH_LEN;
 const DOCUMENT_INFO: &[u8; 14] = b"QuietKey/A1/v1";
 
-pub(crate) fn extract(salt: &[u8], ikm: &[u8]) -> [u8; HASH_LEN] {
-    hmac_sha256(salt, ikm)
+pub(crate) fn extract_into(salt: &[u8], ikm: &[u8], prk: &mut [u8; HASH_LEN]) {
+    hmac_sha256_into(salt, ikm, prk);
 }
 
 pub(crate) fn expand(prk: &[u8; HASH_LEN], info: &[u8], output: &mut [u8]) -> bool {
@@ -20,29 +21,37 @@ pub(crate) fn expand(prk: &[u8; HASH_LEN], info: &[u8], output: &mut [u8]) -> bo
     let mut counter = 1u8;
     while offset < output.len() {
         let count = [counter];
-        let mut block = if offset == 0 {
-            hmac_sha256_parts(prk, &[info, &count])
+        let mut block = [0u8; HASH_LEN];
+        if offset == 0 {
+            hmac_sha256_parts_into(prk, &[info, &count], &mut block);
         } else {
-            hmac_sha256_parts(prk, &[&previous, info, &count])
-        };
+            hmac_sha256_parts_into(prk, &[&previous, info, &count], &mut block);
+        }
         let taken = core::cmp::min(HASH_LEN, output.len() - offset);
         output[offset..offset + taken].copy_from_slice(&block[..taken]);
         previous.copy_from_slice(&block);
-        block.fill(0);
+        wipe::bytes(&mut block);
         offset += taken;
         counter = counter.wrapping_add(1);
     }
-    previous.fill(0);
+    wipe::bytes(&mut previous);
     true
 }
 
-pub(crate) fn derive_document_key(a2: &[u8; 32], wallet_id: &[u8; 32]) -> [u8; 32] {
-    let mut prk = extract(wallet_id, a2);
-    let mut key = [0u8; 32];
-    let expanded = expand(&prk, DOCUMENT_INFO, &mut key);
+pub(crate) fn derive_document_key(a2: &[u8; 32], wallet_id: &[u8; 32], key: &mut [u8; 32]) {
+    let mut prk = [0u8; HASH_LEN];
+    extract_into(wallet_id, a2, &mut prk);
+    let expanded = expand(&prk, DOCUMENT_INFO, key);
     debug_assert!(expanded, "one SHA-256 output is within HKDF's bound");
-    prk.fill(0);
-    key
+    wipe::bytes(&mut prk);
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn extract(salt: &[u8], ikm: &[u8]) -> [u8; HASH_LEN] {
+    let mut prk = [0u8; HASH_LEN];
+    extract_into(salt, ikm, &mut prk);
+    prk
 }
 
 #[cfg(test)]
@@ -57,7 +66,11 @@ mod tests {
             0xe8, 0xc9, 0xd5, 0x43,
         ];
         assert_eq!(
-            derive_document_key(&[0u8; 32], &wallet_id),
+            {
+                let mut key = [0u8; 32];
+                derive_document_key(&[0u8; 32], &wallet_id, &mut key);
+                key
+            },
             [
                 0xb3, 0xaa, 0x6e, 0x9b, 0xc9, 0xe5, 0x6c, 0x98, 0xcb, 0x1b, 0xfd, 0x99, 0x47, 0x80,
                 0xde, 0xf3, 0xc5, 0x32, 0x5f, 0x35, 0x6d, 0xee, 0x46, 0xad, 0x05, 0x08, 0x5f, 0x7c,

@@ -1,5 +1,7 @@
 //! Private IETF ChaCha20 core following RFC 8439.
 
+use crate::wipe;
+
 const CONSTANTS: [u32; 4] = [0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574];
 
 #[inline]
@@ -21,7 +23,7 @@ fn quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) 
     state[b] = state[b].rotate_left(7);
 }
 
-pub(crate) fn block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64] {
+pub(crate) fn block_into(key: &[u8; 32], counter: u32, nonce: &[u8; 12], output: &mut [u8; 64]) {
     let mut initial = [0u32; 16];
     initial[..4].copy_from_slice(&CONSTANTS);
     for (index, word) in initial[4..12].iter_mut().enumerate() {
@@ -56,11 +58,18 @@ pub(crate) fn block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64] 
         quarter_round(&mut working, 3, 4, 9, 14);
     }
 
-    let mut output = [0u8; 64];
     for (index, (word, original)) in working.iter().zip(initial.iter()).enumerate() {
         let offset = index * 4;
         output[offset..offset + 4].copy_from_slice(&word.wrapping_add(*original).to_le_bytes());
     }
+    wipe::words32(&mut working);
+    wipe::words32(&mut initial);
+}
+
+#[cfg(test)]
+pub(crate) fn block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64] {
+    let mut output = [0u8; 64];
+    block_into(key, counter, nonce, &mut output);
     output
 }
 
@@ -83,14 +92,15 @@ pub(crate) fn xor(
 
     let mut counter = initial_counter;
     for (input_block, output_block) in input.chunks(64).zip(output.chunks_mut(64)) {
-        let mut stream = block(key, counter, nonce);
+        let mut stream = [0u8; 64];
+        block_into(key, counter, nonce, &mut stream);
         for (target, (source, mask)) in output_block
             .iter_mut()
             .zip(input_block.iter().zip(stream.iter()))
         {
             *target = source ^ mask;
         }
-        stream.fill(0);
+        wipe::bytes(&mut stream);
         counter = counter.wrapping_add(1);
     }
     true

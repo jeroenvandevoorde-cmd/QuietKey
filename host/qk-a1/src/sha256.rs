@@ -1,5 +1,7 @@
 //! Private fixed-memory SHA-256 following FIPS 180-4.
 
+use crate::wipe;
+
 const BLOCK_LEN: usize = 64;
 
 const INITIAL_STATE: [u32; 8] = [
@@ -109,7 +111,7 @@ impl Sha256 {
                 return;
             }
             compress(&mut self.state, &self.buffer);
-            self.buffer.fill(0);
+            wipe::bytes(&mut self.buffer);
             self.buffered = 0;
         }
 
@@ -125,7 +127,7 @@ impl Sha256 {
         }
     }
 
-    pub(crate) fn finish(mut self) -> [u8; 32] {
+    pub(crate) fn finish(&mut self, digest: &mut [u8; 32]) {
         let bit_len = self.message_len.wrapping_mul(8);
         self.buffer[self.buffered] = 0x80;
         self.buffered += 1;
@@ -140,12 +142,15 @@ impl Sha256 {
         self.buffer[56..].copy_from_slice(&bit_len.to_be_bytes());
         compress(&mut self.state, &self.buffer);
 
-        let mut digest = [0u8; 32];
         for (index, word) in self.state.iter().enumerate() {
             let offset = index * 4;
             digest[offset..offset + 4].copy_from_slice(&word.to_be_bytes());
         }
-        digest
+        wipe::words32(&mut self.state);
+        wipe::bytes(&mut self.buffer);
+        self.buffered = 0;
+        self.message_len = 0;
+        core::hint::black_box(self);
     }
 }
 
@@ -174,50 +179,52 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
             .wrapping_add(small1);
     }
 
-    let mut a = state[0];
-    let mut b = state[1];
-    let mut c = state[2];
-    let mut d = state[3];
-    let mut e = state[4];
-    let mut f = state[5];
-    let mut g = state[6];
-    let mut h = state[7];
+    let mut working = *state;
+    let mut scratch = [0u32; 6];
 
     for index in 0..64 {
-        let big1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-        let choose = (e & f) ^ ((!e) & g);
-        let first = h
-            .wrapping_add(big1)
-            .wrapping_add(choose)
+        scratch[0] =
+            working[4].rotate_right(6) ^ working[4].rotate_right(11) ^ working[4].rotate_right(25);
+        scratch[1] = (working[4] & working[5]) ^ ((!working[4]) & working[6]);
+        scratch[2] = working[7]
+            .wrapping_add(scratch[0])
+            .wrapping_add(scratch[1])
             .wrapping_add(ROUND_CONSTANTS[index])
             .wrapping_add(schedule[index]);
-        let big0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-        let majority = (a & b) ^ (a & c) ^ (b & c);
-        let second = big0.wrapping_add(majority);
-        h = g;
-        g = f;
-        f = e;
-        e = d.wrapping_add(first);
-        d = c;
-        c = b;
-        b = a;
-        a = first.wrapping_add(second);
+        scratch[3] =
+            working[0].rotate_right(2) ^ working[0].rotate_right(13) ^ working[0].rotate_right(22);
+        scratch[4] =
+            (working[0] & working[1]) ^ (working[0] & working[2]) ^ (working[1] & working[2]);
+        scratch[5] = scratch[3].wrapping_add(scratch[4]);
+        working[7] = working[6];
+        working[6] = working[5];
+        working[5] = working[4];
+        working[4] = working[3].wrapping_add(scratch[2]);
+        working[3] = working[2];
+        working[2] = working[1];
+        working[1] = working[0];
+        working[0] = scratch[2].wrapping_add(scratch[5]);
     }
 
-    state[0] = state[0].wrapping_add(a);
-    state[1] = state[1].wrapping_add(b);
-    state[2] = state[2].wrapping_add(c);
-    state[3] = state[3].wrapping_add(d);
-    state[4] = state[4].wrapping_add(e);
-    state[5] = state[5].wrapping_add(f);
-    state[6] = state[6].wrapping_add(g);
-    state[7] = state[7].wrapping_add(h);
+    for (word, mixed) in state.iter_mut().zip(working.iter()) {
+        *word = word.wrapping_add(*mixed);
+    }
+    wipe::words32(&mut schedule);
+    wipe::words32(&mut working);
+    wipe::words32(&mut scratch);
 }
 
-pub(crate) fn sha256(message: &[u8]) -> [u8; 32] {
+pub(crate) fn sha256_into(message: &[u8], digest: &mut [u8; 32]) {
     let mut context = Sha256::new();
     context.update(message);
-    context.finish()
+    context.finish(digest);
+}
+
+#[cfg(test)]
+pub(crate) fn sha256(message: &[u8]) -> [u8; 32] {
+    let mut digest = [0u8; 32];
+    sha256_into(message, &mut digest);
+    digest
 }
 
 #[cfg(test)]

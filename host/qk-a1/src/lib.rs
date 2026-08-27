@@ -18,6 +18,7 @@ mod hkdf_sha256;
 mod hmac_sha256;
 mod poly1305;
 mod sha256;
+mod wipe;
 
 const MAGIC: [u8; 4] = *b"QKA1";
 const CODING_VERSION: u8 = 1;
@@ -69,7 +70,8 @@ pub fn encrypt(
     aad[..HEADER_LEN].copy_from_slice(&capsule[..HEADER_LEN]);
     aad[HEADER_LEN..].copy_from_slice(wallet_id);
 
-    let mut key = hkdf_sha256::derive_document_key(a2, wallet_id);
+    let mut key = [0u8; 32];
+    hkdf_sha256::derive_document_key(a2, wallet_id, &mut key);
     let mut tag = [0u8; TAG_LEN];
     let sealed = aead::seal(
         &key,
@@ -82,9 +84,9 @@ pub fn encrypt(
     debug_assert!(sealed, "fixed A1 dimensions are valid");
     capsule[TAG_START..].copy_from_slice(&tag);
 
-    key.fill(0);
-    tag.fill(0);
-    aad.fill(0);
+    wipe::bytes(&mut key);
+    wipe::bytes(&mut tag);
+    wipe::bytes(&mut aad);
     capsule
 }
 
@@ -123,7 +125,8 @@ pub fn decrypt(
     aad[..HEADER_LEN].copy_from_slice(&capsule[..HEADER_LEN]);
     aad[HEADER_LEN..].copy_from_slice(wallet_id);
 
-    let mut key = hkdf_sha256::derive_document_key(a2, wallet_id);
+    let mut key = [0u8; 32];
+    hkdf_sha256::derive_document_key(a2, wallet_id, &mut key);
     let mut candidate = [0u8; PLAINTEXT_LEN];
     let authenticated = aead::open(
         &key,
@@ -134,18 +137,18 @@ pub fn decrypt(
         &mut candidate,
     );
 
-    key.fill(0);
-    nonce.fill(0);
-    tag.fill(0);
-    aad.fill(0);
+    wipe::bytes(&mut key);
+    wipe::bytes(&mut nonce);
+    wipe::bytes(&mut tag);
+    wipe::bytes(&mut aad);
 
     if !authenticated {
-        candidate.fill(0);
+        wipe::bytes(&mut candidate);
         return Err(A1Error::AuthenticationFailed);
     }
 
     seed_a_out.copy_from_slice(&candidate);
-    candidate.fill(0);
+    wipe::bytes(&mut candidate);
     Ok(())
 }
 

@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 
 #[path = "../src/sha256.rs"]
 mod fixture_sha256;
+#[allow(dead_code)]
+#[path = "../src/wipe.rs"]
+mod wipe;
 
 const FIXTURE: &str = include_str!("fixtures/capsules.txt");
 const FIXTURE_SHA256: [u8; 32] = [
