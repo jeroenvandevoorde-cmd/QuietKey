@@ -88,6 +88,7 @@ pub(crate) fn encode_p2wsh(program: &[u8; 32]) -> Result<[u8; ADDRESS_BYTES], Pr
 #[cfg(test)]
 mod tests {
     use super::encode_p2wsh;
+    use crate::sha256::sha256;
 
     const FIXTURE: &str = include_str!("../tests/fixtures/bip173-mainnet-p2wsh.txt");
 
@@ -105,6 +106,10 @@ mod tests {
         assert_eq!(FIXTURE.len(), 2_016);
         assert!(FIXTURE.ends_with('\n'));
         assert!(!FIXTURE.contains('\r'));
+        assert_eq!(
+            sha256(FIXTURE.as_bytes()),
+            decode_hex("e4763506548e78849936501fd1b8150fbbc4e2598304684bd9f8a46d3819a0b9")
+        );
         let mut program: Option<[u8; 32]> = None;
         let mut address: Option<&str> = None;
         let mut executed = 0usize;

@@ -113,6 +113,7 @@ mod tests {
         entropy_to_mnemonic, vector_entropy_to_mnemonic_and_seed, word_at, MNEMONIC_WORDS,
         WORDLIST, WORD_COUNT,
     };
+    use crate::sha256::sha256;
 
     const FIXTURE: &str = include_str!("../tests/fixtures/bip39-english-256.txt");
 
@@ -152,6 +153,10 @@ mod tests {
         assert_eq!(FIXTURE.len(), 5_477);
         assert!(FIXTURE.ends_with('\n'));
         assert!(!FIXTURE.contains('\r'));
+        assert_eq!(
+            sha256(FIXTURE.as_bytes()),
+            decode_hex("e9d43debec8aa6dd15a5232a3d06c3352e62ce1954cc1c30faa32692602331ac")
+        );
         let expected_indices = [8usize, 9, 10, 11, 14, 17, 20, 23];
         let mut source_index: Option<usize> = None;
         let mut entropy: Option<[u8; 32]> = None;
