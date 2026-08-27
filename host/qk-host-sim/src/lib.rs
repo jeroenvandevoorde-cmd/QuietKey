@@ -69,11 +69,11 @@ pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, Terminal
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
 pub use screen_flow::{
     ApprovalIdentity, ApprovalToken, CeremonyCommitmentView, CeremonyPurpose, CeremonySession,
-    CeremonySessionOutcome, CeremonyUnitView, CompletedOperation, FactorRole, FinalApprovalView,
-    FlowApplyOutcome, FlowEvent, FlowFinished, FlowKind, FlowTerminal, KeypadKey,
-    ProvisioningResultSession, ProvisioningResultView, RecipientFactView, ReviewArithmeticView,
-    ReviewChangeView, ReviewFeePolicyView, ReviewLocktimeView, ReviewOpReturnView,
-    ReviewOverviewView, ReviewRecipientView, ReviewSequenceView, ReviewSession,
+    CeremonySessionOutcome, CeremonyUnitView, CompletedOperation, EntropyInputMode, FactorRole,
+    FinalApprovalView, FlowApplyOutcome, FlowEvent, FlowFinished, FlowKind, FlowTerminal,
+    KeypadKey, ProvisioningResultSession, ProvisioningResultView, RecipientFactView,
+    ReviewArithmeticView, ReviewChangeView, ReviewFeePolicyView, ReviewLocktimeView,
+    ReviewOpReturnView, ReviewOverviewView, ReviewRecipientView, ReviewSequenceView, ReviewSession,
     ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind,
     TransactionResultSession, TransactionResultView, WipingReason,
 };

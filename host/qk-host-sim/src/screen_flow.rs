@@ -98,6 +98,14 @@ pub enum CeremonyPurpose {
     A2,
 }
 
+/// Ceremony-wide v1 dice input choice. This typed selection does not
+/// implement transcript capture, length validation, or camera behavior.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntropyInputMode {
+    DiceGrid,
+    ManualKeypad,
+}
+
 impl CeremonyPurpose {
     const fn next(self) -> Option<Self> {
         match self {
@@ -505,20 +513,26 @@ impl TransactionResultView {
 pub enum Screen<'a> {
     ProvisioningStart,
     TierSelection,
-    EntropyModeSelection,
+    EntropyModeSelection {
+        selected: EntropyInputMode,
+    },
     CeremonyInput {
         purpose: CeremonyPurpose,
+        mode: EntropyInputMode,
     },
     CeremonyEcho {
         purpose: CeremonyPurpose,
+        mode: EntropyInputMode,
         unit: CeremonyUnitView<'a>,
     },
     CeremonyConfirm {
         purpose: CeremonyPurpose,
+        mode: EntropyInputMode,
         unit: Option<CeremonyUnitView<'a>>,
     },
     CeremonyCommitment {
         purpose: CeremonyPurpose,
+        mode: EntropyInputMode,
         commitment: CeremonyCommitmentView<'a>,
     },
     DerivationExplanation,
@@ -573,7 +587,7 @@ impl Screen<'_> {
         match self {
             Self::ProvisioningStart => ScreenKind::ProvisioningStart,
             Self::TierSelection => ScreenKind::TierSelection,
-            Self::EntropyModeSelection => ScreenKind::EntropyModeSelection,
+            Self::EntropyModeSelection { .. } => ScreenKind::EntropyModeSelection,
             Self::CeremonyInput { .. } => ScreenKind::CeremonyInput,
             Self::CeremonyEcho { .. } => ScreenKind::CeremonyEcho,
             Self::CeremonyConfirm { .. } => ScreenKind::CeremonyConfirm,
@@ -623,6 +637,7 @@ enum MachineState {
 pub struct ScreenFlow {
     flow: FlowKind,
     state: MachineState,
+    entropy_mode: EntropyInputMode,
     ceremony_purpose: CeremonyPurpose,
     ceremony_confirmed: bool,
     ceremony_commitment: Option<[u8; 32]>,
@@ -726,6 +741,7 @@ impl ScreenFlow {
         Self {
             flow,
             state,
+            entropy_mode: EntropyInputMode::DiceGrid,
             ceremony_purpose: CeremonyPurpose::SeedA,
             ceremony_confirmed: false,
             ceremony_commitment: None,
@@ -774,16 +790,21 @@ impl ScreenFlow {
         Some(match self.screen_kind()? {
             ScreenKind::ProvisioningStart => Screen::ProvisioningStart,
             ScreenKind::TierSelection => Screen::TierSelection,
-            ScreenKind::EntropyModeSelection => Screen::EntropyModeSelection,
+            ScreenKind::EntropyModeSelection => Screen::EntropyModeSelection {
+                selected: self.entropy_mode,
+            },
             ScreenKind::CeremonyInput => Screen::CeremonyInput {
                 purpose: self.ceremony_purpose,
+                mode: self.entropy_mode,
             },
             ScreenKind::CeremonyConfirm if self.ceremony_confirmed => Screen::CeremonyConfirm {
                 purpose: self.ceremony_purpose,
+                mode: self.entropy_mode,
                 unit: None,
             },
             ScreenKind::CeremonyCommitment => Screen::CeremonyCommitment {
                 purpose: self.ceremony_purpose,
+                mode: self.entropy_mode,
                 commitment: CeremonyCommitmentView {
                     commitment: self.ceremony_commitment.as_ref()?,
                 },
@@ -921,6 +942,14 @@ impl ScreenFlow {
             }
             (ScreenKind::EntropyModeSelection, FlowEvent::Key(KeypadKey::EqualsConfirmEnter)) => {
                 self.continue_to(ScreenKind::CeremonyInput)
+            }
+            (ScreenKind::EntropyModeSelection, FlowEvent::Key(KeypadKey::FourLeft)) => {
+                self.entropy_mode = EntropyInputMode::DiceGrid;
+                self.continue_to(ScreenKind::EntropyModeSelection)
+            }
+            (ScreenKind::EntropyModeSelection, FlowEvent::Key(KeypadKey::SixRight)) => {
+                self.entropy_mode = EntropyInputMode::ManualKeypad;
+                self.continue_to(ScreenKind::EntropyModeSelection)
             }
             (ScreenKind::EntropyModeSelection, FlowEvent::Key(KeypadKey::CancelBack)) => {
                 self.continue_to(ScreenKind::TierSelection)
@@ -1156,6 +1185,7 @@ impl ScreenFlow {
     }
 
     fn wipe(&mut self, terminal: FlowTerminal) {
+        self.entropy_mode = EntropyInputMode::DiceGrid;
         self.ceremony_purpose = CeremonyPurpose::SeedA;
         self.ceremony_confirmed = false;
         self.ceremony_commitment = None;
@@ -1184,10 +1214,12 @@ impl<'flow, 'unit> CeremonySession<'flow, 'unit> {
         match self.stage {
             CeremonySessionStage::Echo => Screen::CeremonyEcho {
                 purpose: self.flow.ceremony_purpose,
+                mode: self.flow.entropy_mode,
                 unit,
             },
             CeremonySessionStage::Confirm => Screen::CeremonyConfirm {
                 purpose: self.flow.ceremony_purpose,
+                mode: self.flow.entropy_mode,
                 unit: Some(unit),
             },
         }

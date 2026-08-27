@@ -4,11 +4,11 @@ use libfuzzer_sys::fuzz_target;
 use qk_descriptor::{parse_descriptor_pair, DescriptorPair};
 use qk_host_sim::{
     ApprovalIdentity, ApprovalToken, CeremonyPurpose, CeremonySession, CeremonySessionOutcome,
-    CompletedOperation, ExportArtifactKind, ExportArtifacts, FactorRole, FlowApplyOutcome,
-    FlowEvent, FlowKind, FlowTerminal, KeypadKey, KitTier, ProvisioningResultSession,
-    RecipientFactView, ReviewReady, ReviewReadyWorkflow, ReviewSession, ReviewSessionOutcome,
-    ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind, SdArtifactMetadata, TierArtifacts,
-    TransactionResultSession, WipingReason,
+    CompletedOperation, EntropyInputMode, ExportArtifactKind, ExportArtifacts, FactorRole,
+    FlowApplyOutcome, FlowEvent, FlowKind, FlowTerminal, KeypadKey, KitTier,
+    ProvisioningResultSession, RecipientFactView, ReviewReady, ReviewReadyWorkflow, ReviewSession,
+    ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind, SdArtifactMetadata,
+    TierArtifacts, TransactionResultSession, WipingReason,
 };
 use qk_provisioning::{HostProvisioningRun, ProvisioningArtifacts};
 use qk_psbt::{InputSource, RecipientType, ReviewV2Output, ReviewV2OutputOwnership};
@@ -30,6 +30,7 @@ static FOREIGN_IDENTITY: OnceLock<ApprovalIdentity> = OnceLock::new();
 struct Snapshot {
     flow: FlowKind,
     screen: Option<ScreenKind>,
+    entropy_mode: Option<EntropyInputMode>,
     fact_index: Option<u32>,
     factor_role: Option<FactorRole>,
     terminal: Option<FlowTerminal>,
@@ -261,12 +262,17 @@ fn assert_purpose(purpose: CeremonyPurpose) {
     }
 }
 
+fn assert_entropy_mode(mode: EntropyInputMode) {
+    match mode {
+        EntropyInputMode::DiceGrid | EntropyInputMode::ManualKeypad => {}
+    }
+}
+
 fn assert_screen(flow: FlowKind, screen: Screen<'_>) {
     let review = review_ready().review();
     match screen {
         Screen::ProvisioningStart
         | Screen::TierSelection
-        | Screen::EntropyModeSelection
         | Screen::DerivationExplanation
         | Screen::ProvisionB
         | Screen::VerifyB
@@ -281,14 +287,28 @@ fn assert_screen(flow: FlowKind, screen: Screen<'_>) {
         | Screen::AwaitingSigning
         | Screen::Export
         | Screen::RecoveryRotation => {}
-        Screen::CeremonyInput { purpose } => assert_purpose(purpose),
-        Screen::CeremonyEcho { purpose, unit } => {
+        Screen::EntropyModeSelection { selected } => assert_entropy_mode(selected),
+        Screen::CeremonyInput { purpose, mode } => {
             assert_purpose(purpose);
+            assert_entropy_mode(mode);
+        }
+        Screen::CeremonyEcho {
+            purpose,
+            mode,
+            unit,
+        } => {
+            assert_purpose(purpose);
+            assert_entropy_mode(mode);
             assert!(!unit.bytes().is_empty());
             assert!(unit.bytes().len() <= MAX_PRESENTED_BYTES);
         }
-        Screen::CeremonyConfirm { purpose, unit } => {
+        Screen::CeremonyConfirm {
+            purpose,
+            mode,
+            unit,
+        } => {
             assert_purpose(purpose);
+            assert_entropy_mode(mode);
             if let Some(unit) = unit {
                 assert!(!unit.bytes().is_empty());
                 assert!(unit.bytes().len() <= MAX_PRESENTED_BYTES);
@@ -296,9 +316,11 @@ fn assert_screen(flow: FlowKind, screen: Screen<'_>) {
         }
         Screen::CeremonyCommitment {
             purpose,
+            mode,
             commitment,
         } => {
             assert_purpose(purpose);
+            assert_entropy_mode(mode);
             assert_eq!(commitment.bytes().len(), 32);
         }
         Screen::ProvisioningResult(view) => {
@@ -441,14 +463,27 @@ fn factor_role(screen: Screen<'_>) -> Option<FactorRole> {
     }
 }
 
+fn entropy_input_mode(screen: Screen<'_>) -> Option<EntropyInputMode> {
+    match screen {
+        Screen::EntropyModeSelection { selected } => Some(selected),
+        Screen::CeremonyInput { mode, .. }
+        | Screen::CeremonyEcho { mode, .. }
+        | Screen::CeremonyConfirm { mode, .. }
+        | Screen::CeremonyCommitment { mode, .. } => Some(mode),
+        _ => None,
+    }
+}
+
 fn record_screen(flow: FlowKind, screen: Screen<'_>, trace: &mut Trace) {
     let kind = screen.kind();
+    let mode = entropy_input_mode(screen);
     let index = fact_index(screen);
     let role = factor_role(screen);
     assert_screen(flow, screen);
     trace.snapshots.push(Snapshot {
         flow,
         screen: Some(kind),
+        entropy_mode: mode,
         fact_index: index,
         factor_role: role,
         terminal: None,
@@ -458,6 +493,7 @@ fn record_screen(flow: FlowKind, screen: Screen<'_>, trace: &mut Trace) {
 
 fn record_root(flow: &ScreenFlow, trace: &mut Trace) {
     let screen = flow.screen();
+    let mode = screen.and_then(entropy_input_mode);
     let role = screen.and_then(factor_role);
     match (flow.screen_kind(), screen) {
         (Some(kind), Some(screen)) => {
@@ -476,6 +512,7 @@ fn record_root(flow: &ScreenFlow, trace: &mut Trace) {
     trace.snapshots.push(Snapshot {
         flow: flow.flow_kind(),
         screen: flow.screen_kind(),
+        entropy_mode: mode,
         fact_index: screen.and_then(fact_index),
         factor_role: role,
         terminal: flow.terminal(),

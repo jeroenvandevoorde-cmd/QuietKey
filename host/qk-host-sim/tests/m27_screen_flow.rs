@@ -3,10 +3,10 @@
 use qk_descriptor::parse_descriptor_pair;
 use qk_host_sim::{
     ApprovalIdentity, CeremonyPurpose, CeremonySessionOutcome, CompletedOperation,
-    ExportArtifactKind, ExportArtifacts, FactorRole, FlowApplyOutcome, FlowEvent, FlowKind,
-    FlowTerminal, KeypadKey, KitTier, RecipientFactView, ReviewReady, ReviewReadyWorkflow,
-    ReviewSession, ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind,
-    TierArtifacts, WipingReason,
+    EntropyInputMode, ExportArtifactKind, ExportArtifacts, FactorRole, FlowApplyOutcome, FlowEvent,
+    FlowKind, FlowTerminal, KeypadKey, KitTier, RecipientFactView, ReviewReady,
+    ReviewReadyWorkflow, ReviewSession, ReviewSessionOutcome, ScopedApplyOutcome, Screen,
+    ScreenFlow, ScreenKind, TierArtifacts, WipingReason,
 };
 use qk_provisioning::ProvisioningArtifacts;
 use qk_psbt::{InputSource, ReviewV2OutputOwnership};
@@ -232,6 +232,79 @@ fn approve<'flow, 'facts>(
 }
 
 #[test]
+fn entropy_mode_selection_is_typed_primary_first_and_ceremony_wide() {
+    let mut flow = ScreenFlow::new(FlowKind::Provisioning);
+    enter(&mut flow, ScreenKind::TierSelection);
+    enter(&mut flow, ScreenKind::EntropyModeSelection);
+    assert!(matches!(
+        flow.screen(),
+        Some(Screen::EntropyModeSelection {
+            selected: EntropyInputMode::DiceGrid
+        })
+    ));
+
+    root_continue(
+        &mut flow,
+        FlowEvent::Key(KeypadKey::SixRight),
+        ScreenKind::EntropyModeSelection,
+    );
+    root_continue(
+        &mut flow,
+        FlowEvent::Key(KeypadKey::SixRight),
+        ScreenKind::EntropyModeSelection,
+    );
+    assert!(matches!(
+        flow.screen(),
+        Some(Screen::EntropyModeSelection {
+            selected: EntropyInputMode::ManualKeypad
+        })
+    ));
+
+    root_continue(
+        &mut flow,
+        FlowEvent::Key(KeypadKey::CancelBack),
+        ScreenKind::TierSelection,
+    );
+    enter(&mut flow, ScreenKind::EntropyModeSelection);
+    assert!(matches!(
+        flow.screen(),
+        Some(Screen::EntropyModeSelection {
+            selected: EntropyInputMode::ManualKeypad
+        })
+    ));
+    enter(&mut flow, ScreenKind::CeremonyInput);
+    assert!(matches!(
+        flow.screen(),
+        Some(Screen::CeremonyInput {
+            purpose: CeremonyPurpose::SeedA,
+            mode: EntropyInputMode::ManualKeypad
+        })
+    ));
+
+    root_continue(
+        &mut flow,
+        FlowEvent::Key(KeypadKey::CancelBack),
+        ScreenKind::EntropyModeSelection,
+    );
+    root_continue(
+        &mut flow,
+        FlowEvent::Key(KeypadKey::FourLeft),
+        ScreenKind::EntropyModeSelection,
+    );
+    root_continue(
+        &mut flow,
+        FlowEvent::Key(KeypadKey::FourLeft),
+        ScreenKind::EntropyModeSelection,
+    );
+    assert!(matches!(
+        flow.screen(),
+        Some(Screen::EntropyModeSelection {
+            selected: EntropyInputMode::DiceGrid
+        })
+    ));
+}
+
+#[test]
 fn ceremony_scope_releases_exact_unit_before_commitment() {
     let mut flow = ScreenFlow::new(FlowKind::Provisioning);
     enter(&mut flow, ScreenKind::TierSelection);
@@ -328,7 +401,7 @@ fn provisioning_path_scopes_result_facts_and_completes_wiped() {
     .enumerate()
     {
         assert!(
-            matches!(flow.screen(), Some(Screen::CeremonyInput { purpose: actual }) if actual == purpose)
+            matches!(flow.screen(), Some(Screen::CeremonyInput { purpose: actual, .. }) if actual == purpose)
         );
         finish_one_ceremony(&mut flow, b"obviously public unit", [index as u8; 32]);
         enter(
@@ -1098,6 +1171,10 @@ fn expected_root(screen: ScreenKind, case: EventCase) -> OutcomeClass {
         (ScreenKind::EntropyModeSelection, EventCase::Key(KeypadKey::EqualsConfirmEnter)) => {
             OutcomeClass::Continue(ScreenKind::CeremonyInput)
         }
+        (
+            ScreenKind::EntropyModeSelection,
+            EventCase::Key(KeypadKey::FourLeft | KeypadKey::SixRight),
+        ) => OutcomeClass::Continue(ScreenKind::EntropyModeSelection),
         (ScreenKind::EntropyModeSelection, EventCase::Key(KeypadKey::CancelBack)) => {
             OutcomeClass::Continue(ScreenKind::TierSelection)
         }
