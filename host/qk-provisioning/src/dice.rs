@@ -9,13 +9,13 @@ const TRANSCRIPT_BYTES: usize = 100;
 fn digest_transcript(input: &[u8]) -> Result<Secret<32>, ProvisioningError> {
     let mut stored = [0u8; TRANSCRIPT_BYTES];
     for (position, &byte) in input.iter().enumerate() {
-        if !(b'1'..=b'6').contains(&byte) {
-            wipe(&mut stored);
-            return Err(ProvisioningError::InvalidDiceSymbol);
-        }
         if position >= TRANSCRIPT_BYTES {
             wipe(&mut stored);
             return Err(ProvisioningError::DiceCount);
+        }
+        if !(b'1'..=b'6').contains(&byte) {
+            wipe(&mut stored);
+            return Err(ProvisioningError::InvalidDiceSymbol);
         }
         stored[position] = byte;
     }
@@ -58,6 +58,12 @@ mod tests {
         ));
         assert!(matches!(
             digest_transcript(&[b'1'; 101]),
+            Err(ProvisioningError::DiceCount)
+        ));
+        let mut invalid_overflow = [b'1'; 101];
+        invalid_overflow[100] = b'0';
+        assert!(matches!(
+            digest_transcript(&invalid_overflow),
             Err(ProvisioningError::DiceCount)
         ));
         let mut invalid = [b'1'; 100];
