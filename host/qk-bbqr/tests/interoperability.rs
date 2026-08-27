@@ -8,6 +8,9 @@ use std::collections::BTreeMap;
 
 #[path = "../../qk-a1/src/sha256.rs"]
 mod fixture_sha256;
+#[allow(dead_code)]
+#[path = "../../qk-a1/src/wipe.rs"]
+mod wipe;
 
 const FIXTURE: &str = include_str!("fixtures/interoperability.txt");
 const FIXTURE_SHA256_HEX: &str = "a4700ba05534088c5129a7cff84187d7c109f8d7c775889d2fb36ecd620a28b8";

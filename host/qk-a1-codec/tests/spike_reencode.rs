@@ -5,6 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "../../qk-a1/src/sha256.rs"]
 mod fixture_sha256;
+#[allow(dead_code)]
+#[path = "../../qk-a1/src/wipe.rs"]
+mod wipe;
 
 const FIXTURE: &str = include_str!("fixtures/spike_reencode.txt");
 const CAPTURE_MANIFEST: &str = include_str!("../../../docs/evidence/M17-A1-SPIKE-CAPTURES.sha256");
