@@ -1,0 +1,33 @@
+# QUIETKEY_M26_BIP173_MAINNET_P2WSH_ENCODING_V1
+# PERMANENTLY NEVER-FUND PUBLIC ADDRESS KAT MATERIAL
+# source_repo=bitcoin/bips
+# source_commit=857a7debc6625a3dadbaecee1ee7b2ed5e8ada75
+# source_path=bip-0173.mediawiki
+# source_license=BSD-2-Clause
+# source_blob=5bcc4a5255bc85c78f3a4abaa7f4782f8acf6477
+# source_bytes=20803 source_lf=415 source_sha256=b19eab06b264bbd15ad7f7d640fa34de8f4a8809fba8a6ecc3e165545b27a543
+# exact_parsed_case_count=2 exact_executed_case_count=2
+# literal_published_mainnet_case_count=1 local_mainnet_hrp_derived_case_count=1
+# case_1=published mainnet address at source line 66 joined to its identical published P2WSH program at line 307
+# case_2=published P2WSH program at source line 311, locally encoded with fixed mainnet HRP bc; the source publishes only its testnet address
+# exclusions=all P2WPKH, witness versions 1 through 16, invalid/decode vectors, source prose and reference code
+# python_generator_sha256=a352bba9795cb6240f03e83fe5999948720e66d146f2d4829ac2f9c19d56a873
+# ruby_generator_sha256=f50155bae9a20f4d62150f550d2b30e6ffb06983f2e718259e67cf6365d22a66
+# two_generator_tsv_sha256=6df59b312382164ef800934ecb756df45b736925a9b9aad7828207610ab5362f
+# generator_agreement=Python and separately written Ruby implementations agree byte-for-byte on both program/address rows
+
+case: BIP173-LITERAL-MAINNET-P2WSH
+classification: published-mainnet
+source_lines: 66+307
+witness_version: 0
+witness_program: 1863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262
+script_pubkey: 00201863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262
+address: bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3
+
+case: BIP173-DERIVED-MAINNET-P2WSH
+classification: local-mainnet-hrp-encoding
+source_lines: 311
+witness_version: 0
+witness_program: 000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433
+script_pubkey: 0020000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433
+address: bc1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvses5wp4dt

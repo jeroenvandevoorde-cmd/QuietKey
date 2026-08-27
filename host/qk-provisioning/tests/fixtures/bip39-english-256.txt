@@ -1,0 +1,75 @@
+# QUIETKEY_M26_TREZOR_BIP39_ENGLISH_256_V1
+# PERMANENTLY NEVER-FUND PUBLIC KAT MATERIAL
+# source_spec_repo=bitcoin/bips
+# source_spec_commit=857a7debc6625a3dadbaecee1ee7b2ed5e8ada75
+# source_spec_path=bip-0039.mediawiki
+# source_spec_license=MIT
+# source_spec_blob=2a6118b26a2acc72351b659f77eb1a24e16e554a
+# source_spec_bytes=6842 source_spec_lf=159 source_spec_sha256=afcbcbed36fe9eb734bd607398a8c124683ded2a75c3830e1b16c47b043a9134
+# source_wordlist_path=bip-0039/english.txt
+# source_wordlist_blob=942040ed50f7205cafc465496229128ba4f78e75
+# source_wordlist_bytes=13116 source_wordlist_lf=2048 source_wordlist_sha256=2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda
+# source_vectors_repo=trezor/python-mnemonic
+# source_vectors_license=MIT
+# source_vectors_commit=b57a5ad77a981e743f4167ab2f7927a55c1e82a8
+# source_vectors_path=vectors.json
+# source_vectors_blob=d362a5d4eb1ba800a52aec30116915cd4576e1fd
+# source_vectors_bytes=152400 source_vectors_lf=1754 source_vectors_sha256=fa3b937b7cff9c9b8ecd3aa011faeb8d6dd67993174b72326e83f4de8fdb30f8
+# source_license_path=LICENSE source_license_blob=b1357446497a09f87bc5e956d5c45b77e28f8545
+# source_license_bytes=1084 source_license_lf=21 source_license_sha256=d5e3c7c62a84e80073201e2f6e5130e9e6804fa05f8ac4f8b26a13c7d3969697
+# extraction=json english records at zero-based indices 8,9,10,11,14,17,20,23; retain fields entropy,mnemonic,seed only
+# source_record_spans=8:51-56,9:57-62,10:63-68,11:69-74,14:87-92,17:105-110,20:123-128,23:141-146
+# exclusions=all extended-private-key fields; all non-English records; all 12-word and 18-word records; all source prose and code
+# published_passphrase_ascii=TREZOR published_pbkdf2_rounds=2048 published_seed_bytes=64
+# exact_parsed_case_count=8 exact_executed_case_count=8
+# verification=each entropy is 32 bytes; mnemonic is exactly 24 English words with SHA256 checksum; PBKDF2-HMAC-SHA512 reproduces the published seed
+# extraction_generator_sha256=8f0e4543b96197f6195c427b30847c28950c759f8c41fcae7382d543833b23dc
+# extraction_runtime=Python standard library only (json, hashlib, unicodedata); no upstream implementation code executed
+
+case: TREZOR-ENGLISH-256-08
+source_index: 8
+entropy: 0000000000000000000000000000000000000000000000000000000000000000
+mnemonic: abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art
+seed: bda85446c68413707090a52022edd26a1c9462295029f2e60cd7c4f2bbd3097170af7a4d73245cafa9c3cca8d561a7c3de6f5d4a10be8ed2a5e608d68f92fcc8
+
+case: TREZOR-ENGLISH-256-09
+source_index: 9
+entropy: 7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
+mnemonic: legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title
+seed: bc09fca1804f7e69da93c2f2028eb238c227f2e9dda30cd63699232578480a4021b146ad717fbb7e451ce9eb835f43620bf5c514db0f8add49f5d121449d3e87
+
+case: TREZOR-ENGLISH-256-10
+source_index: 10
+entropy: 8080808080808080808080808080808080808080808080808080808080808080
+mnemonic: letter advice cage absurd amount doctor acoustic avoid letter advice cage absurd amount doctor acoustic avoid letter advice cage absurd amount doctor acoustic bless
+seed: c0c519bd0e91a2ed54357d9d1ebef6f5af218a153624cf4f2da911a0ed8f7a09e2ef61af0aca007096df430022f7a2b6fb91661a9589097069720d015e4e982f
+
+case: TREZOR-ENGLISH-256-11
+source_index: 11
+entropy: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+mnemonic: zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote
+seed: dd48c104698c30cfe2b6142103248622fb7bb0ff692eebb00089b32d22484e1613912f0a5b694407be899ffd31ed3992c456cdf60f5d4564b8ba3f05a69890ad
+
+case: TREZOR-ENGLISH-256-14
+source_index: 14
+entropy: 68a79eaca2324873eacc50cb9c6eca8cc68ea5d936f98787c60c7ebc74e6ce7c
+mnemonic: hamster diagram private dutch cause delay private meat slide toddler razor book happy fancy gospel tennis maple dilemma loan word shrug inflict delay length
+seed: 64c87cde7e12ecf6704ab95bb1408bef047c22db4cc7491c4271d170a1b213d20b385bc1588d9c7b38f1b39d415665b8a9030c9ec653d75e65f847d8fc1fc440
+
+case: TREZOR-ENGLISH-256-17
+source_index: 17
+entropy: 9f6a2878b2520799a44ef18bc7df394e7061a224d2c33cd015b157d746869863
+mnemonic: panda eyebrow bullet gorilla call smoke muffin taste mesh discover soft ostrich alcohol speed nation flash devote level hobby quick inner drive ghost inside
+seed: 72be8e052fc4919d2adf28d5306b5474b0069df35b02303de8c1729c9538dbb6fc2d731d5f832193cd9fb6aeecbc469594a70e3dd50811b5067f3b88b28c3e8d
+
+case: TREZOR-ENGLISH-256-20
+source_index: 20
+entropy: 066dca1a2bb7e8a1db2832148ce9933eea0f3ac9548d793112d9a95c9407efad
+mnemonic: all hour make first leader extend hole alien behind guard gospel lava path output census museum junior mass reopen famous sing advance salt reform
+seed: 26e975ec644423f4a4c4f4215ef09b4bd7ef924e85d1d17c4cf3f136c2863cf6df0a475045652c57eb5fb41513ca2a2d67722b77e954b4b3fc11f7590449191d
+
+case: TREZOR-ENGLISH-256-23
+source_index: 23
+entropy: f585c11aec520db57dd353c69554b21a89b20fb0650966fa0a9d6f74fd989d8f
+mnemonic: void come effort suffer camp survey warrior heavy shoot primary clutch crush open amazing screen patrol group space point ten exist slush involve unfold
+seed: 01f5bced59dec48e362f2c45b5de68b9fd6c92c6634f44d6d40aab69056506f0e35524a518034ddc1192e1dacd32c1ed3eaa3c3b131c88ed8e7e54c49a5d0998
