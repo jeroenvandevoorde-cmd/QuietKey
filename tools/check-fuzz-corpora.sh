@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..112 corpus registries.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -162,17 +162,20 @@ m22_manifest='fuzz/CORPUS-MANIFEST-M22.tsv'
 m23_manifest='fuzz/CORPUS-MANIFEST-M23.tsv'
 m24_manifest='fuzz/CORPUS-MANIFEST-M24.tsv'
 m25_manifest='fuzz/CORPUS-MANIFEST-M25.tsv'
+m26_manifest='fuzz/CORPUS-MANIFEST-M26.tsv'
 m21_targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
 m22_targets='qk_bbqr_codec qk_bbqr_reassembly'
 m23_targets='qk_psbt_m23 qk_host_sim_m23'
 m24_targets='qk_host_sim_m24'
 m25_targets='qk_host_sim_m25'
-all_targets="$m21_targets $m22_targets $m23_targets $m24_targets $m25_targets"
+m26_targets='qk_provisioning_inputs_m26 qk_provisioning_chain_m26'
+all_targets="$m21_targets $m22_targets $m23_targets $m24_targets $m25_targets $m26_targets"
 m21_order='qk_psbt,qk_descriptor,qk_a1,qk_a1_codec,qk_card_trace'
 m22_order='qk_bbqr_codec,qk_bbqr_reassembly'
 m23_order='qk_psbt_m23,qk_host_sim_m23'
 m24_order='qk_host_sim_m24'
 m25_order='qk_host_sim_m25'
+m26_order='qk_provisioning_inputs_m26,qk_provisioning_chain_m26'
 
 mode=check
 render_source=''
@@ -185,17 +188,18 @@ case "$#" in
       --render-m23) mode=render_m23 ;;
       --render-m24) mode=render_m24 ;;
       --render-m25) mode=render_m25 ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT]' ;;
+      --render-m26) mode=render_m26 ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT]' ;;
     esac
     render_source=$2
     validate_source_commit "$render_source"
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT]' ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT]' ;;
 esac
 
 if [ "$mode" = check ]; then
   for manifest in "$m21_manifest" "$m22_manifest" "$m23_manifest" "$m24_manifest" \
-    "$m25_manifest"; do
+    "$m25_manifest" "$m26_manifest"; do
     [ -f "$manifest" ] || fail "$manifest is missing"
     [ ! -L "$manifest" ] || fail "$manifest must not be a symlink"
     git ls-files --error-unmatch -- "$manifest" >/dev/null 2>&1 || \
@@ -210,7 +214,8 @@ unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
   ! -name qk_a1_codec ! -name qk_card_trace \
   ! -name qk_bbqr_codec ! -name qk_bbqr_reassembly \
   ! -name qk_psbt_m23 ! -name qk_host_sim_m23 \
-  ! -name qk_host_sim_m24 ! -name qk_host_sim_m25 -print -quit) || \
+  ! -name qk_host_sim_m24 ! -name qk_host_sim_m25 \
+  ! -name qk_provisioning_inputs_m26 ! -name qk_provisioning_chain_m26 -print -quit) || \
   fail 'cannot inspect fuzz/corpus roots'
 [ -z "$unexpected" ] || fail "unexpected corpus root entry: $unexpected"
 for target in $all_targets; do
@@ -230,7 +235,8 @@ if [ -d fuzz/findings ]; then
     ! -name qk_a1_codec ! -name qk_card_trace \
     ! -name qk_bbqr_codec ! -name qk_bbqr_reassembly \
     ! -name qk_psbt_m23 ! -name qk_host_sim_m23 \
-    ! -name qk_host_sim_m24 ! -name qk_host_sim_m25 -print -quit) || \
+    ! -name qk_host_sim_m24 ! -name qk_host_sim_m25 \
+    ! -name qk_provisioning_inputs_m26 ! -name qk_provisioning_chain_m26 -print -quit) || \
     fail 'cannot inspect fuzz/findings roots'
   [ -z "$unexpected" ] || fail "unexpected finding root entry: $unexpected"
   for target in $all_targets; do
@@ -248,16 +254,19 @@ m22_entries=$(mktemp) || fail 'mktemp failed for M22 corpus entries'
 m23_entries=$(mktemp) || fail 'mktemp failed for M23 corpus entries'
 m24_entries=$(mktemp) || fail 'mktemp failed for M24 corpus entries'
 m25_entries=$(mktemp) || fail 'mktemp failed for M25 corpus entries'
+m26_entries=$(mktemp) || fail 'mktemp failed for M26 corpus entries'
 m21_expected=$(mktemp) || fail 'mktemp failed for M21 corpus manifest'
 m22_expected=$(mktemp) || fail 'mktemp failed for M22 corpus manifest'
 m23_expected=$(mktemp) || fail 'mktemp failed for M23 corpus manifest'
 m24_expected=$(mktemp) || fail 'mktemp failed for M24 corpus manifest'
 m25_expected=$(mktemp) || fail 'mktemp failed for M25 corpus manifest'
+m26_expected=$(mktemp) || fail 'mktemp failed for M26 corpus manifest'
 m21_paths=$(mktemp) || fail 'mktemp failed for M21 corpus paths'
 m22_paths=$(mktemp) || fail 'mktemp failed for M22 corpus paths'
 m23_paths=$(mktemp) || fail 'mktemp failed for M23 corpus paths'
 m24_paths=$(mktemp) || fail 'mktemp failed for M24 corpus paths'
 m25_paths=$(mktemp) || fail 'mktemp failed for M25 corpus paths'
+m26_paths=$(mktemp) || fail 'mktemp failed for M26 corpus paths'
 all_paths=$(mktemp) || fail 'mktemp failed for combined corpus paths'
 tracked_tmp=$(mktemp) || fail 'mktemp failed for tracked paths'
 target_tmp=$(mktemp) || fail 'mktemp failed for target entries'
@@ -266,25 +275,30 @@ manifest_m22_paths=$(mktemp) || fail 'mktemp failed for M22 manifest paths'
 manifest_m23_paths=$(mktemp) || fail 'mktemp failed for M23 manifest paths'
 manifest_m24_paths=$(mktemp) || fail 'mktemp failed for M24 manifest paths'
 manifest_m25_paths=$(mktemp) || fail 'mktemp failed for M25 manifest paths'
+manifest_m26_paths=$(mktemp) || fail 'mktemp failed for M26 manifest paths'
 trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$m23_entries" "$m23_expected" "$m24_entries" "$m24_expected" \
-  "$m25_entries" "$m25_expected" \
+  "$m25_entries" "$m25_expected" "$m26_entries" "$m26_expected" \
   "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
+  "$m26_paths" \
   "$all_paths" "$tracked_tmp" "$target_tmp" "$manifest_m21_paths" \
   "$manifest_m22_paths" "$manifest_m23_paths" "$manifest_m24_paths" \
-  "$manifest_m25_paths"' EXIT HUP INT TERM
+  "$manifest_m25_paths" "$manifest_m26_paths"' EXIT HUP INT TERM
 
 emit_partition_entries "$m21_targets" "$m21_entries"
 emit_partition_entries "$m22_targets" "$m22_entries"
 emit_partition_entries "$m23_targets" "$m23_entries"
 emit_partition_entries "$m24_targets" "$m24_entries"
 emit_partition_entries "$m25_targets" "$m25_entries"
+emit_partition_entries "$m26_targets" "$m26_entries"
 cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'
 cut -f 5 "$m22_entries" | LC_ALL=C sort > "$m22_paths" || fail 'cannot list M22 corpus paths'
 cut -f 5 "$m23_entries" | LC_ALL=C sort > "$m23_paths" || fail 'cannot list M23 corpus paths'
 cut -f 5 "$m24_entries" | LC_ALL=C sort > "$m24_paths" || fail 'cannot list M24 corpus paths'
 cut -f 5 "$m25_entries" | LC_ALL=C sort > "$m25_paths" || fail 'cannot list M25 corpus paths'
-cat "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" | \
+cut -f 5 "$m26_entries" | LC_ALL=C sort > "$m26_paths" || fail 'cannot list M26 corpus paths'
+cat "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
+  "$m26_paths" | \
   LC_ALL=C sort > "$all_paths" || \
   fail 'cannot combine corpus paths'
 duplicate=$(uniq -d "$all_paths" | sed -n '1p')
@@ -301,6 +315,7 @@ case "$mode" in
     m23_source=$(manifest_source "$m23_manifest")
     m24_source=$(manifest_source "$m24_manifest")
     m25_source=$(manifest_source "$m25_manifest")
+    m26_source=$(manifest_source "$m26_manifest")
     render_partition 'QK-M21-CORPUS-MANIFEST-V1' "$m21_source" "$m21_targets" \
       "$m21_order" "$m21_entries" "$m21_expected"
     render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$m22_source" "$m22_targets" \
@@ -311,13 +326,17 @@ case "$mode" in
       "$m24_order" "$m24_entries" "$m24_expected"
     render_partition 'QK-M25-CORPUS-MANIFEST-V1' "$m25_source" "$m25_targets" \
       "$m25_order" "$m25_entries" "$m25_expected"
+    render_partition 'QK-M26-CORPUS-MANIFEST-V1' "$m26_source" "$m26_targets" \
+      "$m26_order" "$m26_entries" "$m26_expected"
     extract_manifest_paths "$m21_manifest" "$m21_order" "$manifest_m21_paths"
     extract_manifest_paths "$m22_manifest" "$m22_order" "$manifest_m22_paths"
     extract_manifest_paths "$m23_manifest" "$m23_order" "$manifest_m23_paths"
     extract_manifest_paths "$m24_manifest" "$m24_order" "$manifest_m24_paths"
     extract_manifest_paths "$m25_manifest" "$m25_order" "$manifest_m25_paths"
+    extract_manifest_paths "$m26_manifest" "$m26_order" "$manifest_m26_paths"
     duplicate=$(cat "$manifest_m21_paths" "$manifest_m22_paths" "$manifest_m23_paths" \
-      "$manifest_m24_paths" "$manifest_m25_paths" | LC_ALL=C sort | \
+      "$manifest_m24_paths" "$manifest_m25_paths" "$manifest_m26_paths" | \
+      LC_ALL=C sort | \
       uniq -d | sed -n '1p')
     [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
     cmp -s "$m21_manifest" "$m21_expected" || \
@@ -330,6 +349,8 @@ case "$mode" in
       fail "$m24_manifest does not match the tracked M24 corpus bytes"
     cmp -s "$m25_manifest" "$m25_expected" || \
       fail "$m25_manifest does not match the tracked M25 corpus bytes"
+    cmp -s "$m26_manifest" "$m26_expected" || \
+      fail "$m26_manifest does not match the tracked M26 corpus bytes"
     ;;
   render_m21)
     render_partition 'QK-M21-CORPUS-MANIFEST-V1' "$render_source" "$m21_targets" \
@@ -355,6 +376,11 @@ case "$mode" in
     render_partition 'QK-M25-CORPUS-MANIFEST-V1' "$render_source" "$m25_targets" \
       "$m25_order" "$m25_entries" "$m25_expected"
     sed -n 'p' "$m25_expected"
+    ;;
+  render_m26)
+    render_partition 'QK-M26-CORPUS-MANIFEST-V1' "$render_source" "$m26_targets" \
+      "$m26_order" "$m26_entries" "$m26_expected"
+    sed -n 'p' "$m26_expected"
     ;;
 esac
 
