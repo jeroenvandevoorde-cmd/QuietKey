@@ -3,11 +3,12 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only HOST seams: D-09 review binding, bounded M24 signing/finalization, and capability-only M25 artifact binding, mock-SD lifecycle, and finalized-PSBT BBQr framing. No approval authority, real media I/O, UI, or target claim."
+description = "Library-only HOST seams through M27 typed screen-state ordering. No renderer, display, approval authority, signer integration, real media I/O, or target claim."
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }
 qk-host-model = { path = "../qk-host-model" }
 qk-psbt = { path = "../qk-psbt" }
 qk-descriptor = { path = "../qk-descriptor" }
+qk-provisioning = { path = "../qk-provisioning" }
 qk-secp = { path = "../qk-secp" }

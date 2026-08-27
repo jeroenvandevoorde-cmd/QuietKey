@@ -82,6 +82,7 @@ fn exact_public_golden_binds_all_v2_facts() {
         [FeeWarning::RateHigh, FeeWarning::ShareHigh]
     );
     assert_eq!(review.direct_rbf(), DirectRbf::Signaled);
+    assert_eq!(review.input_count(), 1);
     assert_eq!(review.inputs().len(), 1);
     assert_eq!(review.inputs()[0].direct_rbf(), DirectRbf::Signaled);
     assert_eq!(review.inputs()[0].effective_sighash(), 1);

@@ -17,13 +17,19 @@
 //! M25 consumes only that checked finalization capability, binds exact
 //! immutable export facts, models each mock-SD artifact lifecycle, and
 //! exposes file-type-P BBQr framing only for the finalized PSBT.
+//! M27 adds a separate deterministic typed screen-flow seam over the
+//! already-frozen provisioning, review-v2, finalization, and export facts.
+//! It models ceremony/review order, interruptions, an opaque review-bound
+//! hold identity, post-hold no-yield, and logical cleanup only.
 //!
-//! No binary, server, UI, REPL, stdin, files, environment, network,
-//! database, service, port, preview, deployment, or background process.
+//! No binary, server, renderer, display driver, UI layout, REPL, stdin,
+//! files, environment, network, database, service, port, preview,
+//! deployment, or background process.
 //! No approval authority, real card session, arbitrary finalizer,
 //! transaction parser API, real media I/O, persistence, RPC, network, or
-//! broadcast. The M25 filesystem is a deterministic in-memory model and
-//! makes no physical-media claim. M15 only inserts supplied signatures;
+//! broadcast, or M27-to-M24 signer integration. The M25 filesystem is a
+//! deterministic in-memory model and makes no physical-media claim. M15
+//! only inserts supplied signatures;
 //! M24 is a separate non-authorizing HOST evidence path whose terminal
 //! key remains opaque inside qk-secp, and M16 can consume only a
 //! threshold-complete capability and returns no intermediate artifact.
@@ -44,6 +50,7 @@ mod finalization;
 mod insertion;
 mod m24_signing;
 mod review_ready;
+pub mod screen_flow;
 
 #[path = "../../qk-psbt/src/sha256.rs"]
 mod transaction_sha256;
@@ -60,6 +67,16 @@ pub use insertion::{
 };
 pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, TerminalInputKey};
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
+pub use screen_flow::{
+    ApprovalIdentity, ApprovalToken, CeremonyCommitmentView, CeremonyPurpose, CeremonySession,
+    CeremonySessionOutcome, CeremonyUnitView, CompletedOperation, FactorRole, FinalApprovalView,
+    FlowApplyOutcome, FlowEvent, FlowFinished, FlowKind, FlowTerminal, KeypadKey,
+    ProvisioningResultSession, ProvisioningResultView, RecipientFactView, ReviewArithmeticView,
+    ReviewChangeView, ReviewFeePolicyView, ReviewLocktimeView, ReviewOpReturnView,
+    ReviewOverviewView, ReviewRecipientView, ReviewSequenceView, ReviewSession,
+    ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind,
+    TransactionResultSession, TransactionResultView, WipingReason,
+};
 
 use qk_descriptor::DescriptorPair;
 use qk_host_model::transaction_policy::{

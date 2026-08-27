@@ -443,6 +443,12 @@ impl ReviewV2 {
         &self.inputs
     }
 
+    /// Canonically bound input count for trusted-review display.
+    #[must_use]
+    pub fn input_count(&self) -> usize {
+        self.inputs.len()
+    }
+
     /// Fully owned output facts in transaction order.
     #[must_use]
     pub fn outputs(&self) -> &[ReviewV2Output] {
