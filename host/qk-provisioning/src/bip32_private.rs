@@ -44,6 +44,28 @@ fn fingerprint(pubkey: &[u8; 33]) -> [u8; 4] {
     [hash160[0], hash160[1], hash160[2], hash160[3]]
 }
 
+fn add_child_scalar(parent: &[u8; 32], tweak: &[u8; 32]) -> Result<[u8; 32], ProvisioningError> {
+    // BIP32 permits IL == 0: the child scalar is then the parent scalar.
+    // For every nonzero IL, public-key creation delegates the exact
+    // IL < n range check to the pinned native boundary without local
+    // scalar-order arithmetic.
+    if tweak.iter().any(|&byte| byte != 0) {
+        map_pubkey(tweak, ProvisioningError::InvalidChildTweak)?;
+    }
+
+    let mut child = [0u8; 32];
+    if let Err(error) = qk_secp::provisioning_secret_tweak_add(parent, tweak, &mut child) {
+        child.fill(0);
+        return Err(match error {
+            // Parent validity is established and IL is now known to be
+            // in range, so the remaining ordinary rejection is k_i == 0.
+            qk_secp::SecpError::ProvisioningSecretTweakRejected => ProvisioningError::ZeroChild,
+            _ => ProvisioningError::CryptographicBackend,
+        });
+    }
+    Ok(child)
+}
+
 fn master(seed: &[u8; 64]) -> Result<PrivateNode, ProvisioningError> {
     let mut material = hmac_sha512(b"Bitcoin seed", seed);
     let mut scalar = [0u8; 32];
@@ -90,23 +112,11 @@ fn derive_hardened(parent: PrivateNode, index: u32) -> Result<PrivateNode, Provi
     child_chain.copy_from_slice(&material[32..]);
     material.fill(0);
 
-    if let Err(error) = map_pubkey(&tweak, ProvisioningError::InvalidChildTweak) {
-        tweak.fill(0);
-        child_chain.fill(0);
-        return Err(error);
-    }
-    let mut child_scalar = [0u8; 32];
-    let result =
-        qk_secp::provisioning_secret_tweak_add(parent.scalar.as_bytes(), &tweak, &mut child_scalar);
+    let result = add_child_scalar(parent.scalar.as_bytes(), &tweak);
     tweak.fill(0);
-    if let Err(error) = result {
-        child_scalar.fill(0);
+    let child_scalar = result.inspect_err(|_| {
         child_chain.fill(0);
-        return Err(match error {
-            qk_secp::SecpError::ProvisioningSecretTweakRejected => ProvisioningError::ZeroChild,
-            _ => ProvisioningError::CryptographicBackend,
-        });
-    }
+    })?;
     let child_depth = parent
         .depth
         .checked_add(1)
@@ -189,10 +199,28 @@ pub(crate) fn derive_account(seed: &[u8; 64]) -> Result<AccountPublic, Provision
 
 #[cfg(test)]
 mod tests {
-    use super::base58_encode;
+    use super::{add_child_scalar, base58_encode};
+    use crate::ProvisioningError;
+
+    const ORDER_N: [u8; 32] = [
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36,
+        0x41, 0x41,
+    ];
 
     #[test]
     fn fixed_base58_encoder_rejects_non_xpub_geometry() {
         assert!(base58_encode(&[0u8; 82]).is_err());
+    }
+
+    #[test]
+    fn bip32_zero_il_is_identity_while_order_is_rejected() {
+        let mut parent = [0u8; 32];
+        parent[31] = 1;
+        assert_eq!(add_child_scalar(&parent, &[0u8; 32]), Ok(parent));
+        assert_eq!(
+            add_child_scalar(&parent, &ORDER_N),
+            Err(ProvisioningError::InvalidChildTweak)
+        );
     }
 }
