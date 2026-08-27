@@ -151,10 +151,13 @@ fn compress(state: &mut [u64; 8], block: &[u8]) {
         b = a;
         a = t1.wrapping_add(t2);
     }
-    let mixed = [a, b, c, d, e, f, g, h];
+    let mut mixed = [a, b, c, d, e, f, g, h];
     for (s, v) in state.iter_mut().zip(mixed.iter()) {
         *s = s.wrapping_add(*v);
     }
+    w.fill(0);
+    mixed.fill(0);
+    core::hint::black_box((&mut w, &mut mixed));
 }
 
 /// One-shot FIPS 180-4 SHA-512 over a complete message.
@@ -184,6 +187,9 @@ pub(crate) fn sha512(message: &[u8]) -> [u8; 64] {
     for (chunk, word) in digest.chunks_exact_mut(8).zip(state.iter()) {
         chunk.copy_from_slice(&word.to_be_bytes());
     }
+    state.fill(0);
+    tail.fill(0);
+    core::hint::black_box((&mut state, &mut tail));
     digest
 }
 

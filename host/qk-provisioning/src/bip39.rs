@@ -29,7 +29,10 @@ fn word_at(index: usize) -> Option<&'static str> {
 }
 
 fn entropy_to_mnemonic(entropy: &[u8; ENTROPY_BYTES]) -> Result<Mnemonic, ProvisioningError> {
-    let checksum = sha256(entropy)[0];
+    let mut entropy_hash = sha256(entropy);
+    let checksum = entropy_hash[0];
+    entropy_hash.fill(0);
+    core::hint::black_box(&mut entropy_hash);
     let mut output = Secret::new([0u8; MNEMONIC_CAPACITY]);
     let mut offset = 0usize;
     for word_number in 0..MNEMONIC_WORDS {

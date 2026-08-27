@@ -145,6 +145,11 @@ impl Sha256 {
             let offset = index * 4;
             digest[offset..offset + 4].copy_from_slice(&word.to_be_bytes());
         }
+        self.state.fill(0);
+        self.buffer.fill(0);
+        self.buffered = 0;
+        self.message_len = 0;
+        core::hint::black_box(&mut self);
         digest
     }
 }
@@ -212,6 +217,8 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
     state[5] = state[5].wrapping_add(f);
     state[6] = state[6].wrapping_add(g);
     state[7] = state[7].wrapping_add(h);
+    schedule.fill(0);
+    core::hint::black_box(&mut schedule);
 }
 
 pub(crate) fn sha256(message: &[u8]) -> [u8; 32] {

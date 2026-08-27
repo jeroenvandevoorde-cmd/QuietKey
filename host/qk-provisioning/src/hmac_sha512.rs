@@ -23,7 +23,10 @@ const B: usize = 128;
 pub(crate) fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
     let mut k0 = [0u8; B];
     if key.len() > B {
-        k0[..64].copy_from_slice(&sha512(key));
+        let mut hashed_key = sha512(key);
+        k0[..64].copy_from_slice(&hashed_key);
+        hashed_key.fill(0);
+        core::hint::black_box(&mut hashed_key);
     } else {
         k0[..key.len()].copy_from_slice(key);
     }
@@ -32,13 +35,19 @@ pub(crate) fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
         inner.push(byte ^ 0x36);
     }
     inner.extend_from_slice(message);
-    let inner_hash = sha512(&inner);
+    let mut inner_hash = sha512(&inner);
     let mut outer = [0u8; B + 64];
     for (dst, &byte) in outer.iter_mut().zip(k0.iter()) {
         *dst = byte ^ 0x5c;
     }
     outer[B..].copy_from_slice(&inner_hash);
-    sha512(&outer)
+    let result = sha512(&outer);
+    k0.fill(0);
+    inner.fill(0);
+    inner_hash.fill(0);
+    outer.fill(0);
+    core::hint::black_box((&mut k0, &mut inner, &mut inner_hash, &mut outer));
+    result
 }
 
 #[cfg(test)]
