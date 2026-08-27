@@ -29,6 +29,12 @@ fn digest_transcript(input: &[u8]) -> Result<Secret<32>, ProvisioningError> {
 }
 
 pub(crate) fn digest_four(transcripts: [&[u8]; 4]) -> Result<[Secret<32>; 4], ProvisioningError> {
+    let digests = [
+        digest_transcript(transcripts[0])?,
+        digest_transcript(transcripts[1])?,
+        digest_transcript(transcripts[2])?,
+        digest_transcript(transcripts[3])?,
+    ];
     for left in 0..transcripts.len() {
         for right in left + 1..transcripts.len() {
             if transcripts[left] == transcripts[right] {
@@ -36,12 +42,7 @@ pub(crate) fn digest_four(transcripts: [&[u8]; 4]) -> Result<[Secret<32>; 4], Pr
             }
         }
     }
-    Ok([
-        digest_transcript(transcripts[0])?,
-        digest_transcript(transcripts[1])?,
-        digest_transcript(transcripts[2])?,
-        digest_transcript(transcripts[3])?,
-    ])
+    Ok(digests)
 }
 
 #[cfg(test)]
@@ -80,5 +81,19 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn malformed_transcript_precedes_cross_purpose_reuse() {
+        let invalid = [b'0'; 100];
+        assert!(matches!(
+            digest_four([&invalid, &invalid, &[b'2'; 100], &[b'3'; 100]]),
+            Err(ProvisioningError::InvalidDiceSymbol)
+        ));
+        let short = [b'1'; 99];
+        assert!(matches!(
+            digest_four([&short, &short, &[b'2'; 100], &[b'3'; 100]]),
+            Err(ProvisioningError::DiceCount)
+        ));
     }
 }
