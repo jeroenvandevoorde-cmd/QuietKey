@@ -110,6 +110,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "qk_host_sim_m27"
+path = "fuzz_targets/qk_host_sim_m27.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 overflow-checks = true
 debug-assertions = true

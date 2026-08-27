@@ -3,7 +3,7 @@
 EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-thirteen libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+fourteen libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. The M24 target uses
@@ -19,9 +19,14 @@ also includes two M26 `qk-provisioning` targets: one drives canonical QKEC-1,
 dice, and same-run nonce state through hostile boundary inputs; the other drives
 the deterministic public full chain and reparses every descriptor, address, and
 capsule result. Both assert repeat consistency, named rejection, and the absence
-of partial artifacts. This area changes no product behavior and reaches no card,
-camera, network, filesystem parser, real signing authority, or production
-target.
+of partial artifacts. The M27 `qk-host-sim` target drives the typed
+provisioning, signing, and recovery screen-flow transition machine through
+bounded event streams. It checks deterministic typed outcomes, the closed named
+error surface, fixed-order review visitation, approval identity binding,
+post-approval no-yield behavior, interruption wiping, terminal stability, and
+exact fact forwarding from public frozen fixture objects. This area changes no
+product behavior and reaches no card, camera, network, filesystem parser, real
+signing authority, or production target.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
@@ -58,6 +63,7 @@ fuzz/run-bounded.sh qk_host_sim_m24 100000
 fuzz/run-bounded.sh qk_host_sim_m25 100000
 fuzz/run-bounded.sh qk_provisioning_inputs_m26 100000
 fuzz/run-bounded.sh qk_provisioning_chain_m26 100000
+fuzz/run-bounded.sh qk_host_sim_m27 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
