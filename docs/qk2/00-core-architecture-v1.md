@@ -230,15 +230,18 @@ The security claim is narrow: if at least one input source is unpredictable and 
 
 #### Advanced: Pure physical dice
 
-- Exactly 100 private, independent d6 results per secret.
-- Valid characters are only `1` through `6`; invalid input is rejected immediately, never ignored or filtered.
-- Encode the exact 100 ASCII digits with no separators and compute SHA-256. The 32-byte digest is the entropy/key.
-- A, B, C, and A2 require four fresh transcripts: 400 rolls total. Reusing a transcript is a hard error within the ceremony.
-- The device displays roll count, grouped transcript review, and a short commitment. An independent offline verifier must reproduce the same 24 words or A2 digest.
+- V1 seed generation is dice-only. QKEC-1 remains verified library mathematics with no v1 product entry point.
+- The manual keypad fallback uses exactly 100 keyed d6 face values per secret: four fresh transcripts and 400 values per kit.
+- The intended-primary dice grid uses exactly 25 dice and five confirmed shakes per secret: 125 camera-read d6 face values per secret, four fresh transcripts and 20 shakes per kit. Its fixed-camera read accuracy, inter-shake independence, batch die-bias, and one-die-per-cell settling gates in QK-DEC-107 and QK-DEC-117 must pass before implementation.
+- In either profile, valid transcript bytes are only literal ASCII `1` through `6`; every other byte is rejected immediately, never ignored, filtered, normalized, or corrected.
+- Encode the exact 100- or 125-byte transcript with no separators and compute one SHA-256. The 32-byte digest is the secret; hashing contributes no counted entropy.
+- A, B, C, and A2 require four fresh transcripts. Exact transcript reuse across any pair is a hard error regardless of profile.
+- Counted entropy is face values only. Grid color, position, and arrangement contribute zero counted bits.
+- Every shake or manual entry is echoed for confirmation before acceptance. Outside that exact confirmation echo, the device displays each complete transcript's commitment and the final wallet fingerprint, but no mnemonic word, seed byte, transcript, randomness meter, or score. The transcript is seed-equivalent ceremony-only material, may be checked with an independent offline tool during the ceremony, is never exported, and is wiped when the ceremony ends.
 
-One hundred ideal d6 rolls contain about 258.5 bits before hashing. Ninety-nine rolls contain only about 255.9 bits, so the Ian Coleman/SeedSigner/COLDCARD-family 99-roll threshold is not QuietKey's 256-bit threshold.
+At a conservative worst-face probability of 0.20, 100 values provide about 232 bits of min-entropy and 125 values about 290 bits. The fifth grid shake supplies the bias margin for kit dice reused across all four secrets. The manual fallback remains at 100 because that is the frozen architecture threshold, exceeds the 99-roll industry threshold, and leaves the shipped validator unchanged. For ideal dice, 100 rolls contain about 258.5 bits before hashing, while 99 contain about 255.9 bits.
 
-The Ian Coleman variable-length base-6-to-bits mapping is not used. Although its conditional outputs can be unbiased, it is inefficient, variable-rate, and more difficult for a nontechnical user to reproduce than hashing the literal 100-roll transcript.
+The Ian Coleman variable-length base-6-to-bits mapping is not used. Although its conditional outputs can be unbiased, it is inefficient, variable-rate, and more difficult for a nontechnical user to reproduce than hashing the selected profile's fixed-length literal transcript.
 
 ### 4.3 What runtime health checks can and cannot prove
 
