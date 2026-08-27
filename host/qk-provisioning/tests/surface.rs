@@ -103,6 +103,19 @@ fn fixed_constants_and_private_traits_are_source_locked() {
     assert!(SECRET.contains("bytes: Box<[u8; N]>,"));
     assert!(SECRET.contains("pub(crate) fn take(bytes: &mut [u8; N]) -> Self"));
     assert!(SECRET.contains("pub(crate) fn wipe(bytes: &mut [u8])"));
+    assert!(SECRET.contains("#[inline(never)]\npub(crate) fn wipe(bytes: &mut [u8])"));
+    assert_eq!(
+        SECRET
+            .matches("unsafe { ptr::write_volatile(byte, 0) }")
+            .count(),
+        1
+    );
+    assert_eq!(
+        SECRET.matches("compiler_fence(Ordering::SeqCst)").count(),
+        1
+    );
+    assert_eq!(SECRET.matches("unsafe {").count(), 1);
+    assert!(!SECRET.contains("black_box"));
     assert!(!LIB.contains("impl Clone for HostProvisioningRun"));
     assert!(!LIB.contains("impl Copy for HostProvisioningRun"));
     assert!(!LIB.contains("impl Debug for HostProvisioningRun"));
@@ -141,7 +154,7 @@ fn secret_storage_and_successful_capsule_consumption_are_source_locked() {
 }
 
 #[test]
-fn production_sources_have_no_io_randomness_or_second_unsafe_boundary() {
+fn production_sources_have_no_io_randomness_and_only_secret_unsafe_boundary() {
     for source in [
         LIB,
         BIP39,
@@ -150,7 +163,6 @@ fn production_sources_have_no_io_randomness_or_second_unsafe_boundary() {
         DESCRIPTOR,
         DICE,
         QKEC,
-        SECRET,
         SHA256,
         SHA512,
         HMAC_SHA256,
@@ -178,6 +190,35 @@ fn production_sources_have_no_io_randomness_or_second_unsafe_boundary() {
         }
     }
     assert!(LIB.contains("#![deny(unsafe_code)]"));
+    assert_eq!(SECRET.matches("#![allow(unsafe_code)]").count(), 1);
+    assert!(SECRET.contains("#![deny(unsafe_op_in_unsafe_fn)]"));
+    let volatile_write = SECRET
+        .find("unsafe { ptr::write_volatile(byte, 0) }")
+        .expect("sole volatile byte write");
+    let final_fence = SECRET
+        .find("compiler_fence(Ordering::SeqCst)")
+        .expect("post-write compiler fence");
+    assert!(volatile_write < final_fence);
+    for forbidden in [
+        "unsafe fn",
+        "extern \"C\"",
+        "std::fs",
+        "std::io",
+        "std::net",
+        "std::env",
+        "println!",
+        "eprintln!",
+        "SystemTime",
+        "getrandom",
+        "OsRng",
+        "rand::",
+        "random(",
+    ] {
+        assert!(
+            !SECRET.contains(forbidden),
+            "forbidden secret-boundary token {forbidden}"
+        );
+    }
 }
 
 #[test]

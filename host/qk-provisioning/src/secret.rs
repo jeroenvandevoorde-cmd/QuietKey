@@ -1,9 +1,21 @@
 //! Private fixed-size secret owner for HOST reference intermediates.
 
+#![allow(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
+
+use core::ptr;
+use core::sync::atomic::{compiler_fence, Ordering};
+
 /// Optimization-resistant clearing for private scratch bytes.
+#[inline(never)]
 pub(crate) fn wipe(bytes: &mut [u8]) {
-    bytes.fill(0);
-    core::hint::black_box(bytes);
+    for byte in bytes {
+        // SAFETY: byte is a uniquely borrowed live byte. Volatile
+        // writes make the clearing operation observable to the
+        // abstract machine and prevent dead-store elimination.
+        unsafe { ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
 }
 
 /// Non-copyable, non-debuggable move-stable fixed-size bytes cleared on drop.
@@ -39,5 +51,21 @@ impl<const N: usize> Secret<N> {
 impl<const N: usize> Drop for Secret<N> {
     fn drop(&mut self) {
         wipe(self.bytes.as_mut());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wipe;
+
+    #[test]
+    fn volatile_wipe_clears_arbitrary_slice_lengths_only() {
+        for length in [0, 1, 12, 31, 32, 37, 64, 100, 128, 215] {
+            let mut storage = [0xa5; 221];
+            wipe(&mut storage[3..3 + length]);
+            assert_eq!(storage[..3], [0xa5; 3]);
+            assert!(storage[3..3 + length].iter().all(|&byte| byte == 0));
+            assert!(storage[3 + length..].iter().all(|&byte| byte == 0xa5));
+        }
     }
 }
