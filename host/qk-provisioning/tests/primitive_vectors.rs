@@ -7,6 +7,9 @@ mod hkdf_sha256;
 #[path = "../src/hmac_sha256.rs"]
 mod hmac_sha256;
 #[allow(dead_code)]
+#[path = "../src/secret.rs"]
+mod secret;
+#[allow(dead_code)]
 #[path = "../src/sha256.rs"]
 mod sha256;
 

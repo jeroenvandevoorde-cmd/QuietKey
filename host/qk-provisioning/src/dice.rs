@@ -1,6 +1,6 @@
 //! Exact four-secret Advanced-mode dice transcript handling.
 
-use crate::secret::Secret;
+use crate::secret::{wipe, Secret};
 use crate::sha256::sha256;
 use crate::ProvisioningError;
 
@@ -10,22 +10,22 @@ fn digest_transcript(input: &[u8]) -> Result<Secret<32>, ProvisioningError> {
     let mut stored = [0u8; TRANSCRIPT_BYTES];
     for (position, &byte) in input.iter().enumerate() {
         if !(b'1'..=b'6').contains(&byte) {
-            stored.fill(0);
+            wipe(&mut stored);
             return Err(ProvisioningError::InvalidDiceSymbol);
         }
         if position >= TRANSCRIPT_BYTES {
-            stored.fill(0);
+            wipe(&mut stored);
             return Err(ProvisioningError::DiceCount);
         }
         stored[position] = byte;
     }
     if input.len() != TRANSCRIPT_BYTES {
-        stored.fill(0);
+        wipe(&mut stored);
         return Err(ProvisioningError::DiceCount);
     }
-    let digest = sha256(&stored);
-    stored.fill(0);
-    Ok(Secret::new(digest))
+    let mut digest = sha256(&stored);
+    wipe(&mut stored);
+    Ok(Secret::take(&mut digest))
 }
 
 pub(crate) fn digest_four(transcripts: [&[u8]; 4]) -> Result<[Secret<32>; 4], ProvisioningError> {

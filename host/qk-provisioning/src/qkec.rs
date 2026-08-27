@@ -1,7 +1,7 @@
 //! Canonical QKEC-1 source records and per-purpose conditioning.
 
 use crate::hkdf_sha256::{expand, extract};
-use crate::secret::Secret;
+use crate::secret::{wipe, Secret};
 use crate::sha256::Sha256;
 use crate::ProvisioningError;
 
@@ -73,14 +73,14 @@ fn condition_one(
     let mut prk = extract(&salt, record);
     let mut output = [0u8; 32];
     if !expand(&prk, OUTPUT_INFO, &mut output) {
-        salt.fill(0);
-        prk.fill(0);
-        output.fill(0);
+        wipe(&mut salt);
+        wipe(&mut prk);
+        wipe(&mut output);
         return Err(ProvisioningError::CryptographicInvariant);
     }
-    salt.fill(0);
-    prk.fill(0);
-    Ok(Secret::new(output))
+    wipe(&mut salt);
+    wipe(&mut prk);
+    Ok(Secret::take(&mut output))
 }
 
 pub(crate) fn condition_four(

@@ -1,6 +1,7 @@
 //! Private HKDF-SHA256 following RFC 5869.
 
 use crate::hmac_sha256::{hmac_sha256, hmac_sha256_parts};
+use crate::secret::wipe;
 
 const HASH_LEN: usize = 32;
 const MAX_OUTPUT_LEN: usize = 255 * HASH_LEN;
@@ -27,10 +28,10 @@ pub(crate) fn expand(prk: &[u8; HASH_LEN], info: &[u8], output: &mut [u8]) -> bo
         let taken = core::cmp::min(HASH_LEN, output.len() - offset);
         output[offset..offset + taken].copy_from_slice(&block[..taken]);
         previous.copy_from_slice(&block);
-        block.fill(0);
+        wipe(&mut block);
         offset += taken;
         counter = counter.wrapping_add(1);
     }
-    previous.fill(0);
+    wipe(&mut previous);
     true
 }

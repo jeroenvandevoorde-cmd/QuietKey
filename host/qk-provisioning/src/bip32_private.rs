@@ -1,8 +1,8 @@
 //! Private fixed-path BIP32 derivation and mainnet xpub serialization.
 
-use crate::hmac_sha512::hmac_sha512;
+use crate::hmac_sha512::hmac_sha512_into;
 use crate::ripemd160::ripemd160;
-use crate::secret::Secret;
+use crate::secret::{wipe, Secret};
 use crate::sha256::sha256;
 use crate::ProvisioningError;
 
@@ -48,18 +48,24 @@ fn fingerprint(pubkey: &[u8; 33]) -> [u8; 4] {
     [hash160[0], hash160[1], hash160[2], hash160[3]]
 }
 
-fn add_child_scalar(parent: &[u8; 32], tweak: &[u8; 32]) -> Result<[u8; 32], ProvisioningError> {
+fn add_child_scalar(
+    parent: &[u8; 32],
+    tweak: &[u8; 32],
+    child: &mut [u8; 32],
+) -> Result<(), ProvisioningError> {
     // BIP32 permits IL == 0: the child scalar is then the parent scalar.
     // For every nonzero IL, public-key creation delegates the exact
     // IL < n range check to the pinned native boundary without local
     // scalar-order arithmetic.
     if tweak.iter().any(|&byte| byte != 0) {
-        map_pubkey(tweak, ProvisioningError::InvalidChildTweak)?;
+        if let Err(error) = map_pubkey(tweak, ProvisioningError::InvalidChildTweak) {
+            wipe(child);
+            return Err(error);
+        }
     }
 
-    let mut child = [0u8; 32];
-    if let Err(error) = qk_secp::provisioning_secret_tweak_add(parent, tweak, &mut child) {
-        child.fill(0);
+    if let Err(error) = qk_secp::provisioning_secret_tweak_add(parent, tweak, child) {
+        wipe(child);
         return Err(match error {
             // Parent validity is established and IL is now known to be
             // in range, so the remaining ordinary rejection is k_i == 0.
@@ -67,28 +73,29 @@ fn add_child_scalar(parent: &[u8; 32], tweak: &[u8; 32]) -> Result<[u8; 32], Pro
             _ => ProvisioningError::CryptographicBackend,
         });
     }
-    Ok(child)
+    Ok(())
 }
 
 fn master(seed: &[u8; 64]) -> Result<PrivateNode, ProvisioningError> {
-    let mut material = hmac_sha512(b"Bitcoin seed", seed);
+    let mut material = [0u8; 64];
+    hmac_sha512_into(b"Bitcoin seed", seed, &mut material);
     let mut scalar = [0u8; 32];
     scalar.copy_from_slice(&material[..32]);
     let mut chain_code = [0u8; 32];
     chain_code.copy_from_slice(&material[32..]);
-    material.fill(0);
+    wipe(&mut material);
     let pubkey = match map_pubkey(&scalar, ProvisioningError::InvalidMasterScalar) {
         Ok(pubkey) => pubkey,
         Err(error) => {
-            scalar.fill(0);
-            chain_code.fill(0);
+            wipe(&mut scalar);
+            wipe(&mut chain_code);
             return Err(error);
         }
     };
     let origin_fingerprint = fingerprint(&pubkey);
     Ok(PrivateNode {
-        scalar: Secret::new(scalar),
-        chain_code: Secret::new(chain_code),
+        scalar: Secret::take(&mut scalar),
+        chain_code: Secret::take(&mut chain_code),
         depth: 0,
         parent_fingerprint: [0u8; 4],
         child_number: 0,
@@ -100,6 +107,10 @@ fn derive_hardened(parent: PrivateNode, index: u32) -> Result<PrivateNode, Provi
     if index < HARDENED {
         return Err(ProvisioningError::CryptographicInvariant);
     }
+    let child_depth = parent
+        .depth
+        .checked_add(1)
+        .ok_or(ProvisioningError::CryptographicInvariant)?;
     let parent_pubkey = map_pubkey(
         parent.scalar.as_bytes(),
         ProvisioningError::CryptographicBackend,
@@ -108,26 +119,24 @@ fn derive_hardened(parent: PrivateNode, index: u32) -> Result<PrivateNode, Provi
     let mut data = [0u8; 37];
     data[1..33].copy_from_slice(parent.scalar.as_bytes());
     data[33..].copy_from_slice(&index.to_be_bytes());
-    let mut material = hmac_sha512(parent.chain_code.as_bytes(), &data);
-    data.fill(0);
+    let mut material = [0u8; 64];
+    hmac_sha512_into(parent.chain_code.as_bytes(), &data, &mut material);
+    wipe(&mut data);
     let mut tweak = [0u8; 32];
     tweak.copy_from_slice(&material[..32]);
     let mut child_chain = [0u8; 32];
     child_chain.copy_from_slice(&material[32..]);
-    material.fill(0);
+    wipe(&mut material);
 
-    let result = add_child_scalar(parent.scalar.as_bytes(), &tweak);
-    tweak.fill(0);
-    let child_scalar = result.inspect_err(|_| {
-        child_chain.fill(0);
+    let mut child_scalar = [0u8; 32];
+    let result = add_child_scalar(parent.scalar.as_bytes(), &tweak, &mut child_scalar);
+    wipe(&mut tweak);
+    result.inspect_err(|_| {
+        wipe(&mut child_chain);
     })?;
-    let child_depth = parent
-        .depth
-        .checked_add(1)
-        .ok_or(ProvisioningError::CryptographicInvariant)?;
     Ok(PrivateNode {
-        scalar: Secret::new(child_scalar),
-        chain_code: Secret::new(child_chain),
+        scalar: Secret::take(&mut child_scalar),
+        chain_code: Secret::take(&mut child_chain),
         depth: child_depth,
         parent_fingerprint,
         child_number: index,
@@ -228,13 +237,16 @@ mod tests {
     fn bip32_zero_il_is_identity_while_order_is_rejected() {
         let mut parent = [0u8; 32];
         parent[31] = 1;
-        assert_eq!(add_child_scalar(&parent, &[0u8; 32]), Ok(parent));
+        let mut child = [0xa5u8; 32];
+        assert_eq!(add_child_scalar(&parent, &[0u8; 32], &mut child), Ok(()));
+        assert_eq!(child, parent);
         assert_eq!(
-            add_child_scalar(&parent, &ORDER_N_MINUS_ONE),
+            add_child_scalar(&parent, &ORDER_N_MINUS_ONE, &mut child),
             Err(ProvisioningError::ZeroChild)
         );
+        assert_eq!(child, [0u8; 32]);
         assert_eq!(
-            add_child_scalar(&parent, &ORDER_N),
+            add_child_scalar(&parent, &ORDER_N, &mut child),
             Err(ProvisioningError::InvalidChildTweak)
         );
     }

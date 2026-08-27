@@ -118,9 +118,14 @@ fn compress(state: &mut [u64; 8], block: &[u8]) {
     debug_assert_eq!(block.len(), BLOCK_LEN);
     let mut w = [0u64; 80];
     for (word, chunk) in w.iter_mut().zip(block.chunks_exact(8)) {
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(chunk);
-        *word = u64::from_be_bytes(bytes);
+        *word = (u64::from(chunk[0]) << 56)
+            | (u64::from(chunk[1]) << 48)
+            | (u64::from(chunk[2]) << 40)
+            | (u64::from(chunk[3]) << 32)
+            | (u64::from(chunk[4]) << 24)
+            | (u64::from(chunk[5]) << 16)
+            | (u64::from(chunk[6]) << 8)
+            | u64::from(chunk[7]);
     }
     for t in 16..80 {
         let s0 = w[t - 15].rotate_right(1) ^ w[t - 15].rotate_right(8) ^ (w[t - 15] >> 7);
@@ -160,8 +165,8 @@ fn compress(state: &mut [u64; 8], block: &[u8]) {
     core::hint::black_box((&mut w, &mut mixed));
 }
 
-/// One-shot FIPS 180-4 SHA-512 over a complete message.
-pub(crate) fn sha512(message: &[u8]) -> [u8; 64] {
+/// One-shot FIPS 180-4 SHA-512 into caller-owned fixed storage.
+pub(crate) fn sha512_into(message: &[u8], digest: &mut [u8; 64]) {
     let mut state = H0;
     let mut blocks = message.chunks_exact(BLOCK_LEN);
     for block in blocks.by_ref() {
@@ -183,13 +188,18 @@ pub(crate) fn sha512(message: &[u8]) -> [u8; 64] {
     for block in tail[..tail_len].chunks_exact(BLOCK_LEN) {
         compress(&mut state, block);
     }
-    let mut digest = [0u8; 64];
     for (chunk, word) in digest.chunks_exact_mut(8).zip(state.iter()) {
         chunk.copy_from_slice(&word.to_be_bytes());
     }
     state.fill(0);
     tail.fill(0);
     core::hint::black_box((&mut state, &mut tail));
+}
+
+#[cfg(test)]
+pub(crate) fn sha512(message: &[u8]) -> [u8; 64] {
+    let mut digest = [0u8; 64];
+    sha512_into(message, &mut digest);
     digest
 }
 

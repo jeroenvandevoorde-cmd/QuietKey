@@ -1,5 +1,6 @@
 //! Private fixed-memory HMAC-SHA256 reused on the established FIPS 198-1 pattern.
 
+use crate::secret::wipe;
 use crate::sha256::{sha256, Sha256};
 
 const BLOCK_LEN: usize = 64;
@@ -9,7 +10,7 @@ fn normalized_key(key: &[u8]) -> [u8; BLOCK_LEN] {
     if key.len() > BLOCK_LEN {
         let mut digest = sha256(key);
         block[..digest.len()].copy_from_slice(&digest);
-        digest.fill(0);
+        wipe(&mut digest);
     } else {
         block[..key.len()].copy_from_slice(key);
     }
@@ -37,10 +38,10 @@ pub(crate) fn hmac_sha256_parts(key: &[u8], message_parts: &[&[u8]]) -> [u8; 32]
     outer.update(&inner_digest);
     let result = outer.finish();
 
-    key_block.fill(0);
-    inner_pad.fill(0);
-    outer_pad.fill(0);
-    inner_digest.fill(0);
+    wipe(&mut key_block);
+    wipe(&mut inner_pad);
+    wipe(&mut outer_pad);
+    wipe(&mut inner_digest);
     result
 }
 

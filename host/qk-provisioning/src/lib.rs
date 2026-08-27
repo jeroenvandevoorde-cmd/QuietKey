@@ -100,8 +100,8 @@ pub struct ProvisioningArtifacts {
 /// This type deliberately implements no `Clone`, `Copy`, `Debug`, or display
 /// trait because it owns transient Seed-A and A2 bytes.
 pub struct HostProvisioningRun {
-    seed_a: Secret<32>,
-    a2: Secret<32>,
+    seed_a: Option<Secret<32>>,
+    a2: Option<Secret<32>>,
     account_xpubs: [[u8; 111]; 3],
     wallet: WalletPublic,
     nonce: Option<[u8; 12]>,
@@ -128,8 +128,8 @@ impl HostProvisioningRun {
         let account_xpubs = [account_a.xpub, account_b.xpub, account_c.xpub];
         let wallet = build_wallet([account_a, account_b, account_c])?;
         Ok(Self {
-            seed_a,
-            a2,
+            seed_a: Some(seed_a),
+            a2: Some(a2),
             account_xpubs,
             wallet,
             nonce: None,
@@ -164,12 +164,22 @@ impl HostProvisioningRun {
                 Err(ProvisioningError::AlreadyEncrypted)
             };
         }
+        let seed_a = self
+            .seed_a
+            .as_ref()
+            .ok_or(ProvisioningError::CryptographicInvariant)?;
+        let a2 = self
+            .a2
+            .as_ref()
+            .ok_or(ProvisioningError::CryptographicInvariant)?;
         let capsule = qk_a1::encrypt(
-            self.a2.as_bytes(),
+            a2.as_bytes(),
             &self.wallet.wallet_id,
             nonce,
-            self.seed_a.as_bytes(),
+            seed_a.as_bytes(),
         );
+        drop(self.seed_a.take());
+        drop(self.a2.take());
         self.nonce = Some(*nonce);
         Ok(ProvisioningArtifacts {
             account_xpubs: self.account_xpubs,

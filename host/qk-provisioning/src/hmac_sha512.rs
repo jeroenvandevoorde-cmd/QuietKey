@@ -14,19 +14,20 @@
 //! claim.** This module is private to the crate; there is no general
 //! public HMAC API.
 
-use crate::sha512::sha512;
+use crate::secret::wipe;
+use crate::sha512::sha512_into;
 
 /// FIPS 198-1 block size B in bytes for SHA-512.
 const B: usize = 128;
 
 /// FIPS 198-1 HMAC over SHA-512.
-pub(crate) fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
+pub(crate) fn hmac_sha512_into(key: &[u8], message: &[u8], result: &mut [u8; 64]) {
     let mut k0 = [0u8; B];
     if key.len() > B {
-        let mut hashed_key = sha512(key);
+        let mut hashed_key = [0u8; 64];
+        sha512_into(key, &mut hashed_key);
         k0[..64].copy_from_slice(&hashed_key);
-        hashed_key.fill(0);
-        core::hint::black_box(&mut hashed_key);
+        wipe(&mut hashed_key);
     } else {
         k0[..key.len()].copy_from_slice(key);
     }
@@ -35,18 +36,24 @@ pub(crate) fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
         inner.push(byte ^ 0x36);
     }
     inner.extend_from_slice(message);
-    let mut inner_hash = sha512(&inner);
+    let mut inner_hash = [0u8; 64];
+    sha512_into(&inner, &mut inner_hash);
     let mut outer = [0u8; B + 64];
     for (dst, &byte) in outer.iter_mut().zip(k0.iter()) {
         *dst = byte ^ 0x5c;
     }
     outer[B..].copy_from_slice(&inner_hash);
-    let result = sha512(&outer);
-    k0.fill(0);
-    inner.fill(0);
-    inner_hash.fill(0);
-    outer.fill(0);
-    core::hint::black_box((&mut k0, &mut inner, &mut inner_hash, &mut outer));
+    sha512_into(&outer, result);
+    wipe(&mut k0);
+    wipe(inner.as_mut_slice());
+    wipe(&mut inner_hash);
+    wipe(&mut outer);
+}
+
+#[cfg(test)]
+pub(crate) fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
+    let mut result = [0u8; 64];
+    hmac_sha512_into(key, message, &mut result);
     result
 }
 

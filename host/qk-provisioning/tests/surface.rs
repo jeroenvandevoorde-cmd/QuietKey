@@ -8,11 +8,13 @@ const DESCRIPTOR: &str = include_str!("../src/descriptor_build.rs");
 const DICE: &str = include_str!("../src/dice.rs");
 const QKEC: &str = include_str!("../src/qkec.rs");
 const SECRET: &str = include_str!("../src/secret.rs");
+const SHA256: &str = include_str!("../src/sha256.rs");
+const SHA512: &str = include_str!("../src/sha512.rs");
+const HMAC_SHA256: &str = include_str!("../src/hmac_sha256.rs");
+const HMAC_SHA512: &str = include_str!("../src/hmac_sha512.rs");
+const HKDF_SHA256: &str = include_str!("../src/hkdf_sha256.rs");
+const RIPEMD160: &str = include_str!("../src/ripemd160.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
-
-fn production_prefix(source: &str) -> &str {
-    source.split("\n#[cfg(test)]\n").next().unwrap_or(source)
-}
 
 #[test]
 fn public_surface_is_exactly_error_artifacts_and_run_operations() {
@@ -98,22 +100,63 @@ fn fixed_constants_and_private_traits_are_source_locked() {
         assert!(!SECRET.contains(forbidden), "secret trait {forbidden}");
     }
     assert!(SECRET.contains("impl<const N: usize> Drop for Secret<N>"));
+    assert!(SECRET.contains("bytes: Box<[u8; N]>,"));
+    assert!(SECRET.contains("pub(crate) fn take(bytes: &mut [u8; N]) -> Self"));
+    assert!(SECRET.contains("pub(crate) fn wipe(bytes: &mut [u8])"));
     assert!(!LIB.contains("impl Clone for HostProvisioningRun"));
     assert!(!LIB.contains("impl Copy for HostProvisioningRun"));
     assert!(!LIB.contains("impl Debug for HostProvisioningRun"));
 }
 
 #[test]
+fn secret_storage_and_successful_capsule_consumption_are_source_locked() {
+    let take_start = SECRET
+        .find("pub(crate) fn take(bytes: &mut [u8; N]) -> Self")
+        .expect("take-and-wipe constructor");
+    let take_body = &SECRET[take_start..];
+    let stable_copy = take_body
+        .find("owned.copy_from_slice(bytes)")
+        .expect("copy into stable owner");
+    let source_wipe = take_body.find("wipe(bytes)").expect("caller scratch wipe");
+    assert!(stable_copy < source_wipe);
+    assert!(SECRET.contains("wipe(self.bytes.as_mut())"));
+
+    let encrypt_start = LIB
+        .find("pub fn encrypt_a1(")
+        .expect("one capsule operation");
+    let encrypt_body = &LIB[encrypt_start..];
+    let capsule = encrypt_body
+        .find("let capsule = qk_a1::encrypt")
+        .expect("capsule construction");
+    let seed_drop = encrypt_body
+        .find("drop(self.seed_a.take())")
+        .expect("Seed-A consumed after encryption");
+    let a2_drop = encrypt_body
+        .find("drop(self.a2.take())")
+        .expect("A2 consumed after encryption");
+    let nonce_commit = encrypt_body
+        .find("self.nonce = Some(*nonce)")
+        .expect("nonce state committed");
+    assert!(capsule < seed_drop && seed_drop < a2_drop && a2_drop < nonce_commit);
+}
+
+#[test]
 fn production_sources_have_no_io_randomness_or_second_unsafe_boundary() {
     for source in [
-        production_prefix(LIB),
-        production_prefix(BIP39),
-        production_prefix(BIP32),
-        production_prefix(BECH32),
-        production_prefix(DESCRIPTOR),
-        production_prefix(DICE),
-        production_prefix(QKEC),
-        production_prefix(SECRET),
+        LIB,
+        BIP39,
+        BIP32,
+        BECH32,
+        DESCRIPTOR,
+        DICE,
+        QKEC,
+        SECRET,
+        SHA256,
+        SHA512,
+        HMAC_SHA256,
+        HMAC_SHA512,
+        HKDF_SHA256,
+        RIPEMD160,
     ] {
         for forbidden in [
             "unsafe {",

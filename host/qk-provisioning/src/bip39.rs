@@ -1,7 +1,7 @@
 //! Private fixed-profile BIP39 English entropy-to-seed chain.
 
-use crate::hmac_sha512::hmac_sha512;
-use crate::secret::Secret;
+use crate::hmac_sha512::hmac_sha512_into;
+use crate::secret::{wipe, Secret};
 use crate::sha256::sha256;
 use crate::ProvisioningError;
 
@@ -31,9 +31,8 @@ fn word_at(index: usize) -> Option<&'static str> {
 fn entropy_to_mnemonic(entropy: &[u8; ENTROPY_BYTES]) -> Result<Mnemonic, ProvisioningError> {
     let mut entropy_hash = sha256(entropy);
     let checksum = entropy_hash[0];
-    entropy_hash.fill(0);
-    core::hint::black_box(&mut entropy_hash);
-    let mut output = Secret::new([0u8; MNEMONIC_CAPACITY]);
+    wipe(&mut entropy_hash);
+    let mut output = Secret::zeroed();
     let mut offset = 0usize;
     for word_number in 0..MNEMONIC_WORDS {
         let first_bit = word_number * 11;
@@ -78,17 +77,23 @@ fn pbkdf2_hmac_sha512(
     salt.extend_from_slice(b"mnemonic");
     salt.extend_from_slice(passphrase_nfkd_ascii);
     salt.extend_from_slice(&1u32.to_be_bytes());
-    let mut u = hmac_sha512(password, &salt);
-    let mut output = u;
+    let mut u = [0u8; 64];
+    hmac_sha512_into(password, &salt, &mut u);
+    let mut output = [0u8; 64];
+    output.copy_from_slice(&u);
     for _ in 1..PBKDF2_ROUNDS {
-        u = hmac_sha512(password, &u);
-        for (slot, value) in output.iter_mut().zip(u) {
-            *slot ^= value;
+        let mut next = [0u8; 64];
+        hmac_sha512_into(password, &u, &mut next);
+        wipe(&mut u);
+        u.copy_from_slice(&next);
+        for (slot, value) in output.iter_mut().zip(next.iter()) {
+            *slot ^= *value;
         }
+        wipe(&mut next);
     }
-    u.fill(0);
-    salt.fill(0);
-    Ok(Secret::new(output))
+    wipe(&mut u);
+    wipe(&mut salt);
+    Ok(Secret::take(&mut output))
 }
 
 pub(crate) fn entropy_to_seed(entropy: &[u8; 32]) -> Result<Secret<64>, ProvisioningError> {
