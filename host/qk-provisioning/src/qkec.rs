@@ -24,28 +24,37 @@ fn validate_record(record: &[u8]) -> Result<(), ProvisioningError> {
     }
 
     let expected_count = (record.len() - 1) / TLV_BYTES;
-    let mut seen = [false; 4];
-    let mut previous = 0u8;
+    let mut tags = [0u8; 4];
+    let mut lengths = [0u16; 4];
     for position in 0..expected_count {
         let offset = 1 + position * TLV_BYTES;
-        let tag = record[offset];
-        if !(1..=4).contains(&tag) {
-            return Err(ProvisioningError::UnknownSource);
-        }
-        if position != 0 {
-            if tag == previous {
+        tags[position] = record[offset];
+        lengths[position] = u16::from_be_bytes([record[offset + 1], record[offset + 2]]);
+    }
+    let tags = &tags[..expected_count];
+    let lengths = &lengths[..expected_count];
+    if tags.iter().any(|tag| !(1..=4).contains(tag)) {
+        return Err(ProvisioningError::UnknownSource);
+    }
+    if tags.windows(2).any(|pair| pair[1] < pair[0]) {
+        return Err(ProvisioningError::SourceOutOfOrder);
+    }
+    for left in 0..tags.len() {
+        for right in left + 1..tags.len() {
+            if tags[left] == tags[right] {
                 return Err(ProvisioningError::DuplicateSource);
             }
-            if tag < previous {
-                return Err(ProvisioningError::SourceOutOfOrder);
-            }
         }
-        let length = u16::from_be_bytes([record[offset + 1], record[offset + 2]]);
-        if usize::from(length) != SOURCE_BYTES {
-            return Err(ProvisioningError::InvalidSourceLength);
-        }
+    }
+    if lengths
+        .iter()
+        .any(|length| usize::from(*length) != SOURCE_BYTES)
+    {
+        return Err(ProvisioningError::InvalidSourceLength);
+    }
+    let mut seen = [false; 4];
+    for &tag in tags {
         seen[usize::from(tag - 1)] = true;
-        previous = tag;
     }
     if !seen[0] || !seen[1] || !seen[2] {
         return Err(ProvisioningError::MissingRequiredSource);
@@ -185,6 +194,22 @@ mod tests {
         assert_eq!(
             validate_record(&value),
             Err(ProvisioningError::MissingRequiredSource)
+        );
+
+        value = record(1, false);
+        value[36] = 1;
+        value[71] = 5;
+        assert_eq!(
+            validate_record(&value),
+            Err(ProvisioningError::UnknownSource)
+        );
+        value = record(1, false);
+        value[1] = 2;
+        value[36] = 2;
+        value[71] = 1;
+        assert_eq!(
+            validate_record(&value),
+            Err(ProvisioningError::SourceOutOfOrder)
         );
     }
 
