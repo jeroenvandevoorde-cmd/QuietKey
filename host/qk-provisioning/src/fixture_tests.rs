@@ -60,13 +60,13 @@ fn field<'a>(facts: &'a BTreeMap<&str, &str>, name: &str) -> &'a str {
 
 #[test]
 fn complete_two_constructor_fixture_recomputes_through_real_host_path() {
-    assert_eq!(FIXTURE.len(), 9_211);
-    assert_eq!(FIXTURE.bytes().filter(|&byte| byte == b'\n').count(), 91);
+    assert_eq!(FIXTURE.len(), 10_509);
+    assert_eq!(FIXTURE.bytes().filter(|&byte| byte == b'\n').count(), 96);
     assert!(FIXTURE.ends_with('\n'));
     assert!(!FIXTURE.contains('\r'));
     assert_eq!(
         hex_text(&sha256(FIXTURE.as_bytes())),
-        "0b4917ea4cbb498f225244636c5e16188791377b62d7c02a9f94b4945d0f9aeb"
+        "62544345997f3cc0e6d8a4d2249b3c276942d09390802370739b32efec661a99"
     );
     let facts = fields();
     assert_eq!(facts["format"], "QUIETKEY_M26_E2E_PUBLIC_FACTS_V1");

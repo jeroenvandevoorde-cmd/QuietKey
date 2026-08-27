@@ -5,6 +5,11 @@
 # ceremony_id=exact 16-byte ASCII M26-CEREMONY-001; nonce=exact 12-byte ASCII M26-NONCE-01
 # canonical_record=version 01 then strictly ascending unique records tag-u8 || length-u16BE || value32; tags 01,02,03
 # purposes=exact ASCII Seed-A,Signer-B,Signer-C,A2; HKDF info=exact ASCII QuietKey/256-bit-output
+# conditioning=salt SHA256(ASCII QuietKey/QKEC-1 || purpose || ceremony_id); HKDF-SHA256 Extract(salt,canonical_record), then Expand(PRK,info) to exactly 32 bytes
+# bip39=conditioned role bytes || first 8 SHA256 checksum bits, split into 24 big-endian 11-bit English indices; ASCII mnemonic sentence is its NFKD form; PBKDF2-HMAC-SHA512 password is that sentence, salt is exact 8-byte ASCII mnemonic for the fixed empty passphrase, 2048 rounds, 64-byte seed
+# bip32=HMAC-SHA512 key ASCII Bitcoin seed; hardened CKDpriv data 00 || ser256(parent) || ser32BE(index) on m/48'/0'/0'/2'; reject IL >= n or zero child without index search; serialize mainnet account xpub and master HASH160 fingerprint
+# wallet=construct receive/change wsh(sortedmulti(2,...)) descriptors in role A,B,C order with origins [fp/48'/0'/0'/2'] and branches /0/*,/1/*; add BIP380 checksums; strict reparse; wallet_id SHA256(full_receive || 00 || full_change); derive index-zero scripts and BIP173 mainnet v0 P2WSH addresses
+# a1=HKDF-SHA256 key from IKM A2, salt wallet_id, info ASCII QuietKey/A1/v1; RFC8439 encrypt Seed-A with public nonce; AAD exact QKA1 || 01 || 01 || 01 || wallet_id; wire header || nonce || ciphertext32 || tag16
 # wordlist_source=bitcoin/bips commit 857a7debc6625a3dadbaecee1ee7b2ed5e8ada75 path bip-0039/english.txt blob 942040ed50f7205cafc465496229128ba4f78e75
 # wordlist_bytes=13116 wordlist_lf=2048 wordlist_sha256=2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda
 # python_generator_sha256=6929bafdf71334c7beed0a8160d8e7e8370be2a43a202ab8268dd61036370838 runtime=CPython 3.9.6 pure standard-library arithmetic/encoding/AEAD
@@ -12,7 +17,7 @@
 # agreement_public_fact_count=72 agreement_body_bytes=6824 agreement_body_lf=72 agreement_body_sha256=defd3bae029574114f4820d76d07e5da9a151a644fbafe5a66ba8122a988122c
 # agreement=the two constructors agreed byte-for-byte on every field below before fixture framing
 # retained_internal_stage_facts=SHA256 commitments only for four conditioned outputs, three mnemonics, and three BIP39 seeds
-# excluded=raw conditioned outputs, mnemonic text, BIP39 seed bytes, private scalars, standalone chain codes, extended private keys, PRK, complete IKM, and all nonce-derived internals
+# excluded=raw conditioned outputs, mnemonic text, BIP39 seed bytes, private scalars, standalone chain codes, extended private keys, PRK, a redundant combined-IKM field, and all nonce-derived internals; each IKM remains reconstructable from its deliberately public fragments
 # public_artifacts=three account xpubs, descriptor pair, wallet_id, first receive/change public derivation facts and addresses, and exact A1 capsule
 # intermediates=excluded values existed only in process memory; neither constructor wrote them to disk or standard output
 # deletion_procedure=after the exact fixture and provenance hashes are imported and rechecked, delete only /private/tmp/qk-m26-e2e with find -depth -delete and verify the path is absent
