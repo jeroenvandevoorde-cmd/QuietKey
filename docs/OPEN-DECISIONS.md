@@ -16,7 +16,7 @@ Card model, capabilities, applet lifecycle, APDU byte layouts, optional offline 
 
 ## OD-03 — Production entropy sources — **STOP-BEFORE-F3**
 
-Exact hardware sources, health-check implementation, independence evidence, and proof that the release binary actually reaches the intended sources. Runtime health checks cannot prove entropy. Also open: the **byte-exact conditioner construction** (inputs, domain-separation labels per purpose A/B/C/A2, output derivation) required by QK-REQ-ENT-006/007 — independent test vectors (F3) cannot be written until it is fixed; per-source failure semantics and what "source degraded" means operationally; and the dice-transcript handling procedure that satisfies QK-REQ-ENT-011/012 (secrecy, destruction, no cross-session claim).
+Exact hardware sources, health-check implementation, independence evidence, and proof that the release binary actually reaches the intended sources. Runtime health checks cannot prove entropy. QK-DEC-113 closes only the byte-exact QKEC-1 conditioner mathematics and HOST dice-transcript parser: source selection and independence, per-source failure semantics, what "source degraded" means operationally, real transcript secrecy/destruction, terminal cross-run nonce generation and freshness, and all source-reachability or target evidence remain open.
 
 ## OD-04 — A1 physical codec parameters
 
