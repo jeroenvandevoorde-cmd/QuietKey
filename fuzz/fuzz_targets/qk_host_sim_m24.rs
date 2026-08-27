@@ -367,6 +367,9 @@ fn assert_secp_error(error: SecpError) {
         | SecpError::SigningFailed
         | SecpError::SignatureSerializeFailed
         | SecpError::SelfVerificationFailed
+        | SecpError::ProvisioningContextUnavailable
+        | SecpError::ProvisioningPublicKeyCreateFailed
+        | SecpError::ProvisioningSecretTweakRejected
         | SecpError::UnknownReturnCode => {}
     }
     assert!(!error.to_string().is_empty());
