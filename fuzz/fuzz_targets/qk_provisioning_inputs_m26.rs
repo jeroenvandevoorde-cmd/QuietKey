@@ -112,7 +112,20 @@ fn raw_qkec(data: &[u8]) -> Outcome {
 
 fn qkec_scenario(data: &[u8]) -> Outcome {
     let mut values = records();
-    match data.get(1).copied().unwrap_or(0) % 10 {
+    let scenario = data.get(1).copied().unwrap_or(0) % 10;
+    let expected = match scenario {
+        0 | 9 => None,
+        1 => Some(ProvisioningError::InvalidRecordLength),
+        2 => Some(ProvisioningError::UnsupportedRecordVersion),
+        3 => Some(ProvisioningError::UnknownSource),
+        4 => Some(ProvisioningError::DuplicateSource),
+        5 => Some(ProvisioningError::SourceOutOfOrder),
+        6 => Some(ProvisioningError::InvalidSourceLength),
+        7 => Some(ProvisioningError::MissingRequiredSource),
+        8 => Some(ProvisioningError::SourceSetReuse),
+        _ => unreachable!("modulo ten is exhaustive"),
+    };
+    match scenario {
         0 => {}
         1 => {
             values[0].pop();
@@ -143,7 +156,12 @@ fn qkec_scenario(data: &[u8]) -> Outcome {
     {
         *slot = *value;
     }
-    qkec(&values, &ceremony_id)
+    let outcome = qkec(&values, &ceremony_id);
+    match expected {
+        Some(error) => assert_eq!(outcome, Outcome::Rejected(error)),
+        None => assert!(matches!(outcome, Outcome::Ready(_))),
+    }
+    outcome
 }
 
 fn raw_dice(data: &[u8]) -> Outcome {
@@ -155,7 +173,15 @@ fn raw_dice(data: &[u8]) -> Outcome {
 
 fn dice_scenario(data: &[u8]) -> Outcome {
     let mut values = transcripts();
-    match data.get(1).copied().unwrap_or(0) % 12 {
+    let scenario = data.get(1).copied().unwrap_or(0) % 12;
+    let expected = match scenario {
+        0 => None,
+        1 | 2 => Some(ProvisioningError::DiceCount),
+        3..=5 => Some(ProvisioningError::InvalidDiceSymbol),
+        6..=11 => Some(ProvisioningError::TranscriptReuse),
+        _ => unreachable!("modulo twelve is exhaustive"),
+    };
+    match scenario {
         0 => {}
         1 => {
             values[0].pop();
@@ -171,7 +197,12 @@ fn dice_scenario(data: &[u8]) -> Outcome {
         }
         _ => unreachable!("modulo twelve is exhaustive"),
     }
-    dice(&values)
+    let outcome = dice(&values);
+    match expected {
+        Some(error) => assert_eq!(outcome, Outcome::Rejected(error)),
+        None => assert!(matches!(outcome, Outcome::Ready(_))),
+    }
+    outcome
 }
 
 fn nonce_state(data: &[u8]) -> Outcome {
