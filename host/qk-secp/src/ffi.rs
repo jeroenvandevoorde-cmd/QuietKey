@@ -4,8 +4,9 @@
 //!
 //! This is the only module in the crate that may contain the unsafe
 //! keyword. It declares the immutable static context object and the
-//! original five verification functions plus QK-DEC-111's exact six
-//! signing additions and explicit RFC6979 nonce pointer. The
+//! original five verification functions, QK-DEC-111's exact six
+//! signing additions and explicit RFC6979 nonce pointer, plus
+//! QK-DEC-113's exact two provisioning-derivation calls. The
 //! unmodified native archive contains
 //! other dormant base symbols; none are declared or callable here.
 //! Upstream default abort callbacks are retained as defense in depth;
@@ -86,6 +87,16 @@ extern "C" {
         pubkey: *mut RawPubkey,
         tweak32: *const c_uchar,
     ) -> c_int;
+    fn secp256k1_ec_pubkey_create(
+        ctx: *const RawContext,
+        pubkey: *mut RawPubkey,
+        seckey: *const c_uchar,
+    ) -> c_int;
+    fn secp256k1_ec_seckey_tweak_add(
+        ctx: *const RawContext,
+        seckey: *mut c_uchar,
+        tweak32: *const c_uchar,
+    ) -> c_int;
     fn secp256k1_ecdsa_signature_parse_der(
         ctx: *const RawContext,
         sig: *mut RawSignature,
@@ -120,12 +131,12 @@ extern "C" {
     ) -> c_int;
 }
 
-/// RAII owner for one non-static native signing context.
-struct SigningContext {
+/// RAII owner for one non-static native signing or provisioning context.
+struct OwnedContext {
     raw: *mut RawContext,
 }
 
-impl SigningContext {
+impl OwnedContext {
     fn create() -> Option<Self> {
         // SAFETY: CONTEXT_NONE is the exact valid upstream flag. A
         // non-null result is uniquely owned until Drop.
@@ -138,7 +149,7 @@ impl SigningContext {
     }
 }
 
-impl Drop for SigningContext {
+impl Drop for OwnedContext {
     fn drop(&mut self) {
         // SAFETY: raw is non-null and came from exactly one successful
         // context_create call; this owner is non-Clone and drops once.
@@ -217,6 +228,52 @@ pub(crate) fn pubkey_tweak_add(
     }
 }
 
+/// Create one public key from a fixed provisioning scalar through a
+/// freshly created non-static context. Returns `None` only when the
+/// context cannot be obtained, otherwise the raw status and an opaque
+/// object that is zeroed on ordinary rejection.
+pub(crate) fn provisioning_pubkey_create(
+    secret: &[u8; SCALAR_BYTES],
+) -> Option<(c_int, [u8; PUBKEY_OBJ_BYTES])> {
+    let owned_context = OwnedContext::create()?;
+    let mut obj = MaybeUninit::<RawPubkey>::uninit();
+    // SAFETY: the context is non-static and uniquely live; obj is a
+    // valid out-pointer; secret is one live fixed-size scalar buffer;
+    // the native call does not retain either pointer.
+    let code =
+        unsafe { secp256k1_ec_pubkey_create(owned_context.raw, obj.as_mut_ptr(), secret.as_ptr()) };
+    if code == 1 {
+        // SAFETY: upstream initializes the public key exactly on code 1.
+        Some((code, unsafe { obj.assume_init() }.data))
+    } else {
+        Some((code, [0u8; PUBKEY_OBJ_BYTES]))
+    }
+}
+
+/// Add one tweak to a fixed provisioning scalar using a private scratch
+/// copy. `candidate` receives bytes only on ordinary success. The scratch
+/// buffer is volatile-wiped after every native return, including success.
+pub(crate) fn provisioning_secret_tweak_add(
+    parent: &[u8; SCALAR_BYTES],
+    tweak: &[u8; SCALAR_BYTES],
+    candidate: &mut [u8; SCALAR_BYTES],
+) -> Option<c_int> {
+    let owned_context = OwnedContext::create()?;
+    let mut scratch = *parent;
+    // SAFETY: the context is non-static and uniquely live; scratch is one uniquely owned live
+    // fixed-size in/out buffer; tweak is a live fixed-size input; the
+    // native call retains neither pointer. Upstream may invalidate scratch
+    // on rejection, so it is never copied unless the status is exactly 1.
+    let code = unsafe {
+        secp256k1_ec_seckey_tweak_add(owned_context.raw, scratch.as_mut_ptr(), tweak.as_ptr())
+    };
+    if code == 1 {
+        candidate.copy_from_slice(&scratch);
+    }
+    wipe_secret(&mut scratch);
+    Some(code)
+}
+
 /// Parse a bounded DER signature slice (caller enforces 8..=72 bytes).
 /// Returns the raw code and, on code 1, the opaque object; zeroed
 /// otherwise.
@@ -270,7 +327,7 @@ pub(crate) fn ecdsa_sign_rfc6979(
     secret: &[u8; SCALAR_BYTES],
     digest: &[u8; SCALAR_BYTES],
 ) -> Option<(c_int, [u8; SIG_OBJ_BYTES])> {
-    let signing_context = SigningContext::create()?;
+    let signing_context = OwnedContext::create()?;
     let mut obj = MaybeUninit::<RawSignature>::uninit();
     // SAFETY: the context is non-static and uniquely live; obj is a
     // valid out-pointer; digest and secret are fixed-size live

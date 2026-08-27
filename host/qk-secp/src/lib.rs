@@ -8,7 +8,10 @@
 //! tweak-add, DER signature parse, and ECDSA verify. M24 adds only an
 //! opaque move-stable secret-key owner, deterministic RFC6979 ECDSA
 //! signing with mandatory low-S normalization and immediate
-//! verification, and bounded DER serialization. All public
+//! verification, and bounded DER serialization. QK-DEC-113 adds only
+//! purpose-bound HOST provisioning public-key creation and private-scalar
+//! tweak-add over fixed caller-owned buffers; it exposes no scalar accessor
+//! or general arithmetic context. All public
 //! representations are fixed-size and owned:
 //! compressed keys are `[u8; 33]` with an 02/03 prefix, digests and
 //! tweaks are `[u8; 32]`, DER input is copied into a bounded
@@ -113,6 +116,12 @@ pub enum SecpError {
     SignatureSerializeFailed,
     /// A newly produced signature did not verify against the expected key.
     SelfVerificationFailed,
+    /// A non-static provisioning public-key context could not be obtained.
+    ProvisioningContextUnavailable,
+    /// A provisioning scalar could not produce a public key.
+    ProvisioningPublicKeyCreateFailed,
+    /// A provisioning parent/tweak pair or its result was invalid.
+    ProvisioningSecretTweakRejected,
     /// The native call returned a code other than 0 or 1; fail closed.
     UnknownReturnCode,
 }
@@ -131,6 +140,11 @@ impl fmt::Display for SecpError {
             Self::SigningFailed => "deterministic signing failed",
             Self::SignatureSerializeFailed => "signature serialization failed",
             Self::SelfVerificationFailed => "produced signature self-verification failed",
+            Self::ProvisioningContextUnavailable => "provisioning context unavailable",
+            Self::ProvisioningPublicKeyCreateFailed => {
+                "provisioning scalar public-key creation failed"
+            }
+            Self::ProvisioningSecretTweakRejected => "provisioning secret tweak rejected",
             Self::UnknownReturnCode => "native call returned an unknown code",
         };
         f.write_str(text)
@@ -185,6 +199,53 @@ pub fn pubkey_tweak_add(key: &PublicKey, tweak32: &[u8; 32]) -> Result<PublicKey
     } else {
         Err(SecpError::TweakRejected)
     }
+}
+
+/// Compute the canonical compressed public key for one fixed provisioning
+/// scalar through a freshly created non-static native context.
+///
+/// The scalar is borrowed only for the duration of the call and is never
+/// copied into an exposed owner, returned, logged, or included in an error.
+/// This purpose-bound HOST seam is not a general key-generation API.
+pub fn provisioning_pubkey_create(secret: &[u8; 32]) -> Result<[u8; 33], SecpError> {
+    let Some((code, obj)) = ffi::provisioning_pubkey_create(secret) else {
+        return Err(SecpError::ProvisioningContextUnavailable);
+    };
+    if !map_status(code)? {
+        return Err(SecpError::ProvisioningPublicKeyCreateFailed);
+    }
+    let key = PublicKey { obj };
+    pubkey_serialize_compressed(&key)
+}
+
+/// Add one fixed tweak to one fixed provisioning parent scalar.
+///
+/// Native work happens on a scratch copy that is wiped on every path. The
+/// caller's `output` is byte-for-byte unchanged unless the native status is
+/// exactly ordinary success. Parent and tweak are borrowed and never exposed
+/// through an accessor, error, or log. This purpose-bound HOST seam performs
+/// no index scanning, retry, or general scalar arithmetic.
+pub fn provisioning_secret_tweak_add(
+    parent: &[u8; 32],
+    tweak: &[u8; 32],
+    output: &mut [u8; 32],
+) -> Result<(), SecpError> {
+    let mut candidate = [0u8; 32];
+    let code = ffi::provisioning_secret_tweak_add(parent, tweak, &mut candidate);
+    let status = match code {
+        Some(code) => map_status(code),
+        None => Err(SecpError::ProvisioningContextUnavailable),
+    };
+    let result = match status {
+        Ok(true) => {
+            output.copy_from_slice(&candidate);
+            Ok(())
+        }
+        Ok(false) => Err(SecpError::ProvisioningSecretTweakRejected),
+        Err(error) => Err(error),
+    };
+    ffi::wipe_secret(&mut candidate);
+    result
 }
 
 /// Parse a DER signature from a bounded container: the input is
@@ -347,6 +408,18 @@ mod tests {
         assert_eq!(
             SecpError::SelfVerificationFailed.to_string(),
             "produced signature self-verification failed"
+        );
+        assert_eq!(
+            SecpError::ProvisioningContextUnavailable.to_string(),
+            "provisioning context unavailable"
+        );
+        assert_eq!(
+            SecpError::ProvisioningPublicKeyCreateFailed.to_string(),
+            "provisioning scalar public-key creation failed"
+        );
+        assert_eq!(
+            SecpError::ProvisioningSecretTweakRejected.to_string(),
+            "provisioning secret tweak rejected"
         );
     }
 

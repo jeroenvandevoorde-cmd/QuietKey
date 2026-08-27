@@ -1,4 +1,5 @@
-//! Boundary tests for the bounded FFI surface (QK-DEC-042/QK-DEC-111).
+//! Boundary tests for the bounded FFI surface
+//! (QK-DEC-042/QK-DEC-111/QK-DEC-113).
 //!
 //! HOST evidence only. Covers the approved-surface source scan, ABI
 //! shape from outside the crate, generator parse/round-trip, invalid
@@ -8,9 +9,9 @@
 //! Wycheproof harness.
 
 use qk_secp::{
-    ecdsa_sign_rfc6979, ecdsa_verify, pubkey_parse_compressed, pubkey_serialize_compressed,
-    pubkey_tweak_add, secret_key_import, signature_parse_der, signature_serialize_der, PublicKey,
-    SecpError, Signature,
+    ecdsa_sign_rfc6979, ecdsa_verify, provisioning_pubkey_create, provisioning_secret_tweak_add,
+    pubkey_parse_compressed, pubkey_serialize_compressed, pubkey_tweak_add, secret_key_import,
+    signature_parse_der, signature_serialize_der, PublicKey, SecpError, Signature,
 };
 
 const LIB_SRC: &str = include_str!("../src/lib.rs");
@@ -144,6 +145,8 @@ fn extern_declarations_are_exactly_the_approved_surface() {
         "secp256k1_ec_pubkey_parse",
         "secp256k1_ec_pubkey_serialize",
         "secp256k1_ec_pubkey_tweak_add",
+        "secp256k1_ec_pubkey_create",
+        "secp256k1_ec_seckey_tweak_add",
         "secp256k1_ec_seckey_verify",
         "secp256k1_ecdsa_sign",
         "secp256k1_ecdsa_signature_normalize",
@@ -160,7 +163,7 @@ fn extern_declarations_are_exactly_the_approved_surface() {
     expected.sort();
     assert_eq!(
         idents, expected,
-        "ffi.rs must reference exactly the approved two statics and eleven functions"
+        "ffi.rs must reference exactly the approved two statics and thirteen functions"
     );
     for name in approved_fns {
         assert_eq!(
@@ -183,7 +186,7 @@ fn extern_declarations_are_exactly_the_approved_surface() {
 }
 
 #[test]
-fn public_function_surface_is_exactly_the_approved_eight() {
+fn public_function_surface_is_exactly_the_approved_ten() {
     let approved = [
         "pub fn pubkey_parse_compressed",
         "pub fn pubkey_serialize_compressed",
@@ -193,6 +196,8 @@ fn public_function_surface_is_exactly_the_approved_eight() {
         "pub fn secret_key_import",
         "pub fn signature_serialize_der",
         "pub fn ecdsa_sign_rfc6979",
+        "pub fn provisioning_pubkey_create",
+        "pub fn provisioning_secret_tweak_add",
     ];
     for decl in approved {
         assert_eq!(standalone_count(LIB_SRC, decl), 1, "missing {decl}");
@@ -200,7 +205,7 @@ fn public_function_surface_is_exactly_the_approved_eight() {
     assert_eq!(
         LIB_SRC.matches("pub fn ").count(),
         approved.len(),
-        "lib.rs must expose exactly the eight approved public functions"
+        "lib.rs must expose exactly the ten approved public functions"
     );
     assert_eq!(FFI_SRC.matches("pub fn ").count(), 0);
     let kw = ["uns", "afe"].concat();
@@ -280,6 +285,58 @@ fn signing_surface_is_bound_to_normalize_serialize_parse_verify_order() {
     let _: fn(&qk_secp::SecretKey, &[u8; 32], &PublicKey) -> Result<Signature, SecpError> =
         ecdsa_sign_rfc6979;
     let _: fn(&Signature, &mut [u8; 72]) -> Result<usize, SecpError> = signature_serialize_der;
+    let _: fn(&[u8; 32]) -> Result<[u8; 33], SecpError> = provisioning_pubkey_create;
+}
+
+#[test]
+fn provisioning_tweak_surface_is_bound_to_scratch_commit_and_wipe_order() {
+    let ffi_start = FFI_SRC
+        .find("pub(crate) fn provisioning_secret_tweak_add")
+        .expect("private provisioning tweak function exists");
+    let ffi_body = &FFI_SRC[ffi_start..];
+    let context = ffi_body
+        .find("OwnedContext::create()?")
+        .expect("fresh native context is obtained");
+    let scratch = ffi_body
+        .find("let mut scratch = *parent;")
+        .expect("private parent scratch exists");
+    let native = ffi_body
+        .find("secp256k1_ec_seckey_tweak_add")
+        .expect("native tweak call exists");
+    let ordinary_success = ffi_body
+        .find("if code == 1")
+        .expect("ordinary success is explicit");
+    let private_commit = ffi_body
+        .find("candidate.copy_from_slice(&scratch)")
+        .expect("private candidate commit exists");
+    let scratch_wipe = ffi_body
+        .find("wipe_secret(&mut scratch)")
+        .expect("scratch wipe exists");
+    assert!(context < scratch);
+    assert!(scratch < native);
+    assert!(native < ordinary_success);
+    assert!(ordinary_success < private_commit);
+    assert!(private_commit < scratch_wipe);
+
+    let safe_start = LIB_SRC
+        .find("pub fn provisioning_secret_tweak_add")
+        .expect("safe provisioning tweak wrapper exists");
+    let safe_body = &LIB_SRC[safe_start..];
+    let private_call = safe_body
+        .find("ffi::provisioning_secret_tweak_add")
+        .expect("private boundary call exists");
+    let status_map = safe_body
+        .find("map_status(code)")
+        .expect("native return is mapped");
+    let caller_commit = safe_body
+        .find("output.copy_from_slice(&candidate)")
+        .expect("caller output commit exists");
+    let candidate_wipe = safe_body
+        .find("ffi::wipe_secret(&mut candidate)")
+        .expect("candidate wipe exists");
+    assert!(private_call < status_map);
+    assert!(status_map < caller_commit);
+    assert!(caller_commit < candidate_wipe);
 }
 
 #[test]
@@ -416,6 +473,60 @@ fn secret_import_accepts_n_minus_one_rejects_n_and_always_wipes_source() {
         Err(SecpError::SecretKeyRejected)
     ));
     assert_eq!(rejected_source, [0u8; 32]);
+}
+
+#[test]
+fn provisioning_public_key_creation_accepts_valid_scalars_and_names_rejections() {
+    let mut one = [0u8; 32];
+    one[31] = 1;
+    let mut two = [0u8; 32];
+    two[31] = 2;
+    assert_eq!(provisioning_pubkey_create(&one), Ok(G_COMPRESSED));
+    assert_eq!(provisioning_pubkey_create(&two), Ok(TWO_G_COMPRESSED));
+    for rejected in [[0u8; 32], ORDER_N, [0xffu8; 32]] {
+        assert_eq!(
+            provisioning_pubkey_create(&rejected),
+            Err(SecpError::ProvisioningPublicKeyCreateFailed)
+        );
+    }
+}
+
+#[test]
+fn provisioning_secret_tweak_is_failure_atomic_and_matches_public_points() {
+    let mut one = [0u8; 32];
+    one[31] = 1;
+    let mut two = [0u8; 32];
+    two[31] = 2;
+
+    let mut output = [0xa5u8; 32];
+    assert_eq!(
+        provisioning_secret_tweak_add(&one, &[0u8; 32], &mut output),
+        Ok(())
+    );
+    assert_eq!(output, one);
+
+    output = [0x5au8; 32];
+    assert_eq!(
+        provisioning_secret_tweak_add(&one, &one, &mut output),
+        Ok(())
+    );
+    assert_eq!(output, two);
+    assert_eq!(provisioning_pubkey_create(&output), Ok(TWO_G_COMPRESSED));
+
+    for (parent, tweak) in [
+        ([0u8; 32], one),
+        (one, ORDER_N),
+        (one, ORDER_N_MINUS_1),
+        (ORDER_N, one),
+    ] {
+        let sentinel = [0x3cu8; 32];
+        output = sentinel;
+        assert_eq!(
+            provisioning_secret_tweak_add(&parent, &tweak, &mut output),
+            Err(SecpError::ProvisioningSecretTweakRejected)
+        );
+        assert_eq!(output, sentinel, "rejection must not commit output");
+    }
 }
 
 #[test]
