@@ -21,6 +21,9 @@
 //! already-frozen provisioning, review-v2, finalization, and export facts.
 //! It models ceremony/review order, interruptions, an opaque review-bound
 //! hold identity, post-hold no-yield, and logical cleanup only.
+//! M28 adds a distinct provisioning-origin watch-only artifact for the
+//! exact four-line BSMS record, its descriptor round-trip binding, and a
+//! deterministic mock-SD publication lifecycle. It exposes no QR path.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -45,16 +48,19 @@
 
 #![forbid(unsafe_code)]
 
+mod bsms;
 mod export;
 mod finalization;
 mod insertion;
 mod m24_signing;
 mod review_ready;
 pub mod screen_flow;
+mod watch_only_export;
 
 #[path = "../../qk-psbt/src/sha256.rs"]
 mod transaction_sha256;
 
+pub use bsms::{BsmsError, BSMS_RECORD_BYTES};
 pub use export::{
     ArtifactBindingError, ExportArtifactKind, ExportArtifacts, ExportNonce, FinalizedPsbtArtifact,
     KitTier, MockFileKind, MockSdFilesystem, RawTransactionArtifact, SdArtifactMetadata,
@@ -76,6 +82,12 @@ pub use screen_flow::{
     ReviewOpReturnView, ReviewOverviewView, ReviewRecipientView, ReviewSequenceView, ReviewSession,
     ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind,
     TransactionResultSession, TransactionResultView, WipingReason,
+};
+pub use watch_only_export::{
+    WatchOnlyArtifactMetadata, WatchOnlyBsmsArtifact, WatchOnlyExportArtifacts,
+    WatchOnlyExportError, WatchOnlyExportNonce, WatchOnlyMockFileKind, WatchOnlyMockSdFilesystem,
+    WatchOnlySdArtifactNames, WatchOnlySdExportError, WatchOnlySdExportFault, WatchOnlySdFileName,
+    WatchOnlySdLifecycleEvent, WatchOnlySdPublishedArtifact,
 };
 
 use qk_descriptor::DescriptorPair;

@@ -3,7 +3,7 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only HOST seams through M27 typed screen-state ordering. No renderer, display, approval authority, signer integration, real media I/O, or target claim."
+description = "Library-only HOST seams through M28 watch-only export. No renderer, display, approval authority, real media I/O, or target claim."
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }
