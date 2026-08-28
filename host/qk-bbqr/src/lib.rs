@@ -3,10 +3,11 @@
 //! HOST REFERENCE ONLY -- NOT A QR READER -- NOT A RENDERER -- NOT A WALLET --
 //! NO TARGET, PERFORMANCE, OR GATE CLAIM.
 //!
-//! This crate implements only uncompressed Base32 (`2`) PSBT (`P`) frames. It
-//! performs no allocation, I/O, image processing, normalization, compression,
-//! randomness, stream replacement, or implicit QR sizing. The caller supplies
-//! the non-final part size and every output buffer.
+//! This crate implements only uncompressed Base32 (`2`) PSBT (`P`) and ready-
+//! to-send transaction (`T`) frames. It performs no allocation, I/O, image
+//! processing, normalization, compression, randomness, stream replacement, or
+//! implicit QR sizing. The caller supplies the file type, non-final part size,
+//! and every output buffer. The original M22 operations remain type-P wrappers.
 
 #![deny(unsafe_code)]
 
@@ -16,7 +17,6 @@ use core::fmt;
 
 const HEADER_LEN: usize = 8;
 const ENCODING: u8 = b'2';
-const FILE_TYPE: u8 = b'P';
 
 /// Maximum part count accepted by the M22 HOST profile.
 pub const MAX_DECLARED_PARTS: usize = 256;
@@ -109,6 +109,22 @@ impl fmt::Display for BbqrError {
 
 impl std::error::Error for BbqrError {}
 
+/// Closed file-type selection for the ratified uncompressed Base32 profile.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BbqrFileType {
+    Psbt,
+    Transaction,
+}
+
+impl BbqrFileType {
+    const fn wire_byte(self) -> u8 {
+        match self {
+            Self::Psbt => b'P',
+            Self::Transaction => b'T',
+        }
+    }
+}
+
 /// Metadata returned after one canonical frame is decoded.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DecodedFrame {
@@ -165,6 +181,26 @@ pub fn encode_frame(
     part_index: u16,
     output: &mut [u8; MAX_FRAME_TEXT_BYTES],
 ) -> Result<usize, BbqrError> {
+    encode_typed_frame(
+        BbqrFileType::Psbt,
+        payload,
+        non_final_part_len,
+        part_index,
+        output,
+    )
+}
+
+/// Encodes one canonical `B$2P` or `B$2T` frame into the fixed caller buffer.
+///
+/// The entire output array remains unchanged on rejection. On success the
+/// returned prefix length is the complete frame; bytes after it are untouched.
+pub fn encode_typed_frame(
+    file_type: BbqrFileType,
+    payload: &[u8],
+    non_final_part_len: usize,
+    part_index: u16,
+    output: &mut [u8; MAX_FRAME_TEXT_BYTES],
+) -> Result<usize, BbqrError> {
     let declared_parts = encoded_part_count(payload.len(), non_final_part_len)?;
     if part_index >= declared_parts {
         return Err(BbqrError::PartIndexOutOfRange);
@@ -177,7 +213,8 @@ pub fn encode_frame(
     debug_assert!(body_len <= MAX_BODY_SYMBOLS);
 
     let mut candidate = [0u8; MAX_FRAME_TEXT_BYTES];
-    candidate[..4].copy_from_slice(b"B$2P");
+    candidate[..3].copy_from_slice(b"B$2");
+    candidate[3] = file_type.wire_byte();
     write_base36_pair(declared_parts, &mut candidate[4..6]);
     write_base36_pair(part_index, &mut candidate[6..8]);
     base32::encode(part, &mut candidate[HEADER_LEN..HEADER_LEN + body_len]);
@@ -195,13 +232,26 @@ pub fn decode_frame(
     frame: &[u8],
     output: &mut [u8; MAX_PART_DECODED_BYTES],
 ) -> Result<DecodedFrame, BbqrError> {
-    decode_frame_for_stream(frame, None, output)
+    decode_typed_frame(BbqrFileType::Psbt, frame, output)
+}
+
+/// Decodes one canonical standalone frame of the caller-selected file type.
+///
+/// The entire output array remains unchanged on rejection. A different or
+/// unsupported fresh-stream type returns [`BbqrError::UnsupportedFileType`].
+pub fn decode_typed_frame(
+    file_type: BbqrFileType,
+    frame: &[u8],
+    output: &mut [u8; MAX_PART_DECODED_BYTES],
+) -> Result<DecodedFrame, BbqrError> {
+    decode_frame_for_stream(frame, file_type, None, output)
 }
 
 /// One bounded candidate-stream reassembler. Dropping it and constructing a
 /// new value is the only restart operation.
 pub struct Reassembler<'a> {
     output: &'a mut [u8; MAX_TOTAL_DECODED_BYTES],
+    file_type: BbqrFileType,
     received: [u64; 4],
     declared_parts: Option<u16>,
     non_final_part_len: Option<usize>,
@@ -218,8 +268,17 @@ pub struct Reassembler<'a> {
 impl<'a> Reassembler<'a> {
     /// Creates one empty stream over caller-owned fixed storage.
     pub fn new(output: &'a mut [u8; MAX_TOTAL_DECODED_BYTES]) -> Self {
+        Self::new_typed(BbqrFileType::Psbt, output)
+    }
+
+    /// Creates one empty caller-selected stream over fixed storage.
+    pub fn new_typed(
+        file_type: BbqrFileType,
+        output: &'a mut [u8; MAX_TOTAL_DECODED_BYTES],
+    ) -> Self {
         Self {
             output,
+            file_type,
             received: [0; 4],
             declared_parts: None,
             non_final_part_len: None,
@@ -253,7 +312,8 @@ impl<'a> Reassembler<'a> {
         self.submissions += 1;
 
         let mut part = [0u8; MAX_PART_DECODED_BYTES];
-        let decoded = decode_frame_for_stream(frame, self.declared_parts, &mut part)?;
+        let decoded =
+            decode_frame_for_stream(frame, self.file_type, self.declared_parts, &mut part)?;
         if self.declared_parts.is_none()
             && usize::from(self.submissions) > usize::from(decoded.declared_parts) * 2
         {
@@ -425,10 +485,11 @@ impl<'a> Reassembler<'a> {
 
 fn decode_frame_for_stream(
     frame: &[u8],
+    expected_file_type: BbqrFileType,
     established_count: Option<u16>,
     output: &mut [u8; MAX_PART_DECODED_BYTES],
 ) -> Result<DecodedFrame, BbqrError> {
-    let header = parse_header(frame, established_count)?;
+    let header = parse_header(frame, expected_file_type, established_count)?;
     let body = &frame[HEADER_LEN..];
     if body.is_empty() {
         return Err(BbqrError::EmptyPart);
@@ -458,7 +519,11 @@ fn decode_frame_for_stream(
     })
 }
 
-fn parse_header(frame: &[u8], established_count: Option<u16>) -> Result<FrameHeader, BbqrError> {
+fn parse_header(
+    frame: &[u8],
+    expected_file_type: BbqrFileType,
+    established_count: Option<u16>,
+) -> Result<FrameHeader, BbqrError> {
     if frame.len() > MAX_FRAME_TEXT_BYTES {
         return Err(BbqrError::FrameTooLarge);
     }
@@ -473,14 +538,14 @@ fn parse_header(frame: &[u8], established_count: Option<u16>) -> Result<FrameHea
         if frame[2] != ENCODING {
             return Err(BbqrError::StreamEncodingMismatch);
         }
-        if frame[3] != FILE_TYPE {
+        if frame[3] != expected_file_type.wire_byte() {
             return Err(BbqrError::StreamFileTypeMismatch);
         }
     } else {
         if frame[2] != ENCODING {
             return Err(BbqrError::UnsupportedEncoding);
         }
-        if frame[3] != FILE_TYPE {
+        if frame[3] != expected_file_type.wire_byte() {
             return Err(BbqrError::UnsupportedFileType);
         }
     }
