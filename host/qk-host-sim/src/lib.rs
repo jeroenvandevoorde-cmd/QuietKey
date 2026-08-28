@@ -24,6 +24,9 @@
 //! M28 adds a distinct provisioning-origin watch-only artifact for the
 //! exact four-line BSMS record, its descriptor round-trip binding, and a
 //! deterministic mock-SD publication lifecycle. It exposes no QR path.
+//! M29 adds an owning fixed-memory manual-keypad ceremony seam that feeds
+//! four exact transcripts through the unchanged provisioning validator and
+//! retains M27's borrow-only echo, confirmation, and commitment ordering.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -53,6 +56,7 @@ mod export;
 mod finalization;
 mod insertion;
 mod m24_signing;
+mod manual_keypad;
 mod review_ready;
 pub mod screen_flow;
 mod watch_only_export;
@@ -72,6 +76,10 @@ pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
 };
 pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, TerminalInputKey};
+pub use manual_keypad::{
+    ManualKeypadError, ManualKeypadEvent, ManualKeypadOutcome, ManualKeypadScreen,
+    ManualKeypadSession, ManualTranscriptView, MANUAL_TRANSCRIPT_BYTES,
+};
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
 pub use screen_flow::{
     ApprovalIdentity, ApprovalToken, CeremonyCommitmentView, CeremonyPurpose, CeremonySession,

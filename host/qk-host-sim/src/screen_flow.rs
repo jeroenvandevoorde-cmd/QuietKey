@@ -1196,6 +1196,47 @@ impl ScreenFlow {
         self.state = MachineState::Terminal(terminal);
     }
 
+    /// Crate-internal M29 bridge for an owning manual-keypad scope. The
+    /// existing root transition table deliberately treats red C on the first
+    /// ceremony input as reversible navigation; M29 instead owns transcript
+    /// bytes and therefore requires every scoped cancellation or failure to
+    /// terminate after wiping those bytes.
+    pub(crate) fn terminate_manual_keypad(&mut self, reason: WipingReason) {
+        if !self.is_finished() {
+            self.wipe(FlowTerminal::FailedWiped(reason));
+        }
+    }
+
+    /// Enter M27's exact echo state without storing the owning M29 unit.
+    pub(crate) fn begin_manual_keypad_echo(&mut self) -> bool {
+        if self.flow != FlowKind::Provisioning
+            || self.screen_kind() != Some(ScreenKind::CeremonyInput)
+            || self.entropy_mode != EntropyInputMode::ManualKeypad
+        {
+            return false;
+        }
+        self.state = MachineState::Screen(ScreenKind::CeremonyEcho);
+        true
+    }
+
+    /// Record the separate echo acknowledgement and enter confirmation.
+    pub(crate) fn confirm_manual_keypad_echo(&mut self) -> bool {
+        if self.screen_kind() != Some(ScreenKind::CeremonyEcho) {
+            return false;
+        }
+        self.state = MachineState::Screen(ScreenKind::CeremonyConfirm);
+        true
+    }
+
+    /// Record explicit confirmation while retaining no transcript reference.
+    pub(crate) fn complete_manual_keypad_confirmation(&mut self) -> bool {
+        if self.screen_kind() != Some(ScreenKind::CeremonyConfirm) {
+            return false;
+        }
+        self.ceremony_confirmed = true;
+        true
+    }
+
     fn lift<'flow, 'facts>(outcome: ScopedApplyOutcome) -> FlowApplyOutcome<'flow, 'facts> {
         match outcome {
             ScopedApplyOutcome::Continue(kind) | ScopedApplyOutcome::Released(kind) => {
