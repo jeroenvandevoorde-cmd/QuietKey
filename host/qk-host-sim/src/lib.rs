@@ -27,6 +27,9 @@
 //! M29 adds an owning fixed-memory manual-keypad ceremony seam that feeds
 //! four exact transcripts through the unchanged provisioning validator and
 //! retains M27's borrow-only echo, confirmation, and commitment ordering.
+//! M30 adds a Quantum-Shelter-only raw-transaction capability whose sole new
+//! operation is bounded, sequential file-type-T BBQr framing; SD behavior is
+//! unchanged and the other two tiers cannot obtain the QR capability.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -67,9 +70,10 @@ mod transaction_sha256;
 pub use bsms::{BsmsError, BSMS_RECORD_BYTES};
 pub use export::{
     ArtifactBindingError, ExportArtifactKind, ExportArtifacts, ExportNonce, FinalizedPsbtArtifact,
-    KitTier, MockFileKind, MockSdFilesystem, RawTransactionArtifact, SdArtifactMetadata,
-    SdArtifactNames, SdBbqrFrame, SdExportError, SdExportFault, SdFileName, SdLifecycleEvent,
-    SdPublishedArtifact, SequentialPsbtBbqr, TierArtifacts,
+    KitTier, MockFileKind, MockSdFilesystem, QuantumShelterRawTransactionArtifact,
+    RawTransactionArtifact, SdArtifactMetadata, SdArtifactNames, SdBbqrFrame, SdExportError,
+    SdExportFault, SdFileName, SdLifecycleEvent, SdPublishedArtifact, SequentialPsbtBbqr,
+    SequentialTransactionBbqr, TierArtifacts,
 };
 pub use finalization::{FinalizationError, FinalizedTransaction};
 pub use insertion::{

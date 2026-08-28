@@ -3,7 +3,10 @@
 use crate::transaction_sha256::{sha256, sha256d};
 use crate::FinalizedTransaction;
 use core::fmt;
-use qk_bbqr::{encode_frame, encoded_part_count, BbqrError, MAX_FRAME_TEXT_BYTES};
+use qk_bbqr::{
+    encode_frame, encode_typed_frame, encoded_part_count, BbqrError, BbqrFileType,
+    MAX_FRAME_TEXT_BYTES,
+};
 use qk_psbt::{canonical_serialize, parse, InputSource};
 use std::collections::BTreeMap;
 
@@ -165,11 +168,53 @@ impl<'a> FinalizedPsbtArtifact<'a> {
     }
 }
 
-/// Typed raw-transaction view. It intentionally has no BBQr method.
+/// Typed raw-transaction view for Simple Recovery and Inheritance.
+///
+/// It intentionally has no BBQr method. File-type-T framing is exposed only
+/// by [`QuantumShelterRawTransactionArtifact`].
 #[derive(Clone, Copy)]
 pub struct RawTransactionArtifact<'a> {
     bytes: &'a [u8],
     metadata: SdArtifactMetadata,
+}
+
+/// Quantum Shelter's bound raw-transaction view.
+///
+/// This is a distinct capability so type-T BBQr framing cannot be reached
+/// through the Simple Recovery or Inheritance artifact variants.
+#[derive(Clone, Copy)]
+pub struct QuantumShelterRawTransactionArtifact<'a> {
+    raw: RawTransactionArtifact<'a>,
+}
+
+impl<'a> QuantumShelterRawTransactionArtifact<'a> {
+    #[must_use]
+    pub const fn bytes(&self) -> &'a [u8] {
+        self.raw.bytes()
+    }
+
+    #[must_use]
+    pub const fn metadata(&self) -> SdArtifactMetadata {
+        self.raw.metadata()
+    }
+
+    /// Start sequential uncompressed Base32 file-type-T framing.
+    pub fn bbqr(
+        self,
+        non_final_part_len: usize,
+    ) -> Result<SequentialTransactionBbqr<'a>, BbqrError> {
+        SequentialTransactionBbqr::new(self.bytes(), non_final_part_len)
+    }
+
+    /// Preserve the unchanged M25 raw-transaction mock-SD lifecycle.
+    pub fn write_mock_sd(
+        self,
+        nonce: ExportNonce,
+        filesystem: &mut MockSdFilesystem,
+        fault: Option<SdExportFault>,
+    ) -> Result<SdPublishedArtifact, SdExportError> {
+        self.raw.write_mock_sd(nonce, filesystem, fault)
+    }
 }
 
 impl<'a> RawTransactionArtifact<'a> {
@@ -256,6 +301,17 @@ impl ExportArtifacts {
     #[must_use]
     pub const fn tier(&self) -> KitTier {
         self.tier
+    }
+
+    /// Expose the type-T capability only for a Quantum Shelter owner.
+    #[must_use]
+    pub fn quantum_shelter_qr(&self) -> Option<QuantumShelterRawTransactionArtifact<'_>> {
+        (self.tier == KitTier::QuantumShelter).then_some(QuantumShelterRawTransactionArtifact {
+            raw: RawTransactionArtifact {
+                bytes: self.finalized.raw_transaction(),
+                metadata: self.raw_metadata,
+            },
+        })
     }
 
     #[must_use]
@@ -491,6 +547,56 @@ impl<'a> SequentialPsbtBbqr<'a> {
         }
         let part_index = self.next_part;
         let frame_len = encode_frame(self.payload, self.non_final_part_len, part_index, output)?;
+        self.next_part += 1;
+        Ok(Some(SdBbqrFrame {
+            declared_parts: self.declared_parts,
+            part_index,
+            frame_len,
+        }))
+    }
+}
+
+/// Strictly sequential BBQr file-type-T frames for one Quantum Shelter raw
+/// transaction.
+pub struct SequentialTransactionBbqr<'a> {
+    payload: &'a [u8],
+    non_final_part_len: usize,
+    declared_parts: u16,
+    next_part: u16,
+}
+
+impl<'a> SequentialTransactionBbqr<'a> {
+    fn new(payload: &'a [u8], non_final_part_len: usize) -> Result<Self, BbqrError> {
+        let declared_parts = encoded_part_count(payload.len(), non_final_part_len)?;
+        Ok(Self {
+            payload,
+            non_final_part_len,
+            declared_parts,
+            next_part: 0,
+        })
+    }
+
+    #[must_use]
+    pub const fn declared_parts(&self) -> u16 {
+        self.declared_parts
+    }
+
+    /// Emit the next canonical `B$2T` frame into the fixed M22 caller buffer.
+    pub fn next_frame(
+        &mut self,
+        output: &mut [u8; MAX_FRAME_TEXT_BYTES],
+    ) -> Result<Option<SdBbqrFrame>, BbqrError> {
+        if self.next_part == self.declared_parts {
+            return Ok(None);
+        }
+        let part_index = self.next_part;
+        let frame_len = encode_typed_frame(
+            BbqrFileType::Transaction,
+            self.payload,
+            self.non_final_part_len,
+            part_index,
+            output,
+        )?;
         self.next_part += 1;
         Ok(Some(SdBbqrFrame {
             declared_parts: self.declared_parts,
@@ -835,13 +941,13 @@ fn strip_raw_transaction(raw: &[u8]) -> Result<Vec<u8>, ArtifactBindingError> {
             let item = cursor.take(item_len)?;
             match item_index {
                 0 if !item.is_empty() => {
-                    return Err(ArtifactBindingError::InvalidFinalizedArtifact)
+                    return Err(ArtifactBindingError::InvalidFinalizedArtifact);
                 }
                 1 | 2 if item.is_empty() || item.len() > 72 || item.last() != Some(&1) => {
-                    return Err(ArtifactBindingError::InvalidFinalizedArtifact)
+                    return Err(ArtifactBindingError::InvalidFinalizedArtifact);
                 }
                 3 if item.len() != 105 => {
-                    return Err(ArtifactBindingError::InvalidFinalizedArtifact)
+                    return Err(ArtifactBindingError::InvalidFinalizedArtifact);
                 }
                 _ => {}
             }
