@@ -433,6 +433,20 @@ fn position_after_retained_seed(stage: ActiveStage) -> ManualKeypadSession {
 }
 
 fn legacy_bypass_oracle() {
+    for selector in 0..19 {
+        let key = keypad(selector);
+        let expected = if key == KeypadKey::CancelBack {
+            WipingReason::Cancelled
+        } else {
+            WipingReason::InvalidTransition
+        };
+        let mut flow = manual_root_flow();
+        assert!(matches!(
+            flow.apply(FlowEvent::Key(key)),
+            Ok(FlowApplyOutcome::FailedWiped(actual)) if actual == expected
+        ));
+        assert_eq!(flow.terminal(), Some(FlowTerminal::FailedWiped(expected)));
+    }
     let mut flow = manual_root_flow();
     assert!(matches!(
         flow.apply(FlowEvent::CeremonyEchoReady(b"1")),

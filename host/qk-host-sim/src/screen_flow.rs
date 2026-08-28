@@ -864,6 +864,17 @@ impl ScreenFlow {
         if let Some(outcome) = self.universal(&event) {
             return Ok(Self::lift(outcome));
         }
+        if self.flow == FlowKind::Provisioning
+            && self.screen_kind() == Some(ScreenKind::CeremonyInput)
+            && self.entropy_mode == EntropyInputMode::ManualKeypad
+        {
+            let reason = if matches!(event, FlowEvent::Key(KeypadKey::CancelBack)) {
+                WipingReason::Cancelled
+            } else {
+                WipingReason::InvalidTransition
+            };
+            return Ok(Self::lift(self.fail(reason)));
+        }
 
         match (self.screen_kind(), event) {
             (Some(ScreenKind::CeremonyInput), FlowEvent::CeremonyEchoReady(unit))

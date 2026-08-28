@@ -318,19 +318,47 @@ fn cancellation_and_every_closed_interruption_wipe() {
 
 #[test]
 fn legacy_borrowed_echo_cannot_bypass_manual_entry_validation() {
-    let mut flow = manual_root_flow();
+    let direct_keys = [
+        KeypadKey::Seven,
+        KeypadKey::EightUp,
+        KeypadKey::Nine,
+        KeypadKey::CeDelete,
+        KeypadKey::FourLeft,
+        KeypadKey::Five,
+        KeypadKey::SixRight,
+        KeypadKey::Multiply,
+        KeypadKey::Divide,
+        KeypadKey::One,
+        KeypadKey::TwoDown,
+        KeypadKey::Three,
+        KeypadKey::Minus,
+        KeypadKey::Percent,
+        KeypadKey::Zero,
+        KeypadKey::Decimal,
+        KeypadKey::Plus,
+        KeypadKey::EqualsConfirmEnter,
+    ];
+    for key in direct_keys {
+        let mut flow = manual_root_flow();
+        assert!(matches!(
+            flow.apply(FlowEvent::Key(key)),
+            Ok(FlowApplyOutcome::FailedWiped(
+                WipingReason::InvalidTransition
+            ))
+        ));
+    }
+    let mut cancel = manual_root_flow();
     assert!(matches!(
-        flow.apply(FlowEvent::CeremonyEchoReady(b"1")),
+        cancel.apply(FlowEvent::Key(KeypadKey::CancelBack)),
+        Ok(FlowApplyOutcome::FailedWiped(WipingReason::Cancelled))
+    ));
+    let mut borrowed_echo = manual_root_flow();
+    assert!(matches!(
+        borrowed_echo.apply(FlowEvent::CeremonyEchoReady(b"1")),
         Ok(FlowApplyOutcome::FailedWiped(
             WipingReason::InvalidTransition
         ))
     ));
-    assert_eq!(
-        flow.terminal(),
-        Some(qk_host_sim::FlowTerminal::FailedWiped(
-            WipingReason::InvalidTransition
-        ))
-    );
 }
 
 #[derive(Clone, Copy)]

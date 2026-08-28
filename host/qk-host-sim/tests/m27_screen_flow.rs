@@ -232,7 +232,7 @@ fn approve<'flow, 'facts>(
 }
 
 #[test]
-fn entropy_mode_selection_is_typed_primary_first_and_ceremony_wide() {
+fn entropy_mode_selection_is_typed_and_manual_entry_is_scoped() {
     let mut flow = ScreenFlow::new(FlowKind::Provisioning);
     enter(&mut flow, ScreenKind::TierSelection);
     enter(&mut flow, ScreenKind::EntropyModeSelection);
@@ -281,11 +281,14 @@ fn entropy_mode_selection_is_typed_primary_first_and_ceremony_wide() {
         })
     ));
 
-    root_continue(
-        &mut flow,
-        FlowEvent::Key(KeypadKey::CancelBack),
-        ScreenKind::EntropyModeSelection,
-    );
+    assert!(matches!(
+        flow.apply(FlowEvent::Key(KeypadKey::CancelBack)),
+        Ok(FlowApplyOutcome::FailedWiped(WipingReason::Cancelled))
+    ));
+
+    let mut flow = ScreenFlow::new(FlowKind::Provisioning);
+    enter(&mut flow, ScreenKind::TierSelection);
+    enter(&mut flow, ScreenKind::EntropyModeSelection);
     root_continue(
         &mut flow,
         FlowEvent::Key(KeypadKey::FourLeft),
