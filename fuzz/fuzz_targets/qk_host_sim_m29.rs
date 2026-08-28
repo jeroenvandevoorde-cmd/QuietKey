@@ -554,7 +554,7 @@ fuzz_target!(|data: &[u8]| {
         3 => complete_oracle(),
         4 => reuse_oracle(tail.first().copied().unwrap_or(0)),
         5 => interruption_oracle(tail.first().copied().unwrap_or(0)),
-        6 => {
+        6 if data == b"7\n" => {
             rejection_oracles();
             legacy_bypass_oracle();
             complete_oracle();
@@ -566,6 +566,10 @@ fuzz_target!(|data: &[u8]| {
                     interruption_oracle(stage * 9 + interruption);
                 }
             }
+        }
+        6 => {
+            legacy_bypass_oracle();
+            interruption_oracle(tail.first().copied().unwrap_or(0));
         }
         _ => unreachable!("modulo seven is exhaustive"),
     }
