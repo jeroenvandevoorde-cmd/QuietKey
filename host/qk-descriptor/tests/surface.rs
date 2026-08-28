@@ -254,7 +254,7 @@ fn production_sources_have_no_heap_unsafe_io_or_general_helpers() {
 }
 
 #[test]
-fn dependency_surface_is_exactly_one_path_dependency_with_current_description() {
+fn dependency_surface_is_exactly_one_path_dependency_with_registered_description() {
     let dependency_section = MANIFEST
         .split("[dependencies]\n")
         .nth(1)
@@ -284,7 +284,7 @@ fn dependency_surface_is_exactly_one_path_dependency_with_current_description() 
     assert!(MANIFEST.contains("edition = \"2021\""));
     assert!(MANIFEST.contains("publish = false"));
     assert!(MANIFEST.contains(
-        "description = \"Strict HOST-only paired mainnet descriptor parsing, wallet-id hashing, and bounded public P2WSH derivation for frozen v1 2-of-3 migration residue and v2 2-of-2. Not a wallet, ownership proof, or product.\""
+        "description = \"Strict HOST-only paired mainnet 2-of-3 descriptor parsing, wallet-id hashing, and bounded public P2WSH script derivation. Not a wallet, ownership proof, or product.\""
     ));
     for forbidden in [
         "[dev-dependencies]",
