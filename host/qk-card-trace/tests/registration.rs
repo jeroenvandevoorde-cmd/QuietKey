@@ -84,11 +84,11 @@ fn one_to_one_f2_alignment_is_pinned() {
 #[test]
 fn g_packet_contains_the_ratified_expansion() {
     for required in [
-        "distinct\n  externally derived account signing authorities",
-        "fixed B/C roles",
-        "byte-identical A2 and D",
-        "D/`wallet_id`, path, policy",
-        "lifecycle and normal-operation private-key non-exportability",
+        "required role-B card carry only the ratified signer-B,\n  A2, D and binding payload; does any optional spare created during original\n  setup carry the same payload byte-for-byte; and are Card-C and post-setup\n  second-card paths absent or rejected?",
+        "rejected wrong-role, mixed-wallet,\n  wrong-path/policy, precommit and post-setup second-card requests",
+        "normal-operation read path for signer-private bytes",
+        "optional-spare equivalence,\n  binding, path, lifecycle and prohibited-interface results",
+        "replacement-card test requires a separate Kit-Restore registration and\n  the user's external possession confirmation",
         "QK-TST-BENCH-005",
     ] {
         assert!(REGISTER.contains(required), "{required}");
