@@ -1,163 +1,133 @@
-# QuietKey Lifecycle and Trust-Boundary Model
+# QuietKey v2 Lifecycle and Trust-Boundary Model
 
-**OWNER-APPROVED F1 BASELINE — IMPLEMENTATION EVIDENCE NONE — ALL GATES OPEN**
+**OWNER-APPROVED V2 BASELINE — PRODUCTION EVIDENCE INCOMPLETE — ALL GATES OPEN**
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This document specifies security properties of lifecycle states and transitions — never implementation mechanisms or wire formats. All content is DRAFT and unimplemented. Column meanings:
+This document specifies security properties of lifecycle states and transitions, never implementation mechanisms beyond the Owner-fixed profiles. **Trigger** starts a transition; **Guard** is its prerequisite; **Owner** is the trusted component; **Secrets present** lists transient secret state; **Persist** lists permitted durable artifacts; **Success** and **Failure/Cancel/Power-loss** are postconditions; **Links** name requirements and planned tests.
 
-- **Trigger** — event starting the transition. **Guard** — prerequisites that must hold. **Owner** — trusted component owning the transition. **Secrets present** — wallet secrets that may exist in memory during the transition. **Persist** — persistent state permitted to result. **Success** — postcondition on success. **Failure/Cancel/Power-loss** — postcondition on any failure, cancellation, or power interruption. **Links** — QK-REQ / QK-TST IDs.
-
-Global rules: every failure, cancellation, timeout, or power-loss postcondition ends with secret zeroization (QK-REQ-PLT-004) and no half-provisioned artifact accepted (QK-REQ-REC-005). No transition may persist secret material or unpermitted metadata (QK-REQ-PLT-005). The terminal retains no wallet secret between sessions (QK-REQ-PLT-001).
+Global rules: every failure, cancellation, timeout, card/media removal, restart, or power loss ends with secret zeroization and no half-provisioned artifact accepted. The terminal retains no wallet secret between sessions. The two-envelope Kit is deliberately a complete spare wallet; its secrecy while split is computational and capped by the Kit-R transcript. Its non-regeneration property is a terminal lifecycle rule after setup, not a physical non-copyability claim. UTXO completeness, possession of destroyed-card remains, envelope integrity, artifact destruction, and custody separation are external human or coordinator facts.
 
 ## Provisioning
 
 | Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
 |---|---|---|---|---|---|---|---|---|
-| Enter provisioning | Owner starts ceremony | Wallet mode active; qk-decoy terminated; no prior session residue | qk-core | none yet | none | Ceremony context ready | Return to idle; nothing persisted | QK-REQ-PLT-002; QK-TST-UNIT-007 |
-| Generate entropy | Ceremony step | Recommended mode: four separately generated per-purpose 256-bit outputs (A, B, C, A2), each using fresh device and card contributions, explicit domain separation, and fail-closed source handling — byte-exact conditioner unresolved under OD-03. Advanced Physical mode: four separate, private, exactly-100-roll d6 transcripts with active-ceremony-only duplicate detection and post-provisioning destruction | qk-core | A, B, C, A2 | none | Four per-purpose outputs accepted; no common master expansion, and no claim that combining sources sums entropy | Fail closed; zeroize; no partial acceptance | QK-REQ-ENT-001/002/003, QK-REQ-ENT-006/007/008/009/010/011/012, QK-REQ-HF-001; QK-TST-UNIT-004, QK-TST-PROP-004, QK-TST-AUD-004, QK-TST-AUD-009, QK-TST-HF-003 |
-| Provision cards B and C | Entropy accepted | Exact-card least-authority payload write; C independent of B | qk-core | A, B, C, A2, D | card contents (B: signer B+A2+D; C: signer C+A2+D) | Both cards complete and verified | No half-provisioned card accepted; card state consistent; zeroize | QK-REQ-CARD-001/003/005, QK-REQ-REC-005; QK-TST-PWR-001/002, QK-TST-BENCH-002 |
-| Produce A1 | Cards complete | Capsule per fixed A1 profile; fresh nonce; AAD bound; local printing only — network/cloud printing prohibited; print spool/cache disposal required | qk-core (capsule), qk-io (print/capture transport) | Seed A, A2 | printed A1 paper artifact carrying only the cloak body plus ciphertext/footer | The actual printed paper artifact — not an in-memory render or pre-print payload — scanned back on the production terminal (qk-io: capture/OCR/transport only) and cryptographically authenticated and semantically bound to the intended `wallet_id` and D by qk-core; provisioning cannot finish and funding cannot be recommended until this print-back verification passes | Failure, cancel, or power-loss voids acceptance and zeroizes; no half-produced A1 accepted | QK-REQ-A1-001…005, QK-REQ-A1-009/010/011, QK-REQ-REC-005; QK-TST-UNIT-001, QK-TST-PWR-001, QK-TST-REH-006, QK-TST-AUD-006 |
-| Finish provisioning | All artifacts verified | A2 not retained on terminal; root mnemonics not retained | qk-core | none after cleanup | none on terminal | Wallet usable; terminal clean | Zeroize; ceremony void; no artifact accepted | QK-REQ-PLT-001/004; QK-TST-UNIT-010, QK-TST-PROP-005 |
+| Enter provisioning | Owner starts ceremony | Wallet mode exclusive; no prior residue | qk-core | none | none | Four-purpose context ready | Return to clean idle | QK-REQ-PLT-001/002/004; QK-TST-UNIT-013 |
+| Acquire dice transcripts | Ceremony step | Fixed purpose order Seed-A, Signer-B, Kit-R, A2; ManualKeypad exactly 100 or gated DiceGrid exactly 125 face values per purpose; echo, confirm, commit; pairwise reuse rejection | qk-core | four fixed transcript buffers | none | Four accepted transcripts retained together | Wipe all four; accept nothing | QK-REQ-ENT-001/003/006/007/009/010/012; QK-TST-UNIT-004, QK-TST-HF-003 |
+| Derive wallet facts | Four transcripts accepted | Literal SHA-256; fixed BIP39/BIP32 and descriptor profiles; 2-of-2 A/B only | qk-core | Seed-A entropy, Seed-B entropy, A2, Kit-R transcript, transient mnemonic/derivation state | none | D, `wallet_id`, first addresses, and B payload agree | Wipe; no partial facts accepted | QK-REQ-CUS-001/002/005/006; QK-TST-DIFF-003, QK-TST-UNIT-002/003 |
+| Provision B | Wallet facts ready | Exact-card atomic write of signer B, A2 and D | qk-core | B account secret, A2, D | one committed B card | Card payload and public facts verified | No ambiguous or partially committed card; wipe | QK-REQ-CARD-001/003/005/008/009/010; QK-TST-BENCH-002, QK-TST-PWR-002 |
+| Provision optional spare | Owner elects spare during original setup | Same signer-B/A2/D payload; no post-setup path | qk-core | B account secret, A2, D | at most one setup-time spare B | Spare matches D and is committed | No spare accepted; primary B remains consistent | QK-REQ-KIT-013, QK-REQ-CARD-003/005; QK-TST-BENCH-002, QK-TST-REH-007 |
+| Produce A1 | B committed | Frozen A1 capsule; caller-supplied fresh nonce; local print; actual page scans back and authenticates against `wallet_id` and D | qk-core, qk-io transport | Seed-A entropy, A2 | verified printed A1 | Printed artifact accepted | Void page; wipe; provisioning incomplete | QK-REQ-A1-001…011, QK-REQ-REC-005; QK-TST-REH-006, QK-TST-PWR-001 |
+| Construct Kit shares | A1 and wallet facts ready | QK-REQ-KIT-003 KDF; one pad for every setup copy; exact payload order Seed-A, Seed-B, A2 | qk-core | both seeds, A2, Kit-R transcript, T, salt, PRK, R, shares | none yet | Opposite-index frames bind full `wallet_id`; equal indices cannot combine | Wipe all Kit-R intermediates and shares; no output accepted | QK-REQ-KIT-001…005; QK-TST-UNIT-014, QK-TST-PROP-008, QK-TST-DIFF-005 |
+| Print two complete Kits | Frames constructed | Default count two; each share page has exact QR and fallback; labels/instructions state complete-wallet, separation/co-storage posture, restore rules, and seal response | qk-core, qk-io transport | transient frames and payload during verification | four sealed share envelopes forming two cross-compatible complete Kits | Every page/frame/checksum/index/wallet binding and envelope assignment verified | Tombstone defective output; wipe; provisioning incomplete | QK-REQ-KIT-006/014/015/016, QK-REQ-REC-005; QK-TST-DIFF-005, QK-TST-BENCH-006, QK-TST-REH-007 |
+| Finish provisioning | B, A1, two complete Kits, and any optional spare verified | No terminal secret persistence; Kit-R regeneration path closes permanently | qk-core | none after cleanup | only authorized physical/coordinator artifacts | Wallet usable; terminal clean | Wipe; ceremony void; no half-wallet accepted | QK-REQ-KIT-005/006/013, QK-REQ-PLT-001/004/005; QK-TST-PROP-005/008, QK-TST-UNIT-010 |
 
-## Signing — normal path A1+B
-
-| Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
-|---|---|---|---|---|---|---|---|---|
-| Start session | Owner enters wallet mode | qk-decoy terminated; exclusive display/keypad | qk-core | none | none | Session open | Return to idle; zeroize | QK-REQ-TUI-001, QK-REQ-PLT-002; QK-TST-UNIT-007 |
-| Intake PSBT (QR/SD) | Transport input | Bounds per QK-LIM rows; unprivileged parse in qk-io | qk-io (parse) → qk-core (reparse) | none in qk-io | none; no input overwrite | Trusted-core reparse complete | Reject fail-closed; no partial state | QK-REQ-TRN-001/003/004/005/006, QK-REQ-PSBT-002; QK-TST-FUZZ-001/002/003, QK-TST-CORP-001/002/003 |
-| Decrypt Seed A | A1 presented, B present | A2 read from B; capsule authenticates for this `wallet_id` | qk-core | A2, Seed A | none | Seed A available in secret arena | Fail closed on auth failure; zeroize | QK-REQ-A1-003/004; QK-TST-PROP-001, QK-TST-CORP-004 |
-| Review and approve | Reparse complete | Review built solely from trusted-core parse; policy/prevout/derivation/change/sighash/fee checks pass | qk-core | Seed A; card session B | none | Physical approval recorded for exactly the reviewed transaction | Cancel/timeout: discard, zeroize, no signature exists | QK-REQ-PSBT-003/006, QK-REQ-TUI-002/003; QK-TST-PROP-002, QK-TST-HF-002 |
-| Sign and output | Approval | Revalidation immediately before signing; signatures verified | qk-core | Seed A; card session B | signed output only | Independently parseable signed result | Power-loss: no partial signature released; zeroize | QK-REQ-PSBT-003/004; QK-TST-DIFF-002, QK-TST-PWR-004 |
-| End session | Output delivered or aborted | — | qk-core | none after cleanup | none | Terminal clean | Same as success (cleanup is unconditional) | QK-REQ-PLT-001/004; QK-TST-UNIT-010 |
-
-## Recovery paths
+## Normal signing — A1+B
 
 | Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
 |---|---|---|---|---|---|---|---|---|
-| A1+C recovery | B unavailable | Same guards as A1+B with card C; role checked (C is not B) | qk-core | A2, Seed A; card session C | signed output only | Spend/recovery completed; rotation mandated | Fail closed; zeroize | QK-REQ-REC-001/002, QK-REQ-CARD-003; QK-TST-REH-001, QK-TST-UNIT-008 |
-| B+C recovery | A1 unavailable | Both cards present; A bypassed entirely | qk-core | card sessions B and C | signed output only | Spend/recovery completed; rotation mandated | Fail closed; zeroize | QK-REQ-REC-001/002; QK-TST-REH-001 |
-| Lost-factor rotation | Any loss or suspected compromise | One-time use of a surviving pair only | qk-core | per path used | fresh A1′ + cards B′/C′ | Completely fresh A′/B′/C′/A2′/D′ wallet provisioned; all funds swept; old wallet abandoned | Rotation ceremony fails closed like provisioning; no reissue into old descriptor | QK-REQ-REC-002/003; QK-TST-REH-003 |
-| Quantum-threat migration | Owner determines a material change in Bitcoin's quantum threat model has occurred | Versioned, owner-reviewed sweep/migration plan in force (QK-REQ-ASR-010); no post-quantum security claim made | owner + qk-core (sweep executes as ordinary signing/rotation) | per path used | per rotation row | Funds swept per the plan's current version; destination policy is the plan's owner-approved choice, not a proprietary post-quantum script | Fails closed like rotation; plan remains in force; partial sweeps re-attempted per plan | QK-REQ-ASR-010, QK-REQ-ASR-006, QK-REQ-REC-002; QK-TST-REH-005 |
-| Terminal replacement | Terminal lost/failed | Replacement terminal has no prior wallet state; any valid pair | qk-core (new terminal) | per path used | none beyond signed output | Recovery completes on replacement terminal | Fail closed; zeroize | QK-REQ-REC-004, QK-REQ-PLT-001; QK-TST-REH-002 |
+| Start session | Owner enters wallet mode | qk-decoy terminated; display/keypad exclusive | qk-core | none | none | Session open | Clean idle | QK-REQ-TUI-001, QK-REQ-PLT-002; QK-TST-UNIT-013 |
+| Intake transaction | QR/SD supplied | Bounded qk-io parse, immutable copy, trusted-core reparse | qk-io then qk-core | none in qk-io | no input overwrite | Schema-v3 review facts ready | Named rejection; no partial state | QK-REQ-TRN-001/003/004/005/006, QK-REQ-PSBT-001/002/005; QK-TST-FUZZ-001/002/003 |
+| Decrypt Seed A | A1 and B presented | A2 from B; A1 authenticates to this `wallet_id` | qk-core | A2, Seed-A entropy | none | Signer A available transiently | Named rejection; wipe | QK-REQ-A1-003/004, QK-REQ-BND-001; QK-TST-PROP-001, QK-TST-CORP-004 |
+| Review and approve | Schema-v3 review ready | QK-FEE-POLICY-V2, ownership/change/prevout/sighash checks, complete fixed-order review | qk-core | signer A; B session | none | Hold bound to exact review identity | Wipe; no signature exists | QK-REQ-PSBT-003/006, QK-REQ-BND-002/003, QK-REQ-TUI-002/003; QK-TST-PROP-002/006 |
+| Sign, finalize, export | Bound approval | Reparse and revalidation; A and B signatures verified; canonical 2-of-2 witness | qk-core | signer A; B session | verified signed artifacts only | Freshly parsed finalized transaction exported | No partial valid output; wipe | QK-REQ-PSBT-003/004, QK-REQ-TRN-007/008; QK-TST-DIFF-002/004, QK-TST-PWR-004/005 |
+| End session | Output delivered or aborted | unconditional cleanup | qk-core | none after cleanup | none on terminal | Terminal clean | Same cleanup | QK-REQ-PLT-001/004; QK-TST-UNIT-010 |
+
+## Kit session common prefix
+
+| Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
+|---|---|---|---|---|---|---|---|---|
+| Select Kit door | Owner starts Kit session | Choose exactly one of Kit-Spend or Kit-Restore before scanning | qk-core | none | none | Door fixed for session | Wipe and terminate | QK-REQ-KIT-007; QK-TST-PROP-008, QK-TST-REH-007 |
+| Scan share 1 | Door fixed | Scanner accepts Kit-share QR only; fallback input unavailable pending its own decision | qk-io then qk-core | first share after core acceptance | none | Canonical frame retained | Named rejection; wipe and terminate | QK-REQ-PLT-009/010, QK-REQ-KIT-001/007/015/016; QK-TST-BENCH-006, QK-TST-CORP-002 |
+| Scan share 2 and combine | First share accepted | Opposite index, same version and full `wallet_id`, valid checksums; frames canonical | qk-core | both shares, recovered Seed-A entropy, Seed-B entropy, A2 | none | Recovered public facts reproduce D and `wallet_id` | Same-index, mismatch, corruption, or derivation failure wipes and terminates | QK-REQ-BND-001, QK-REQ-KIT-001/002/007; QK-TST-UNIT-014, QK-TST-PROP-008 |
+
+## Kit-Spend — sweep only
+
+| Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
+|---|---|---|---|---|---|---|---|---|
+| Intake sweep transaction | Shares combined under Kit-Spend | Every presented input proves owned; exactly one output; output is a new address of a newly supplied replacement descriptor; no change | qk-core | recovered A/B/A2 | none | Sweep review object ready | Reject; wipe; no signing | QK-REQ-KIT-008, QK-REQ-PSBT-002/006; QK-TST-PROP-002, QK-TST-REH-007 |
+| Confirm external completeness | Sweep review ready | Product states coordinator supplied UTXO set is external and not terminal-proven | user/coordinator fact consumed by qk-core UI | recovered A/B/A2 | none | User proceeds with bounded factual warning | Cancel wipes and ends | QK-REQ-KIT-009, QK-REQ-TUI-002; QK-TST-REH-007 |
+| Review, sign, export | Sweep constraints hold | Complete review; approval/revalidation; exact A/B signatures; one new-wallet output | qk-core | recovered A/B/A2 | signed sweep artifact only | Sweep result released; old wallet marked for abandonment by procedure | No partial output; wipe | QK-REQ-KIT-008, QK-REQ-PSBT-003/004, QK-REQ-BND-002/003; QK-TST-DIFF-002, QK-TST-REH-007 |
+
+## Kit-Restore — no signing
+
+| Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
+|---|---|---|---|---|---|---|---|---|
+| Choose restore artifact | Shares combined under Kit-Restore | Exactly replacement B or A1 reprint; no signing or transaction intake state exists | qk-core | recovered Seed-A entropy, Seed-B entropy, A2 | none | One restore branch fixed | Wipe and terminate | QK-REQ-REC-001, QK-REQ-KIT-007/010/011; QK-TST-PROP-008, QK-TST-REH-007 |
+| Replace destroyed B | Owner selects card | User confirms physical remains are in hand; new card matches B in D; atomic write | qk-core | Seed-B entropy/account secret, A2, D | one replacement B | Replacement verified; remains disposition is external | Missing-card answer routes to sweep; interruption leaves no ambiguous card | QK-REQ-REC-003, QK-REQ-KIT-010/012; QK-TST-BENCH-002, QK-TST-PWR-002, QK-TST-REH-007 |
+| Reprint A1 | Owner selects A1 | Frozen capsule with fresh caller-provided nonce; actual print scans back and authenticates | qk-core, qk-io transport | Seed-A entropy, A2 | replacement A1 | New A1 verified; no signature exists | Void print; wipe; no output accepted | QK-REQ-A1-002/009, QK-REQ-KIT-011; QK-TST-UNIT-001, QK-TST-REH-006/007 |
+| Finish restoration | Replacement verified | No second live B created; no Kit regeneration; no signing artifact | qk-core | none after cleanup | restored artifact only | Terminal clean; restored A1+B exists only to complete the mandatory fresh-wallet sweep after Kit opening | Same cleanup | QK-REQ-REC-002, QK-REQ-KIT-005/010/011/013, QK-REQ-PLT-001/004; QK-TST-PROP-008, QK-TST-REH-007 |
+
+## Mandatory sweep triggers
+
+| Trigger | Required route | Why terminal cannot prove the fact | Links |
+|---|---|---|---|
+| B cannot be found | Kit-Spend to fresh wallet | Absence does not prove destruction; restoring could create two live B cards | QK-REQ-REC-003, QK-REQ-KIT-012/013; QK-TST-REH-007 |
+| Kit envelope intentionally opened, seal found broken, or any doubt of opening/photography | Kit-Spend directly, or Kit-Restore followed by an A1+B sweep, to a fresh wallet | Seal state and custody history are human observations | QK-REQ-REC-002, QK-REQ-KIT-014; QK-TST-HF-003, QK-TST-REH-007 |
+| A2, A1+B, or complete Kit suspected exposed | Any still-controlled authorized sweep path | Exposure and copy destruction are external facts | QK-REQ-REC-002/007, QK-REQ-KIT-014; QK-TST-REH-003/007 |
+| Material quantum-threat change | Versioned Owner-reviewed sweep plan | Threat determination is external policy input | QK-REQ-ASR-006/010; QK-TST-REH-005 |
+
+Periodic rehearsal includes an envelope-seal check. A damaged share with intact trusted custody is an availability event; any doubt that it was viewed or copied is a compromise event and uses the sweep row.
 
 ## Exceptional transitions
 
-| Transition | Trigger | Guard | Owner | Secrets present | Persist | Success | Failure/Cancel/Power-loss | Links |
-|---|---|---|---|---|---|---|---|---|
-| Cancellation | Owner cancels | Any state | qk-core | whatever the state held | none | State discarded; zeroized; session ends or returns to safe idle | Identical (cancellation is the failure path) | QK-REQ-PLT-004; QK-TST-UNIT-010, QK-TST-PWR-004 |
-| Timeout | Review/confirmation timer expires (limit OPEN, QK-LIM-TUI-003) | Any interactive state | qk-core | as held | none | Same as cancellation | Identical | QK-REQ-TUI-003; QK-TST-CORP-006 |
-| Wrong card / document / wallet | Factor fails role, AAD, or `wallet_id` check | Guards reject before any secret use | qk-core | none released | none | Rejection with fail-closed message | Identical | QK-REQ-A1-004, QK-REQ-CARD-003, QK-REQ-HF-003; QK-TST-UNIT-008, QK-TST-CORP-006 |
-| Card/media removal | Card or SD removed mid-operation | Any state | qk-core | as held | none; no input overwrite | Operation aborted; consistent card/media state | Identical | QK-REQ-CARD-005, QK-REQ-TRN-002; QK-TST-PWR-002/003 |
-| Power loss | Power interruption | Any state | qk-core (on restart) | none after restart | none beyond already-committed consistent artifacts | Restart into clean idle; no secret residue; no resumed approval | Identical by definition | QK-REQ-PLT-001, QK-REQ-REC-005; QK-TST-PWR-001…004, QK-TST-PROP-005 |
-| Failure (any internal error) | Error detected | Any state | owning component | as held | none | Fail closed; zeroize; user-visible outcome | Identical | QK-REQ-HF-003, QK-REQ-PLT-004; QK-TST-UNIT-010 |
-| Shutdown and secret cleanup | Session end or power-off request | — | qk-core | none after cleanup | none | All secret memory zeroized within the approved cleanup budget (QK-LIM-EXE-002) | Power-loss during shutdown: covered by power-loss row | QK-REQ-PLT-001/004; QK-TST-UNIT-010, QK-TST-SAN-003 |
+| Transition | Trigger | Postcondition | Links |
+|---|---|---|---|
+| Cancellation or timeout | Owner cancel or timer expiry | Wipe every transient secret, approval, share, door and parsed fact; terminate | QK-REQ-PLT-004, QK-REQ-TUI-003; QK-TST-UNIT-010 |
+| Card/media removal | Removal during any nonterminal state | Abort, wipe, preserve only already-committed consistent artifacts | QK-REQ-CARD-005, QK-REQ-TRN-002; QK-TST-PWR-002/003 |
+| Power loss or restart | Any state | Restart at clean idle; no resumed door, share, review, approval, or signing state | QK-REQ-PLT-001/004, QK-REQ-REC-005; QK-TST-PWR-001…005 |
+| Internal failure | Any named error | Fail closed, show bounded factual result, wipe, terminate | QK-REQ-HF-003, QK-REQ-PLT-004; QK-TST-UNIT-010 |
+| Drop/cleanup | Session owner leaves scope | Optimization-resistant wipe of transcript, seeds, A2, Kit-R intermediates, shares, and recovered payload | QK-REQ-ENT-012, QK-REQ-KIT-005, QK-REQ-PLT-004; QK-TST-SAN-003 |
 
 ## Custody truth table
 
-Non-normative analysis of which object combinations decrypt Seed A, hold independent signers, and can spend **in principle** (before any implementation exists; nothing here is validated). Counting rules: the terminal is never a signer and holds no wallet secret between sessions (QK-REQ-PLT-001). D is watch-only metadata — never a signer. A2 is a decryption key — never a signer. A duplicate of an already-counted factor never adds a signer (QK-REQ-CUS-004). "A decrypts" asks whether Seed A plaintext is obtainable from the held objects alone (A1 needs A2, which lives only on cards in normal custody).
+The terminal is never a signer and retains no wallet secret between sessions. D is metadata, A2 is a decryption key, and neither is a signing factor. “Spend possible” describes possession in principle, not the restricted terminal route.
 
-| Held combination | A decrypts? | Independent signers held | Spend possible in principle? | Intended / emergency role | Required response on this exposure | Residual risk |
-|---|---|---|---|---|---|---|
-| none | No | 0 | No | — | — | — |
-| A1 only | No (no A2) | 0 | No | Backup at rest | If theft or capture is known or suspected: rotation and sweep (QK-REQ-REC-002) — any later A2 disclosure converts the capture into signer-A material (QK-THR-021) | Ciphertext existence disclosed; capture is irrevocable if photographed |
-| B only | No | 1 (signer B; A2 and D also present on-card) | No | Daily-carry factor | If stolen: rotation and sweep (QK-REQ-REC-002) | A2+D exposed; any A1 copy anywhere becomes decryptable |
-| C only | No | 1 (signer C; A2 and D also present on-card) | No | Vault factor | If stolen: rotation and sweep | Same as B only |
-| A1+B | Yes (A2 from B) | 2 (A, B) | Yes | Intended daily spend path | If held by an attacker: full compromise — immediate sweep race | None — this is a valid pair |
-| A1+C | Yes (A2 from C) | 2 (A, C) | Yes | Emergency spend path (B unavailable); rotation mandated after use | Same as A1+B | None — valid pair |
-| B+C | No (A bypassed) | 2 (B, C) | Yes | Emergency path (A1 unavailable); rotation mandated after use | Same as A1+B | None — valid pair |
-| A1+B+C | Yes | 3 | Yes | Full collection (ceremonies only; storage separation forbids at rest — QK-REQ-CUS-008/009) | If held by an attacker: full compromise | Co-presence window during ceremonies (QK-THR-005) |
+| Held combination | A available? | B available? | Spend possible? | Intended posture | Required response |
+|---|---:|---:|---:|---|---|
+| none or terminal alone | No | No | No | replaceable terminal | none from possession alone |
+| A1 only | No, without A2 | No | No | normal factor at rest | sweep on known capture because later A2 disclosure converts it |
+| B only | No | Yes | No | normal card | sweep on theft/extraction; A2 makes any captured A1 decryptable |
+| A1+B | Yes | Yes | Yes | normal signing pair | attacker possession is full compromise |
+| either Kit share alone | No | No | No | separated envelope | sweep if seal/copy doubt; computational secrecy is capped by Kit-R entropy |
+| any share 1 + any share 2 from setup copies | Yes | Yes | Yes | complete break-glass Kit | only Kit-Spend or Kit-Restore is exposed by product flow |
+| two same-index shares | No | No | No | invalid combination | reject before reconstruction |
+| optional setup spare B alone | No | Yes | No | pre-created spare | same exposure rules as B |
+| A1 + either B copy | Yes | Yes | Yes | normal path | attacker possession is full compromise |
 
-Additional exposures (same counting rules):
-
-| Event | A decrypts? | Signers gained by attacker | Spend possible for attacker? | Required response | Residual risk |
-|---|---|---|---|---|---|
-| Terminal alone (loss, theft, or compromise, between sessions) | No | 0 | No | Replace terminal (QK-REQ-REC-004); no rotation forced by the object itself | A compromised terminal used in a **later** authorized session can forge that session (QK-REQ-TUI-004) |
-| D disclosure (descriptor leaks) | No | 0 | No | Privacy response only; consider rotation for privacy | Full wallet deanonymization; watch-only surveillance (QK-THR-003) |
-| D loss (standalone copies) | No | 0 | Owner spend hindered | Restore D from any surviving card (cards carry D) or coordinator backup | Recovery blocked until D restored (QK-THR-020) |
-| D loss (every object carrying D lost) | No | 0 | No — descriptor knowledge gone | None available; prevention only | With no card and no D copy surviving, at most one custody object remains — funds unrecoverable regardless (QK-THR-020) |
-| A2 disclosure without any card theft | Only combined with any A1 copy | 0 by itself | Only with any A1 copy **plus** one card | Rotation and sweep on suspicion (QK-REQ-REC-007) | Every past/future A1 copy becomes signer-A material; disclosure may never be detected (QK-THR-021) |
-| A1 + A2 (attacker holds both) | Yes | 1 (A) | No (needs one more signer) | Rotation and sweep | One card theft away from full compromise |
-| Theft of any valid pair | Per pair | 2 | Yes | Immediate sweep race with surviving objects if any | Total loss possible (QK-THR-005 — accepted design boundary) |
-| Loss (not theft) of any single object | No | 0 | No | One-time surviving-pair rotation (QK-REQ-REC-002/003) | Recovery path itself unrehearsed until Gate E; second loss before rotation is fatal |
-| Theft of any single object | No | 0 or 1 (see rows above) | No | Rotation and sweep | Attacker holds one object while owner races rotation |
-| Destruction of any two objects | No | 0 | No — funds unrecoverable (only one object survives) | None available; prevention only (storage separation, geography) | Permanent loss — 2-of-3 requires two objects |
-
-### Card lifecycle states (non-normative note)
-
-Cards move through the abstract states defined by QK-REQ-CARD-008 (uninitialized → provisioning → committed → retired, with a single atomic commit), may sign only in the committed state (QK-REQ-CARD-009), and must land in a consistent state under any interruption (QK-REQ-CARD-010). Mechanisms are OPEN per OD-02.
+Two complete Kits are printed by default. Cross-copy opposite indices deliberately combine because every setup copy uses the same pad. Co-storing both envelopes chooses faster use over separation safety; the Kit page must say so.
 
 ## Trust boundaries
 
 ### qk-core
 
-- **Responsibilities:** sole owner of secret memory, secret arena, card sessions, trusted display/keypad in wallet mode, PSBT reparse/validation, review construction, physical approval, signing, signature verification, zeroization; A1 capsule authentication and decryption and independent semantic validation of parsed input (QK-REQ-PLT-010); card APDU response parsing as documented owner (QK-REQ-PLT-011). Boot/update parsing ownership remains OPEN (QK-REQ-PLT-012, OD-06).
-- **Forbidden:** persisting any wallet secret; releasing plaintext before authentication; signing without reparse, review, and physical approval; accepting transport bytes it did not reparse; retaining A2 or root mnemonic material after ceremonies.
+- Sole owner of transcripts, secret derivation, A1 authentication, Kit frame validation and combination, door state, PSBT semantics, trusted review/approval, signing, card writes, and zeroization.
+- Must never expose a general Kit signing session, regenerate Kit shares after setup, restore a missing B, accept same-index shares, or persist wallet secrets.
 
 ### qk-io
 
-- **Responsibilities:** bounded camera/QR and SD transport, and the A1 image-capture/OCR candidate pipeline up to (but excluding) capsule authentication (QK-REQ-PLT-009), within approved QK-LIM budgets; delivering raw hostile bytes and OCR candidates to qk-core.
-- **Forbidden:** access to secret memory, cards, APDU response parsing (owned by qk-core per QK-REQ-PLT-011), approval path, or trusted display/keypad; boot/update parsing (ownership OPEN per OD-06, never assignable to qk-io — QK-REQ-PLT-012); capsule authentication or decryption; persistence of payloads; exceeding any approved bound; interpreting external bytes as instructions.
+- Owns bounded camera/QR, A1 image/OCR, Kit-share image/string transport, and microSD transport; outputs remain hostile.
+- Has no secret, card, approval, Kit-combination, capsule-authentication, or door-selection authority. Every Kit scanner screen is mode-locked to Kit shares. The fallback-string terminal input method remains unavailable until separately ratified.
 
-### qk-decoy
+### Key Card B and setup-time spare
 
-- **Responsibilities:** calculator behavior only.
-- **Forbidden:** any wallet capability, secret access, card access, or presence after wallet mode takes exclusive control (terminated first).
+- Hold only signer-B least-authority account material, A2, D, fixed role and lifecycle state.
+- A spare may be created only at original setup. Later restoration requires the old card's physical remains; the terminal cannot establish that fact.
 
-### Kernel and booted image
+### Kit envelopes and print path
 
-- **Intended trust:** trusted computing base in wallet mode (QK-DEC-010); process separation is not claimed to defend against its compromise.
-- **Permitted data:** all process memory by definition of a kernel; scheduling and device mediation.
-- **Forbidden access/capabilities:** persistence of wallet secrets or metadata beyond the lifecycle model; any network capability (air-gapped device).
-- **Compromise consequence:** total — secrets and approvals in that session cannot be protected; no requirement claims otherwise.
-- **Evidence needed:** boot/update integrity evidence per OD-06 (OPEN); reproducible-build and supply-chain evidence (QK-REQ-ASR-002/007).
+- Each envelope holds one framed 96-byte share page. Either share alone depends on Kit-R computational secrecy; both reveal the complete wallet.
+- The printer sees share bytes and is therefore within the setup ceremony's temporary confidentiality boundary. Copies, spool/cache disposal, sealing, geography, periodic seal checks, and destruction are physical procedures rather than terminal-proven facts.
 
-### Physical display/keypad path
+### Online coordinator
 
-- **Intended trust:** trusted in wallet mode as the exclusive review/approval channel of qk-core (QK-REQ-TUI-001).
-- **Permitted data:** review content constructed by qk-core; keypad input.
-- **Forbidden access/capabilities:** access by qk-io or qk-decoy in wallet mode; retention of displayed secrets (framebuffer remanence — QK-THR-018).
-- **Compromise consequence:** review and approval can be forged for that session (within QK-REQ-TUI-004's stated non-claim).
-- **Evidence needed:** exclusive-ownership verification (QK-TST-UNIT-007); remanence checks (QK-TST-SAN-001/003).
+- Holds D and constructs hostile PSBTs. It is responsible for discovering the complete UTXO set used by Kit-Spend; the terminal proves ownership of presented inputs but not omission of unpresented UTXOs.
 
-### Cards B and C
+### User
 
-- **Intended trust:** bearer signing elements; trusted to hold the least-authority payload and perform role-fixed signing (QK-REQ-CARD-001/003).
-- **Permitted data:** BIP48 account xprv, chain code, origin data, role, A2, D — nothing else.
-- **Forbidden access/capabilities:** PIN/pairing/online dependencies (QK-REQ-CARD-002); exporting secrets except via the defined rescue path; any state change that survives interruption inconsistently (QK-REQ-CARD-005).
-- **Compromise consequence:** per QK-THR-003/008 — one signer plus A2 and D exposed; threshold only with another factor; rotation and sweep mandatory.
-- **Evidence needed:** exact-card feasibility and extraction-resistance evidence (Gate B; OD-02 OPEN); QK-TST-BENCH-002, QK-TST-AUD-003.
+- Supplies the external facts: selected Kit posture, custody separation, seal history, physical card remains, destruction, and coordinator completeness confirmation.
+- A false or mistaken fact can defeat the corresponding physical procedure; no screen or cryptographic check is described as proving it.
 
-### Print computer and printer (A1 production)
+### Kernel, booted image, display/keypad, qk-decoy, build environment, and rescue computer
 
-- **Intended trust:** untrusted beyond the single A1 production ceremony; sees ciphertext only.
-- **Permitted data:** A1 ciphertext, cloak page content, apparent URL text — never plaintext seed material, A2, or D.
-- **Forbidden access/capabilities:** receiving any plaintext secret; retaining spooler/cache copies per the ceremony's disposal procedure; network transmission of the capsule.
-- **Compromise consequence:** attacker gains authenticated ciphertext only (QK-THR-002); capture of A1 becomes dangerous only combined with A2 (QK-THR-004).
-- **Evidence needed:** ceremony procedure audit (QK-TST-AUD-006, QK-TST-HF-001); documented spooler/cache handling before Gate A closes.
-
-### Online coordinator (watch-only)
-
-- **Intended trust:** untrusted; composes PSBTs and broadcasts; holds descriptors (privacy-sensitive) but no spend authority.
-- **Permitted data:** descriptor pair D, `wallet_id`, unsigned/signed PSBTs.
-- **Forbidden access/capabilities:** any key material, A2, or approval capability; its bytes are always hostile input (QK-DEC-009).
-- **Compromise consequence:** privacy loss (deanonymization) and malicious PSBT supply (QK-THR-006/017); funds safe if the trusted core's review holds.
-- **Evidence needed:** hostile-input coverage of everything it produces (QK-TST-FUZZ-001/002/003, QK-TST-CORP-001/002/003).
-
-### Commodity-reader rescue environment
-
-- **Intended trust:** untrusted general-purpose computer used only when the terminal is lost (QK-REQ-CARD-006); the user accepts exposure knowingly during rescue.
-- **Permitted data:** card contents surfaced by the open rescue tool during a rescue the owner initiated.
-- **Forbidden access/capabilities:** no role in normal operation; never a signing environment endorsed as safe; rescue documentation must state the exposure.
-- **Compromise consequence:** secrets read during rescue are exposed to that machine; rotation and sweep are mandatory after rescue (QK-REQ-REC-002).
-- **Evidence needed:** rescue rehearsal on a clean machine (QK-TST-REH-004); documented post-rescue rotation requirement.
-
-### Replit / build and development environment
-
-- **Intended trust:** outside the production trust boundary entirely. Nothing produced here is trusted for production; it hosts DRAFT documents and, later, source whose production trust derives only from reproducible builds on controlled builders (QK-REQ-ASR-002).
-- **Permitted data:** public repository content only — never key material, secrets, or real-fund artifacts.
-- **Forbidden access/capabilities:** producing release binaries; holding secrets; closing gates; any claim that CI/verifier passage constitutes security evidence.
-- **Compromise consequence:** supply-chain threat (QK-THR-009) — addressed only by the reproducible-build, review, and provenance requirements (QK-REQ-ASR-002/004/007), all unvalidated.
-- **Evidence needed:** reproducible-build and provenance evidence at release time (QK-TST-AUD-002).
-
-The kernel, booted image, and physical display/keypad path remain trusted (QK-DEC-010); process separation is not claimed to defend against a compromised kernel, and a malicious terminal within an authorized two-factor session remains inside the authorization trust boundary (QK-DEC-006, QK-REQ-TUI-004).
+Their prior trust boundaries remain: kernel and physical UI are trusted in wallet mode; qk-decoy is terminated first; the development environment holds public test material only; commodity-reader rescue is an exposure event followed by migration. Process separation does not protect a session from a compromised kernel or authorized malicious terminal.
