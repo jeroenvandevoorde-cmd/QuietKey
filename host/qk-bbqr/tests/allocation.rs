@@ -1,8 +1,9 @@
 //! M22 public operations are fixed-memory and leave caller outputs stable on rejection.
 
 use qk_bbqr::{
-    decode_frame, encode_frame, encoded_part_count, BbqrError, Reassembler, MAX_FRAME_TEXT_BYTES,
-    MAX_PART_DECODED_BYTES, MAX_TOTAL_DECODED_BYTES,
+    decode_frame, decode_typed_frame, encode_frame, encode_typed_frame, encoded_part_count,
+    BbqrError, BbqrFileType, Reassembler, MAX_FRAME_TEXT_BYTES, MAX_PART_DECODED_BYTES,
+    MAX_TOTAL_DECODED_BYTES,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -227,4 +228,30 @@ fn maximum_total_payload_path_allocates_zero_and_round_trips_exactly() {
     assert_eq!(error, Err(BbqrError::PayloadTooLarge));
     assert_eq!(allocations, 0);
     assert_eq!(frame, before);
+}
+
+#[test]
+fn typed_transaction_operations_allocate_zero() {
+    let payload = *b"0123456789";
+    let mut frame = [0xa5; MAX_FRAME_TEXT_BYTES];
+    let (frame_len, allocations) =
+        measured(|| encode_typed_frame(BbqrFileType::Transaction, &payload, 5, 0, &mut frame));
+    let frame_len = frame_len.unwrap();
+    assert_eq!(allocations, 0);
+
+    let mut decoded = [0x5a; MAX_PART_DECODED_BYTES];
+    let (metadata, allocations) = measured(|| {
+        decode_typed_frame(BbqrFileType::Transaction, &frame[..frame_len], &mut decoded)
+    });
+    assert_eq!(metadata.unwrap().decoded_len, 5);
+    assert_eq!(allocations, 0);
+
+    let mut backing = storage();
+    let backing: &mut [u8; MAX_TOTAL_DECODED_BYTES] = backing.as_mut().try_into().unwrap();
+    let (mut reassembler, allocations) =
+        measured(|| Reassembler::new_typed(BbqrFileType::Transaction, backing));
+    assert_eq!(allocations, 0);
+    let (progress, allocations) = measured(|| reassembler.submit(&frame[..frame_len]));
+    assert!(progress.is_ok());
+    assert_eq!(allocations, 0);
 }

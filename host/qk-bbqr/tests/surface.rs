@@ -1,8 +1,9 @@
-//! Frozen M22 public surface, cap arithmetic, and fixed-memory source restrictions.
+//! Frozen M22/M30 public surface, cap arithmetic, and fixed-memory restrictions.
 
 use qk_bbqr::{
-    BbqrError, DecodedFrame, Reassembler, ReassemblyProgress, MAX_BODY_SYMBOLS, MAX_DECLARED_PARTS,
-    MAX_FRAME_TEXT_BYTES, MAX_PART_DECODED_BYTES, MAX_SUBMISSIONS, MAX_TOTAL_DECODED_BYTES,
+    BbqrError, BbqrFileType, DecodedFrame, Reassembler, ReassemblyProgress, MAX_BODY_SYMBOLS,
+    MAX_DECLARED_PARTS, MAX_FRAME_TEXT_BYTES, MAX_PART_DECODED_BYTES, MAX_SUBMISSIONS,
+    MAX_TOTAL_DECODED_BYTES,
 };
 
 const LIB: &str = include_str!("../src/lib.rs");
@@ -16,7 +17,7 @@ const _: [(); MAX_SUBMISSIONS] = [(); MAX_DECLARED_PARTS * 2];
 const _: [(); 262_144] = [(); MAX_TOTAL_DECODED_BYTES];
 
 #[test]
-fn public_surface_is_exactly_caps_errors_metadata_and_four_operations() {
+fn public_surface_is_exactly_the_ratified_caps_types_metadata_and_operations() {
     let public_lines: Vec<&str> = LIB
         .lines()
         .map(str::trim_start)
@@ -32,6 +33,7 @@ fn public_surface_is_exactly_caps_errors_metadata_and_four_operations() {
             "pub const MAX_TOTAL_DECODED_BYTES: usize = 262_144;",
             "pub const MAX_SUBMISSIONS: usize = 512;",
             "pub enum BbqrError {",
+            "pub enum BbqrFileType {",
             "pub struct DecodedFrame {",
             "pub declared_parts: u16,",
             "pub part_index: u16,",
@@ -46,9 +48,12 @@ fn public_surface_is_exactly_caps_errors_metadata_and_four_operations() {
             "pub complete: bool,",
             "pub fn encoded_part_count(payload_len: usize, non_final_part_len: usize) -> Result<u16, BbqrError> {",
             "pub fn encode_frame(",
+            "pub fn encode_typed_frame(",
             "pub fn decode_frame(",
+            "pub fn decode_typed_frame(",
             "pub struct Reassembler<'a> {",
             "pub fn new(output: &'a mut [u8; MAX_TOTAL_DECODED_BYTES]) -> Self {",
+            "pub fn new_typed(",
             "pub fn submit(&mut self, frame: &[u8]) -> Result<ReassemblyProgress, BbqrError> {",
             "pub fn payload(&self) -> Result<&[u8], BbqrError> {",
         ],
@@ -101,6 +106,7 @@ fn public_surface_is_exactly_caps_errors_metadata_and_four_operations() {
     }
 
     let _: Option<DecodedFrame> = None;
+    let _: Option<BbqrFileType> = None;
     let _: Option<ReassemblyProgress> = None;
     let _: Option<Reassembler<'_>> = None;
 
@@ -170,7 +176,8 @@ fn cap_values_and_const_arithmetic_are_exact() {
     for pin in [
         "const HEADER_LEN: usize = 8;",
         "const ENCODING: u8 = b'2';",
-        "const FILE_TYPE: u8 = b'P';",
+        "Self::Psbt => b'P',",
+        "Self::Transaction => b'T',",
         "const _: () = assert!(HEADER_LEN + MAX_BODY_SYMBOLS == MAX_FRAME_TEXT_BYTES);",
         "const _: () = assert!(MAX_BODY_SYMBOLS * 5 / 8 == MAX_PART_DECODED_BYTES);",
         "const _: () = assert!(MAX_DECLARED_PARTS * 2 == MAX_SUBMISSIONS);",
