@@ -65,10 +65,13 @@ use crate::limits;
 use crate::parse::PsbtView;
 use crate::raw::{decode_compact_size, Record, Span};
 use crate::review_v2::{apply_fee_policy, FeePolicyFacts, ReviewV2Error};
+use crate::review_v3::{apply_fee_policy_v2, FeePolicyV2Facts, ReviewV3Error};
 use crate::sha256::{sha256, sha256d};
 use core::fmt;
 use qk_descriptor::{
-    match_change_derivation_claims, match_receive_derivation_claims, DerivedScript, DescriptorPair,
+    match_change_derivation_claims, match_change_derivation_claims_v2,
+    match_receive_derivation_claims, match_receive_derivation_claims_v2, DerivedScript,
+    DerivedScriptV2, DescriptorPair, DescriptorPairV2,
 };
 
 /// MoneyRange upper bound in satoshis (Bitcoin Core `MAX_MONEY`),
@@ -184,6 +187,9 @@ pub enum SemanticCategory {
     /// M12: an input does not carry exactly three BIP32 derivation
     /// records.
     DescriptorDerivationRecordCount,
+    /// V2: an input does not carry exactly two BIP32 derivation
+    /// records.
+    DescriptorV2DerivationRecordCount,
     /// M12: a relevant derivation record key is not one exact
     /// compressed public key.
     DescriptorDerivationPublicKey,
@@ -302,6 +308,9 @@ impl fmt::Display for SemanticCategory {
             }
             Self::DescriptorDerivationRecordCount => {
                 "input does not have exactly three descriptor derivation records"
+            }
+            Self::DescriptorV2DerivationRecordCount => {
+                "input does not have exactly two descriptor derivation records"
             }
             Self::DescriptorDerivationPublicKey => {
                 "descriptor derivation key is not exact compressed form"
@@ -2384,6 +2393,294 @@ pub fn analyze_descriptor_ownership<'a>(
 }
 
 // ====================================================================
+// V2 two-role descriptor-backed ownership helpers (QK-DEC-122).
+// These are private to schema-v3 construction until the signing slice.
+// ====================================================================
+
+const CHILD_DERIVATIONS_PER_ROUTE_V2: usize = 4;
+
+struct DescriptorClaimsV2 {
+    keys: [Option<[u8; 33]>; 2],
+    coordinates: Option<DescriptorCoordinates>,
+    relevant_count: usize,
+}
+
+impl DescriptorClaimsV2 {
+    const fn new() -> Self {
+        Self {
+            keys: [None; 2],
+            coordinates: None,
+            relevant_count: 0,
+        }
+    }
+
+    fn add(
+        &mut self,
+        role: usize,
+        key: [u8; 33],
+        coordinates: DescriptorCoordinates,
+        input_index: Option<usize>,
+        offset: usize,
+    ) -> Result<(), SemanticError> {
+        let slot = self.keys.get(role).ok_or(SemanticError {
+            category: SemanticCategory::InternalInvariant,
+            input_index,
+            offset,
+        })?;
+        if slot.is_some() {
+            return Err(SemanticError {
+                category: SemanticCategory::DuplicateDescriptorRole,
+                input_index,
+                offset,
+            });
+        }
+        if self
+            .coordinates
+            .is_some_and(|existing| existing != coordinates)
+        {
+            return Err(SemanticError {
+                category: SemanticCategory::MixedDescriptorCoordinates,
+                input_index,
+                offset,
+            });
+        }
+        if self.coordinates.is_none() {
+            self.coordinates = Some(coordinates);
+        }
+        let slot = self.keys.get_mut(role).ok_or(SemanticError {
+            category: SemanticCategory::InternalInvariant,
+            input_index,
+            offset,
+        })?;
+        *slot = Some(key);
+        self.relevant_count = self.relevant_count.saturating_add(1);
+        Ok(())
+    }
+}
+
+fn descriptor_role_v2(fingerprints: &[[u8; 4]; 2], candidate: &[u8]) -> Option<usize> {
+    fingerprints
+        .iter()
+        .position(|fingerprint| fingerprint.as_slice() == candidate)
+}
+
+fn unique_descriptor_fingerprints_v2(
+    descriptor: &DescriptorPairV2,
+    offset: usize,
+) -> Result<[[u8; 4]; 2], SemanticError> {
+    let fingerprints = descriptor.origin_fingerprints();
+    let [a, b] = fingerprints;
+    if a == b {
+        return Err(SemanticError::global(
+            SemanticCategory::AmbiguousDescriptorFingerprints,
+            offset,
+        ));
+    }
+    Ok(fingerprints)
+}
+
+fn consume_descriptor_route_v2(
+    calls: &mut usize,
+    input_index: Option<usize>,
+    offset: usize,
+) -> Result<(), SemanticError> {
+    let next = calls
+        .checked_add(CHILD_DERIVATIONS_PER_ROUTE_V2)
+        .ok_or(SemanticError {
+            category: SemanticCategory::DescriptorChildDerivationLimitExceeded,
+            input_index,
+            offset,
+        })?;
+    if next > limits::MAX_CHILD_DERIVATIONS_V2 {
+        return Err(SemanticError {
+            category: SemanticCategory::DescriptorChildDerivationLimitExceeded,
+            input_index,
+            offset,
+        });
+    }
+    *calls = next;
+    Ok(())
+}
+
+fn match_descriptor_claims_v2(
+    descriptor: &DescriptorPairV2,
+    claims: &DescriptorClaimsV2,
+    calls: &mut usize,
+    input_index: Option<usize>,
+    offset: usize,
+) -> Result<DerivedScriptV2, SemanticError> {
+    let coordinates = claims.coordinates.ok_or(SemanticError {
+        category: SemanticCategory::InternalInvariant,
+        input_index,
+        offset,
+    })?;
+    consume_descriptor_route_v2(calls, input_index, offset)?;
+    let matched = match coordinates.branch {
+        0 => match_receive_derivation_claims_v2(descriptor, coordinates.index, &claims.keys),
+        1 => match_change_derivation_claims_v2(descriptor, coordinates.index, &claims.keys),
+        _ => {
+            return Err(SemanticError {
+                category: SemanticCategory::InternalInvariant,
+                input_index,
+                offset,
+            })
+        }
+    }
+    .map_err(|_| SemanticError {
+        category: SemanticCategory::DescriptorDerivationFailed,
+        input_index,
+        offset,
+    })?;
+    matched.ok_or(SemanticError {
+        category: SemanticCategory::DescriptorDerivationKeyMismatch,
+        input_index,
+        offset,
+    })
+}
+
+fn prove_descriptor_input_v2(
+    view: &PsbtView<'_>,
+    descriptor: &DescriptorPairV2,
+    fingerprints: &[[u8; 4]; 2],
+    input_index: usize,
+    work: &InputWork<'_>,
+    calls: &mut usize,
+) -> Result<(ProvenWalletInput, DerivedScriptV2), SemanticError> {
+    let map_start = view
+        .input_map_span(input_index)
+        .map_or(0, |span| span.start);
+    let invariant =
+        SemanticError::at_input(SemanticCategory::InternalInvariant, input_index, map_start);
+    let records = view.input_records(input_index).ok_or(invariant)?;
+    let derivation_count = records
+        .clone()
+        .filter(|record| record.key_type == 0x06)
+        .count();
+    if derivation_count != 2 {
+        return Err(SemanticError::at_input(
+            SemanticCategory::DescriptorV2DerivationRecordCount,
+            input_index,
+            map_start,
+        ));
+    }
+
+    let mut claims = DescriptorClaimsV2::new();
+    let mut witness_script = None;
+    for record in records {
+        if record.key_type == 0x05 {
+            witness_script = Some(record);
+            continue;
+        }
+        if record.key_type != 0x06 {
+            continue;
+        }
+        let fingerprint = record.value.get(..4).ok_or(invariant)?;
+        let role = descriptor_role_v2(fingerprints, fingerprint).ok_or_else(|| {
+            SemanticError::at_input(
+                SemanticCategory::ForeignInputDescriptorRole,
+                input_index,
+                record.value_span.start,
+            )
+        })?;
+        let (key, coordinates) = parse_descriptor_claim(record, Some(input_index))?;
+        claims.add(
+            role,
+            key,
+            coordinates,
+            Some(input_index),
+            record.value_span.start,
+        )?;
+    }
+
+    let derived =
+        match_descriptor_claims_v2(descriptor, &claims, calls, Some(input_index), map_start)?;
+    if let Some(record) = witness_script {
+        if record.value != derived.witness_script {
+            return Err(SemanticError::at_input(
+                SemanticCategory::DescriptorWitnessScriptMismatch,
+                input_index,
+                record.value_span.start,
+            ));
+        }
+    }
+    if work.prevout_script != derived.script_pubkey {
+        return Err(SemanticError::at_input(
+            SemanticCategory::DescriptorPrevoutScriptMismatch,
+            input_index,
+            work.prevout_script_offset,
+        ));
+    }
+    let coordinates = claims.coordinates.ok_or(invariant)?;
+    Ok((
+        ProvenWalletInput {
+            branch: coordinates.branch,
+            index: coordinates.index,
+        },
+        derived,
+    ))
+}
+
+fn classify_descriptor_output_v2(
+    view: &PsbtView<'_>,
+    descriptor: &DescriptorPairV2,
+    fingerprints: &[[u8; 4]; 2],
+    output_index: usize,
+    output: &OutputSemanticFacts<'_>,
+    calls: &mut usize,
+) -> Result<OutputOwnership, SemanticError> {
+    let map_start = view
+        .output_map_span(output_index)
+        .map_or(0, |span| span.start);
+    let records = view
+        .output_records(output_index)
+        .ok_or(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            map_start,
+        ))?;
+    let mut claims = DescriptorClaimsV2::new();
+    for record in records {
+        if record.key_type != 0x02 {
+            continue;
+        }
+        let fingerprint = record.value.get(..4).ok_or(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            record.value_span.start,
+        ))?;
+        let Some(role) = descriptor_role_v2(fingerprints, fingerprint) else {
+            continue;
+        };
+        let (key, coordinates) = parse_descriptor_claim(record, None)?;
+        claims.add(role, key, coordinates, None, record.value_span.start)?;
+    }
+    if claims.relevant_count == 0 {
+        return Ok(OutputOwnership::NotProvenOwned);
+    }
+
+    let derived = match_descriptor_claims_v2(descriptor, &claims, calls, None, map_start)?;
+    if claims.relevant_count < 2 {
+        return Ok(OutputOwnership::NotProvenOwned);
+    }
+    if output.script_pubkey != derived.script_pubkey {
+        return Err(SemanticError::global(
+            SemanticCategory::DescriptorOutputScriptMismatch,
+            map_start,
+        ));
+    }
+    let coordinates = claims.coordinates.ok_or(SemanticError::global(
+        SemanticCategory::InternalInvariant,
+        map_start,
+    ))?;
+    match coordinates.branch {
+        0 => Ok(OutputOwnership::ProvenSelfTransfer(coordinates.index)),
+        1 => Ok(OutputOwnership::ProvenChange(coordinates.index)),
+        _ => Err(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            map_start,
+        )),
+    }
+}
+
+// ====================================================================
 // M13 HOST-only recipient-script facts (QK-DEC-065..068).
 // ====================================================================
 
@@ -3056,6 +3353,266 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
     .map_err(|error| map_fee_policy_error(error, global_offset))?;
 
     Ok(ReviewV2SemanticAnalysis {
+        version: candidate.version,
+        locktime: candidate.locktime,
+        inputs,
+        outputs,
+        total_input_amount: candidate.total_input_amount,
+        total_output_amount: candidate.total_output_amount,
+        fee: candidate.fee,
+        fee_policy,
+    })
+}
+
+// ====================================================================
+// V2 two-role review-v3 semantic and fee-policy facts (QK-DEC-122).
+// ====================================================================
+
+/// One schema-v3 input fact. Existing signatures have passed syntax,
+/// strict-DER, low-S, and SIGHASH_ALL checks only; no cryptographic status
+/// is carried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReviewV3SemanticInput<'a> {
+    /// 32 outpoint txid bytes exactly as serialized in the unsigned tx.
+    pub outpoint_txid_wire: &'a [u8],
+    /// Selected previous-output index.
+    pub outpoint_vout: u32,
+    /// MoneyRange-proven previous-output amount.
+    pub prevout_amount: u64,
+    /// MoneyRange-proven previous-output scriptPubKey.
+    pub prevout_script_pubkey: &'a [u8],
+    /// Raw unsigned-transaction sequence.
+    pub sequence: u32,
+    /// Effective sighash type; always SIGHASH_ALL after the syntax phase.
+    pub effective_sighash: u32,
+    /// Descriptor-proven receive/change branch.
+    pub branch: u32,
+    /// Descriptor-proven nonhardened child index.
+    pub index: u32,
+    /// Exact descriptor-reconstructed 2-of-2 witness script used by the
+    /// fixed BIP141 witness-size estimate.
+    pub witness_script: [u8; 71],
+}
+
+/// Schema-v3 ownership plus destination facts for one unsigned output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReviewV3SemanticOutputOwnership<'a> {
+    /// No descriptor ownership proof; exact accepted recipient type and data.
+    NotOwned(RecipientScriptFacts<'a>),
+    /// Exact branch-1 descriptor change output.
+    ProvenChange(u32),
+    /// Exact branch-0 descriptor output, additionally classified as the
+    /// required P2WSH destination and carrying its exact 32-byte program.
+    ProvenSelfTransfer {
+        /// Descriptor child index.
+        index: u32,
+        /// Exact P2WSH destination fact borrowed from the unsigned tx.
+        recipient: RecipientScriptFacts<'a>,
+    },
+}
+
+/// One schema-v3 output in unsigned-transaction order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReviewV3SemanticOutput<'a> {
+    /// MoneyRange-checked output amount.
+    pub amount: u64,
+    /// Exact borrowed output scriptPubKey bytes.
+    pub script_pubkey: &'a [u8],
+    /// Descriptor ownership and, for every non-change output, destination.
+    pub ownership: ReviewV3SemanticOutputOwnership<'a>,
+}
+
+/// Complete no-signature-verification schema-v3 facts consumed by the review
+/// builder. This type intentionally carries no signature count, threshold
+/// state, aggregate completion state, authorization, or export disposition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewV3SemanticAnalysis<'a> {
+    /// Raw transaction version.
+    pub version: u32,
+    /// Raw transaction locktime.
+    pub locktime: u32,
+    /// Proven input facts in unsigned-transaction order.
+    pub inputs: Vec<ReviewV3SemanticInput<'a>>,
+    /// Classified output facts in unsigned-transaction order.
+    pub outputs: Vec<ReviewV3SemanticOutput<'a>>,
+    /// MoneyRange-checked selected-input total.
+    pub total_input_amount: u64,
+    /// MoneyRange-checked unsigned-output total.
+    pub total_output_amount: u64,
+    /// Exact checked fee.
+    pub fee: u64,
+    /// Fixed-witness BIP141 estimate, fee rate, and ordered nonfatal warnings.
+    pub fee_policy: FeePolicyV2Facts,
+}
+
+fn map_fee_policy_v2_error(error: ReviewV3Error, offset: usize) -> SemanticError {
+    let category = match error {
+        ReviewV3Error::EmergencyFeeCeilingExceeded => SemanticCategory::EmergencyFeeCeilingExceeded,
+        ReviewV3Error::FeePolicyArithmeticOverflow => SemanticCategory::FeePolicyArithmeticOverflow,
+        _ => SemanticCategory::InternalInvariant,
+    };
+    SemanticError::global(category, offset)
+}
+
+/// Build schema-v3 semantic and QK-FEE-POLICY-V2 facts without verifying any
+/// existing partial signature cryptographically.
+///
+/// This follows the existing structural and SIGHASH_ALL/signature-syntax
+/// phases, then proves each input and owned output against authenticated
+/// two-role D. Every branch-1 descriptor output remains change; every other
+/// output, including branch-0 self-transfer, passes through the unchanged
+/// six-template recipient classifier.
+///
+/// # Errors
+///
+/// Returns the first structural, descriptor, recipient, or fee-policy
+/// rejection in the deterministic QK-DEC-122 order.
+pub(crate) fn analyze_review_v3_semantics<'a>(
+    view: &PsbtView<'a>,
+    descriptor: &DescriptorPairV2,
+) -> Result<ReviewV3SemanticAnalysis<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    verification_screen(view, &state, false)?;
+    signature_phase(view, &mut state.work)?;
+    token_phase(view, &state)?;
+
+    let tx_span = view.unsigned_tx().span;
+    let global_offset = tx_span.start;
+    let fingerprints = unique_descriptor_fingerprints_v2(descriptor, global_offset)?;
+    let mut derivation_calls = 0usize;
+
+    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
+    let mut effective_scripts: Vec<DerivedScriptV2> = Vec::new();
+    reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
+    for (input_index, work) in state.work.iter().enumerate() {
+        let (wallet_input, script) = prove_descriptor_input_v2(
+            view,
+            descriptor,
+            &fingerprints,
+            input_index,
+            work,
+            &mut derivation_calls,
+        )?;
+        wallet_inputs.push(wallet_input);
+        effective_scripts.push(script);
+    }
+
+    let candidate = assemble(view, state)?;
+    if candidate.inputs.len() != wallet_inputs.len()
+        || candidate.inputs.len() != effective_scripts.len()
+    {
+        return Err(SemanticError::global(
+            SemanticCategory::InternalInvariant,
+            global_offset,
+        ));
+    }
+
+    let mut inputs: Vec<ReviewV3SemanticInput<'a>> = Vec::new();
+    reserve_exact(&mut inputs, candidate.inputs.len(), global_offset)?;
+    for ((input, wallet), script) in candidate
+        .inputs
+        .iter()
+        .zip(&wallet_inputs)
+        .zip(&effective_scripts)
+    {
+        inputs.push(ReviewV3SemanticInput {
+            outpoint_txid_wire: input.outpoint_txid_wire,
+            outpoint_vout: input.outpoint_vout,
+            prevout_amount: input.prevout_amount,
+            prevout_script_pubkey: input.prevout_script_pubkey,
+            sequence: input.sequence,
+            effective_sighash: u32::from(SIGHASH_ALL),
+            branch: wallet.branch,
+            index: wallet.index,
+            witness_script: script.witness_script,
+        });
+    }
+
+    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
+    for (output_index, output) in candidate.outputs.iter().enumerate() {
+        wallet_outputs.push(classify_descriptor_output_v2(
+            view,
+            descriptor,
+            &fingerprints,
+            output_index,
+            output,
+            &mut derivation_calls,
+        )?);
+    }
+
+    let inv = SemanticError::global(SemanticCategory::InternalInvariant, global_offset);
+    let mut cursor = TxCursor::new(view.buffer(), tx_span);
+    let version = cursor.u32_le().ok_or(inv)?;
+    let input_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if version != candidate.version || input_count != candidate.inputs.len() {
+        return Err(inv);
+    }
+    for _ in 0..input_count {
+        cursor.take(32).ok_or(inv)?;
+        cursor.u32_le().ok_or(inv)?;
+        if cursor.compact().ok_or(inv)? != 0 {
+            return Err(inv);
+        }
+        cursor.u32_le().ok_or(inv)?;
+    }
+    let output_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if output_count != candidate.outputs.len() || output_count != wallet_outputs.len() {
+        return Err(inv);
+    }
+
+    let mut outputs: Vec<ReviewV3SemanticOutput<'a>> = Vec::new();
+    reserve_exact(&mut outputs, output_count, global_offset)?;
+    let mut op_return_seen = false;
+    for (owner, output) in wallet_outputs.iter().zip(&candidate.outputs) {
+        let amount = cursor.u64_le().ok_or(inv)?;
+        let script_len = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+        let script_span = cursor.take(script_len).ok_or(inv)?;
+        if amount != output.amount || script_span.slice(view.buffer()) != Some(output.script_pubkey)
+        {
+            return Err(inv);
+        }
+
+        let ownership = match owner {
+            OutputOwnership::NotProvenOwned => ReviewV3SemanticOutputOwnership::NotOwned(
+                classify_recipient_output(output, script_span, &mut op_return_seen)?,
+            ),
+            OutputOwnership::ProvenChange(index) => {
+                ReviewV3SemanticOutputOwnership::ProvenChange(*index)
+            }
+            OutputOwnership::ProvenSelfTransfer(index) => {
+                let recipient =
+                    classify_recipient_output(output, script_span, &mut op_return_seen)?;
+                if recipient.recipient_type != RecipientType::P2wsh {
+                    return Err(inv);
+                }
+                ReviewV3SemanticOutputOwnership::ProvenSelfTransfer {
+                    index: *index,
+                    recipient,
+                }
+            }
+        };
+        outputs.push(ReviewV3SemanticOutput {
+            amount: output.amount,
+            script_pubkey: output.script_pubkey,
+            ownership,
+        });
+    }
+    let locktime = cursor.u32_le().ok_or(inv)?;
+    if locktime != candidate.locktime || !cursor.at_end() {
+        return Err(inv);
+    }
+
+    let fee_policy = apply_fee_policy_v2(
+        view.unsigned_tx_bytes().len(),
+        effective_scripts.len(),
+        candidate.fee,
+        candidate.total_input_amount,
+    )
+    .map_err(|error| map_fee_policy_v2_error(error, global_offset))?;
+
+    Ok(ReviewV3SemanticAnalysis {
         version: candidate.version,
         locktime: candidate.locktime,
         inputs,

@@ -63,6 +63,12 @@
 //! fee facts, ordered warnings, sequences, and derived RBF signals are bound
 //! by the v2 domain-separated hash. It performs no signing, approval,
 //! threshold-completeness decision, finalization, or export.
+//! The parallel v2-wallet entrypoint ([`build_review_v3`]) accepts only an
+//! authenticated two-role [`qk_descriptor::DescriptorPairV2`], proves the
+//! corresponding 2-of-2 ownership and change facts, applies
+//! `QK-FEE-POLICY-V2`, and binds those facts under the exact schema-v3 domain.
+//! It translates no earlier review schema and carries no signature,
+//! completeness, approval, session, finalization, or export state.
 //!
 //! The unsigned transaction is parsed only as far as necessary to
 //! validate its structure and derive the input/output map counts.
@@ -101,6 +107,7 @@ mod parse;
 mod raw;
 mod review;
 mod review_v2;
+mod review_v3;
 mod semantic;
 mod serialize;
 mod sha256;
@@ -118,6 +125,12 @@ pub use review_v2::{
     ReviewV2Input, ReviewV2Output, ReviewV2OutputOwnership, FEE_POLICY_IDENTIFIER,
     MAX_CANONICAL_REVIEW_V2_BYTES, MAX_ESTIMATED_VSIZE, MAX_FEE_WARNINGS,
     MAX_REVIEW_V2_HASH_TRANSCRIPT_BYTES, REVIEW_V2_HASH_DOMAIN, REVIEW_V2_SCHEMA_VERSION,
+};
+pub use review_v3::{
+    build_review_v3, FeePolicyV2Facts, ReviewV3, ReviewV3Error, ReviewV3Hash, ReviewV3Input,
+    ReviewV3Output, ReviewV3OutputOwnership, FEE_POLICY_V2_IDENTIFIER,
+    MAX_CANONICAL_REVIEW_V3_BYTES, MAX_ESTIMATED_VSIZE_V2, MAX_FEE_WARNINGS_V2,
+    MAX_REVIEW_V3_HASH_TRANSCRIPT_BYTES, REVIEW_V3_HASH_DOMAIN, REVIEW_V3_SCHEMA_VERSION,
 };
 pub use semantic::{
     analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_recipient_script_facts,

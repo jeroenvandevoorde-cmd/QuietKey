@@ -98,6 +98,11 @@ pub const MAX_CHILD_INDEX: u32 = 65_535;
 /// value remains OPEN.
 pub const MAX_CHILD_DERIVATIONS: usize = 792;
 
+/// HOST candidate for v2 two-role descriptor work: 132 possible
+/// routes times four inherited CKDpub calls. This is a scaffold cap
+/// under the still-open QK-LIM-PSBT-025 registry row.
+pub const MAX_CHILD_DERIVATIONS_V2: usize = 528;
+
 /// CANDIDATE (QK-DEC-072): exact maximum byte length of a D-09 v1
 /// canonical review. This follows the successful M13 shape and makes no
 /// target-RAM or conformance claim.
@@ -122,3 +127,22 @@ pub const MAX_REVIEW_V2_HASH_TRANSCRIPT_BYTES: usize = 18_975;
 const _: [(); MAX_CANONICAL_REVIEW_V2_BYTES] = [(); 162 + 5_535 + (100 * 102) + (185 + 31 * 92)];
 const _: [(); MAX_REVIEW_V2_HASH_TRANSCRIPT_BYTES] = [(); MAX_CANONICAL_REVIEW_V2_BYTES + 40 + 1];
 const _: [(); MAX_ESTIMATED_VSIZE as usize] = [(); 47_542_usize.div_ceil(4)];
+
+/// HOST candidate maximum byte length of one D-09 schema-v3 review.
+/// The registry value remains open; QK-DEC-122 fixes only this bounded
+/// reference implementation shape.
+pub const MAX_CANONICAL_REVIEW_V3_BYTES: usize = 18_930;
+
+/// HOST candidate maximum estimated vsize under the fixed v2
+/// 220-weight-unit input witness template.
+pub const MAX_ESTIMATED_VSIZE_V2: u32 = 11_036;
+
+/// HOST candidate maximum bytes hashed for one schema-v3 review:
+/// 23-byte domain, one separator, and the canonical byte maximum.
+pub const MAX_REVIEW_V3_HASH_TRANSCRIPT_BYTES: usize = 18_954;
+
+const _: [(); MAX_CHILD_DERIVATIONS_V2] = [(); 132 * 4];
+const _: [(); MAX_CANONICAL_REVIEW_V3_BYTES] = [(); 158 + 5_535 + (100 * 102) + (185 + 31 * 92)];
+const _: [(); MAX_REVIEW_V3_HASH_TRANSCRIPT_BYTES] = [(); MAX_CANONICAL_REVIEW_V3_BYTES + 23 + 1];
+const _: [(); MAX_ESTIMATED_VSIZE_V2 as usize] =
+    [(); ((4usize * 5_535) + 2 + (100 * 220)).div_ceil(4)];
