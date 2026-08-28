@@ -778,9 +778,9 @@ pub fn match_change_derivation_claims_v2(
 #[cfg(test)]
 mod tests {
     use super::{
-        assemble_script, derive_with, match_change_derivation_claims,
-        match_receive_derivation_claims, parse_descriptor_pair, parse_with_decoder, sort_keys,
-        DescriptorDeriveError, DescriptorParseError, PublicNode,
+        assemble_script_v2, derive_with_v2, match_change_derivation_claims_v2,
+        match_receive_derivation_claims_v2, parse_descriptor_pair_v2, parse_with_decoder_v2,
+        sort_keys_v2, DescriptorDeriveError, DescriptorParseError, PublicNode,
     };
     use crate::sha256::Sha256;
     use qk_bip32::{CkdPubError, DecodedXpub, XpubDecodeError};
@@ -804,23 +804,22 @@ mod tests {
         output
     }
 
-    fn pair() -> super::DescriptorPair {
+    fn pair() -> super::DescriptorPairV2 {
         let block = PAIRS
             .split("\n\n")
             .find(|block| block.contains("case: GOLDEN"))
             .unwrap();
-        parse_descriptor_pair(
+        parse_descriptor_pair_v2(
             field(block, "receive").as_bytes(),
             field(block, "change").as_bytes(),
         )
         .unwrap()
     }
 
-    fn role_keys(block: &str) -> [Option<[u8; 33]>; 3] {
+    fn role_keys(block: &str) -> [Option<[u8; 33]>; 2] {
         [
             Some(hex(field(block, "role_a"))),
             Some(hex(field(block, "role_b"))),
-            Some(hex(field(block, "role_c"))),
         ]
     }
 
@@ -842,52 +841,32 @@ mod tests {
             .collect();
         assert_eq!(blocks.len(), 2);
         for block in blocks {
-            let mut keys = [
-                hex(field(block, "input_0")),
-                hex(field(block, "input_1")),
-                hex(field(block, "input_2")),
-            ];
-            sort_keys(&mut keys);
+            let mut keys = [hex(field(block, "input_0")), hex(field(block, "input_1"))];
+            sort_keys_v2(&mut keys);
             assert_eq!(keys[0], hex(field(block, "sorted_0")));
             assert_eq!(keys[1], hex(field(block, "sorted_1")));
-            assert_eq!(keys[2], hex(field(block, "sorted_2")));
-            let script = assemble_script(keys);
+            let script = assemble_script_v2(keys);
             assert_eq!(script.witness_script, hex(field(block, "witness_script")));
             assert_eq!(script.script_pubkey, hex(field(block, "script_pubkey")));
         }
     }
 
     #[test]
-    fn all_six_key_permutations_sort_identically() {
-        let mut sorted = [
-            node(2).compressed_public_key,
-            node(3).compressed_public_key,
-            node(4).compressed_public_key,
-        ];
+    fn both_key_permutations_sort_identically() {
+        let mut sorted = [node(2).compressed_public_key, node(3).compressed_public_key];
         sorted.sort();
-        for permutation in [
-            [0, 1, 2],
-            [0, 2, 1],
-            [1, 0, 2],
-            [1, 2, 0],
-            [2, 0, 1],
-            [2, 1, 0],
-        ] {
-            let mut candidate = [
-                sorted[permutation[0]],
-                sorted[permutation[1]],
-                sorted[permutation[2]],
-            ];
-            sort_keys(&mut candidate);
+        for permutation in [[0, 1], [1, 0]] {
+            let mut candidate = [sorted[permutation[0]], sorted[permutation[1]]];
+            sort_keys_v2(&mut candidate);
             assert_eq!(candidate, sorted);
         }
     }
 
     #[test]
-    fn derive_seam_uses_six_calls_in_role_branch_index_order() {
+    fn derive_seam_uses_four_calls_in_a_then_b_branch_index_order() {
         let pair = pair();
         let mut calls = Vec::new();
-        let result = derive_with(&pair, 1, 7, |parent, index| {
+        let result = derive_with_v2(&pair, 1, 7, |parent, index| {
             calls.push((parent.depth, parent.compressed_public_key, index));
             let mut child = *parent;
             child.depth += 1;
@@ -895,17 +874,17 @@ mod tests {
             Ok(child)
         });
         assert!(result.is_ok());
-        assert_eq!(calls.len(), 6);
+        assert_eq!(calls.len(), 4);
         assert_eq!(
             calls.iter().map(|call| call.2).collect::<Vec<_>>(),
-            [1, 7, 1, 7, 1, 7]
+            [1, 7, 1, 7]
         );
         assert_eq!(calls[0].0, 4);
         assert_eq!(calls[1].0, 5);
         assert_eq!(calls[2].0, 4);
         assert_eq!(calls[3].0, 5);
-        assert_eq!(calls[4].0, 4);
-        assert_eq!(calls[5].0, 5);
+        assert_eq!(calls[0].1, pair.account_nodes[0].compressed_public_key);
+        assert_eq!(calls[2].1, pair.account_nodes[1].compressed_public_key);
     }
 
     #[test]
@@ -925,35 +904,31 @@ mod tests {
         let pair = pair();
         assert_eq!(
             pair.origin_fingerprints(),
-            [
-                [0x11, 0x22, 0x33, 0x44],
-                [0x55, 0x66, 0x77, 0x88],
-                [0x99, 0xaa, 0xbb, 0xcc],
-            ]
+            [[0x2f, 0xae, 0x97, 0x11], [0x72, 0xa1, 0x4a, 0xb8]]
         );
 
         let receive_keys = role_keys(receive_zero);
-        let receive = match_receive_derivation_claims(&pair, 0, &receive_keys)
+        let receive = match_receive_derivation_claims_v2(&pair, 0, &receive_keys)
             .unwrap()
             .unwrap();
         assert_eq!(
             receive.witness_script,
             hex(field(receive_zero, "witness_script"))
         );
-        let receive_partial = [receive_keys[0], None, None];
+        let receive_partial = [receive_keys[0], None];
         assert_eq!(
-            match_receive_derivation_claims(&pair, 0, &receive_partial).unwrap(),
+            match_receive_derivation_claims_v2(&pair, 0, &receive_partial).unwrap(),
             Some(receive)
         );
         let mut reordered = receive_keys;
         reordered.swap(0, 1);
         assert_eq!(
-            match_receive_derivation_claims(&pair, 0, &reordered).unwrap(),
+            match_receive_derivation_claims_v2(&pair, 0, &reordered).unwrap(),
             None
         );
 
         let change_keys = role_keys(change_zero);
-        let change = match_change_derivation_claims(&pair, 0, &change_keys)
+        let change = match_change_derivation_claims_v2(&pair, 0, &change_keys)
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -966,7 +941,8 @@ mod tests {
     fn hardened_index_rejects_before_private_seam_call() {
         let pair = pair();
         for index in [0x8000_0000, u32::MAX] {
-            let result = derive_with(&pair, 0, index, |_, _| panic!("deriver must not be called"));
+            let result =
+                derive_with_v2(&pair, 0, index, |_, _| panic!("deriver must not be called"));
             assert_eq!(result, Err(DescriptorDeriveError::HardenedIndex));
         }
     }
@@ -996,7 +972,7 @@ mod tests {
                 DescriptorDeriveError::InternalInvariant,
             ),
         ] {
-            let result = derive_with(&pair, 0, 0, |_, _| Err(source));
+            let result = derive_with_v2(&pair, 0, 0, |_, _| Err(source));
             assert_eq!(result, Err(expected));
         }
     }
@@ -1005,19 +981,17 @@ mod tests {
     fn duplicate_derived_key_private_seam_rejects_before_script() {
         let pair = pair();
         let repeated = node(8);
-        let distinct = node(9);
         let mut call = 0usize;
-        let result = derive_with(&pair, 0, 0, |_, _| {
-            let role = call / 2;
+        let result = derive_with_v2(&pair, 0, 0, |_, _| {
             call += 1;
-            Ok(if role < 2 { repeated } else { distinct })
+            Ok(repeated)
         });
-        assert_eq!(call, 6);
+        assert_eq!(call, 4);
         assert_eq!(result, Err(DescriptorDeriveError::DuplicateDerivedKey));
     }
 
     #[test]
-    fn parser_seam_calls_all_three_decoders_and_maps_errors() {
+    fn parser_seam_calls_both_decoders_and_maps_errors() {
         let block = PAIRS
             .split("\n\n")
             .find(|block| block.contains("case: GOLDEN"))
@@ -1030,7 +1004,7 @@ mod tests {
             child_number: 0x8000_0002,
         };
         let mut count = 0;
-        let ordinary = parse_with_decoder(receive, change, |_| {
+        let ordinary = parse_with_decoder_v2(receive, change, |_| {
             count += 1;
             if count == 2 {
                 Err(XpubDecodeError::ChecksumMismatch)
@@ -1041,15 +1015,18 @@ mod tests {
                 })
             }
         });
-        assert_eq!(count, 3);
+        assert_eq!(count, 2);
         assert!(matches!(
             ordinary,
             Err(DescriptorParseError::InvalidAccountXpub)
         ));
 
-        let invariant = parse_with_decoder(receive, change, |_| {
+        let mut invariant_calls = 0usize;
+        let invariant = parse_with_decoder_v2(receive, change, |_| {
+            invariant_calls += 1;
             Err(XpubDecodeError::CryptographicBackendInvariant)
         });
+        assert_eq!(invariant_calls, 2);
         assert!(matches!(
             invariant,
             Err(DescriptorParseError::CryptographicBackendInvariant)
@@ -1064,9 +1041,9 @@ mod tests {
             .unwrap();
         let receive = field(block, "receive").as_bytes();
         let change = field(block, "change").as_bytes();
-        let run = |nodes: [PublicNode; 3], children: [u32; 3]| {
+        let run = |nodes: [PublicNode; 2], children: [u32; 2]| {
             let mut role = 0usize;
-            parse_with_decoder(receive, change, |_| {
+            parse_with_decoder_v2(receive, change, |_| {
                 let result = DecodedXpub {
                     public_node: nodes[role],
                     parent_fingerprint: [0; 4],
@@ -1079,21 +1056,15 @@ mod tests {
         let mut depth = node(2);
         depth.depth = 3;
         assert!(matches!(
-            run(
-                [depth, node(3), node(4)],
-                [0x8000_0001, 0x8000_0002, 0x8000_0002]
-            ),
+            run([depth, node(3)], [0x8000_0001, 0x8000_0002]),
             Err(DescriptorParseError::InvalidAccountDepth)
         ));
         assert!(matches!(
-            run(
-                [node(2), node(3), node(4)],
-                [0x8000_0001, 0x8000_0002, 0x8000_0002]
-            ),
+            run([node(2), node(3)], [0x8000_0001, 0x8000_0002]),
             Err(DescriptorParseError::InvalidAccountChildNumber)
         ));
         assert!(matches!(
-            run([node(2), node(2), node(4)], [0x8000_0002; 3]),
+            run([node(2), node(2)], [0x8000_0002; 2]),
             Err(DescriptorParseError::DuplicateAccountXpub)
         ));
     }
@@ -1106,7 +1077,10 @@ mod tests {
             .unwrap();
         let receive = field(block, "receive").as_bytes();
         let change = field(block, "change").as_bytes();
-        let pair = parse_descriptor_pair(receive, change).unwrap();
+        assert_eq!(receive.len(), 306);
+        assert_eq!(change.len(), 306);
+        assert_eq!(receive.len() + 1 + change.len(), 613);
+        let pair = parse_descriptor_pair_v2(receive, change).unwrap();
 
         let mut exact = Sha256::new();
         exact.update(receive);
@@ -1121,14 +1095,14 @@ mod tests {
         assert_ne!(pair.wallet_id(), text_separator.finalize());
 
         let mut without_checksums = Sha256::new();
-        without_checksums.update(&receive[..436]);
+        without_checksums.update(&receive[..297]);
         without_checksums.update(&[0]);
-        without_checksums.update(&change[..436]);
+        without_checksums.update(&change[..297]);
         assert_ne!(pair.wallet_id(), without_checksums.finalize());
 
-        let mut changed_checksum = [0u8; 445];
+        let mut changed_checksum = [0u8; 306];
         changed_checksum.copy_from_slice(receive);
-        changed_checksum[444] ^= 1;
+        changed_checksum[305] ^= 1;
         let mut changed = Sha256::new();
         changed.update(&changed_checksum);
         changed.update(&[0]);

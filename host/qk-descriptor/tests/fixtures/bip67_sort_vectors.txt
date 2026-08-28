@@ -1,27 +1,29 @@
-# BIP-67 public sorting vectors 2 and 4 (M11)
-# Source: bitcoin/bips bip-0067.mediawiki at commit 857a7debc6625a3dadbaecee1ee7b2ed5e8ada75,
-# blob c21da80bec381ceb435fb8c3be3005677c1347d6, 8686 bytes,
-# SHA256 4cc48c5c159c05585962a8eb264b05ccb4ad710b1a16c870232e0f0eb1428991, 135 LF-only lines with final LF; PD.
-# Only compressed public-key list/sorted tokens and exact script tokens from vectors 2 and 4 are imported.
-# P2WSH scriptPubKey fields are locally derived as 0020 || SHA256(script).
-# Addresses, source prose, vectors 1 and 3, and all other source tokens are excluded.
-# Fields per block: case, input_0..2, sorted_0..2, witness_script, script_pubkey.
-case: vector-2
-input_0: 02632b12f4ac5b1d1b72b2a3b508c19172de44f6f46bcee50ba33f3f9291e47ed0
-input_1: 027735a29bae7780a9755fae7a1c4374c656ac6a69ea9f3697fda61bb99a4f3e77
-input_2: 02e2cc6bd5f45edd43bebe7cb9b675f0ce9ed3efe613b177588290ad188d11b404
-sorted_0: 02632b12f4ac5b1d1b72b2a3b508c19172de44f6f46bcee50ba33f3f9291e47ed0
-sorted_1: 027735a29bae7780a9755fae7a1c4374c656ac6a69ea9f3697fda61bb99a4f3e77
-sorted_2: 02e2cc6bd5f45edd43bebe7cb9b675f0ce9ed3efe613b177588290ad188d11b404
-witness_script: 522102632b12f4ac5b1d1b72b2a3b508c19172de44f6f46bcee50ba33f3f9291e47ed021027735a29bae7780a9755fae7a1c4374c656ac6a69ea9f3697fda61bb99a4f3e772102e2cc6bd5f45edd43bebe7cb9b675f0ce9ed3efe613b177588290ad188d11b40453ae
-script_pubkey: 0020e374ddb71857b283c2978135d7fa88854aed53fa32f15c07e1d6d4daa117ac5c
+# QuietKey v2 local two-key lexicographic sorting fixtures
+# PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL
+# Public manual-profile fixture transcripts are the first 100 ASCII bytes of infinite repetitions
+# 123456, 234561, 345612, and 456123 for Seed-A, Signer-B, Kit-R, and A2 respectively.
+# Seed-A and Signer-B use SHA256(literal transcript), BIP39 24-word English checksum mapping,
+# PBKDF2-HMAC-SHA512 with 2048 rounds and fixed empty passphrase, then BIP32 m/48'/0'/0'/2'.
+# Descriptor bodies are exact wsh(sortedmulti(2,A,B)) receive /0/* and change /1/* with BIP380 checksums;
+# wallet_id is SHA256(full receive descriptor || 00 || full change descriptor).
+# Six public routes use standard no-skip CKDpriv solely in the destroyed outside-Git constructors,
+# sort the resulting compressed keys lexicographically, and build exact 71-byte 2-of-2 scripts.
+# Python standard-library constructor SHA256 1c93681504edafcb35c0c05f31cd751e70b33cf8bc5b1df0bff0fa1fca55777c; Node.js standard-library constructor SHA256 53a46e320c09f3aef37f3864b8872ac12c1fdd3344bfae64ad4d290bf4dcd120.
+# The constructors agreed on every public account, descriptor, route key, script, scriptPubKey, and wallet_id fact.
+# No mnemonic, BIP39 seed, xprv, scalar, chain private material, nonce, or generator is committed.
 
-case: vector-4
-input_0: 022df8750480ad5b26950b25c7ba79d3e37d75f640f8e5d9bcd5b150a0f85014da
-input_1: 03e3818b65bcc73a7d64064106a859cc1a5a728c4345ff0b641209fba0d90de6e9
-input_2: 021f2f6e1e50cb6a953935c3601284925decd3fd21bc445712576873fb8c6ebc18
-sorted_0: 021f2f6e1e50cb6a953935c3601284925decd3fd21bc445712576873fb8c6ebc18
-sorted_1: 022df8750480ad5b26950b25c7ba79d3e37d75f640f8e5d9bcd5b150a0f85014da
-sorted_2: 03e3818b65bcc73a7d64064106a859cc1a5a728c4345ff0b641209fba0d90de6e9
-witness_script: 5221021f2f6e1e50cb6a953935c3601284925decd3fd21bc445712576873fb8c6ebc1821022df8750480ad5b26950b25c7ba79d3e37d75f640f8e5d9bcd5b150a0f85014da2103e3818b65bcc73a7d64064106a859cc1a5a728c4345ff0b641209fba0d90de6e953ae
-script_pubkey: 00207f09f816d8af70c2cd6076b8f2e9748cbff6d5230d470c0d2748f8d6df9a5075
+case: receive-0
+input_0: 022f11c22ddfe64b81d40ebdd5a3dd6524672185dc29e8a0cec8bf1e9f09898a60
+input_1: 039ad8f874de32ed2b168124da668f7ac6dbb5f8d9330da245ecf7098538bef79f
+sorted_0: 022f11c22ddfe64b81d40ebdd5a3dd6524672185dc29e8a0cec8bf1e9f09898a60
+sorted_1: 039ad8f874de32ed2b168124da668f7ac6dbb5f8d9330da245ecf7098538bef79f
+witness_script: 5221022f11c22ddfe64b81d40ebdd5a3dd6524672185dc29e8a0cec8bf1e9f09898a6021039ad8f874de32ed2b168124da668f7ac6dbb5f8d9330da245ecf7098538bef79f52ae
+script_pubkey: 00204f202480a991034742ecc4ba29049134bcd5fb79c56bfc502289de3e7e0ba104
+
+case: receive-1
+input_0: 0369116cac12973d76731c7df9d4d0e4122d93188f86161a030dbdd8eaf21e07c0
+input_1: 023e69859ba56e40ca57cc1b6bb42a689707bba7d80e7edb87a4862cded8c2e6d3
+sorted_0: 023e69859ba56e40ca57cc1b6bb42a689707bba7d80e7edb87a4862cded8c2e6d3
+sorted_1: 0369116cac12973d76731c7df9d4d0e4122d93188f86161a030dbdd8eaf21e07c0
+witness_script: 5221023e69859ba56e40ca57cc1b6bb42a689707bba7d80e7edb87a4862cded8c2e6d3210369116cac12973d76731c7df9d4d0e4122d93188f86161a030dbdd8eaf21e07c052ae
+script_pubkey: 00202fe9bb02255457981f0613c8f7b5cc2f354fade42a4b4b19f22b3566e1c6bae0
