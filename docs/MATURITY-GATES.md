@@ -14,15 +14,17 @@ Status is kept strictly separate from evidence: a gate's status changes only whe
 
 ## Technical gates
 
-### Gate A — A1 and QR on fixed mechanics — **OPEN**
+### Gate A — printed recovery media and QR on fixed mechanics — **OPEN**
 
 Required evidence:
 
 - Independent A1 capsule test vectors, cross-checked by an implementation not derived from the reference.
 - Demonstration that no plaintext is ever released before successful authentication (no unauthenticated plaintext under any failure path).
 - Realistic print/capture trials of the A1 physical codec on the fixed terminal mechanics (camera, optics, lighting) across damage and aging conditions, meeting predefined decode thresholds.
-- Human trials of A1 production and recovery with representative users meeting predefined thresholds.
-- Actual-camera BBQr type `P` limits and performance measured on the exact fixed hardware (frame rates, payload ceilings), recorded as trial data, not projections.
+- Realistic print/capture trials of each 142-byte kit-share QR on the fixed mechanics and physical-readability/recovery trials of its exact 228-symbol M18 fallback after that fallback's terminal input method is separately ratified, including one-page-per-share production, scanner-mode lock, same-index rejection, full `wallet_id` binding, checksum failure, damaged print, and bounded retry behavior.
+- Exact-target proof that kit scanning accepts only the preselected `Kit-Spend` or `Kit-Restore` door for the complete session and cannot yield to transaction intake, transport, or another recovery door.
+- Human trials of A1 and kit-page production, custody instructions, scanning, fallback recovery, and error handling with representative users meeting predefined thresholds.
+- Actual-camera and display-path BBQr type `P` and type `T` limits and performance measured on the exact fixed hardware (frame rates, payload ceilings), recorded as trial data, not projections.
 - Fuzzing of the A1/OCR candidate and error-correction pipeline (QK-TST-FUZZ-005) with recorded corpora and results, and measured resource bounds for the A1 capture path on the exact target (inputs to the QK-LIM-A1 rows).
 
 ### Gate B — exact-card feasibility — **OPEN**
@@ -34,7 +36,8 @@ Required evidence, all on the exact production card model:
 - On-card RNG characterization.
 - APDU protocol behavior including exact byte layouts.
 - Write atomicity, storage endurance, and power-cut behavior during card operations.
-- Confirmed independent B/C signing keys with the same A2 and D payloads (C never a clone of B).
+- Confirmed signer-B key generation and least-authority payload behavior, including A2, D, role, and `wallet_id` binding.
+- Setup-only spare-card provisioning from the same signer-B authority, plus a proof that no spare can be added after setup and that a replacement-card restore is unavailable unless the original card remains physically in hand.
 - Rescue path demonstrated with a commodity reader (the definition of this evidence depends on OD-02: what a rescue reads, and how, cannot be specified until the card and its export model are selected).
 - Applet lifecycle and extraction-resistance characterization recorded.
 
@@ -45,9 +48,11 @@ Required evidence:
 - Target-language/toolchain decision recorded with ARMv6/target evidence (resolves OD-01).
 - Reproducible builds from controlled builders with traceable binaries.
 - Differential testing against independent implementations.
-- Fuzzing of all hostile-input parsers (PSBT, descriptor, QR, SD, APDU responses, A1 candidate pipeline) with recorded corpora and results.
+- Fuzzing of all hostile-input parsers (PSBT, descriptor, QR, SD, APDU responses, A1 candidate pipeline, kit frame/fallback, and mode-locked kit scanner) with recorded corpora and results.
 - Semantic-validation evidence for descriptors, A1 capsules, card payloads, and QR/SD-delivered PSBTs performed independently in `qk-core` (QK-REQ-PLT-010), and APDU response parsing owned by `qk-core` (QK-REQ-PLT-011).
 - Exact-target air-gap verification: every radio absent or permanently disabled, with no software re-enable path (QK-REQ-PLT-008, QK-TST-AUD-007).
+- Exact-target enforcement of the v2 `wsh(sortedmulti(2,A,B))` descriptor, 71-byte witness script, 220-byte fixed witness estimate, review schema v3, and `QK-FEE-POLICY-V2`, with v1/v2 review objects rejected rather than translated.
+- Exact-target enforcement of both kit doors: `Kit-Spend` accepts only all-owned inputs and exactly one new-descriptor output with no change; `Kit-Restore` performs no signing and provisions only a permitted replacement card or a fresh-nonce A1.
 - Property-based tests for core invariants.
 - Sanitizer runs (memory, undefined behavior) and static analysis with triaged findings.
 - Secret-memory handling review (allocation, zeroization between sessions, no swap/leak paths) verified on target.
@@ -59,7 +64,8 @@ Required evidence:
 Required evidence:
 
 - Interruption/power-cut injection during provisioning, SD writes, and updates, with no secret leakage or corruption.
-- No acceptance of a half-provisioned wallet, card, or A1 in any state.
+- Interruption/power-cut injection during kit-share creation and printing; a page or kit copy is never accepted until its complete printed share has passed the required verification flow.
+- No acceptance of a half-provisioned wallet, card, A1, setup-only spare, share page, or two-envelope kit in any state.
 - No input overwrite under any interruption or retry.
 - Demonstrated recovery from corrupt, full, removed, or interrupted media.
 - microSD electrical/removal fault behavior on target; media aging and error-correction limits characterized with recorded results.
@@ -70,16 +76,20 @@ Required evidence:
 
 Required evidence, performed by representative users on production kit contents, meeting predefined human-factors thresholds:
 
-- End-to-end rehearsal of every recovery path: A1+B, A1+C, and B+C.
+- End-to-end rehearsal of the normal A1+B path, `Kit-Spend`, replacement-card `Kit-Restore`, and fresh-nonce A1 `Kit-Restore`.
+- Rehearsal of same-index, wrong-wallet, malformed-frame, checksum, seal-doubt, missing-card, and interrupted-session failures, each reaching the specified sweep or stop outcome without another door becoming available.
+- Rehearsal that A1 alone, B alone, or either single envelope alone cannot spend, while the complete Kit deliberately can and is governed by its physical custody instructions.
+- Cross-copy rehearsal showing that share 1 from one setup copy and share 2 from another reconstruct the same payload, while all copies contain the same setup pad and no post-setup regeneration path exists.
 - Recovery on a replacement terminal.
-- Complete lost-factor rotation: one-time use of a surviving pair, fresh A′/B′/C′/A2′/D′ wallet, and full sweep.
+- Complete lost-factor rotation: one-time use of an authorized surviving route, fresh Seed-A′/Signer-B′/A2′/Kit-R′/D′ material, a fresh A1′, two fresh complete kit copies, and a full sweep.
+- Periodic seal inspection, separate-versus-together envelope handling, setup-time spare choice, and the rule that a missing card or seal doubt requires a sweep rather than restoration.
 - Rescue using the open rescue tool with commodity hardware.
 - Independent transaction finalization outside QuietKey tooling.
 - Resulting transactions accepted by Bitcoin Core.
 
 ## Release blockers (in addition to Gates A–E)
 
-- Architecture-owner approval of `ARCHITECTURE.md` — **SATISFIED** at baseline H0 `c618407a3900657d8ce4c479c4056f859f86bec6` (QK-APR-2026-08-18-001 in `docs/DECISION-LOG.md`). This is the only satisfied blocker.
+- Architecture-owner approval of the v2 migration and Core Architecture v2 — **SATISFIED** by QK-DEC-121. This is the only satisfied blocker.
 
 All other blockers remain **OPEN**:
 - P0/RV3 hardware conclusions.
@@ -87,4 +97,4 @@ All other blockers remain **OPEN**:
 - Configured private vulnerability reporting with designated ownership.
 - External independent audit.
 
-Replit and host simulation cannot validate physical claims. For each physical claim — the air gap, exact-card behavior, RNG characteristics, camera/optics performance, microSD electrical behavior, memory erasure, secure boot, update resilience, and power-loss behavior — only evidence recorded on the exact production target counts toward the gate listing that claim. Non-physical logic claims (parser verdicts, state-machine behavior, protocol correctness) may accumulate `HOST-TESTED` evidence earlier, but every gate above still requires its listed target-level evidence before the owner may close it.
+Replit and host simulation cannot validate physical claims. For each physical claim — the air gap, exact-card behavior, dice-grid read accuracy and mechanics, camera/optics performance, printer behavior, envelope seals, microSD electrical behavior, memory erasure, secure boot, update resilience, and power-loss behavior — only evidence recorded on the exact production target and materials counts toward the gate listing that claim. UTXO completeness, possession of the original card, destruction of superseded material, and envelope integrity remain external human or coordinator facts; software must not claim to prove them. Non-physical logic claims (parser verdicts, state-machine behavior, protocol correctness) may accumulate `HOST-TESTED` evidence earlier, but every gate above still requires its listed target-level evidence before the owner may close it.

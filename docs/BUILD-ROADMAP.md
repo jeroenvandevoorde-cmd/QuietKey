@@ -2,9 +2,25 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This roadmap summarizes milestones F0–F12; the baseline status block below records which preparation work has been completed or authorized to date. Each milestone lists purpose, deliverables, exclusions, exit evidence, and affected gate(s). Replit and host simulation cannot close physical gates (A, B, D, E and the physical parts of C); only exact-target evidence can. Nothing here closes a gate.
+This roadmap summarizes milestones F0–F12 and the ordered v2 migration slices. Each milestone lists purpose, deliverables, exclusions, exit evidence, and affected gate(s). Replit and host simulation cannot close physical gates (A, B, D, E and the physical parts of C); only exact-target evidence can. Nothing here closes a gate.
 
-Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a3900657d8ce4c479c4056f859f86bec6` (QK-APR-2026-08-18-001). F2 remains AUTHORIZED — PREPARATION COMPLETE — PHYSICAL/EXACT-TARGET WORK BLOCKED — OVERALL INCOMPLETE. Under QK-AUTH-F3F4-001 (2026-08-18, docs/HOST-WORK-AUTHORIZATION.md): F3 is AUTHORIZED — HOST-ONLY PROFILE AND PUBLIC TEST-VECTOR PREPARATION — INCOMPLETE — NO PROFILE ACCEPTED — NO TARGET EVIDENCE; F4 is AUTHORIZED — HOST-ONLY INTERFACE AND STATE-MACHINE SCAFFOLD — INCOMPLETE — NO TARGET CLAIM; functional F4 modules remain contingent on accepted corresponding F3 profiles. F5–F12 remain NOT AUTHORIZED. Gates A–E remain OPEN; OD-01…08 remain unresolved; host work is HOST evidence only and never TARGET evidence.
+Baseline status: QK-DEC-121 supersedes the v1 A/B/C migration basis with the v2 Single Card plus Two-Envelope Kit architecture and authorizes v2 slice 1. Completed v1 HOST milestones remain historical inputs; they do not establish v2 behavior merely because reusable primitives are retained. F2 physical work remains triggered by the camera-rig and card arrivals. Gates A–E remain OPEN; the genuinely open items are listed in `docs/OPEN-DECISIONS.md`; host work is HOST evidence only and never TARGET evidence.
+
+## Ordered v2 migration — one reviewed slice at a time
+
+1. Descriptor core and the public, permanently NEVER-FUND v2 GOLDEN lineage.
+2. Review schema v3 and `QK-FEE-POLICY-V2`, including the 71-byte witness script and 220-byte fixed witness estimate.
+3. Signing, finalization, and Bitcoin Core differential fixtures for native P2WSH 2-of-2.
+4. Provisioning and Kit-R secret ownership, with no public plaintext secret surface.
+5. Screen-flow topology for normal A1+B, setup, `Kit-Spend`, and `Kit-Restore`.
+6. Two-key watch-only coordinator export.
+7. Kit frame, XOR combine, QR, and M18 fallback codec.
+8. Setup-only kit generation and two-copy print export.
+9. Mode-locked kit scanner; this slice separately ratifies the terminal input method for the 228-symbol fallback.
+10. `Kit-Restore` for a permitted replacement card or a fresh-nonce A1, with no signing.
+11. Enforced `Kit-Spend`: all inputs owned, exactly one output to a new descriptor address, and no change.
+
+Every slice has an exact file scope and receives Owner plus LOA verification before its successor begins. A later slice may consume only the typed facts and invariants frozen by earlier slices. No new 2-of-3 work, compatibility translation, or parallel implementation of a later slice is permitted.
 
 ## F0 — Foundation and governance
 
@@ -22,10 +38,10 @@ Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a39006
 - **Exit evidence:** Owner-reviewed requirement set; every requirement traceable to a planned test.
 - **Affected gate:** Precondition for all gates; closes none.
 
-## F2 — Toolchain plus early exact-target card, QR, SD, and power feasibility
+## F2 — Toolchain plus early exact-target card, QR, print, SD, and power feasibility
 
 - **Purpose:** Resolve OD-01/OD-02 inputs with real hardware evidence before committing.
-- **Deliverables:** Toolchain decision proposal (ARMv6 evidence), exact-card feasibility trials, camera/QR frame-rate trials, SD electrical and power-loss probes.
+- **Deliverables:** Toolchain decision proposal (ARMv6 evidence), exact-card feasibility trials for signer B/setup spare/replacement, camera trials for A1 and kit-share QR/fallback media, printer interruption probes, SD electrical and power-loss probes.
 - **Exclusions:** Wallet logic; production code.
 - **Exit evidence:** Recorded target measurements; owner decisions logged in the decision log.
 - **Affected gate:** Feeds Gates A, B, D (none close).
@@ -33,7 +49,7 @@ Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a39006
 ## F3 — Normative profiles and independent vectors
 
 - **Purpose:** Freeze byte-exact normative specifications.
-- **Deliverables:** Normative profiles for A1 capsule, descriptors, `wallet_id`, transport; independently generated test vectors.
+- **Deliverables:** Normative profiles for the frozen A1 capsule, 2-of-2 descriptors, `wallet_id`, review schema v3, kit shares, and transports; separately generated public test vectors.
 - **Exclusions:** Production implementation.
 - **Exit evidence:** Vectors cross-checked by an independent implementation/tool; owner approval.
 - **Affected gate:** SPEC level for Gates A, B, C inputs.
@@ -48,48 +64,48 @@ Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a39006
 
 ## F5 — Wallet identity, derivation, and descriptor core
 
-- **Purpose:** Implement BIP32/BIP48 derivation, descriptor pair D, and `wallet_id` per the frozen profile.
+- **Purpose:** Implement BIP32/BIP48 derivation, the native P2WSH `wsh(sortedmulti(2,A,B))` descriptor pair D, and `wallet_id` per the frozen profile.
 - **Deliverables:** Reference core passing F3 vectors.
 - **Exclusions:** Signing; entropy; card I/O.
 - **Exit evidence:** REFERENCE-TESTED then HOST-TESTED against independent vectors.
 - **Affected gate:** Gate C progress.
 
-## F6 — Entropy and provisioning
+## F6 — Dice input, provisioning, and kit generation
 
-- **Purpose:** Implement the conditioner, dice-transcript mode, and provisioning ceremony per QK-DEC-007.
-- **Deliverables:** Entropy pipeline with fail-closed validation; ceremony flows.
-- **Exclusions:** Claims that health checks prove entropy; production RNG conclusions.
-- **Exit evidence:** Reviewed conditioner spec and vectors; HOST-TESTED ceremonies; target entropy-source evidence remains gated.
-- **Affected gate:** Gate C progress; entropy release evidence stays open (OD-03).
+- **Purpose:** Implement the manual and gated dice-grid transcript profiles, Seed-A/Signer-B/A2 derivation, deterministic Kit-R expansion, card/A1 provisioning, and setup-only kit generation.
+- **Deliverables:** Fail-closed dice validation; ceremony flows; exactly two complete kit copies by default; no post-setup share regeneration path.
+- **Exclusions:** Claims that a score proves entropy, that Kit-R provides 768 bits of information-theoretic secrecy, or that software proves physical destruction, card possession, or seal integrity.
+- **Exit evidence:** HOST-TESTED mathematics and ceremonies; fixed-camera dice-grid evidence, exact-target secret cleanup, print, and card behavior remain gated.
+- **Affected gate:** Gate C progress; feeds Gates A, B, D, and E without closing them.
 
-## F7 — A1 capsule, rescue tool, and physical-codec trials
+## F7 — A1 capsule, kit media, rescue tool, and physical-codec trials
 
 - **Purpose:** Implement the A1 AEAD capsule (QK-DEC-008) and run physical print/scan/OCR trials.
-- **Deliverables:** Capsule implementation with vectors; standalone rescue tool; codec parameter trial data (OD-04).
+- **Deliverables:** Capsule implementation with vectors; exact kit-share QR/fallback implementation; standalone rescue tool; A1 and kit-media trial data.
 - **Exclusions:** Freezing the visual codec without trial evidence.
 - **Exit evidence:** REFERENCE/HOST-TESTED capsule; recorded target trial data.
 - **Affected gate:** Gate A evidence gathering.
 
-## F8 — Card applet, provisioning, and rescue
+## F8 — Single-card applet, provisioning, spare, and restore
 
-- **Purpose:** Implement the card applet and least-authority provisioning per QK-DEC-006 on the selected card.
-- **Deliverables:** Applet, APDU layouts (OD-02 resolved), provisioning and rescue paths.
+- **Purpose:** Implement signer-B card behavior and least-authority provisioning on the selected card.
+- **Deliverables:** Applet, APDU layouts, setup-only spare provisioning, commodity-reader rescue, and replacement-card `Kit-Restore` with original-card-possession enforcement.
 - **Exclusions:** Claims of extraction resistance without characterization.
 - **Exit evidence:** TARGET-TESTED on production cards.
 - **Affected gate:** Gate B.
 
-## F9 — Bounded PSBT validation, review, and signing
+## F9 — Bounded PSBT validation, review, signing, and Kit-Spend
 
 - **Purpose:** Implement the trusted-core PSBT pipeline per QK-DEC-009.
-- **Deliverables:** Reparse/revalidate pipeline, exact review construction, physical approval, sign-after-revalidation, signature verification.
+- **Deliverables:** Reparse/revalidate pipeline, schema-v3 review construction, physical approval, sign-after-revalidation, signature verification, and the all-inputs-owned/one-new-output/no-change `Kit-Spend` path.
 - **Exclusions:** PSBT v2, Taproot, autodetection.
 - **Exit evidence:** Adversarial corpus results; HOST-TESTED then TARGET-TESTED.
 - **Affected gate:** Gate C.
 
-## F10 — QR and SD brokers plus target trials
+## F10 — QR, kit scanner, print, and SD brokers plus target trials
 
 - **Purpose:** Implement unprivileged `qk-io` transport and prove it on fixed mechanics.
-- **Deliverables:** Camera/BBQr broker, SD broker, resource ceilings (OD-05 resolved), target trials.
+- **Deliverables:** Camera/BBQr broker, mode-locked kit scanner, kit print broker, SD broker, resource ceilings, and target trials.
 - **Exclusions:** Any secret or approval access in `qk-io`.
 - **Exit evidence:** TARGET-TESTED capture/transfer meeting thresholds.
 - **Affected gate:** Gate A.
@@ -105,7 +121,7 @@ Baseline status: the F0 and F1 baselines are owner-approved at H0 `c618407a39006
 ## F12 — Complete recovery, inheritance, human factors, external audit, and release qualification
 
 - **Purpose:** Prove the whole system with people, not just machines.
-- **Deliverables:** Full recovery/inheritance rehearsals, human-factors studies against thresholds (OD-07), external audit, release qualification package.
+- **Deliverables:** Normal A1+B, both kit doors, sweep-only loss response, seal-check, setup-spare, cross-copy share, recovery/inheritance, and human-factors rehearsals against thresholds; external review and release qualification package.
 - **Exclusions:** Closing any gate by documentation; shipping before all gates and blockers close.
 - **Exit evidence:** INDEPENDENTLY-AUDITED; complete rehearsal records; owner release approval.
 - **Affected gate:** Gate E and all remaining release blockers.
