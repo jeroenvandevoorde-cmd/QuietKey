@@ -1,21 +1,22 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use qk_descriptor::{parse_descriptor_pair, DescriptorPair};
+use qk_descriptor::{parse_descriptor_pair_v2, DescriptorPairV2};
 use qk_psbt::{
-    build_review_v2, DirectRbf, InputSource, IntakeError, OwnedS0, RejectCategory, ReviewContext,
-    ReviewNetwork, ReviewV2, ReviewV2Error, FEE_POLICY_IDENTIFIER, MAX_CANONICAL_REVIEW_V2_BYTES,
-    MAX_ESTIMATED_VSIZE, MAX_FEE_WARNINGS, REVIEW_V2_SCHEMA_VERSION,
+    build_review_v3, DirectRbf, InputSource, IntakeError, OwnedS0, RejectCategory, ReviewContext,
+    ReviewNetwork, ReviewV3, ReviewV3Error, FEE_POLICY_V2_IDENTIFIER,
+    MAX_CANONICAL_REVIEW_V3_BYTES, MAX_ESTIMATED_VSIZE_V2, MAX_FEE_WARNINGS_V2,
+    REVIEW_V3_HASH_DOMAIN, REVIEW_V3_SCHEMA_VERSION,
 };
 use std::sync::OnceLock;
 
 const MAX_CANDIDATE_BYTES: usize = 4096;
 const MAX_MUTATIONS: usize = 64;
 const DESCRIPTOR_FIXTURE: &[u8] =
-    include_bytes!("../../host/qk-psbt/tests/fixtures/descriptor_ownership.txt");
-const REVIEW_FIXTURE: &[u8] = include_bytes!("../../host/qk-psbt/tests/fixtures/review_v2.txt");
+    include_bytes!("../../host/qk-descriptor/tests/fixtures/descriptor_pairs.txt");
+const REVIEW_FIXTURE: &[u8] = include_bytes!("../../host/qk-psbt/tests/fixtures/review_v3.txt");
 
-static DESCRIPTOR: OnceLock<DescriptorPair> = OnceLock::new();
+static DESCRIPTOR: OnceLock<DescriptorPairV2> = OnceLock::new();
 static GOLDEN_S0: OnceLock<Vec<u8>> = OnceLock::new();
 
 fn fixture_value<'a>(fixture: &'a [u8], prefix: &[u8]) -> &'a [u8] {
@@ -46,11 +47,11 @@ fn decode_fixture_hex(encoded: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn descriptor() -> &'static DescriptorPair {
+fn descriptor() -> &'static DescriptorPairV2 {
     DESCRIPTOR.get_or_init(|| {
         let receive = fixture_value(DESCRIPTOR_FIXTURE, b"receive: ");
         let change = fixture_value(DESCRIPTOR_FIXTURE, b"change: ");
-        parse_descriptor_pair(receive, change).expect("committed public descriptor pair")
+        parse_descriptor_pair_v2(receive, change).expect("committed public v2 descriptor pair")
     })
 }
 
@@ -173,26 +174,28 @@ fn intake_error_name(error: IntakeError) -> &'static str {
     }
 }
 
-fn review_error_name(error: ReviewV2Error) -> &'static str {
+fn review_error_name(error: ReviewV3Error) -> &'static str {
     match error {
-        ReviewV2Error::SourceMismatch => "SourceMismatch",
-        ReviewV2Error::Semantic(semantic) => {
+        ReviewV3Error::SourceMismatch => "SourceMismatch",
+        ReviewV3Error::Semantic(semantic) => {
             assert!(!semantic.category.to_string().is_empty());
             "Semantic"
         }
-        ReviewV2Error::FeePolicyArithmeticOverflow => "FeePolicyArithmeticOverflow",
-        ReviewV2Error::EmergencyFeeCeilingExceeded => "EmergencyFeeCeilingExceeded",
-        ReviewV2Error::InputCountTooLarge => "InputCountTooLarge",
-        ReviewV2Error::OutputCountTooLarge => "OutputCountTooLarge",
-        ReviewV2Error::UnsignedTransactionTooLong => "UnsignedTransactionTooLong",
-        ReviewV2Error::InputIndexMismatch => "InputIndexMismatch",
-        ReviewV2Error::OutputIndexMismatch => "OutputIndexMismatch",
-        ReviewV2Error::LengthOverflow => "LengthOverflow",
-        ReviewV2Error::FieldLengthOverflow => "FieldLengthOverflow",
-        ReviewV2Error::CanonicalTooLong => "CanonicalTooLong",
-        ReviewV2Error::AllocationFailed => "AllocationFailed",
-        ReviewV2Error::HashFailure => "HashFailure",
-        ReviewV2Error::InternalInvariant => "InternalInvariant",
+        ReviewV3Error::FeePolicyArithmeticOverflow => "FeePolicyArithmeticOverflow",
+        ReviewV3Error::EmergencyFeeCeilingExceeded => "EmergencyFeeCeilingExceeded",
+        ReviewV3Error::InputCountTooLarge => "InputCountTooLarge",
+        ReviewV3Error::OutputCountTooLarge => "OutputCountTooLarge",
+        ReviewV3Error::UnsignedTransactionTooLong => "UnsignedTransactionTooLong",
+        ReviewV3Error::InputIndexMismatch => "InputIndexMismatch",
+        ReviewV3Error::OutputIndexMismatch => "OutputIndexMismatch",
+        ReviewV3Error::LengthOverflow => "LengthOverflow",
+        ReviewV3Error::FieldLengthOverflow => "FieldLengthOverflow",
+        ReviewV3Error::CanonicalTooLong => "CanonicalTooLong",
+        ReviewV3Error::AllocationFailed => "AllocationFailed",
+        ReviewV3Error::HashFailure => "HashFailure",
+        ReviewV3Error::UnsupportedReviewSchemaVersion => "UnsupportedReviewSchemaVersion",
+        ReviewV3Error::CanonicalReviewMismatch => "CanonicalReviewMismatch",
+        ReviewV3Error::InternalInvariant => "InternalInvariant",
     }
 }
 
@@ -210,14 +213,25 @@ fn context(source: InputSource) -> ReviewContext {
     }
 }
 
-fn assert_review(review: &ReviewV2, owned: &OwnedS0, source: InputSource) {
-    assert_eq!(review.schema_version(), REVIEW_V2_SCHEMA_VERSION);
+fn assert_review(review: &ReviewV3, owned: &OwnedS0, source: InputSource) {
+    assert_eq!(REVIEW_V3_SCHEMA_VERSION, 3);
+    assert_eq!(FEE_POLICY_V2_IDENTIFIER, b"QK-FEE-POLICY-V2");
+    assert_eq!(REVIEW_V3_HASH_DOMAIN, b"QuietKey/D-09/review/v3");
+    assert_eq!(review.schema_version(), REVIEW_V3_SCHEMA_VERSION);
     assert_eq!(review.context(), context(source));
     assert_eq!(review.s0_sha256(), owned.sha256());
     assert_eq!(review.wallet_id(), descriptor().wallet_id());
-    assert_eq!(review.fee_policy_identifier(), FEE_POLICY_IDENTIFIER);
-    assert!(review.canonical_bytes().len() <= MAX_CANONICAL_REVIEW_V2_BYTES);
-    assert!(review.estimated_vsize() <= MAX_ESTIMATED_VSIZE);
+    assert_eq!(
+        review.origin_fingerprints(),
+        descriptor().origin_fingerprints()
+    );
+    assert_eq!(review.fee_policy_identifier(), FEE_POLICY_V2_IDENTIFIER);
+    assert!(review.canonical_bytes().len() <= MAX_CANONICAL_REVIEW_V3_BYTES);
+    assert_eq!(
+        review.canonical_bytes().first().copied(),
+        Some(REVIEW_V3_SCHEMA_VERSION)
+    );
+    assert!(review.estimated_vsize() <= MAX_ESTIMATED_VSIZE_V2);
     assert!(review.fee() <= 5_000_000);
     assert_eq!(
         review
@@ -229,7 +243,7 @@ fn assert_review(review: &ReviewV2, owned: &OwnedS0, source: InputSource) {
     assert_eq!(&review.clone(), review);
 
     let warning_tags: Vec<u8> = review.fee_warnings().map(|warning| warning.tag()).collect();
-    assert!(warning_tags.len() <= MAX_FEE_WARNINGS);
+    assert!(warning_tags.len() <= MAX_FEE_WARNINGS_V2);
     assert!(warning_tags.windows(2).all(|pair| pair[0] < pair[1]));
     assert_eq!(warning_tags.len(), review.fee_policy().warning_count());
 
@@ -252,6 +266,36 @@ fn assert_review(review: &ReviewV2, owned: &OwnedS0, source: InputSource) {
         DirectRbf::NotSignaled
     };
     assert_eq!(review.direct_rbf(), aggregate);
+
+    let canonical_before = review.canonical_bytes().to_vec();
+    let hash_before = review.review_hash();
+    assert_eq!(review.verify_exact_identity(&canonical_before), Ok(()));
+
+    assert_eq!(
+        review.verify_exact_identity(&[]),
+        Err(ReviewV3Error::UnsupportedReviewSchemaVersion)
+    );
+    for legacy_schema in [1, 2] {
+        let mut presented = canonical_before.clone();
+        presented[0] = legacy_schema;
+        assert_eq!(
+            review.verify_exact_identity(&presented),
+            Err(ReviewV3Error::UnsupportedReviewSchemaVersion)
+        );
+    }
+
+    let mut mismatched_v3 = canonical_before.clone();
+    let last = mismatched_v3
+        .last_mut()
+        .expect("accepted canonical review is non-empty");
+    *last ^= 1;
+    assert_eq!(
+        review.verify_exact_identity(&mismatched_v3),
+        Err(ReviewV3Error::CanonicalReviewMismatch)
+    );
+
+    assert_eq!(review.canonical_bytes(), canonical_before);
+    assert_eq!(review.review_hash(), hash_before);
 }
 
 fn exercise(candidate: &[u8], source: InputSource) {
@@ -279,15 +323,15 @@ fn exercise(candidate: &[u8], source: InputSource) {
     assert_eq!(view.source(), source);
 
     assert_eq!(
-        build_review_v2(&view, descriptor(), context(opposite_source(source))),
-        Err(ReviewV2Error::SourceMismatch)
+        build_review_v3(&view, descriptor(), context(opposite_source(source))),
+        Err(ReviewV3Error::SourceMismatch)
     );
 
-    let first = build_review_v2(&view, descriptor(), context(source));
+    let first = build_review_v3(&view, descriptor(), context(source));
     let reparsed = owned
         .parse()
         .expect("accepted retained S0 must deterministically reparse");
-    let second = build_review_v2(&reparsed, descriptor(), context(source));
+    let second = build_review_v3(&reparsed, descriptor(), context(source));
     match (first, second) {
         (Ok(first), Ok(second)) => {
             assert_eq!(first, second);
@@ -297,7 +341,7 @@ fn exercise(candidate: &[u8], source: InputSource) {
             assert_eq!(first, second);
             assert!(!review_error_name(first).is_empty());
         }
-        _ => panic!("M23 review construction changed result on exact retained reparse"),
+        _ => panic!("slice-2 review construction changed result on exact retained reparse"),
     }
 }
 
