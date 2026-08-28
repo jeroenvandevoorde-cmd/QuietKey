@@ -55,7 +55,3 @@ Human-test thresholds, kit packaging, executor wording for inheritance, and desc
 ## OD-08 — Licensing and governance
 
 Project licensing (the prior root MIT LICENSE was removed by owner authorization on 2026-08-18; **no license is currently selected** — software, hardware, and documentation licenses all await owner approval), maintainers, two-person review policy, vulnerability-reporting ownership and channel, release signing, supported-version policy, and audit ownership. None of these identities, emails, or policies may be invented by an agent.
-
-## OD-09 — Quantum Shelter raw-transaction BBQr framing
-
-Quantum Shelter returns only the final raw transaction. Whether its future QR return path uses BBQr file type `T`, and the exact type-`T` profile, framing and interoperability evidence if selected, require a future Owner-ratified decision. Until then Quantum Shelter export is SD-only: the ratified type-`P` profile remains PSBT-only, raw transactions must never be encoded or labeled as type `P`, and M25 pre-commits no type-`T` wire semantics.
