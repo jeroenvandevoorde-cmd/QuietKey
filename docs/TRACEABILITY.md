@@ -1,35 +1,35 @@
 # QuietKey Traceability Matrix
 
-**OWNER-APPROVED F1 BASELINE — IMPLEMENTATION EVIDENCE NONE — ALL GATES OPEN**
+**OWNER-RATIFIED V2 MIGRATION TRACEABILITY — PHYSICAL GATES OPEN**
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
-This matrix links every requirement (`docs/REQUIREMENTS.md`) to its source decision (`ARCHITECTURE.md`), threats (`docs/THREAT-MODEL.md`), resource limits (`docs/RESOURCE-BUDGETS.md`), planned tests (`docs/TEST-ARCHITECTURE.md`), and gate. It records traceability of DRAFT plans only — no threat is mitigated, resolved, or validated, and no evidence exists. The matrix below was regenerated mechanically from the register tables during the F1 semantic audit-correction pass. Regeneration is a derivation step, not validation, and constitutes no evidence of anything; consistency between this file and the registers is re-checkable at any time with the procedure at the end (structural parts automated by `tools/verify-foundation.sh`).
+This matrix links every requirement (`docs/REQUIREMENTS.md`) to its source decision, threats (`docs/THREAT-MODEL.md`), resource limits (`docs/RESOURCE-BUDGETS.md`), planned tests (`docs/TEST-ARCHITECTURE.md`), and gate. It records v2 migration traceability only: a mapping does not satisfy its requirement or close a gate. The matrix below is derived from the register tables and remains re-checkable with the procedure at the end. The frozen `tools/verify-foundation.sh` preserves its historical v1 behavior and is not a v2 traceability oracle.
 
 **Prefix convention (applies to every table in this document):** cell entries are full IDs with the family prefix removed for legibility. Reconstruct full IDs as follows: forward-matrix column 1 and all requirement references → prepend `QK-REQ-`; decision cells → prepend `QK-DEC-`; threat cells → prepend `QK-THR-`; limit cells → prepend `QK-LIM-`; test cells → prepend `QK-TST-`. Numeric-only entries (e.g. `009`) take the prefix directly (`QK-THR-009`); entries with a domain (e.g. `PSBT-005`) likewise (`QK-LIM-PSBT-005` in a limit cell). Checks must reconstruct full IDs this way before comparing against the defining registers.
 
-## Forward matrix (100 requirements)
+## Forward matrix (119 requirements)
 
 | QK-REQ | QK-DEC | QK-THR | QK-LIM | QK-TST | Gate |
 |---|---|---|---|---|---|
-| CUS-001 | 002, 003 | 005 | NONE | DIFF-003, REH-001 | C |
-| CUS-002 | 002, 007 | 003, 004, 015 | NONE | PROP-004, AUD-004 | B |
-| CUS-003 | 002 | 002, 003, 008 | NONE | PROP-003, AUD-001 | C |
+| CUS-001 | 121 | 005, 022 | NONE | DIFF-003, REH-001 | C |
+| CUS-002 | 121 | 003, 004, 015 | NONE | PROP-004, AUD-004 | C |
+| CUS-003 | 121 | 002, 003, 008, 022 | NONE | PROP-003, AUD-001 | C |
 | CUS-004 | 003 | 003, 020 | NONE | UNIT-002 | FOUNDATION |
 | CUS-005 | 003 | 012 | NONE | DIFF-003, UNIT-003 | C |
 | CUS-006 | 003 | 006, 017 | NONE | UNIT-002, DIFF-003 | C |
-| CUS-007 | 011 | 012, 020 | NONE | DIFF-003, AUD-001 | FOUNDATION |
-| CUS-008 | 005 | 005 | NONE | AUD-008 | FOUNDATION |
-| CUS-009 | 005 | 005 | NONE | AUD-008, HF-003 | FOUNDATION |
-| ENT-001 | 007 | 004, 015 | NONE | PROP-004, AUD-004 | B |
-| ENT-002 | 007 | 004, 015 | NONE | PROP-004 | C |
-| ENT-003 | 007 | 012, 015 | NONE | UNIT-004, HF-003 | C |
-| ENT-004 | 007 | 009, 015 | NONE | AUD-004 | C |
-| ENT-005 | 007 | 012, 015 | NONE | AUD-004 | FOUNDATION |
-| ENT-006 | 007 | 015 | NONE | PROP-004, AUD-004 | C |
-| ENT-007 | 007 | 015 | NONE | AUD-004 | C |
-| ENT-008 | 007 | 015 | NONE | AUD-004, DIFF-001 | C |
-| ENT-009 | 007 | 015 | NONE | AUD-004 | C |
+| CUS-007 | 121 | 012, 020 | NONE | DIFF-003, AUD-001 | FOUNDATION |
+| CUS-008 | 121 | 005, 022, 026 | NONE | AUD-008 | FOUNDATION |
+| CUS-009 | 121 | 005, 022, 026 | NONE | AUD-008, HF-003 | FOUNDATION |
+| ENT-001 | 117, 121 | 004, 015, 022 | NONE | PROP-004, AUD-004 | C |
+| ENT-002 | 117, 121 | 004, 015 | NONE | PROP-004 | C |
+| ENT-003 | 117, 119, 121 | 012, 015 | NONE | UNIT-004, HF-003 | C |
+| ENT-004 | 107, 117, 121 | 009, 012, 015 | NONE | AUD-004, BENCH-003 | A |
+| ENT-005 | 117, 121 | 012, 015 | NONE | AUD-004, HF-003 | FOUNDATION |
+| ENT-006 | 107, 117, 121 | 012, 015 | NONE | HF-003, BENCH-003 | A |
+| ENT-007 | 113, 121 | 015, 023 | NONE | AUD-004 | C |
+| ENT-008 | 121 | 015, 023 | NONE | AUD-004, DIFF-001 | C |
+| ENT-009 | 117, 119, 121 | 015 | NONE | AUD-004, UNIT-004 | C |
 | ENT-010 | 007 | 015 | NONE | UNIT-004, AUD-009 | C |
 | ENT-011 | 007 | 015 | NONE | AUD-009 | FOUNDATION |
 | ENT-012 | 007 | 015, 018 | NONE | AUD-009, HF-003 | E |
@@ -44,13 +44,13 @@ This matrix links every requirement (`docs/REQUIREMENTS.md`) to its source decis
 | A1-009 | 008 | 011, 012, 019 | NONE | REH-006, PWR-001 | A |
 | A1-010 | 004, 008 | 002, 018 | NONE | AUD-006, CORP-004 | A |
 | A1-011 | 004, 008 | 018 | NONE | AUD-006 | FOUNDATION |
-| CARD-001 | 006 | 003, 008, 018, 021 | NONE | BENCH-002, AUD-003 | B |
+| CARD-001 | 121 | 003, 008, 018, 021 | NONE | BENCH-002, AUD-003 | B |
 | CARD-002 | 006 | 001, 014 | NONE | REH-001, AUD-003 | B |
-| CARD-003 | 006 | 003, 017 | NONE | UNIT-007, BENCH-002 | B |
+| CARD-003 | 121 | 003, 017, 025 | NONE | UNIT-007, BENCH-002 | B |
 | CARD-004 | 009 | 006, 016 | APDU-001, APDU-002, APDU-003, APDU-004, APDU-005, APDU-006, APDU-007, APDU-008, APDU-009, APDU-010, APDU-011 | FUZZ-004, CORP-005 | B |
 | CARD-005 | 006 | 001, 011, 019 | NONE | PWR-002, BENCH-002 | B |
 | CARD-006 | 006 | 001 | NONE | REH-004, BENCH-005 | B |
-| CARD-007 | 004, 006 | 014 | NONE | AUD-006, BENCH-002 | B |
+| CARD-007 | 004, 121 | 014 | NONE | AUD-006, BENCH-002 | B |
 | CARD-008 | 006 | 019 | NONE | UNIT-007, BENCH-002 | B |
 | CARD-009 | 006 | 017, 019 | NONE | UNIT-007, CORP-005 | B |
 | CARD-010 | 006 | 019 | NONE | PWR-002 | B |
@@ -58,17 +58,20 @@ This matrix links every requirement (`docs/REQUIREMENTS.md`) to its source decis
 | PSBT-002 | 009, 010 | 006, 016 | PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-009, PSBT-010, PSBT-012, PSBT-013 | PROP-002, FUZZ-001 | C |
 | PSBT-003 | 009 | 006, 007 | NONE | PROP-002, REH-001 | C |
 | PSBT-004 | 009 | 006 | NONE | DIFF-002, REH-004 | C |
-| PSBT-005 | 009 | 006, 016 | PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-005, PSBT-006, PSBT-007, PSBT-008, PSBT-009, PSBT-010, PSBT-011, PSBT-012, PSBT-013, PSBT-014, PSBT-015, PSBT-016, PSBT-017, PSBT-018, PSBT-019, PSBT-020, PSBT-021, PSBT-022, PSBT-023, PSBT-024, PSBT-025, PSBT-026, PSBT-027 | FUZZ-001, BENCH-003 | C |
+| PSBT-005 | 009 | 006, 016 | PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-005, PSBT-006, PSBT-007, PSBT-008, PSBT-009, PSBT-010, PSBT-011, PSBT-012, PSBT-013, PSBT-014, PSBT-015, PSBT-016, PSBT-017, PSBT-018, PSBT-019, PSBT-020, PSBT-021, PSBT-022, PSBT-023, PSBT-024, PSBT-025, PSBT-026 | FUZZ-001, BENCH-003 | C |
 | PSBT-006 | 009 | 006, 017 | PSBT-001 | CORP-001, DIFF-002 | C |
 | PSBT-007 | 009 | 016 | NONE | PROP-007, FUZZ-001 | C |
 | PSBT-008 | 003, 009 | 016 | NONE | PROP-007, CORP-001 | C |
+| PSBT-009 | 121 | 006, 017, 019 | NONE | PROP-002, DIFF-002 | C |
+| PSBT-010 | 121 | 006, 016, 017 | NONE | PROP-007, DIFF-002 | C |
+| PSBT-011 | 121 | 006, 016, 017 | NONE | PROP-007, DIFF-002 | C |
 | TRN-001 | 009 | 006, 016 | SD-001, SD-002 | UNIT-009, CORP-003 | C |
 | TRN-002 | 009 | 011, 019 | NONE | UNIT-009, PWR-003 | D |
 | TRN-003 | 009 | 006, 016 | QR-001, QR-003, QR-006 | UNIT-006, BENCH-001 | A |
 | TRN-004 | 009, 010 | 006 | NONE | SAN-003, AUD-001 | C |
 | TRN-005 | 009 | 006, 016 | QR-001, QR-002, QR-003, QR-004, QR-005, QR-006, QR-007, QR-008, QR-009, QR-010, QR-011, QR-012, QR-013, QR-014 | FUZZ-002, CORP-002 | A |
 | TRN-006 | 009 | 006, 016 | SD-001, SD-002, SD-003, SD-005, SD-006, SD-007, SD-008, SD-009, SD-010 | FUZZ-003, BENCH-003 | C |
-| TRN-007 | 009 | 006 | SD-004, PSBT-026, PSBT-027 | DIFF-004, REH-004 | C |
+| TRN-007 | 009 | 006 | SD-004, PSBT-026 | DIFF-004, REH-004 | C |
 | TRN-008 | 009 | 019 | SD-011, SD-012, SD-013 | PWR-005, CORP-003 | D |
 | TRN-009 | 009, 010 | 016 | NONE | SAN-004, AUD-001 | D |
 | TRN-010 | 009, 010 | 016 | SD-003, SD-008, SD-009 | SAN-004, FUZZ-003 | D |
@@ -80,24 +83,40 @@ This matrix links every requirement (`docs/REQUIREMENTS.md`) to its source decis
 | PLT-002 | 010 | 007 | NONE | UNIT-013 | C |
 | PLT-003 | 010 | 006, 018 | NONE | SAN-003, AUD-001 | C |
 | PLT-004 | 010 | 006, 008, 018 | EXE-002 | UNIT-010, SAN-003 | C |
-| PLT-005 | 010 | 006, 014, 018 | NONE | SAN-003, CORP-006 | C |
+| PLT-005 | 010, 121 | 006, 014, 018, 022 | NONE | SAN-003, CORP-006 | C |
 | PLT-006 | 009, 010 | 006, 016 | MEM-001, MEM-002, MEM-003, MEM-004, MEM-005, MEM-006, MEM-007, MEM-008, MEM-009, MEM-010, MEM-011, MEM-012, MEM-013, MEM-014, MEM-015, MEM-016, MEM-017, MEM-018, IPC-001, IPC-002, IPC-003, IPC-004, IPC-005, IPC-006, EXE-001, EXE-002, EXE-003, EXE-004, EXE-005, EXE-006, EXE-007 | BENCH-003, SAN-001 | C |
 | PLT-007 | 004, 010 | 014 | NONE | AUD-006, UNIT-007 | C |
 | PLT-008 | 004, 006 | 009, 018 | NONE | AUD-007 | C |
-| PLT-009 | 010 | 006, 016 | NONE | SAN-003, AUD-001 | C |
-| PLT-010 | 009, 010 | 006, 017 | DSC-001, DSC-002 | PROP-002, FUZZ-001 | C |
+| PLT-009 | 010, 121 | 006, 016, 023 | NONE | SAN-003, AUD-001 | C |
+| PLT-010 | 009, 010, 121 | 006, 017, 023 | DSC-001, DSC-002 | PROP-002, FUZZ-001 | C |
 | PLT-011 | 010 | 016 | NONE | FUZZ-004, AUD-001 | C |
 | PLT-012 | 010 | 009 | NONE | AUD-001 | FOUNDATION |
-| BND-001 | 002, 003 | 017 | NONE | UNIT-011, CORP-006 | C |
+| BND-001 | 121 | 017, 023, 025 | NONE | UNIT-011, CORP-006 | C |
 | BND-002 | 009, 010 | 017 | NONE | PROP-006, PROP-002 | C |
 | BND-003 | 009, 010 | 017, 019 | NONE | PROP-006, PWR-004 | C |
-| REC-001 | 005 | 001, 020 | NONE | REH-001 | E |
-| REC-002 | 005 | 003, 004 | NONE | REH-003 | E |
-| REC-003 | 005 | 004 | NONE | REH-003, UNIT-008 | E |
-| REC-004 | 005, 006 | 001 | NONE | REH-002 | E |
-| REC-005 | 006, 009 | 011, 012, 019 | NONE | PWR-001, CORP-006 | D |
-| REC-006 | 003, 005 | 001, 020 | NONE | REH-001, REH-004 | E |
-| REC-007 | 005 | 021 | NONE | REH-003 | E |
+| REC-001 | 121 | 001, 020, 022 | NONE | REH-001 | E |
+| REC-002 | 121 | 003, 004, 022, 025, 026 | NONE | REH-003, REH-007 | E |
+| REC-003 | 121 | 025 | NONE | REH-003, UNIT-008 | E |
+| REC-004 | 121 | 001, 020, 022 | NONE | REH-002 | E |
+| REC-005 | 121 | 011, 012, 019, 023 | NONE | PWR-001, CORP-006 | D |
+| REC-006 | 121 | 001, 020 | NONE | REH-001, REH-004 | E |
+| REC-007 | 121 | 021 | NONE | REH-003 | E |
+| KIT-001 | 121 | 017, 023 | KIT-001 | UNIT-014, DIFF-005 | C |
+| KIT-002 | 121 | 022, 023 | KIT-011 | UNIT-014, PROP-008 | C |
+| KIT-003 | 121 | 015, 017, 023 | NONE | UNIT-014 | C |
+| KIT-004 | 121 | 012, 015, 022 | NONE | AUD-001 | FOUNDATION |
+| KIT-005 | 121 | 018, 019, 022 | KIT-010 | PROP-008, REH-007 | C |
+| KIT-006 | 121 | 012, 022, 026 | KIT-009, KIT-010 | REH-007, HF-003 | E |
+| KIT-007 | 121 | 006, 016, 017, 023 | KIT-003, KIT-004, KIT-005, KIT-011, KIT-012 | PROP-008, CORP-002, BENCH-006 | C |
+| KIT-008 | 121 | 006, 017, 024 | PSBT-001, PSBT-025 | PROP-002, REH-007 | C |
+| KIT-009 | 121 | 024 | NONE | AUD-001, REH-007 | FOUNDATION |
+| KIT-010 | 121 | 025 | NONE | REH-007, HF-003 | E |
+| KIT-011 | 121 | 002, 019, 021 | NONE | UNIT-001, REH-007 | A |
+| KIT-012 | 121 | 025 | NONE | PROP-008, REH-007 | E |
+| KIT-013 | 121 | 025 | NONE | BENCH-002, REH-007 | B |
+| KIT-014 | 121 | 022, 026 | NONE | REH-007, HF-003 | E |
+| KIT-015 | 121 | 011, 016, 023 | KIT-002, KIT-006, KIT-007, KIT-008 | DIFF-005, BENCH-001, BENCH-006 | A |
+| KIT-016 | 121 | 012, 016, 020 | NONE | AUD-001 | FOUNDATION |
 | HF-001 | 001, 007 | 012 | NONE | UNIT-004, HF-003 | E |
 | HF-002 | 001 | 012, 020 | NONE | HF-001 | A |
 | HF-003 | 001, 009 | 006, 012, 016 | PSBT-001, QR-001, SD-001, A1-001, APDU-001 | CORP-001, HF-002 | C |
@@ -106,76 +125,83 @@ This matrix links every requirement (`docs/REQUIREMENTS.md`) to its source decis
 | ASR-002 | 014 | 009 | NONE | AUD-002, SAN-002, REH-001 | FOUNDATION |
 | ASR-003 | 014 | 012 | NONE | AUD-002 | FOUNDATION |
 | ASR-004 | 013 | 009 | NONE | AUD-002 | FOUNDATION |
-| ASR-005 | 014 | 006, 016 | PSBT-001, QR-001, SD-001, A1-001, APDU-001 | FUZZ-001, FUZZ-002, FUZZ-003, FUZZ-004, FUZZ-005 | C |
+| ASR-005 | 014, 121 | 006, 016, 023 | PSBT-001, QR-001, SD-001, A1-001, APDU-001, KIT-001 | FUZZ-001, FUZZ-002, FUZZ-003, FUZZ-004, FUZZ-005 | C |
 | ASR-006 | 012 | 013 | NONE | AUD-001 | FOUNDATION |
 | ASR-007 | 014 | 009 | NONE | AUD-002 | FOUNDATION |
 | ASR-008 | 014 | 009, 012 | NONE | AUD-005 | FOUNDATION |
 | ASR-009 | 004, 014 | 014 | NONE | AUD-001, AUD-006 | FOUNDATION |
 | ASR-010 | 012 | 013 | NONE | REH-005, AUD-002 | FOUNDATION |
 
-## Reverse coverage — decisions (14/14 cited by at least one requirement)
+## Reverse coverage — active decisions (16/16 cited by at least one requirement)
 
 | QK-DEC | Covered by (QK-REQ-) |
 |---|---|
 | 001 | HF-001, HF-002, HF-003, HF-004 |
-| 002 | CUS-001, CUS-002, CUS-003, BND-001 |
-| 003 | CUS-001, CUS-004, CUS-005, CUS-006, PSBT-008, BND-001, REC-006 |
+| 003 | CUS-004, CUS-005, CUS-006, PSBT-008 |
 | 004 | A1-007, A1-008, A1-010, A1-011, CARD-007, PLT-001, PLT-007, PLT-008, ASR-009 |
-| 005 | CUS-008, CUS-009, REC-001, REC-002, REC-003, REC-004, REC-006, REC-007 |
-| 006 | CARD-001, CARD-002, CARD-003, CARD-005, CARD-006, CARD-007, CARD-008, CARD-009, CARD-010, TUI-004, PLT-001, PLT-008, REC-004, REC-005 |
-| 007 | CUS-002, ENT-001, ENT-002, ENT-003, ENT-004, ENT-005, ENT-006, ENT-007, ENT-008, ENT-009, ENT-010, ENT-011, ENT-012, HF-001 |
+| 006 | CARD-002, CARD-005, CARD-006, CARD-008, CARD-009, CARD-010, TUI-004, PLT-001, PLT-008 |
+| 007 | ENT-010, ENT-011, ENT-012, HF-001 |
 | 008 | A1-001, A1-002, A1-003, A1-004, A1-005, A1-006, A1-007, A1-009, A1-010, A1-011 |
-| 009 | A1-006, CARD-004, PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-005, PSBT-006, PSBT-007, PSBT-008, TRN-001, TRN-002, TRN-003, TRN-004, TRN-005, TRN-006, TRN-007, TRN-008, TRN-009, TRN-010, TUI-002, TUI-003, PLT-006, PLT-010, BND-002, BND-003, REC-005, HF-003 |
+| 009 | A1-006, CARD-004, PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-005, PSBT-006, PSBT-007, PSBT-008, TRN-001, TRN-002, TRN-003, TRN-004, TRN-005, TRN-006, TRN-007, TRN-008, TRN-009, TRN-010, TUI-002, TUI-003, PLT-006, PLT-010, BND-002, BND-003, HF-003 |
 | 010 | PSBT-002, TRN-004, TRN-009, TRN-010, TUI-001, TUI-002, PLT-002, PLT-003, PLT-004, PLT-005, PLT-006, PLT-007, PLT-009, PLT-010, PLT-011, PLT-012, BND-002, BND-003 |
-| 011 | CUS-007 |
 | 012 | ASR-001, ASR-006, ASR-010 |
 | 013 | ASR-004 |
 | 014 | ASR-001, ASR-002, ASR-003, ASR-005, ASR-007, ASR-008, ASR-009 |
+| 107 | ENT-004, ENT-006 |
+| 113 | ENT-007 |
+| 117 | ENT-001, ENT-002, ENT-003, ENT-004, ENT-005, ENT-006, ENT-009 |
+| 119 | ENT-003, ENT-009 |
+| 121 | CUS-001, CUS-002, CUS-003, CUS-007, CUS-008, CUS-009, ENT-001, ENT-002, ENT-003, ENT-004, ENT-005, ENT-006, ENT-007, ENT-008, ENT-009, CARD-001, CARD-003, CARD-007, PSBT-009, PSBT-010, PSBT-011, PLT-005, PLT-009, PLT-010, BND-001, REC-001, REC-002, REC-003, REC-004, REC-005, REC-006, REC-007, KIT-001, KIT-002, KIT-003, KIT-004, KIT-005, KIT-006, KIT-007, KIT-008, KIT-009, KIT-010, KIT-011, KIT-012, KIT-013, KIT-014, KIT-015, KIT-016, ASR-005 |
 
-Note: QK-DEC-011's packaging-invariance obligation is carried normatively by QK-REQ-CUS-007.
+QK-DEC-002, QK-DEC-005, and QK-DEC-011 remain append-only v1 history; QK-DEC-121 supersedes their active custody, recovery, and tier-topology effects. Earlier decision rows not cited here remain preserved in `docs/DECISION-LOG.md` and are not active normative sources for a v2 requirement.
 
-## Reverse coverage — threats (20 of 21 covered; QK-THR-010 explicitly excluded)
+## Reverse coverage — threats (25 of 26 covered; QK-THR-010 explicitly excluded)
 
 | QK-THR | Covered by (QK-REQ-) or explicit exclusion |
 |---|---|
 | 001 | CARD-002, CARD-005, CARD-006, PLT-001, REC-001, REC-004, REC-006 |
-| 002 | CUS-003, A1-001, A1-002, A1-003, A1-010 |
+| 002 | CUS-003, A1-001, A1-002, A1-003, A1-010, KIT-011 |
 | 003 | CUS-002, CUS-003, CUS-004, CARD-001, CARD-003, REC-002 |
-| 004 | CUS-002, ENT-001, ENT-002, REC-002, REC-003 |
-| 005 | CUS-001, CUS-008, CUS-009. Residual: theft of a valid pair remains the accepted 2-of-3 design boundary (THREAT-MODEL Non-goals); the cited requirements govern storage separation and ceremony co-presence, not pair theft itself. |
-| 006 | CUS-006, A1-003, A1-004, A1-006, CARD-004, PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-005, PSBT-006, TRN-001, TRN-003, TRN-004, TRN-005, TRN-006, TRN-007, TUI-002, PLT-003, PLT-004, PLT-005, PLT-006, PLT-009, PLT-010, HF-003, ASR-005 |
+| 004 | CUS-002, ENT-001, ENT-002, REC-002 |
+| 005 | CUS-001, CUS-008, CUS-009. Residual: theft of both A1+B or possession of a complete Kit is the accepted v2 capability boundary; the cited requirements govern threshold policy and custody separation, not reversal of an already exposed threshold. |
+| 006 | CUS-006, A1-003, A1-004, A1-006, CARD-004, PSBT-001, PSBT-002, PSBT-003, PSBT-004, PSBT-005, PSBT-006, PSBT-009, PSBT-010, PSBT-011, TRN-001, TRN-003, TRN-004, TRN-005, TRN-006, TRN-007, TUI-002, PLT-003, PLT-004, PLT-005, PLT-006, PLT-009, PLT-010, KIT-007, KIT-008, HF-003, ASR-005 |
 | 007 | PSBT-003, TUI-001, TUI-004, PLT-002 |
 | 008 | CUS-003, CARD-001, PLT-004 |
 | 009 | ENT-004, PLT-008, PLT-012, ASR-002, ASR-004, ASR-007, ASR-008 |
 | 010 | **Explicit exclusion**: coercion with access to a valid pair is a stated non-goal (THREAT-MODEL Non-goals); the cloak may reduce targeting but no requirement claims protection once coercion begins. No normative control exists or is planned. |
-| 011 | A1-005, A1-009, CARD-005, TRN-002, REC-005 |
-| 012 | CUS-005, CUS-007, ENT-003, ENT-005, A1-009, TUI-003, REC-005, HF-001, HF-002, HF-003, HF-004, ASR-003, ASR-008 |
+| 011 | A1-005, A1-009, CARD-005, TRN-002, REC-005, KIT-015 |
+| 012 | CUS-005, CUS-007, ENT-003, ENT-004, ENT-005, ENT-006, A1-009, TUI-003, REC-005, KIT-004, KIT-006, KIT-016, HF-001, HF-002, HF-003, HF-004, ASR-003, ASR-008 |
 | 013 | ASR-001, ASR-006, ASR-010 |
 | 014 | A1-007, A1-008, CARD-002, CARD-007, PLT-001, PLT-005, PLT-007, ASR-001, ASR-009 |
-| 015 | CUS-002, ENT-001, ENT-002, ENT-003, ENT-004, ENT-005, ENT-006, ENT-007, ENT-008, ENT-009, ENT-010, ENT-011, ENT-012, A1-002 |
-| 016 | A1-006, CARD-004, PSBT-001, PSBT-002, PSBT-005, PSBT-007, PSBT-008, TRN-001, TRN-003, TRN-005, TRN-006, TRN-009, TRN-010, TUI-003, PLT-006, PLT-009, PLT-011, HF-003, ASR-005 |
-| 017 | CUS-006, A1-004, CARD-003, CARD-009, PSBT-006, TUI-002, PLT-010, BND-001, BND-002, BND-003 |
-| 018 | ENT-012, A1-010, A1-011, CARD-001, PLT-001, PLT-003, PLT-004, PLT-005, PLT-008 |
-| 019 | A1-009, CARD-005, CARD-008, CARD-009, CARD-010, TRN-002, TRN-008, BND-003, REC-005 |
-| 020 | CUS-004, CUS-007, REC-001, REC-006, HF-002 |
-| 021 | A1-001, CARD-001, REC-007 |
+| 015 | CUS-002, ENT-001, ENT-002, ENT-003, ENT-004, ENT-005, ENT-006, ENT-007, ENT-008, ENT-009, ENT-010, ENT-011, ENT-012, A1-002, KIT-003, KIT-004 |
+| 016 | A1-006, CARD-004, PSBT-001, PSBT-002, PSBT-005, PSBT-007, PSBT-008, PSBT-010, PSBT-011, TRN-001, TRN-003, TRN-005, TRN-006, TRN-009, TRN-010, TUI-003, PLT-006, PLT-009, PLT-011, KIT-007, KIT-015, KIT-016, HF-003, ASR-005 |
+| 017 | CUS-006, A1-004, CARD-003, CARD-009, PSBT-006, PSBT-009, PSBT-010, PSBT-011, TUI-002, PLT-010, BND-001, BND-002, BND-003, KIT-001, KIT-003, KIT-007, KIT-008 |
+| 018 | ENT-012, A1-010, A1-011, CARD-001, PLT-001, PLT-003, PLT-004, PLT-005, PLT-008, KIT-005 |
+| 019 | A1-009, CARD-005, CARD-008, CARD-009, CARD-010, PSBT-009, TRN-002, TRN-008, BND-003, REC-005, KIT-005, KIT-011 |
+| 020 | CUS-004, CUS-007, REC-001, REC-004, REC-006, KIT-016, HF-002 |
+| 021 | A1-001, CARD-001, REC-007, KIT-011 |
+| 022 | CUS-001, CUS-003, CUS-008, CUS-009, ENT-001, PLT-005, REC-001, REC-002, REC-004, KIT-002, KIT-004, KIT-005, KIT-006, KIT-014 |
+| 023 | ENT-007, ENT-008, PLT-009, PLT-010, BND-001, REC-005, KIT-001, KIT-002, KIT-003, KIT-007, KIT-015, ASR-005 |
+| 024 | KIT-008, KIT-009 |
+| 025 | CARD-003, BND-001, REC-002, REC-003, KIT-010, KIT-012, KIT-013 |
+| 026 | CUS-008, CUS-009, REC-002, KIT-006, KIT-014 |
 
-QK-THR-015…020 are append-only precision refinements added in the F1 audit-correction pass, and QK-THR-021 was appended in the F1 semantic audit-correction pass; their coverage restates or extends coverage of the broad threats they refine.
+QK-THR-015…021 remain append-only precision refinements from v1; QK-THR-022…026 are the v2 Kit-specific additions. Historical origin does not make a threat inactive when it still appears in this table.
 
 ## Reverse coverage — limits and planned tests (mechanically derived)
 
-- All 121 QK-LIM rows defined in `docs/RESOURCE-BUDGETS.md` are cited by at least one requirement (121/121 as derived; re-check with the procedure below).
-- All 66 QK-TST IDs defined in `docs/TEST-ARCHITECTURE.md` are cited by at least one requirement (66/66 as derived; re-check with the procedure below).
+- Of 133 QK-LIM rows defined in `docs/RESOURCE-BUDGETS.md`, all 132 active rows are cited by at least one requirement; QK-LIM-PSBT-027 is the sole permanent tombstone and is deliberately uncited (132/133 active coverage as derived; re-check with the procedure below).
+- All 71 QK-TST IDs defined in `docs/TEST-ARCHITECTURE.md` are cited by at least one requirement (71/71 as derived; re-check with the procedure below).
 - Every limit and test ID cited by a requirement exists in its defining register (no dangling citations as derived; re-check with the procedure below).
 
 ## Orphan check
 
-As derived at regeneration (re-checkable, not evidence): every SHALL/SHALL NOT normative statement in the F1 document set lives in exactly one `docs/REQUIREMENTS.md` row with a QK-DEC source, threat citation, limit citation (or NONE with rationale), planned tests, and gate; the other F1 documents (this file, LIFECYCLE-STATES, RESOURCE-BUDGETS, TEST-ARCHITECTURE) contain no free-standing SHALL/SHALL NOT claims, only non-normative restatements by requirement ID.
+As derived at regeneration: every SHALL/SHALL NOT normative statement in the active v2 requirements set lives in exactly one `docs/REQUIREMENTS.md` row with a QK-DEC source, threat citation, limit citation (or NONE with rationale), planned tests, and gate. This matrix is descriptive traceability, not a second source of product requirements.
 
 Check procedure (repeatable; `tools/verify-foundation.sh` automates the structural parts):
 
 1. Extract all `QK-REQ-` IDs from `docs/REQUIREMENTS.md`; confirm the same set appears in the forward matrix (no additions, no omissions), reconstructing full IDs per the prefix convention above.
-2. Confirm each requirement row contains exactly one SHALL or SHALL NOT, and grep the other four F1 documents for the whole words SHALL / SHALL NOT — every hit must be either absent or a quoted reference to register phrasing, never a free-standing normative claim.
-3. Confirm every `QK-DEC-001…014` appears in the decision reverse table; every `QK-THR-001…021` appears in the threat reverse table as covered or explicitly excluded.
-4. Confirm every `QK-LIM-` and `QK-TST-` ID defined in its register is cited by at least one requirement, and every cited ID exists in its register.
-5. Confirm ID uniqueness across all families (sort/uniq, zero duplicates), that every requirement row has the expected Markdown field count with no unescaped table separators, that every resource-budget Value cell is exactly `OPEN — VALUE NOT AUTHORIZED IN F1` with Status exactly `OPEN`, and that every planned-test Status cell is exactly `PLANNED — NOT RUN`.
+2. Confirm each requirement row contains exactly one SHALL or SHALL NOT, and inspect the other active architecture registers for those whole words — every hit must be either absent or a quoted requirement restatement, never an untracked normative claim.
+3. Confirm all 16 active decision IDs in the decision reverse table are cited; confirm QK-DEC-002, QK-DEC-005, and QK-DEC-011 remain historical rather than active v2 sources; confirm every `QK-THR-001…026` appears as covered or, for QK-THR-010 only, explicitly excluded.
+4. Confirm every active `QK-LIM-` and every `QK-TST-` ID is cited by at least one requirement, QK-LIM-PSBT-027 alone remains an uncited permanent tombstone, and every cited ID exists in its defining register.
+5. Confirm ID uniqueness across all families, every row's expected Markdown field count with no unescaped table separators, every status/value against its defining register vocabulary, and every planned-test Status exactly `PLANNED — NOT RUN`.
