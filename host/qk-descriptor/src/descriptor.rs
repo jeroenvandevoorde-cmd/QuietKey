@@ -398,7 +398,7 @@ fn assemble_script(mut keys: [[u8; 33]; ACCOUNT_COUNT]) -> DerivedScript {
     }
     witness_script[103] = 0x53;
     witness_script[104] = 0xae;
-    let mut script_pubkey = [0u8; V2_SCRIPT_PUBKEY_LEN];
+    let mut script_pubkey = [0u8; SCRIPT_PUBKEY_LEN];
     script_pubkey[..2].copy_from_slice(&[0x00, 0x20]);
     script_pubkey[2..].copy_from_slice(&sha256(&witness_script));
     DerivedScript {
@@ -673,7 +673,7 @@ fn assemble_script_v2(mut keys: [[u8; 33]; V2_ACCOUNT_COUNT]) -> DerivedScriptV2
     }
     witness_script[V2_WITNESS_SCRIPT_LEN - 2] = 0x52;
     witness_script[V2_WITNESS_SCRIPT_LEN - 1] = 0xae;
-    let mut script_pubkey = [0u8; SCRIPT_PUBKEY_LEN];
+    let mut script_pubkey = [0u8; V2_SCRIPT_PUBKEY_LEN];
     script_pubkey[..2].copy_from_slice(&[0x00, 0x20]);
     script_pubkey[2..].copy_from_slice(&sha256(&witness_script));
     DerivedScriptV2 {
