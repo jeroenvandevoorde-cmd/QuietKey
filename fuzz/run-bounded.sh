@@ -19,6 +19,7 @@ case "$target" in
   qk_provisioning_inputs_m26) max_len=1024; seed=26001 ;;
   qk_provisioning_chain_m26) max_len=512; seed=26002 ;;
   qk_host_sim_m27) max_len=1024; seed=27001 ;;
+  qk_host_sim_m28) max_len=4096; seed=28001 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac
