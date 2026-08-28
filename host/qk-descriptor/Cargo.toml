@@ -3,7 +3,7 @@ name = "qk-descriptor"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Strict HOST-only paired mainnet 2-of-3 descriptor parsing, wallet-id hashing, and bounded public P2WSH script derivation. Not a wallet, ownership proof, or product."
+description = "Strict HOST-only paired mainnet descriptor parsing, wallet-id hashing, and bounded public P2WSH derivation for frozen v1 2-of-3 migration residue and v2 2-of-2. Not a wallet, ownership proof, or product."
 
 [dependencies]
 qk-bip32 = { path = "../qk-bip32" }

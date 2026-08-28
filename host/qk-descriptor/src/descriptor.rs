@@ -25,6 +25,28 @@ const ORIGIN_STARTS: [usize; ACCOUNT_COUNT] = [18, 157, 296];
 const XPUB_STARTS: [usize; ACCOUNT_COUNT] = [41, 180, 319];
 const BRANCH_POSITIONS: [usize; ACCOUNT_COUNT] = [153, 292, 431];
 
+const V2_DESCRIPTOR_LEN: usize = 306;
+const V2_BODY_LEN: usize = 297;
+const V2_ACCOUNT_COUNT: usize = 2;
+const V2_WITNESS_SCRIPT_LEN: usize = 71;
+const V2_SCRIPT_PUBKEY_LEN: usize = 34;
+const V2_WALLET_TRANSCRIPT_LEN: usize = 613;
+const V2_ORIGIN_STARTS: [usize; V2_ACCOUNT_COUNT] = [18, 157];
+const V2_XPUB_STARTS: [usize; V2_ACCOUNT_COUNT] = [41, 180];
+const V2_BRANCH_POSITIONS: [usize; V2_ACCOUNT_COUNT] = [153, 292];
+
+const _: () = assert!(V2_DESCRIPTOR_LEN == V2_BODY_LEN + 1 + CHECKSUM_LEN);
+const _: () = assert!(V2_WALLET_TRANSCRIPT_LEN == V2_DESCRIPTOR_LEN * 2 + 1);
+const _: () = assert!(V2_WITNESS_SCRIPT_LEN == 1 + V2_ACCOUNT_COUNT * 34 + 2);
+const _: () = assert!(V2_SCRIPT_PUBKEY_LEN == 2 + 32);
+const _: () = assert!(V2_ORIGIN_STARTS[0] == PREFIX.len());
+const _: () = assert!(V2_XPUB_STARTS[0] == V2_ORIGIN_STARTS[0] + 23);
+const _: () = assert!(V2_BRANCH_POSITIONS[0] == V2_XPUB_STARTS[0] + XPUB_LEN + 1);
+const _: () = assert!(V2_ORIGIN_STARTS[1] == V2_BRANCH_POSITIONS[0] + 4);
+const _: () = assert!(V2_XPUB_STARTS[1] == V2_ORIGIN_STARTS[1] + 23);
+const _: () = assert!(V2_BRANCH_POSITIONS[1] == V2_XPUB_STARTS[1] + XPUB_LEN + 1);
+const _: () = assert!(V2_BRANCH_POSITIONS[1] + 3 == V2_BODY_LEN - 2);
+
 /// Validated paired descriptor state. Its descriptor bytes and account
 /// nodes are intentionally not observable.
 pub struct DescriptorPair {
@@ -47,6 +69,28 @@ impl DescriptorPair {
     }
 }
 
+/// Validated v2 paired descriptor state. Its descriptor bytes and account
+/// nodes are intentionally not observable.
+pub struct DescriptorPairV2 {
+    account_nodes: [PublicNode; V2_ACCOUNT_COUNT],
+    origin_fingerprints: [[u8; 4]; V2_ACCOUNT_COUNT],
+    wallet_id: [u8; 32],
+}
+
+impl DescriptorPairV2 {
+    /// Return the exact origin fingerprints in descriptor role A/B order.
+    /// This is role metadata only; it authenticates nothing.
+    pub const fn origin_fingerprints(&self) -> [[u8; 4]; V2_ACCOUNT_COUNT] {
+        self.origin_fingerprints
+    }
+
+    /// Return the hash of the exact validated receive/checksum, raw-zero
+    /// separator, and change/checksum transcript.
+    pub fn wallet_id(&self) -> [u8; 32] {
+        self.wallet_id
+    }
+}
+
 /// Exact public script facts at one branch/index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DerivedScript {
@@ -54,6 +98,15 @@ pub struct DerivedScript {
     pub witness_script: [u8; WITNESS_SCRIPT_LEN],
     /// Native SegWit-v0 P2WSH scriptPubKey.
     pub script_pubkey: [u8; SCRIPT_PUBKEY_LEN],
+}
+
+/// Exact v2 public script facts at one branch/index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DerivedScriptV2 {
+    /// Canonical 71-byte 2-of-2 compressed-key multisig script.
+    pub witness_script: [u8; V2_WITNESS_SCRIPT_LEN],
+    /// Native SegWit-v0 P2WSH scriptPubKey.
+    pub script_pubkey: [u8; V2_SCRIPT_PUBKEY_LEN],
 }
 
 /// Closed paired-descriptor rejection set.
@@ -345,7 +398,7 @@ fn assemble_script(mut keys: [[u8; 33]; ACCOUNT_COUNT]) -> DerivedScript {
     }
     witness_script[103] = 0x53;
     witness_script[104] = 0xae;
-    let mut script_pubkey = [0u8; SCRIPT_PUBKEY_LEN];
+    let mut script_pubkey = [0u8; V2_SCRIPT_PUBKEY_LEN];
     script_pubkey[..2].copy_from_slice(&[0x00, 0x20]);
     script_pubkey[2..].copy_from_slice(&sha256(&witness_script));
     DerivedScript {
@@ -445,6 +498,281 @@ pub fn match_change_derivation_claims(
     claimed_role_keys: &[Option<[u8; 33]>; ACCOUNT_COUNT],
 ) -> Result<Option<DerivedScript>, DescriptorDeriveError> {
     match_derivation_claims(pair, 1, index, claimed_role_keys)
+}
+
+fn parse_origin_fingerprints_v2(body: &[u8]) -> Option<[[u8; 4]; V2_ACCOUNT_COUNT]> {
+    let mut fingerprints = [[0u8; 4]; V2_ACCOUNT_COUNT];
+    for (fingerprint, start) in fingerprints.iter_mut().zip(V2_ORIGIN_STARTS) {
+        for (slot, pair) in fingerprint
+            .iter_mut()
+            .zip(body.get(start + 1..start + 9)?.chunks_exact(2))
+        {
+            let high = lower_hex_value(*pair.first()?)?;
+            let low = lower_hex_value(*pair.get(1)?)?;
+            *slot = high.checked_mul(16)?.checked_add(low)?;
+        }
+    }
+    Some(fingerprints)
+}
+
+fn grammar_matches_v2(input: &[u8], branch: u8) -> bool {
+    let body = &input[..V2_BODY_LEN];
+    if &body[..PREFIX.len()] != PREFIX || &body[V2_BODY_LEN - 2..] != b"))" {
+        return false;
+    }
+    for role in 0..V2_ACCOUNT_COUNT {
+        let origin_start = V2_ORIGIN_STARTS[role];
+        let xpub_start = V2_XPUB_STARTS[role];
+        let branch_position = V2_BRANCH_POSITIONS[role];
+        if !origin_matches(body, origin_start)
+            || xpub_start != origin_start + 23
+            || branch_position != xpub_start + XPUB_LEN + 1
+            || body[branch_position - 1] != b'/'
+            || body[branch_position] != branch
+            || body[branch_position + 1] != b'/'
+            || body[branch_position + 2] != b'*'
+        {
+            return false;
+        }
+        if role < V2_ACCOUNT_COUNT - 1 && body[branch_position + 3] != b',' {
+            return false;
+        }
+    }
+    true
+}
+
+fn pair_bodies_match_v2(receive: &[u8], change: &[u8]) -> bool {
+    (0..V2_BODY_LEN)
+        .all(|index| V2_BRANCH_POSITIONS.contains(&index) || receive[index] == change[index])
+}
+
+fn parse_with_decoder_v2<F>(
+    receive: &[u8],
+    change: &[u8],
+    mut decode: F,
+) -> Result<DescriptorPairV2, DescriptorParseError>
+where
+    F: FnMut(&[u8]) -> Result<DecodedXpub, XpubDecodeError>,
+{
+    if receive.len() != V2_DESCRIPTOR_LEN {
+        return Err(DescriptorParseError::InvalidDescriptorLength);
+    }
+    if change.len() != V2_DESCRIPTOR_LEN {
+        return Err(DescriptorParseError::InvalidDescriptorLength);
+    }
+    if receive[V2_BODY_LEN] != b'#' {
+        return Err(DescriptorParseError::InvalidChecksumDelimiter);
+    }
+    if change[V2_BODY_LEN] != b'#' {
+        return Err(DescriptorParseError::InvalidChecksumDelimiter);
+    }
+    if receive[V2_BODY_LEN + 1..V2_BODY_LEN + 1 + CHECKSUM_LEN]
+        .iter()
+        .any(|&byte| !is_checksum_character(byte))
+    {
+        return Err(DescriptorParseError::InvalidChecksumCharacter);
+    }
+    if change[V2_BODY_LEN + 1..V2_BODY_LEN + 1 + CHECKSUM_LEN]
+        .iter()
+        .any(|&byte| !is_checksum_character(byte))
+    {
+        return Err(DescriptorParseError::InvalidChecksumCharacter);
+    }
+    if receive[..V2_BODY_LEN]
+        .iter()
+        .any(|&byte| !is_descriptor_character(byte))
+    {
+        return Err(DescriptorParseError::InvalidDescriptorCharacter);
+    }
+    if change[..V2_BODY_LEN]
+        .iter()
+        .any(|&byte| !is_descriptor_character(byte))
+    {
+        return Err(DescriptorParseError::InvalidDescriptorCharacter);
+    }
+    if !descriptor_checksum_matches(
+        &receive[..V2_BODY_LEN],
+        &receive[V2_BODY_LEN + 1..V2_BODY_LEN + 1 + CHECKSUM_LEN],
+    ) {
+        return Err(DescriptorParseError::ChecksumMismatch);
+    }
+    if !descriptor_checksum_matches(
+        &change[..V2_BODY_LEN],
+        &change[V2_BODY_LEN + 1..V2_BODY_LEN + 1 + CHECKSUM_LEN],
+    ) {
+        return Err(DescriptorParseError::ChecksumMismatch);
+    }
+    if !grammar_matches_v2(receive, b'0') {
+        return Err(DescriptorParseError::NonCanonicalDescriptor);
+    }
+    if !grammar_matches_v2(change, b'1') {
+        return Err(DescriptorParseError::NonCanonicalDescriptor);
+    }
+    if !pair_bodies_match_v2(receive, change) {
+        return Err(DescriptorParseError::DescriptorPairMismatch);
+    }
+    let origin_fingerprints = parse_origin_fingerprints_v2(&receive[..V2_BODY_LEN])
+        .ok_or(DescriptorParseError::NonCanonicalDescriptor)?;
+
+    let decoded = [
+        decode(&receive[V2_XPUB_STARTS[0]..V2_XPUB_STARTS[0] + XPUB_LEN]),
+        decode(&receive[V2_XPUB_STARTS[1]..V2_XPUB_STARTS[1] + XPUB_LEN]),
+    ];
+    let decoded = [
+        map_decode_result(decoded[0])?,
+        map_decode_result(decoded[1])?,
+    ];
+    if decoded.iter().any(|account| account.public_node.depth != 4) {
+        return Err(DescriptorParseError::InvalidAccountDepth);
+    }
+    if decoded
+        .iter()
+        .any(|account| account.child_number != ACCOUNT_CHILD_NUMBER)
+    {
+        return Err(DescriptorParseError::InvalidAccountChildNumber);
+    }
+    let account_nodes = [decoded[0].public_node, decoded[1].public_node];
+    if account_nodes[0] == account_nodes[1] {
+        return Err(DescriptorParseError::DuplicateAccountXpub);
+    }
+    let mut hash = Sha256::new();
+    hash.update(receive);
+    hash.update(&[0]);
+    hash.update(change);
+    debug_assert_eq!(receive.len() + 1 + change.len(), V2_WALLET_TRANSCRIPT_LEN);
+    Ok(DescriptorPairV2 {
+        account_nodes,
+        origin_fingerprints,
+        wallet_id: hash.finalize(),
+    })
+}
+
+/// Parse one exact v2 receive/change descriptor pair without trimming,
+/// normalization, serialization, or ownership inference.
+pub fn parse_descriptor_pair_v2(
+    receive: &[u8],
+    change: &[u8],
+) -> Result<DescriptorPairV2, DescriptorParseError> {
+    parse_with_decoder_v2(receive, change, decode_mainnet_xpub)
+}
+
+fn sort_keys_v2(keys: &mut [[u8; 33]; V2_ACCOUNT_COUNT]) {
+    if keys[0] > keys[1] {
+        keys.swap(0, 1);
+    }
+}
+
+fn assemble_script_v2(mut keys: [[u8; 33]; V2_ACCOUNT_COUNT]) -> DerivedScriptV2 {
+    sort_keys_v2(&mut keys);
+    let mut witness_script = [0u8; V2_WITNESS_SCRIPT_LEN];
+    witness_script[0] = 0x52;
+    for (role, key) in keys.iter().enumerate() {
+        let offset = 1 + role * 34;
+        witness_script[offset] = 0x21;
+        witness_script[offset + 1..offset + 34].copy_from_slice(key);
+    }
+    witness_script[V2_WITNESS_SCRIPT_LEN - 2] = 0x52;
+    witness_script[V2_WITNESS_SCRIPT_LEN - 1] = 0xae;
+    let mut script_pubkey = [0u8; SCRIPT_PUBKEY_LEN];
+    script_pubkey[..2].copy_from_slice(&[0x00, 0x20]);
+    script_pubkey[2..].copy_from_slice(&sha256(&witness_script));
+    DerivedScriptV2 {
+        witness_script,
+        script_pubkey,
+    }
+}
+
+fn derive_role_keys_with_v2<F>(
+    pair: &DescriptorPairV2,
+    branch: u32,
+    index: u32,
+    mut derive: F,
+) -> Result<[[u8; 33]; V2_ACCOUNT_COUNT], DescriptorDeriveError>
+where
+    F: FnMut(&PublicNode, u32) -> Result<PublicNode, CkdPubError>,
+{
+    if index >= HARDENED_BOUND {
+        return Err(DescriptorDeriveError::HardenedIndex);
+    }
+    let mut keys = [[0u8; 33]; V2_ACCOUNT_COUNT];
+    for (key, parent) in keys.iter_mut().zip(pair.account_nodes.iter()) {
+        let branch_node = derive(parent, branch).map_err(map_derive_error)?;
+        let child_node = derive(&branch_node, index).map_err(map_derive_error)?;
+        *key = child_node.compressed_public_key;
+    }
+    if keys[0] == keys[1] {
+        return Err(DescriptorDeriveError::DuplicateDerivedKey);
+    }
+    Ok(keys)
+}
+
+fn derive_with_v2<F>(
+    pair: &DescriptorPairV2,
+    branch: u32,
+    index: u32,
+    derive: F,
+) -> Result<DerivedScriptV2, DescriptorDeriveError>
+where
+    F: FnMut(&PublicNode, u32) -> Result<PublicNode, CkdPubError>,
+{
+    Ok(assemble_script_v2(derive_role_keys_with_v2(
+        pair, branch, index, derive,
+    )?))
+}
+
+fn match_derivation_claims_v2(
+    pair: &DescriptorPairV2,
+    branch: u32,
+    index: u32,
+    claimed_role_keys: &[Option<[u8; 33]>; V2_ACCOUNT_COUNT],
+) -> Result<Option<DerivedScriptV2>, DescriptorDeriveError> {
+    let role_keys = derive_role_keys_with_v2(pair, branch, index, derive_public_child)?;
+    if role_keys
+        .iter()
+        .zip(claimed_role_keys.iter())
+        .any(|(derived, claimed)| claimed.is_some_and(|claimed| claimed != *derived))
+    {
+        return Ok(None);
+    }
+    Ok(Some(assemble_script_v2(role_keys)))
+}
+
+/// Derive the fixed v2 receive branch and exact supplied nonhardened index.
+pub fn derive_receive_script_v2(
+    pair: &DescriptorPairV2,
+    index: u32,
+) -> Result<DerivedScriptV2, DescriptorDeriveError> {
+    derive_with_v2(pair, 0, index, derive_public_child)
+}
+
+/// Derive the fixed v2 change branch and exact supplied nonhardened index.
+pub fn derive_change_script_v2(
+    pair: &DescriptorPairV2,
+    index: u32,
+) -> Result<DerivedScriptV2, DescriptorDeriveError> {
+    derive_with_v2(pair, 1, index, derive_public_child)
+}
+
+/// Match supplied present A/B v2 receive-branch key claims before BIP67
+/// sorting and, on exact equality of every present role, return canonical
+/// script facts.
+pub fn match_receive_derivation_claims_v2(
+    pair: &DescriptorPairV2,
+    index: u32,
+    claimed_role_keys: &[Option<[u8; 33]>; V2_ACCOUNT_COUNT],
+) -> Result<Option<DerivedScriptV2>, DescriptorDeriveError> {
+    match_derivation_claims_v2(pair, 0, index, claimed_role_keys)
+}
+
+/// Match supplied present A/B v2 change-branch key claims before BIP67
+/// sorting and, on exact equality of every present role, return canonical
+/// script facts.
+pub fn match_change_derivation_claims_v2(
+    pair: &DescriptorPairV2,
+    index: u32,
+    claimed_role_keys: &[Option<[u8; 33]>; V2_ACCOUNT_COUNT],
+) -> Result<Option<DerivedScriptV2>, DescriptorDeriveError> {
+    match_derivation_claims_v2(pair, 1, index, claimed_role_keys)
 }
 
 #[cfg(test)]
