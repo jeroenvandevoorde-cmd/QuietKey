@@ -2,6 +2,10 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
+## V2 migration disposition
+
+The payload-free validate → review → approve → revalidate → sign → verify → reparse ordering remains a reusable safety invariant. Every v1 route label, A/B/C or selected-pair assumption, Card-C state, and 2-of-3 completion condition in the historical scaffold is non-operative under QK-DEC-121. Slice 2 supplies schema-v3 review identity; slice 3 supplies A/B signing and 71-byte-script finalization; slice 5 replaces the screen-flow topology with Normal A1+B, Kit-Spend, and non-signing Kit-Restore. Until those slices land, this file grants no v2 signing capability.
+
 HOST-ONLY — PAYLOAD-FREE — NOT PRODUCT CODE — NOT TARGET EVIDENCE — INCOMPLETE
 
 STATUS: HOST-ONLY POLICY-ORDER SCAFFOLD — SYMBOLIC ASSERTIONS ONLY — NO

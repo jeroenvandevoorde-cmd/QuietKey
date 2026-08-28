@@ -2,6 +2,10 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
+## V2 migration disposition
+
+QK-DEC-121 makes Core Architecture v2 the active authority. The legacy documents listed below remain historical v1 preparation records and do not supply active three-role, Card-C, selected-pair, 2-of-3, review-schema-v1/v2, or signer-only output behavior. V2 work proceeds only through the eleven ordered slices: descriptor/GOLDEN facts in slice 1, review schema v3 and QK-FEE-POLICY-V2 in slice 2, two-key signing/finalization/Core vectors in slice 3, and later Kit profiles in their assigned slices. No old draft clause is a compatibility path.
+
 STATUS: AUTHORIZED — HOST-ONLY PROFILE AND PUBLIC TEST-VECTOR PREPARATION — INCOMPLETE — NO PROFILE ACCEPTED — NO TARGET EVIDENCE.
 
 Authorization: QK-AUTH-F3F4-001 (docs/HOST-WORK-AUTHORIZATION.md), 2026-08-18.

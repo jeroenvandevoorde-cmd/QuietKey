@@ -2,6 +2,8 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
+> **V2 migration disposition (QK-DEC-121):** retained as a historical v1 draft only. Its A/B/C trust spine, Card-C paths, B+C choreography, three-account descriptor, and 2-of-3 assumptions are superseded. Active v2 trust is A1+B for normal signing and an explicitly preselected two-share Kit door; downstream state remains frozen migration residue until its ordered slice.
+
 STATUS: AUTHORIZED — F3.2a HOST-ONLY WALLET TRUST-SPINE DRAFT — PROPOSED/NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED OR FROZEN — NO TEST VECTORS GENERATED OR RUN — NO IMPLEMENTATION — NO TARGET EVIDENCE.
 
 AUTHORIZATION: QK-AUTH-F3F4-001 — DRAFTING ONLY; QK-AUTH-F3.2A-001 authorizes preparation of this draft only. Every rule remains PROPOSED/NON-NORMATIVE until separate explicit profile acceptance.

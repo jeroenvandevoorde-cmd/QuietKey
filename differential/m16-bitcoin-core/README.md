@@ -1,5 +1,7 @@
 # QuietKey M16 Bitcoin Core v28.0 differential harness
 
+> **V2 migration disposition (QK-DEC-121):** the current runner, fixture, and transcript are a frozen v1 2-of-3 evidence corpus. They remain reproducible historical material but make no v2 signing, witness, transaction, or policy claim. Slice 3 must replace the relevant fixture and runner facts with the v2 A/B lineage, 71-byte script, two ordered signatures, schema-v3 review facts, and QK-FEE-POLICY-V2 while retaining the separately pinned Bitcoin Core executable procedure.
+
 This suite is invoked separately from the Cargo workspace and
 `tools/check.sh`. It consumes committed public fixture bytes. It contains no
 signer, key generator, private scalar, nonce, wallet, broadcast path, or

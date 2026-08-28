@@ -2,6 +2,8 @@
 
 EXPERIMENTAL — NO REAL FUNDS — NOT A WALLET
 
+> **V2 migration disposition (QK-DEC-121):** retained as a historical v1 draft only. Three-role descriptors, Card-C routes, selected signer pairs, 2-of-3 witness geometry, review schema v1/v2, and any conflicting fee or artifact rule below are superseded. Slice 2 owns the active schema-v3 and QK-FEE-POLICY-V2 implementation; slice 3 owns two-signature finalization and its Core vectors. Nothing below translates or authorizes either slice.
+
 STATUS: AUTHORIZED — F3.1 HOST-ONLY PSBT v0 REVIEW-PROFILE DRAFT — NON-NORMATIVE — INCOMPLETE — NO PROFILE ACCEPTED — NO TEST VECTORS GENERATED — NO TARGET EVIDENCE.
 
 REVISION: F3.1b REVISION 2 — OWNER DIRECTIONS RECORDED — PROFILE NOT ACCEPTED.

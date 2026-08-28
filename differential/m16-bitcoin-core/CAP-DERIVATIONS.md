@@ -1,5 +1,7 @@
 # M16 ratified HOST-cap derivations
 
+> **V2 migration disposition (QK-DEC-121):** every 254-byte-witness, 105-byte-script, three-derivation, and 2-of-3 calculation below is retained only to interpret the frozen v1 M16 corpus. It is not a v2 cap. Core Architecture v2 fixes a 71-byte witnessScript and a 220-byte maximum input witness; slice 3 must derive and const-assert every successor bound under non-reused v2 limit identifiers before replacing the runner or fixtures.
+
 All arithmetic is checked before conversion/reservation and is suitable for
 compile-time assertions. These are QK-DEC-034 HOST candidates only.
 
