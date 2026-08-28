@@ -11,7 +11,7 @@ fn root_continue(flow: &mut ScreenFlow, event: FlowEvent<'_>, expected: ScreenKi
     ));
 }
 
-fn entry_session() -> ManualKeypadSession {
+fn manual_root_flow() -> ScreenFlow {
     let mut flow = ScreenFlow::new(FlowKind::Provisioning);
     root_continue(
         &mut flow,
@@ -39,7 +39,11 @@ fn entry_session() -> ManualKeypadSession {
         FlowEvent::Key(KeypadKey::EqualsConfirmEnter),
         ScreenKind::CeremonyInput,
     );
-    ManualKeypadSession::begin(flow).expect("manual entry")
+    flow
+}
+
+fn entry_session() -> ManualKeypadSession {
+    ManualKeypadSession::begin(manual_root_flow()).expect("manual entry")
 }
 
 fn press(session: &mut ManualKeypadSession, key: KeypadKey) {
@@ -308,6 +312,141 @@ fn cancellation_and_every_closed_interruption_wipe() {
         assert_eq!(
             session.terminal(),
             Some(qk_host_sim::FlowTerminal::FailedWiped(expected_reason))
+        );
+    }
+}
+
+#[test]
+fn legacy_borrowed_echo_cannot_bypass_manual_entry_validation() {
+    let mut flow = manual_root_flow();
+    assert!(matches!(
+        flow.apply(FlowEvent::CeremonyEchoReady(b"1")),
+        Ok(FlowApplyOutcome::FailedWiped(
+            WipingReason::InvalidTransition
+        ))
+    ));
+    assert_eq!(
+        flow.terminal(),
+        Some(qk_host_sim::FlowTerminal::FailedWiped(
+            WipingReason::InvalidTransition
+        ))
+    );
+}
+
+#[derive(Clone, Copy)]
+enum PositionedStage {
+    Entry,
+    Echo,
+    Confirm,
+    AwaitingCommitment,
+    Commitment,
+}
+
+fn position_after_retained_seed(stage: PositionedStage) -> ManualKeypadSession {
+    let mut session = entry_session();
+    assert!(finish_purpose(&mut session, KeypadKey::One, [0x11; 32]).is_none());
+    assert_eq!(session.retained_counts(), [100, 0, 0, 0]);
+    if matches!(stage, PositionedStage::Entry) {
+        press(&mut session, KeypadKey::TwoDown);
+        return session;
+    }
+    fill(&mut session, KeypadKey::TwoDown);
+    press(&mut session, KeypadKey::EqualsConfirmEnter);
+    if matches!(stage, PositionedStage::Echo) {
+        return session;
+    }
+    press(&mut session, KeypadKey::EqualsConfirmEnter);
+    if matches!(stage, PositionedStage::Confirm) {
+        return session;
+    }
+    press(&mut session, KeypadKey::EqualsConfirmEnter);
+    if matches!(stage, PositionedStage::AwaitingCommitment) {
+        return session;
+    }
+    assert!(matches!(
+        session.apply(ManualKeypadEvent::CommitmentReady([0x22; 32])),
+        Ok(ManualKeypadOutcome::Continue)
+    ));
+    session
+}
+
+#[test]
+fn every_wiping_event_clears_prior_transcripts_from_every_active_stage() {
+    let stages = [
+        PositionedStage::Entry,
+        PositionedStage::Echo,
+        PositionedStage::Confirm,
+        PositionedStage::AwaitingCommitment,
+        PositionedStage::Commitment,
+    ];
+    let cases = [
+        (
+            ManualKeypadEvent::Key(KeypadKey::CancelBack),
+            ManualKeypadError::Cancelled,
+            WipingReason::Cancelled,
+        ),
+        (
+            ManualKeypadEvent::OperationFailed,
+            ManualKeypadError::OperationFailed,
+            WipingReason::OperationFailed,
+        ),
+        (
+            ManualKeypadEvent::MediaRemoved,
+            ManualKeypadError::MediaRemoved,
+            WipingReason::MediaRemoved,
+        ),
+        (
+            ManualKeypadEvent::CardRemoved,
+            ManualKeypadError::CardRemoved,
+            WipingReason::CardRemoved,
+        ),
+        (
+            ManualKeypadEvent::SessionTimeout,
+            ManualKeypadError::SessionTimeout,
+            WipingReason::SessionTimeout,
+        ),
+        (
+            ManualKeypadEvent::Shutdown,
+            ManualKeypadError::Shutdown,
+            WipingReason::Shutdown,
+        ),
+        (
+            ManualKeypadEvent::Restart,
+            ManualKeypadError::Restart,
+            WipingReason::Restart,
+        ),
+        (
+            ManualKeypadEvent::PowerLoss,
+            ManualKeypadError::PowerLoss,
+            WipingReason::PowerLoss,
+        ),
+    ];
+    for stage in stages {
+        for (event, expected_error, expected_reason) in cases {
+            let mut session = position_after_retained_seed(stage);
+            assert_eq!(rejection(session.apply(event)), expected_error);
+            assert_eq!(session.retained_counts(), [0; 4]);
+            assert_eq!(
+                session.terminal(),
+                Some(qk_host_sim::FlowTerminal::FailedWiped(expected_reason))
+            );
+        }
+        let invalid_event = if matches!(stage, PositionedStage::AwaitingCommitment) {
+            ManualKeypadEvent::Key(KeypadKey::One)
+        } else {
+            ManualKeypadEvent::CommitmentReady([0x99; 32])
+        };
+        let mut session = position_after_retained_seed(stage);
+        assert_eq!(
+            rejection(session.apply(invalid_event)),
+            ManualKeypadError::InvalidTransition
+        );
+        assert_eq!(session.retained_counts(), [0; 4]);
+        assert_eq!(
+            session.terminal(),
+            Some(qk_host_sim::FlowTerminal::FailedWiped(
+                WipingReason::InvalidTransition
+            ))
         );
     }
 }

@@ -42,7 +42,7 @@ fn root_continue(flow: &mut ScreenFlow, event: FlowEvent<'_>, expected: ScreenKi
     ));
 }
 
-fn entry_session() -> ManualKeypadSession {
+fn manual_root_flow() -> ScreenFlow {
     let mut flow = ScreenFlow::new(FlowKind::Provisioning);
     root_continue(
         &mut flow,
@@ -70,7 +70,11 @@ fn entry_session() -> ManualKeypadSession {
         FlowEvent::Key(KeypadKey::EqualsConfirmEnter),
         ScreenKind::CeremonyInput,
     );
-    ManualKeypadSession::begin(flow).expect("closed M29 manual-keypad entry")
+    flow
+}
+
+fn entry_session() -> ManualKeypadSession {
+    ManualKeypadSession::begin(manual_root_flow()).expect("closed M29 manual-keypad entry")
 }
 
 fn keypad(selector: u8) -> KeypadKey {
@@ -382,6 +386,66 @@ fn reuse_oracle(pair_selector: u8) {
     );
 }
 
+#[derive(Clone, Copy)]
+enum ActiveStage {
+    Entry,
+    Echo,
+    Confirm,
+    AwaitingCommitment,
+    Commitment,
+}
+
+fn position_after_retained_seed(stage: ActiveStage) -> ManualKeypadSession {
+    let mut session = entry_session();
+    assert_eq!(
+        finish_purpose(
+            &mut session,
+            CeremonyPurpose::SeedA,
+            KeypadKey::One,
+            b'1',
+            [0x11; 32],
+        ),
+        OutcomeKind::Continue
+    );
+    assert_eq!(session.retained_counts(), [100, 0, 0, 0]);
+    if matches!(stage, ActiveStage::Entry) {
+        press(&mut session, KeypadKey::TwoDown);
+        return session;
+    }
+    fill(&mut session, KeypadKey::TwoDown, MANUAL_TRANSCRIPT_BYTES);
+    press(&mut session, KeypadKey::EqualsConfirmEnter);
+    if matches!(stage, ActiveStage::Echo) {
+        return session;
+    }
+    press(&mut session, KeypadKey::EqualsConfirmEnter);
+    if matches!(stage, ActiveStage::Confirm) {
+        return session;
+    }
+    press(&mut session, KeypadKey::EqualsConfirmEnter);
+    if matches!(stage, ActiveStage::AwaitingCommitment) {
+        return session;
+    }
+    assert_eq!(
+        apply_snapshot(&mut session, ManualKeypadEvent::CommitmentReady([0x22; 32])).outcome,
+        OutcomeKind::Continue
+    );
+    session
+}
+
+fn legacy_bypass_oracle() {
+    let mut flow = manual_root_flow();
+    assert!(matches!(
+        flow.apply(FlowEvent::CeremonyEchoReady(b"1")),
+        Ok(FlowApplyOutcome::FailedWiped(
+            WipingReason::InvalidTransition
+        ))
+    ));
+    assert_eq!(
+        flow.terminal(),
+        Some(FlowTerminal::FailedWiped(WipingReason::InvalidTransition))
+    );
+}
+
 fn interruption_oracle(selector: u8) {
     let cases = [
         (
@@ -425,9 +489,29 @@ fn interruption_oracle(selector: u8) {
             WipingReason::PowerLoss,
         ),
     ];
-    let (event, error, reason) = cases[usize::from(selector) % cases.len()];
-    let mut session = entry_session();
-    press(&mut session, KeypadKey::SixRight);
+    let event_index = usize::from(selector) % 9;
+    let stage_index = (usize::from(selector) / 9) % 5;
+    let stage = [
+        ActiveStage::Entry,
+        ActiveStage::Echo,
+        ActiveStage::Confirm,
+        ActiveStage::AwaitingCommitment,
+        ActiveStage::Commitment,
+    ][stage_index];
+    let (event, error, reason) = if event_index == cases.len() {
+        (
+            if matches!(stage, ActiveStage::AwaitingCommitment) {
+                ManualKeypadEvent::Key(KeypadKey::One)
+            } else {
+                ManualKeypadEvent::CommitmentReady([0x99; 32])
+            },
+            ManualKeypadError::InvalidTransition,
+            WipingReason::InvalidTransition,
+        )
+    } else {
+        cases[event_index]
+    };
+    let mut session = position_after_retained_seed(stage);
     let outcome = apply_snapshot(&mut session, event);
     assert_eq!(outcome.outcome, OutcomeKind::Rejected(error));
     assert_eq!(outcome.retained_counts, [0; 4]);
@@ -458,12 +542,15 @@ fuzz_target!(|data: &[u8]| {
         5 => interruption_oracle(tail.first().copied().unwrap_or(0)),
         6 => {
             rejection_oracles();
+            legacy_bypass_oracle();
             complete_oracle();
             for pair in 0..6 {
                 reuse_oracle(pair);
             }
-            for interruption in 0..8 {
-                interruption_oracle(interruption);
+            for stage in 0..5 {
+                for interruption in 0..9 {
+                    interruption_oracle(stage * 9 + interruption);
+                }
             }
         }
         _ => unreachable!("modulo seven is exhaustive"),

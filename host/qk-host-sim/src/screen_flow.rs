@@ -197,6 +197,8 @@ pub enum FlowEvent<'a> {
     Key(KeypadKey),
     OperationCompleted(CompletedOperation<'a>),
     OperationFailed,
+    /// Borrowed DiceGrid unit supplied by the future camera seam. Manual
+    /// keypad entry is owned exclusively by `ManualKeypadSession`.
     CeremonyEchoReady(&'a [u8]),
     CeremonyCommitmentReady([u8; 32]),
     TransportPresented,
@@ -205,7 +207,9 @@ pub enum FlowEvent<'a> {
     MediaRemoved,
     ApprovalHoldStarted,
     ApprovalHoldCompleted(ApprovalToken),
-    SigningOutcome { identity: ApprovalIdentity },
+    SigningOutcome {
+        identity: ApprovalIdentity,
+    },
     CardRemoved,
     SessionTimeout,
     Shutdown,
@@ -863,7 +867,8 @@ impl ScreenFlow {
 
         match (self.screen_kind(), event) {
             (Some(ScreenKind::CeremonyInput), FlowEvent::CeremonyEchoReady(unit))
-                if self.flow == FlowKind::Provisioning =>
+                if self.flow == FlowKind::Provisioning
+                    && self.entropy_mode == EntropyInputMode::DiceGrid =>
             {
                 self.state = MachineState::Screen(ScreenKind::CeremonyEcho);
                 return Ok(FlowApplyOutcome::Ceremony(CeremonySession {
