@@ -25,12 +25,13 @@ size_file() {
 }
 
 validate_source_commit() {
-  source_commit=$1
-  case "$source_commit" in
-    *[!0-9a-f]*|'') fail 'campaign_source must be lowercase hexadecimal' ;;
+  validated_source_value=$1
+  source_label=${2:-campaign_source}
+  case "$validated_source_value" in
+    *[!0-9a-f]*|'') fail "$source_label must be lowercase hexadecimal" ;;
   esac
-  [ "${#source_commit}" = 40 ] || \
-    fail 'campaign_source must be a full 40-character commit id'
+  [ "${#validated_source_value}" = 40 ] || \
+    fail "$source_label must be a full 40-character commit id"
 }
 
 manifest_source() {
@@ -42,6 +43,28 @@ manifest_source() {
   source_commit=$(awk -F '\t' '$1 == "campaign_source" { print $2 }' "$manifest") || \
     fail "cannot read campaign_source from $manifest"
   validate_source_commit "$source_commit"
+  printf '%s\n' "$source_commit"
+}
+
+manifest_target_source() {
+  manifest=$1
+  expected_target=$2
+  source_count=$(awk -F '\t' \
+    '$1 == "target_source" { count++ } END { print count + 0 }' "$manifest") || \
+    fail "cannot inspect target_source in $manifest"
+  [ "$source_count" = 1 ] || fail "$manifest must contain one target_source row"
+  if ! awk -F '\t' -v expected="$expected_target" '
+    $1 == "target_source" {
+      if (NF != 3 || $2 != expected) bad = 1
+    }
+    END { if (bad) exit 1 }
+  ' "$manifest"; then
+    fail "$manifest contains a malformed target_source row"
+  fi
+  source_commit=$(awk -F '\t' -v expected="$expected_target" \
+    '$1 == "target_source" && $2 == expected { print $3 }' "$manifest") || \
+    fail "cannot read target_source from $manifest"
+  validate_source_commit "$source_commit" target_source
   printf '%s\n' "$source_commit"
 }
 
@@ -91,8 +114,19 @@ render_partition() {
   target_order=$4
   entries=$5
   destination=$6
+  target_source_target=${7:-}
+  target_source_commit=${8:-}
 
   validate_source_commit "$source_commit"
+  if [ -n "$target_source_target" ] || [ -n "$target_source_commit" ]; then
+    [ -n "$target_source_target" ] && [ -n "$target_source_commit" ] || \
+      fail 'target_source requires both target and commit'
+    validate_source_commit "$target_source_commit" target_source
+    case " $targets " in
+      *" $target_source_target "*) ;;
+      *) fail "target_source names unknown target: $target_source_target" ;;
+    esac
+  fi
   total_count=$(wc -l < "$entries" | tr -d ' ')
   total_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$entries")
   total_hash=$(sha256_file "$entries") || fail 'cannot hash aggregate corpus entries'
@@ -100,6 +134,9 @@ render_partition() {
   {
     printf '%s\n' "$version"
     printf 'campaign_source\t%s\n' "$source_commit"
+    if [ -n "$target_source_target" ]; then
+      printf 'target_source\t%s\t%s\n' "$target_source_target" "$target_source_commit"
+    fi
     printf 'target_order\t%s\n' "$target_order"
     for target in $targets; do
       awk -F '\t' -v wanted="$target" '$2 == wanted' "$entries" > "$target_tmp" || \
@@ -205,12 +242,17 @@ case "$#" in
       --render-m28) mode=render_m28 ;;
       --render-m29) mode=render_m29 ;;
       --render-m30) mode=render_m30 ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
+      --render-qk-descriptor) mode=render_qk_descriptor ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
     esac
     render_source=$2
-    validate_source_commit "$render_source"
+    if [ "$mode" = render_qk_descriptor ]; then
+      validate_source_commit "$render_source" target_source
+    else
+      validate_source_commit "$render_source"
+    fi
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
 esac
 
 if [ "$mode" = check ]; then
@@ -361,6 +403,7 @@ untracked=$(comm -23 "$all_paths" "$tracked_tmp") || fail 'cannot compare corpus
 case "$mode" in
   check)
     m21_source=$(manifest_source "$m21_manifest")
+    m21_descriptor_source=$(manifest_target_source "$m21_manifest" qk_descriptor)
     m22_source=$(manifest_source "$m22_manifest")
     m23_source=$(manifest_source "$m23_manifest")
     m24_source=$(manifest_source "$m24_manifest")
@@ -370,8 +413,9 @@ case "$mode" in
     m28_source=$(manifest_source "$m28_manifest")
     m29_source=$(manifest_source "$m29_manifest")
     m30_source=$(manifest_source "$m30_manifest")
-    render_partition 'QK-M21-CORPUS-MANIFEST-V1' "$m21_source" "$m21_targets" \
-      "$m21_order" "$m21_entries" "$m21_expected"
+    render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
+      "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
+      "$m21_descriptor_source"
     render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$m22_source" "$m22_targets" \
       "$m22_order" "$m22_entries" "$m22_expected"
     render_partition 'QK-M23-CORPUS-MANIFEST-V1' "$m23_source" "$m23_targets" \
@@ -429,8 +473,16 @@ case "$mode" in
       fail "$m30_manifest does not match the tracked M30 corpus bytes"
     ;;
   render_m21)
-    render_partition 'QK-M21-CORPUS-MANIFEST-V1' "$render_source" "$m21_targets" \
-      "$m21_order" "$m21_entries" "$m21_expected"
+    m21_descriptor_source=$(manifest_target_source "$m21_manifest" qk_descriptor)
+    render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$render_source" "$m21_targets" \
+      "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
+      "$m21_descriptor_source"
+    sed -n 'p' "$m21_expected"
+    ;;
+  render_qk_descriptor)
+    m21_source=$(manifest_source "$m21_manifest")
+    render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
+      "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor "$render_source"
     sed -n 'p' "$m21_expected"
     ;;
   render_m22)
