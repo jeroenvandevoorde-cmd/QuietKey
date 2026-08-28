@@ -18,8 +18,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const FIXTURE: &str = include_str!("fixtures/descriptor_ownership.txt");
-const DESCRIPTOR_FIXTURE: &str =
-    include_str!("../../qk-descriptor/tests/fixtures/descriptor_pairs.txt");
+const DESCRIPTOR_FIXTURE: &str = include_str!("fixtures/descriptor_pairs_v1.txt");
 const FP: [[u8; 4]; 3] = [
     [0x11, 0x22, 0x33, 0x44],
     [0x55, 0x66, 0x77, 0x88],
