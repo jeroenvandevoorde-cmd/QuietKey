@@ -202,11 +202,11 @@ No experiment belongs on the production build path. CloakGrid, anti-exfil signin
 - No 12-word mode exists in production.
 - Production firmware is mainnet-only. Development fixtures use regtest or a conspicuously different non-production build so test-network state cannot be mistaken for real funds.
 
-### 4.2 Two production entropy modes
+### 4.2 V1 dice profiles and retained conditioner mathematics
 
-The user chooses only between two plainly named modes. All cryptographic constants remain fixed.
+V1 exposes only two dice-input profiles: the intended-primary camera-read grid and the manual keypad fallback. All cryptographic constants remain fixed. QKEC-1 is retained below as verified library mathematics and has no v1 product entry point.
 
-#### Recommended: Multi-source
+#### Retained QKEC-1 conditioner mathematics
 
 For each of A, B, C, and A2, acquire fresh independent samples:
 
@@ -228,7 +228,7 @@ The four purposes are `Seed-A`, `Signer-B`, `Signer-C`, and `A2`. Each purpose g
 
 The security claim is narrow: if at least one input source is unpredictable and independent of the adversary-controlled inputs, HKDF can preserve that unpredictability. Mixing two broken or correlated sources does not create entropy.
 
-#### Advanced: Pure physical dice
+#### V1 production input: Pure physical dice
 
 - V1 seed generation is dice-only. QKEC-1 remains verified library mathematics with no v1 product entry point.
 - The manual keypad fallback uses exactly 100 keyed d6 face values per secret: four fresh transcripts and 400 values per kit.
