@@ -1,11 +1,11 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use qk_descriptor::{parse_descriptor_pair, DescriptorParseError};
+use qk_descriptor::{parse_descriptor_pair_v2, DescriptorParseError};
 
-const DESCRIPTOR_LEN: usize = 445;
-const BODY_LEN: usize = 436;
-const BRANCH_POSITIONS: [usize; 3] = [153, 292, 431];
+const DESCRIPTOR_LEN: usize = 306;
+const BODY_LEN: usize = 297;
+const BRANCH_POSITIONS: [usize; 2] = [153, 292];
 const PREFIX: &[u8] = b"wsh(sortedmulti(2,";
 static OVERSIZE_SIDE: [u8; DESCRIPTOR_LEN + 1] = [0; DESCRIPTOR_LEN + 1];
 const PUBLIC_PAIR_FIXTURE: &[u8] =
@@ -47,11 +47,11 @@ fn assert_canonical_pair(receive: &[u8], change: &[u8]) {
 }
 
 fn exercise_pair(receive: &[u8], change: &[u8]) {
-    let pair = match parse_descriptor_pair(receive, change) {
+    let pair = match parse_descriptor_pair_v2(receive, change) {
         Ok(pair) => pair,
         Err(error) => {
             assert!(!reject_name(error).is_empty());
-            match parse_descriptor_pair(receive, change) {
+            match parse_descriptor_pair_v2(receive, change) {
                 Err(repeated) => assert_eq!(repeated, error),
                 Ok(_) => panic!("rejected descriptor pair accepted on exact replay"),
             }
@@ -60,7 +60,7 @@ fn exercise_pair(receive: &[u8], change: &[u8]) {
     };
 
     assert_canonical_pair(receive, change);
-    let reparsed = match parse_descriptor_pair(receive, change) {
+    let reparsed = match parse_descriptor_pair_v2(receive, change) {
         Ok(pair) => pair,
         Err(error) => {
             let name = reject_name(error);
