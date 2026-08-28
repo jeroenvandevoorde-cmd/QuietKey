@@ -125,14 +125,15 @@ For every packet below, the complete common cover sheet value is currently
 
 | Execution field | Required entry before activation |
 |---|---|
-| Card pair/set | Exact enrolled B-role and C-role specimens running the same applet binary |
-| Distinct authorities | Later ratified outside-Git generation/destruction records and expected distinct account xpub hashes |
-| Shared fields | Exact patterned public A2, canonical descriptor pair D and wallet_id public hashes/bytes authorized for the run |
-| Positive matrix | B/C info/readback, A2/D/wallet binding, valid branch/path and committed signing-state cases |
-| Negative matrix | Duplicate/wrong role or key, mixed wallet/D/A2, wrong path/policy, precommit/retired state and prohibited export cases |
+| Card set | Exact enrolled required role-B specimen and, only when created in the original setup, an optional byte-equivalent spare running the same applet binary |
+| B authority | Later ratified outside-Git generation/destruction record and expected signer-B account xpub hash |
+| Bound payload | Exact patterned public A2, canonical descriptor pair D, wallet_id, role and account public hashes/bytes authorized for the run; the optional setup spare must match byte-for-byte |
+| Positive matrix | Primary-B readback, optional setup-spare equivalence, A2/D/wallet binding, valid branch/path and committed signing-state cases |
+| Negative matrix | Card-C, post-setup second-card, wrong role or key, mixed wallet/D/A2, wrong path/policy, precommit/retired state and prohibited export cases |
 | Pre/post identity | Role/account xpub/fingerprint/D/wallet_id readback before and after every state-changing phase |
 | Non-exportability scope | Every documented normal-operation read route only; hidden-interface characterization remains QK-TST-BENCH-005 |
-| Failure categories | Shared/distinct/binding/path/policy/lifecycle/export/status/state/tool mismatch and inconclusive |
+| Restore boundary | Replacement-card work is a separate Kit-Restore registration requiring external confirmation that the original remains physically in hand; traces cannot prove that fact |
+| Failure categories | Payload/equivalence/binding/path/policy/lifecycle/prohibited-interface/export/status/state/tool mismatch and inconclusive |
 | Packet state | `OWNER INPUT REQUIRED - PROVISIONING/MUTATION AUTHORITY ABSENT - NOT RUN` |
 
 ## Completeness and non-activation

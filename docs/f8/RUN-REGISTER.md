@@ -27,6 +27,12 @@ Every packet has these common controls:
   response stops the run;
 - one claim per evidence record under the existing evidence schema; no run
   selects a card, resolves OD-02, changes QK-TST status or changes a Gate.
+- one required role-B card only; an optional byte-equivalent spare is a
+  setup-only case, Card C and general two-card flows are prohibited, and a
+  replacement card belongs to a separately bound Kit-Restore run;
+- card traces do not establish original-card possession or destruction,
+  absence of another live card, Kit-envelope integrity, or coordinator UTXO
+  completeness; those remain external human or coordinator facts.
 
 Deterministic raw names use
 `f8-<run-id>__<specimen-alias>__<utc>__<artifact-kind>.<ext>`. The committed
@@ -38,7 +44,7 @@ chooses no live format or evidence-tool default.
 
 ## QK-F8R-A-001 - assertion (a), signing correctness and performance
 
-- Alignment: QK-TST-BENCH-002(a); QK-F2E-004; Core v1 section 6.5.
+- Alignment: QK-TST-BENCH-002(a); QK-F2E-004; Core Architecture v2.
 - Question: on the delivered card/applet, are raw 32-byte-digest secp256k1
   ECDSA results mathematically valid, strict DER and low-S, and what complete
   latency series is observed?
@@ -61,7 +67,7 @@ chooses no live format or evidence-tool default.
 
 ## QK-F8R-B-001 - assertion (b), least-authority derivation
 
-- Alignment: QK-TST-BENCH-002(b); QK-F2E-011; Core v1 section 4.5.
+- Alignment: QK-TST-BENCH-002(b); QK-F2E-011; Core Architecture v2.
 - Question: does the delivered implementation store only the BIP48 account
   xprv/chain/origin boundary, return the matching account xpub, derive only
   non-hardened branch `{0,1}` and bounded index children, and refuse every
@@ -82,8 +88,7 @@ chooses no live format or evidence-tool default.
 
 ## QK-F8R-C-001 - assertion (c), on-card RNG characterization
 
-- Alignment: QK-TST-BENCH-002(c); QK-F2E-012; Core v1 sections 4.2, 4.3 and
-  6.5.
+- Alignment: QK-TST-BENCH-002(c); QK-F2E-012; Core Architecture v2.
 - Question: what RNG primitive/API, sample behavior, throughput, health
   indications and signing-nonce relationship are documented and observed on
   the delivered card/applet?
@@ -103,7 +108,7 @@ chooses no live format or evidence-tool default.
 
 ## QK-F8R-D-001 - assertion (d), APDU and transport behavior
 
-- Alignment: QK-TST-BENCH-002(d); QK-F2E-003; Core v1 sections 6.2 and 6.4.
+- Alignment: QK-TST-BENCH-002(d); QK-F2E-003; Core Architecture v2.
 - Question: what ATR, ISO-7816/T=1 negotiation, voltage, frame/APDU behavior,
   reset/session behavior, byte layouts, timing and commodity-CCID
   reachability are observed on the delivered specimen?
@@ -125,8 +130,8 @@ chooses no live format or evidence-tool default.
 
 ## QK-F8R-E-001 - assertion (e), write atomicity and power cuts
 
-- Alignment: QK-TST-BENCH-002(e); QK-F2E-005; QK-TST-PWR-002; Core v1
-  section 6.3.
+- Alignment: QK-TST-BENCH-002(e); QK-F2E-005; QK-TST-PWR-002; Core
+  Architecture v2.
 - Question: at every registered interruption point, is post-restart state
   exactly an allowed pre-commit or committed state rather than an ambiguous
   third state?
@@ -146,7 +151,7 @@ chooses no live format or evidence-tool default.
 
 ## QK-F8R-F-001 - assertion (f), storage endurance
 
-- Alignment: QK-TST-BENCH-002(f); QK-F2E-014; Core v1 section 6.3.
+- Alignment: QK-TST-BENCH-002(f); QK-F2E-014; Core Architecture v2.
 - Question: across the registered cycles, what NVM/write amplification,
   transaction-buffer wear, retention basis, degradation indicators and
   irreversible behavior are observed for the delivered revision/app?
@@ -163,29 +168,32 @@ chooses no live format or evidence-tool default.
   specimen, including consumed or inconclusive outcomes.
 - Status: `BLOCKED - ENDURANCE/MUTATION/RUN AUTHORITY REQUIRED - NOT RUN`.
 
-## QK-F8R-G-001 - assertion (g), B/C shared and distinct state
+## QK-F8R-G-001 - assertion (g), B payload and setup-spare lifecycle
 
-- Alignment: QK-TST-BENCH-002(g); QK-F2E-013 plus its ratified expansion;
-  Core v1 sections 4.5 and 6.1 through 6.3.
-- Question: do two specimens running the same exact applet hold distinct
-  externally derived account signing authorities and fixed B/C roles while
-  carrying byte-identical A2 and D, and enforce D/`wallet_id`, path, policy,
-  lifecycle and normal-operation private-key non-exportability boundaries?
-- Procedure design: generate distinct run-only account authorities outside
-  Git, one shared patterned public A2, and one exact descriptor pair/wallet
-  ID; provision B and C; compare returned roles, account xpubs, A2, D and
-  wallet ID; exercise valid branches and rejected mixed-wallet, duplicate
-  role/key, wrong path/policy and non-committed signing requests; probe every
-  documented normal-operation read path for signer-private bytes. Exhaustive
-  hidden-interface extraction remains QK-TST-BENCH-005, not this record.
-- Calibration/control: independent public recomputation, byte equality of
-  shared fields, inequality of signer identities, two-wallet substitution
-  matrix and pre/post identity readback.
-- Required later bindings: two or more exact specimens, applet/protocol,
-  QK-DEC-047 fixture procedure, case/repetition matrix, expected named
-  results, stops, analysis and raw custody.
-- Acceptance record: case-by-case role/key/shared-field/binding/lifecycle
-  result with trace hashes and no secret-bearing committed bytes.
+- Alignment: QK-TST-BENCH-002(g); QK-F2E-013 as a superseded historical
+  predecessor only; Core Architecture v2 and QK-DEC-121.
+- Question: does the required role-B card carry only the ratified signer-B,
+  A2, D and binding payload; does any optional spare created during original
+  setup carry the same payload byte-for-byte; and are Card-C and post-setup
+  second-card paths absent or rejected?
+- Procedure design: generate one run-only B account authority outside Git,
+  one patterned public A2, and one exact descriptor pair/wallet ID; provision
+  the required B; if the bound run includes a setup spare, provision it only
+  in that setup and compare complete public readback and behavior for byte
+  equivalence; exercise valid routes and rejected wrong-role, mixed-wallet,
+  wrong-path/policy, precommit and post-setup second-card requests; probe
+  every documented normal-operation read path for signer-private bytes.
+  Exhaustive hidden-interface extraction remains QK-TST-BENCH-005.
+- Calibration/control: separately computed public values, byte equality for
+  any setup spare, two-wallet substitution matrix and pre/post readback.
+- Required later bindings: exact primary and, if exercised, setup-spare
+  specimens; applet/protocol; QK-DEC-047 fixture procedure; case/repetition
+  matrix; expected named results; stops; analysis; and raw custody. A
+  replacement-card test requires a separate Kit-Restore registration and
+  the user's external possession confirmation.
+- Acceptance record: case-by-case B payload, optional-spare equivalence,
+  binding, path, lifecycle and prohibited-interface results with trace
+  hashes and no secret-bearing committed bytes.
 - Status: `BLOCKED - APPLET/PROVISIONING/MUTATION/RUN AUTHORITY REQUIRED - NOT RUN`.
 
 ## Completeness statement

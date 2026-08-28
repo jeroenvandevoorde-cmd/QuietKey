@@ -7,6 +7,18 @@ Experiment IDs use the family `QK-F2E-NNN` and are append-only: an ID, once
 assigned, is never reused, renumbered, or deleted. Protocol documents in this
 directory reference these IDs and never duplicate the rows.
 
+## QK-DEC-121 v2 supersession overlay
+
+QK-F2E-013 remains byte-for-byte below as an append-only historical v1
+record, but its B/C-role and two-specimen signer procedure is superseded and
+must not run. No existing experiment ID is repurposed. A later v2
+registration must cover the required role-B card, any optional
+setup-only byte-equivalent spare, rejection of Card-C and post-setup
+second-card paths, and the separately gated Kit-Restore replacement path.
+The run can establish exercised byte and protocol behavior only; physical
+possession or destruction, absence of another live card, envelope integrity,
+and coordinator UTXO completeness remain external facts.
+
 Field discipline for every experiment:
 
 - Specimen and Apparatus are exactly `OPEN — SPECIMEN NOT IDENTIFIED` until a

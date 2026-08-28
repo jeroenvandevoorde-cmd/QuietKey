@@ -10,11 +10,23 @@ select a card, freeze an APDU protocol, resolve OD-02, execute
 QK-TST-BENCH-002, or change any Gate. Protocol-Lab retains its separate
 capture and Reader scope; no source moves between the repositories.
 
-The controlling card behavior remains Core Architecture v1 sections 4.5 and
-6.1 through 6.5, QK-REQ-CARD-001 through QK-REQ-CARD-010, and
-QK-TST-BENCH-002. The M20 paper matrix is sourcing and planning input only.
+The controlling card behavior is Core Architecture v2 under QK-DEC-121,
+QK-REQ-CARD-001 through QK-REQ-CARD-010, QK-REQ-KIT-010,
+QK-REQ-KIT-012, QK-REQ-KIT-013, and QK-TST-BENCH-002. The required card is
+role B. An optional byte-equivalent spare may be created only during the
+original setup; no Card-C role or general two-card path exists, and no later
+second live card may be added. The M20 paper matrix is sourcing and planning
+input only; its C1/C2/C3 labels identify candidate platforms, never signer
+roles.
 Every physical observation will bind only to the delivered, enrolled J3R180
 revision and batch. Nothing transfers to J2R180 or another variant.
+
+Kit-Spend is the missing-card path. Any future Kit-Restore replacement-card
+run requires an explicit external confirmation that the original card
+remains physically in hand and never turns that confirmation into a machine
+proof. F8 records can establish exercised card bytes and behavior, not card
+possession or destruction, absence of another live card, Kit-envelope
+integrity, or coordinator UTXO completeness.
 
 ## Ordered execution locks
 

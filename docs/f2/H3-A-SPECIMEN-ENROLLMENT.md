@@ -96,6 +96,26 @@ Current canonical architecture (`ARCHITECTURE.md` and the decision log)
 controls all conflicts. None of these historical statements may re-enter a
 later test criterion or fixture.
 
+## QK-DEC-121 v2 supersession overlay
+
+The preceding table records the v1 disposition that followed
+QK-HWREF-001; it is itself superseded where it names the former three-key
+topology. Core Architecture v2 now fixes native P2WSH
+`wsh(sortedmulti(2,A,B))`: A is terminal-held, B is the one required Key
+Card, and Card C and all A+C/B+C routes are removed. The B card stores its
+role-B BIP48 account material, A2 and D. An optional byte-equivalent spare B
+may be created only during the original setup; no later second live card may
+be added.
+
+Kit-Spend is the only missing-card route and performs the constrained sweep.
+Kit-Restore may provision a replacement B only after the user confirms that
+the original card remains physically in hand, or may reprint A1 with a fresh
+nonce; it never signs. Specimen enrollment and card traces cannot establish
+card possession or destruction, absence of another live card, Kit-envelope
+integrity, or coordinator UTXO completeness. Those are external human or
+coordinator facts. Candidate labels C1/C2/C3 remain platform bookkeeping and
+do not reinstate a signer role C.
+
 ## Owner declaration
 
 OWNER DECLARES NO PHYSICAL PROTOTYPE EXISTS AS OF 2026-08-18 — NOT

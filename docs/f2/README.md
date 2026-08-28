@@ -2,6 +2,23 @@
 
 F2 PREPARATION ONLY — TARGET WORK NOT RUN — NO GATE CLOSED
 
+## QK-DEC-121 v2 supersession overlay
+
+This directory preserves the F2.0 preparation record at its historical
+revision. QK-DEC-121 now controls every future card run: there is one required
+role-B card, an optional byte-equivalent spare may be created only during the
+original setup, and no Card-C role or general two-card path exists. References
+below to B/C roles or QK-F2E-013 describe superseded v1 preparation and do not
+authorize execution. A future v2 registration must bind the current
+QK-TST-BENCH-002(g) oracle, including the setup-spare and Kit-Restore
+lifecycle boundaries, before that work can run.
+
+The terminal and card can establish byte and protocol facts only. Original
+card possession or destruction, absence of another live card, Kit-envelope
+integrity, and coordinator UTXO completeness remain external human or
+coordinator facts. The C1/C2/C3 names in M20 remain candidate-platform labels;
+they never name a Card-C signer role.
+
 ## Purpose
 
 This directory contains the F2.0 preparation set for the QuietKey milestone
@@ -28,10 +45,11 @@ Status of the F2 milestone overall: F2 overall INCOMPLETE.
   the repository.
 - No F2 evidence row or artifact is recorded in this repository.
   `docs/f2/EVIDENCE-REGISTER.md` is schema-only with zero rows.
-- All maturity gates (A through E) remain OPEN. All owner decisions
-  (OD-01 through OD-08) remain unresolved. All 121 `QK-LIM` values remain
-  `OPEN — VALUE NOT AUTHORIZED IN F1`. All 66 planned tests remain
-  `PLANNED — NOT RUN`.
+- At the preserved F2.0 revision, all maturity gates (A through E), owner
+  decisions OD-01 through OD-08, 121 `QK-LIM` values, and 66 planned tests
+  had the open statuses recorded below. Current statuses and successor rows
+  live in the root registers and are not silently back-projected into this
+  historical preparation record.
 
 ## File map
 
