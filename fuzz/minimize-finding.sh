@@ -21,6 +21,8 @@ case "$target" in
   qk_host_sim_m27) max_len=1024; seed=27001 ;;
   qk_host_sim_m28) max_len=4096; seed=28001 ;;
   qk_host_sim_m29) max_len=1024; seed=29001 ;;
+  qk_bbqr_m30) max_len=4297; seed=30001 ;;
+  qk_host_sim_m30) max_len=4096; seed=30002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -f "$test_case" ] || { printf 'missing test case: %s\n' "$test_case" >&2; exit 2; }

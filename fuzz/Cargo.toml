@@ -131,6 +131,20 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "qk_bbqr_m30"
+path = "fuzz_targets/qk_bbqr_m30.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_host_sim_m30"
+path = "fuzz_targets/qk_host_sim_m30.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 overflow-checks = true
 debug-assertions = true
