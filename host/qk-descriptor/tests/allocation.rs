@@ -1,13 +1,15 @@
-//! Direct M11 work is fixed-memory; inherited M9 allocations stay exact.
+//! Direct descriptor work is fixed-memory; inherited BIP32 allocations stay exact.
 
 use qk_descriptor::{
-    derive_change_script, derive_receive_script, match_change_derivation_claims,
-    match_receive_derivation_claims, parse_descriptor_pair,
+    derive_change_script, derive_change_script_v2, derive_receive_script, derive_receive_script_v2,
+    match_change_derivation_claims_v2, match_receive_derivation_claims_v2, parse_descriptor_pair,
+    parse_descriptor_pair_v2,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-const PAIRS: &str = include_str!("fixtures/descriptor_pairs.txt");
+const PAIRS_V2: &str = include_str!("fixtures/descriptor_pairs.txt");
+const PAIRS_V1: &str = include_str!("../../qk-psbt/tests/fixtures/descriptor_pairs_v1.txt");
 
 struct CountingAllocator;
 
@@ -56,11 +58,10 @@ fn hex<const N: usize>(value: &str) -> [u8; N] {
     output
 }
 
-fn role_keys(block: &str) -> [Option<[u8; 33]>; 3] {
+fn role_keys_v2(block: &str) -> [Option<[u8; 33]>; 2] {
     [
         Some(hex(field(block, "role_a"))),
         Some(hex(field(block, "role_b"))),
-        Some(hex(field(block, "role_c"))),
     ]
 }
 
@@ -91,72 +92,108 @@ fn assert_counts(expected: usize) {
 }
 
 #[test]
-fn direct_work_is_zero_allocation_and_inherited_counts_are_exact() {
-    let block = PAIRS
+fn v2_counts_are_four_and_eight_while_v1_residue_stays_six_and_twelve() {
+    let v2_block = PAIRS_V2
         .split("\n\n")
         .find(|block| block.contains("case: GOLDEN"))
         .unwrap();
-    let receive = field(block, "receive").as_bytes();
-    let change = field(block, "change").as_bytes();
+    let v2_receive = field(v2_block, "receive").as_bytes();
+    let v2_change = field(v2_block, "change").as_bytes();
 
     reset_counts();
     start_counting();
-    let pair = parse_descriptor_pair(receive, change).unwrap();
-    let wallet_id = pair.wallet_id();
+    let v2_pair = parse_descriptor_pair_v2(v2_receive, v2_change).unwrap();
+    let v2_wallet_id = v2_pair.wallet_id();
     stop_counting();
     assert_counts(0);
-    assert_ne!(wallet_id, [0; 32]);
+    assert_ne!(v2_wallet_id, [0; 32]);
 
     reset_counts();
     start_counting();
-    let receive_script = derive_receive_script(&pair, 0).unwrap();
+    let v2_receive_script = derive_receive_script_v2(&v2_pair, 0).unwrap();
     stop_counting();
-    assert_counts(6);
+    assert_counts(4);
 
     reset_counts();
     start_counting();
-    let change_script = derive_change_script(&pair, 0).unwrap();
+    let v2_change_script = derive_change_script_v2(&v2_pair, 0).unwrap();
     stop_counting();
-    assert_counts(6);
-    assert_ne!(receive_script, change_script);
+    assert_counts(4);
+    assert_ne!(v2_receive_script, v2_change_script);
 
-    let receive_zero = block
+    let v2_receive_zero = v2_block
         .split("derivation: ")
         .find(|part| part.starts_with("receive-0\n"))
         .unwrap();
-    let change_zero = block
+    let v2_change_zero = v2_block
         .split("derivation: ")
         .find(|part| part.starts_with("change-0\n"))
         .unwrap();
-    let receive_role_keys = role_keys(receive_zero);
-    let change_role_keys = role_keys(change_zero);
+    let v2_receive_role_keys = role_keys_v2(v2_receive_zero);
+    let v2_change_role_keys = role_keys_v2(v2_change_zero);
 
     reset_counts();
     start_counting();
-    let matched = match_receive_derivation_claims(&pair, 0, &receive_role_keys).unwrap();
+    let matched = match_receive_derivation_claims_v2(&v2_pair, 0, &v2_receive_role_keys).unwrap();
+    stop_counting();
+    assert_counts(4);
+    assert_eq!(matched, Some(v2_receive_script));
+
+    let partial_v2_receive_role_keys = [v2_receive_role_keys[0], None];
+    reset_counts();
+    start_counting();
+    let matched =
+        match_receive_derivation_claims_v2(&v2_pair, 0, &partial_v2_receive_role_keys).unwrap();
+    stop_counting();
+    assert_counts(4);
+    assert_eq!(matched, Some(v2_receive_script));
+
+    reset_counts();
+    start_counting();
+    let matched = match_change_derivation_claims_v2(&v2_pair, 0, &v2_change_role_keys).unwrap();
+    stop_counting();
+    assert_counts(4);
+    assert_eq!(matched, Some(v2_change_script));
+
+    reset_counts();
+    start_counting();
+    let _ = derive_receive_script_v2(&v2_pair, 1).unwrap();
+    let _ = derive_change_script_v2(&v2_pair, 1).unwrap();
+    stop_counting();
+    assert_counts(8);
+
+    let v1_block = PAIRS_V1
+        .split("\n\n")
+        .find(|block| block.contains("case: GOLDEN"))
+        .unwrap();
+    let v1_receive = field(v1_block, "receive").as_bytes();
+    let v1_change = field(v1_block, "change").as_bytes();
+
+    reset_counts();
+    start_counting();
+    let v1_pair = parse_descriptor_pair(v1_receive, v1_change).unwrap();
+    let v1_wallet_id = v1_pair.wallet_id();
+    stop_counting();
+    assert_counts(0);
+    assert_ne!(v1_wallet_id, [0; 32]);
+
+    reset_counts();
+    start_counting();
+    let v1_receive_script = derive_receive_script(&v1_pair, 0).unwrap();
     stop_counting();
     assert_counts(6);
-    assert_eq!(matched, Some(receive_script));
 
-    let partial_receive_role_keys = [receive_role_keys[0], None, None];
     reset_counts();
     start_counting();
-    let matched = match_receive_derivation_claims(&pair, 0, &partial_receive_role_keys).unwrap();
+    let v1_change_script = derive_change_script(&v1_pair, 0).unwrap();
     stop_counting();
     assert_counts(6);
-    assert_eq!(matched, Some(receive_script));
+    assert_ne!(v1_receive_script, v1_change_script);
 
     reset_counts();
     start_counting();
-    let matched = match_change_derivation_claims(&pair, 0, &change_role_keys).unwrap();
-    stop_counting();
-    assert_counts(6);
-    assert_eq!(matched, Some(change_script));
-
-    reset_counts();
-    start_counting();
-    let _ = derive_receive_script(&pair, 1).unwrap();
-    let _ = derive_change_script(&pair, 1).unwrap();
+    let _ = derive_receive_script(&v1_pair, 1).unwrap();
+    let _ = derive_change_script(&v1_pair, 1).unwrap();
     stop_counting();
     assert_counts(12);
 }
