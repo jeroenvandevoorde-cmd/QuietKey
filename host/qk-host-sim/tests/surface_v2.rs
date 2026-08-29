@@ -2,15 +2,19 @@
 
 use qk_host_sim::{
     ApprovalIdentityV2, CardRemainsStatementV2, CeremonyPurposeV2, DeferredBoundaryV2,
-    EntropyInputModeV2, FlowEventV2, FlowKindV2, FlowTerminalV2, KitDoorV2, KitRestoreActionV2,
-    ManualKeypadErrorV2, ManualKeypadEventV2, ManualKeypadOutcomeV2, ManualKeypadScreenV2,
-    ManualKeypadSessionV2, ScreenFlowV2, ScreenKindV2, ScreenV2, SpareBChoiceV2,
-    StatePreservingRejectionV2, WipingReasonV2,
+    EntropyInputModeV2, FlowEventV2, FlowKindV2, FlowTerminalV2, KitDoorV2, KitFallbackProgressV2,
+    KitForeignInputV2, KitFrameIdentityV2, KitInputModeV2, KitIntakeErrorV2,
+    KitIntakeInterruptionV2, KitIntakeOutcomeV2, KitIntakeReadyV2, KitIntakeScreenV2,
+    KitIntakeSessionV2, KitRestoreActionV2, KitShareOrdinalV2, ManualKeypadErrorV2,
+    ManualKeypadEventV2, ManualKeypadOutcomeV2, ManualKeypadScreenV2, ManualKeypadSessionV2,
+    ScreenFlowV2, ScreenKindV2, ScreenV2, SpareBChoiceV2, StatePreservingRejectionV2,
+    WipingReasonV2,
 };
 
 const LIB: &str = include_str!("../src/lib.rs");
 const SCREEN: &str = include_str!("../src/screen_flow_v2.rs");
 const MANUAL: &str = include_str!("../src/manual_keypad_v2.rs");
+const KIT_INTAKE: &str = include_str!("../src/kit_intake_v2.rs");
 
 #[test]
 fn v2_surface_is_parallel_and_contains_no_third_role_or_v1_fixture() {
@@ -103,15 +107,24 @@ fn secret_and_approval_owners_expose_no_clone_debug_or_owned_fact_escape() {
         "derive(Debug)\npub struct ScreenFlowV2",
         "derive(Clone)\npub struct ManualKeypadSessionV2",
         "derive(Debug)\npub struct ManualKeypadSessionV2",
+        "derive(Clone)\npub struct KitIntakeSessionV2",
+        "derive(Debug)\npub struct KitIntakeSessionV2",
+        "derive(Clone)\npub struct KitIntakeReadyV2",
+        "derive(Debug)\npub struct KitIntakeReadyV2",
         "pub fn transcript(",
         "pub fn transcripts(",
         "pub fn secret(",
         "pub fn signing_key(",
         "pub fn review(&self)",
         "pub fn export(&self)",
+        "pub fn payload(",
+        "pub fn recovered(",
+        "pub fn frame(&self)",
+        "pub fn flow(&self)",
     ] {
         assert!(!SCREEN.contains(forbidden), "screen escape: {forbidden}");
         assert!(!MANUAL.contains(forbidden), "manual escape: {forbidden}");
+        assert!(!KIT_INTAKE.contains(forbidden), "Kit escape: {forbidden}");
     }
     assert!(SCREEN.contains("facts: &'facts ProvisioningArtifactsV2"));
     assert!(SCREEN.contains("ready: &'facts ReviewReadyV3"));
@@ -140,4 +153,42 @@ fn intended_public_types_are_available_without_new_capability_types() {
     let _: Option<ManualKeypadScreenV2<'_>> = None;
     let _: Option<ManualKeypadOutcomeV2> = None;
     let _: Option<ManualKeypadErrorV2> = None;
+    let _: Option<KitInputModeV2> = None;
+    let _: Option<KitShareOrdinalV2> = None;
+    let _: Option<KitForeignInputV2> = None;
+    let _: Option<KitIntakeInterruptionV2> = None;
+    let _: Option<KitIntakeErrorV2> = None;
+    let _: Option<KitFrameIdentityV2> = None;
+    let _: Option<KitFallbackProgressV2> = None;
+    let _: Option<KitIntakeScreenV2> = None;
+    let _: Option<KitIntakeSessionV2> = None;
+    let _: Option<KitIntakeOutcomeV2> = None;
+    let _: Option<KitIntakeReadyV2> = None;
+}
+
+#[test]
+fn kit_intake_has_one_private_wipe_boundary_and_no_dynamic_storage() {
+    assert!(LIB.contains("#![deny(unsafe_code)]"));
+    assert!(LIB.contains("#[allow(unsafe_code)]\nmod kit_intake_v2;"));
+    assert!(KIT_INTAKE.contains("#![deny(unsafe_op_in_unsafe_fn)]"));
+    assert_eq!(KIT_INTAKE.matches("unsafe {").count(), 1);
+    for forbidden in [
+        "Box<",
+        "Vec<",
+        "String",
+        "to_vec(",
+        "to_owned(",
+        "format!(",
+        "println!(",
+        "eprintln!(",
+    ] {
+        assert!(
+            !KIT_INTAKE.contains(forbidden),
+            "fixed-memory fence: {forbidden}"
+        );
+    }
+    assert!(KIT_INTAKE.contains("RecoveredKitPayload"));
+    assert!(KIT_INTAKE.contains("_payload: RecoveredKitPayload"));
+    assert!(!KIT_INTAKE.contains("&RecoveredKitPayload"));
+    assert!(!KIT_INTAKE.contains("[u8; 96]"));
 }
