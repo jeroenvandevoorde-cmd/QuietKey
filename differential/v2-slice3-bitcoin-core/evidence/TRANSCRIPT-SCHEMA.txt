@@ -1,0 +1,178 @@
+QUIETKEY_V2_S3_CORE_DIFFERENTIAL_TRANSCRIPT_V1_SCHEMA_NOT_RUN_EVIDENCE
+commit_every_run=true
+run_utc=<RFC3339-UTC>
+repo_commit=<40-hex>
+repo_tree=<40-hex>
+repo_clean=true
+host_os=<uname-s>
+host_release=<uname-r>
+host_arch=x86_64
+python_version=<exact>
+harness_sha256=<64-hex>
+harness_head_blob=<40-hex>
+procedure_sha256=<64-hex>
+procedure_head_blob=<40-hex>
+fixture_sha256=<64-hex>
+fixture_head_blob=<40-hex>
+source_signing_fixture_sha256=0c1b55c4928cc05d3db3b4d9fa5310ec4011727ad3d2f133f151ec1f4d40ef25
+source_signing_fixture_head_blob=bff025faa873a37c20ea40ec96397cf1b39258dd
+core_release=28.0
+sha256sums_bytes=2620
+sha256sums_lines=25
+sha256sums_sha256=d1384c7cbb9027bc5642943d675d25f2edd88e34207e0aaa307babf097d6d023
+core_archive=bitcoin-28.0-x86_64-apple-darwin.tar.gz
+core_archive_bytes=37680963
+core_archive_sha256=77e931bbaaf47771a10c376230bf53223f5380864bad3568efc7f4d02e40a0f7
+fixture_lineage=QK-DEC-121-v2-GOLDEN
+permanent_label=PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL
+generation_procedure=QK-DEC-047/QK-DEC-121/QK-DEC-123
+implementation_count=2
+agreement_result=byte-for-byte
+external_generation_transcript_sha256=<64-hex>
+external_generation_transcript_len=<decimal>
+external_generation_transcript_line_count=<decimal>
+screening_report_sha256=<64-hex>
+screening_repository_head=<40-hex>
+screening_tracked_file_count=3303
+screening_tracked_byte_count=30999398
+screened_public_key_count=<decimal>
+screened_signature_r_count=<decimal>
+screening_expected_same_lineage_hits=12
+screening_same_lineage_matches=<closed-list>
+screening_collisions=0
+initial_destruction_result=complete
+initial_deletion_completed_utc=<RFC3339-UTC>
+initial_destroyed_regular_file_count=<decimal>
+initial_destroyed_directory_count=<decimal>
+initial_destroyed_symlink_count=0
+initial_destroyed_regular_file_byte_count=<decimal>
+initial_destroyed_root_absent=true
+source_recovery=local-task-record
+recovered_source_hashes_match=true
+reproduced_normalized_agreement_sha256=<64-hex>
+recovery_search_artifact_bytes=176371
+recovery_search_artifact_deletion_utc=<RFC3339-UTC>
+recovery_search_artifact_absent=true
+destruction_result=complete
+deletion_completed_utc=<RFC3339-UTC>
+destroyed_regular_file_count=<decimal>
+destroyed_directory_count=<decimal>
+destroyed_symlink_count=0
+destroyed_regular_file_byte_count=<decimal>
+destroyed_root_absent=true
+mainnet_funding_status=PERMANENTLY-NEVER-FUND
+regtest_coin_status=valueless-by-construction
+wallet_id=d5b7e52f569ae51e7c66af14240d8e4459c6246785ce5c441773995614f60e9e
+origin_fingerprint_a=2fae9711
+origin_fingerprint_b=72a14ab8
+review_schema=03
+review_domain=QuietKey/D-09/review/v3
+fee_policy=QK-FEE-POLICY-V2
+max_input_witness=220
+max_type08_record=223
+max_raw_transaction=27537
+min_finalized_psbt_shrink_per_input=121
+bitcoind_sha256=55afd04193715ef76bb445a8aec7c18f1af780b9df8b8e5028c1b78baa15b4ee
+bitcoin_cli_sha256=2b53751345cdc0f326fa82e721c1f33b29db75d39f9125cb212d2e38524e4c1c
+bitcoind_version=Bitcoin Core version v28.0.0
+bitcoin_cli_version=Bitcoin Core RPC client version v28.0.0
+<zero or more numbered startup getblockchaininfo method/params/error triples,
+followed by one successful readiness getblockchaininfo result triple; then one
+operational getblockchaininfo result triple and one getblockhash(0) result
+triple; RPC numbering is contiguous from rpc_000 across the entire run>
+chain=regtest
+genesis_hash=0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206
+height_before_seed=0
+<one result triple each for setmocktime, submitblock, getblockcount, and
+getblockhash(1), in that order>
+seed_block_time=<decimal>
+seed_block_hash=<64-hex>
+seed_coinbase_txid=<64-hex>
+height_after_seed=1
+<one result triple each for generatetodescriptor, getblockcount, and gettxout,
+in that order>
+maturity_blocks_generated=100
+height_after_maturity=101
+seed_utxo_unspent=true
+seed_utxo_coinbase=true
+seed_utxo_confirmations=101
+<case-000 result triples for finalizepsbt(false), finalizepsbt(true),
+decoderawtransaction, and testmempoolaccept, in that order>
+case_000_name=V2-S3-CORE-UNKNOWN-FREE
+case_000_schema_v3_identity=true
+case_000_policy_v2_identity=true
+case_000_review_s0_sha256=<64-hex>
+case_000_canonical_review_sha256=<64-hex>
+case_000_review_hash=<64-hex>
+case_000_signed_psbt_sha256=<64-hex>
+case_000_finalized_psbt_sha256=<64-hex>
+case_000_raw_tx_sha256=<64-hex>
+case_000_core_complete=true
+case_000_core_psbt_rule=byte-equal
+case_000_core_psbt_sha256=<64-hex>
+case_000_core_psbt_equal=true
+case_000_raw_tx_equal=true
+case_000_txid=<64-hex>
+case_000_wtxid=<64-hex>
+case_000_decoded_fields_equal=true
+case_000_fee_sats=<decimal>
+case_000_estimated_vsize=<decimal>
+case_000_core_actual_vsize=<decimal>
+case_000_witness_pubkey_positions=0,1
+case_000_testmempoolaccept_allowed=true
+case_000_assertions=<decimal>
+case_000_failures=0
+<case-001 result triples for finalizepsbt(false), decodepsbt(QuietKey),
+decodepsbt(Core), finalizepsbt(true), decoderawtransaction, and
+testmempoolaccept, in that order>
+case_001_name=V2-S3-CORE-UNKNOWN-ORDER
+case_001_schema_v3_identity=true
+case_001_policy_v2_identity=true
+case_001_review_s0_sha256=<64-hex>
+case_001_canonical_review_sha256=<64-hex>
+case_001_review_hash=<64-hex>
+case_001_signed_psbt_sha256=<64-hex>
+case_001_finalized_psbt_sha256=<64-hex>
+case_001_raw_tx_sha256=<64-hex>
+case_001_core_complete=true
+case_001_core_psbt_rule=decoded-equal-order-delta
+case_001_core_psbt_sha256=<64-hex>
+case_001_core_psbt_equal=false
+case_001_decoded_equal=true
+case_001_record_multisets_equal=true
+case_001_unknown_map_count=3
+case_001_quietkey_unknown_type_order=255,256
+case_001_core_unknown_type_order=256,255
+case_001_quietkey_unknown_full_keys=<three map-separated complete-key pairs>
+case_001_core_unknown_full_keys=<three map-separated complete-key pairs>
+case_001_sole_255_256_swap_equal=true
+case_001_raw_tx_equal=true
+case_001_txid=<64-hex>
+case_001_wtxid=<64-hex>
+case_001_decoded_fields_equal=true
+case_001_fee_sats=<decimal>
+case_001_estimated_vsize=<decimal>
+case_001_core_actual_vsize=<decimal>
+case_001_witness_pubkey_positions=0,1
+case_001_testmempoolaccept_allowed=true
+case_001_assertions=<decimal>
+case_001_failures=0
+<three repetitions, each comprising one testmempoolaccept result triple then a
+rejection block carrying parent, mutation, exact_mutation_derivation=true,
+base_transaction_equal=true for witness mutations or false for the base
+mutation, exact raw_tx_sha256/txid/wtxid, allowed=false, nonempty normalized
+JSON reject_reason, assertions, and failures=0>
+<one stop result triple>
+daemon_stop_requested=true
+daemon_exit_code=0
+positive_cases=2
+negative_core_controls=3
+rpc_calls=<decimal>
+assertions_total=<decimal>
+assertions_failed=0
+result=PASS
+
+<on failure, emission stops at the failing ordered field or RPC triple and is
+followed by failure_type, assertions_total, assertions_failed=1, result=FAIL;
+if the daemon started, its stop triple or stop-error fact and daemon-exit facts
+follow as available>
