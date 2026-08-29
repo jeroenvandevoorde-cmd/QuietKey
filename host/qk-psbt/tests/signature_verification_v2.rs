@@ -7,19 +7,15 @@
 use qk_descriptor::{derive_receive_script_v2, parse_descriptor_pair_v2, DescriptorPairV2};
 use qk_psbt::bip143::{sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL};
 use qk_psbt::{
-    analyze_descriptor_ownership_v2, build_review_v3, parse, InputSource, OutputOwnership,
-    ReviewContext, ReviewNetwork, SemanticCategory, VerifiedAggregateStatus, VerifiedInputStatus,
-    MAX_DESCRIPTOR_V2_VERIFICATION_CALLS,
+    analyze_descriptor_ownership_v2, build_review_v3, canonical_serialize, parse, InputSource,
+    OutputOwnership, ReviewContext, ReviewNetwork, SemanticCategory, VerifiedAggregateStatus,
+    VerifiedInputStatus, MAX_DESCRIPTOR_V2_VERIFICATION_CALLS,
 };
 
 const REVIEW_FIXTURE: &str = include_str!("fixtures/review_v3.txt");
+const SIGNING_FIXTURE: &str = include_str!("fixtures/signing_finalization_v2.txt");
 const DESCRIPTOR_FIXTURE: &str =
     include_str!("../../qk-descriptor/tests/fixtures/descriptor_pairs.txt");
-
-const ROLE_A_RECEIVE_0_SCALAR: &str =
-    "f157e34f4db1854304bb10aeb045a653aa7c0dc50c9c578b0965ce4e48271134";
-const ROLE_B_RECEIVE_0_SCALAR: &str =
-    "4e0f3dd5fefc3acd35eddeb3b66c65fc4e732b8f3f5339e45f6c79f3cc0950b9";
 
 fn field<'a>(text: &'a str, name: &str) -> &'a str {
     text.lines()
@@ -56,7 +52,13 @@ fn descriptor() -> DescriptorPairV2 {
 }
 
 fn base_s0() -> Vec<u8> {
-    hex(field(REVIEW_FIXTURE, "s0_hex: "))
+    let bytes = hex(field(SIGNING_FIXTURE, "s0_hex: "));
+    assert_eq!(field(REVIEW_FIXTURE, "s0_hex: "), hex_string(&bytes));
+    bytes
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn context() -> ReviewContext {
@@ -205,8 +207,18 @@ fn zero_one_and_two_valid_signatures_have_exact_two_role_status() {
         OutputOwnership::ProvenChange(0)
     ));
     drop(view);
+    let view = parse(&psbt, InputSource::MicroSd).unwrap();
+    psbt = canonical_serialize(&view).unwrap();
 
-    let a_value = signature_value(ROLE_A_RECEIVE_0_SCALAR, &role_a, &digest);
+    let a_value = signature_value(
+        field(SIGNING_FIXTURE, "role_a_route_private_scalar_hex: "),
+        &role_a,
+        &digest,
+    );
+    assert_eq!(
+        &a_value[..a_value.len() - 1],
+        hex(field(SIGNING_FIXTURE, "role_a_der_hex: "))
+    );
     insert_input_record(&mut psbt, &partial_key(&role_a), &a_value);
     let view = parse(&psbt, InputSource::MicroSd).unwrap();
     let one = analyze_descriptor_ownership_v2(&view, &descriptor).unwrap();
@@ -221,8 +233,20 @@ fn zero_one_and_two_valid_signatures_have_exact_two_role_status() {
     );
     drop(view);
 
-    let b_value = signature_value(ROLE_B_RECEIVE_0_SCALAR, &role_b, &digest);
+    let b_value = signature_value(
+        field(SIGNING_FIXTURE, "role_b_route_private_scalar_hex: "),
+        &role_b,
+        &digest,
+    );
+    assert_eq!(
+        &b_value[..b_value.len() - 1],
+        hex(field(SIGNING_FIXTURE, "role_b_der_hex: "))
+    );
     insert_input_record(&mut psbt, &partial_key(&role_b), &b_value);
+    assert_eq!(
+        psbt,
+        hex(field(SIGNING_FIXTURE, "threshold_complete_psbt_hex: "))
+    );
     let view = parse(&psbt, InputSource::MicroSd).unwrap();
     let complete = analyze_descriptor_ownership_v2(&view, &descriptor).unwrap();
     assert_eq!(complete.verified_inputs[0].verified_signature_count, 2);
@@ -245,7 +269,11 @@ fn wrong_digest_and_foreign_third_key_reject_by_name() {
 
     let mut wrong_digest = digest;
     wrong_digest[0] ^= 0x01;
-    let wrong_value = signature_value(ROLE_A_RECEIVE_0_SCALAR, &role_a, &wrong_digest);
+    let wrong_value = signature_value(
+        field(SIGNING_FIXTURE, "role_a_route_private_scalar_hex: "),
+        &role_a,
+        &wrong_digest,
+    );
     let mut wrong_psbt = base.clone();
     insert_input_record(&mut wrong_psbt, &partial_key(&role_a), &wrong_value);
     let view = parse(&wrong_psbt, InputSource::MicroSd).unwrap();
@@ -264,7 +292,11 @@ fn wrong_digest_and_foreign_third_key_reject_by_name() {
         fixed_hex::<33>(field(receive_one, "role_a: "))
     };
     assert_ne!(foreign, role_a);
-    let valid_value = signature_value(ROLE_A_RECEIVE_0_SCALAR, &role_a, &digest);
+    let valid_value = signature_value(
+        field(SIGNING_FIXTURE, "role_a_route_private_scalar_hex: "),
+        &role_a,
+        &digest,
+    );
     let mut foreign_psbt = base;
     insert_input_record(&mut foreign_psbt, &partial_key(&foreign), &valid_value);
     let view = parse(&foreign_psbt, InputSource::MicroSd).unwrap();
@@ -283,7 +315,11 @@ fn sighash_precedence_exact_derivation_count_and_witness_match_are_locked() {
     let digest = signing_digest(&base, &descriptor);
     let (role_a, _) = role_keys();
 
-    let mut wrong_sighash_value = signature_value(ROLE_A_RECEIVE_0_SCALAR, &role_a, &digest);
+    let mut wrong_sighash_value = signature_value(
+        field(SIGNING_FIXTURE, "role_a_route_private_scalar_hex: "),
+        &role_a,
+        &digest,
+    );
     *wrong_sighash_value.last_mut().unwrap() = 0x02;
     let mut wrong_sighash = base.clone();
     insert_input_record(
