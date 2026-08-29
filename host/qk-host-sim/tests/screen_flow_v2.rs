@@ -1,6 +1,6 @@
 //! Slice-5 v2 topology checks over typed, already-bound HOST facts.
 
-use qk_descriptor::{DescriptorPairV2, parse_descriptor_pair_v2};
+use qk_descriptor::{parse_descriptor_pair_v2, DescriptorPairV2};
 use qk_host_sim::{
     CardRemainsStatementV2, CompletedOperationV2, DeferredBoundaryV2, EntropyInputModeV2,
     FlowApplyOutcomeV2, FlowEventV2, FlowKindV2, FlowTerminalV2, KeypadKey, KitDoorV2,
