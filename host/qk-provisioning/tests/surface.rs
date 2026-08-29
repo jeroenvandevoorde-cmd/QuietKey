@@ -231,6 +231,14 @@ fn secret_storage_and_successful_capsule_consumption_are_source_locked() {
     assert!(capsule < nonce_commit);
     assert!(!encrypt[..nonce_commit].contains("self.payload.take"));
     assert!(!encrypt[..nonce_commit].contains("self.kit_r_pad.take"));
+    let drop_start = v2
+        .find("impl Drop for HostProvisioningRunV2")
+        .expect("explicit v2 owner drop");
+    let drop_body = &v2[drop_start..];
+    assert!(drop_body.contains("secret::wipe(self.payload.as_mut_bytes())"));
+    assert!(drop_body.contains("secret::wipe(self.kit_r_pad.as_mut_bytes())"));
+    assert!(KIT_R.contains("pub(crate) fn assert_reference("));
+    assert!(LIB.contains("kit_r::assert_reference("));
 }
 
 #[test]

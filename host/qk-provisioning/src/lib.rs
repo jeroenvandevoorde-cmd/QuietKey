@@ -242,6 +242,8 @@ impl HostProvisioningRunV2 {
         let account_xpubs = [account_a.xpub, account_b.xpub];
         let wallet = build_wallet_v2([account_a, account_b])?;
         let kit_r_pad = kit_r::derive_pad(&kit_r_transcript_hash, &wallet.wallet_id)?;
+        #[cfg(any(test, feature = "fuzzing"))]
+        kit_r::assert_reference(&kit_r_transcript_hash, &wallet.wallet_id, &kit_r_pad);
         drop(kit_r_transcript_hash);
 
         let mut payload = [0u8; 96];
@@ -303,6 +305,24 @@ impl HostProvisioningRunV2 {
             first_addresses: self.wallet.addresses,
             a1_capsule: capsule,
         })
+    }
+}
+
+impl Drop for HostProvisioningRunV2 {
+    fn drop(&mut self) {
+        secret::wipe(self.payload.as_mut_bytes());
+        secret::wipe(self.kit_r_pad.as_mut_bytes());
+        #[cfg(any(test, feature = "fuzzing"))]
+        {
+            assert!(
+                self.payload.as_bytes().iter().all(|&byte| byte == 0),
+                "v2 payload wipe failed"
+            );
+            assert!(
+                self.kit_r_pad.as_bytes().iter().all(|&byte| byte == 0),
+                "Kit-R pad wipe failed"
+            );
+        }
     }
 }
 

@@ -3,6 +3,8 @@
 use libfuzzer_sys::fuzz_target;
 use qk_descriptor::{derive_change_script_v2, derive_receive_script_v2, parse_descriptor_pair_v2};
 use qk_provisioning::{HostProvisioningRunV2, ProvisioningArtifactsV2, ProvisioningError};
+use std::ptr;
+use std::sync::atomic::{compiler_fence, Ordering};
 
 #[path = "../../host/qk-psbt/src/sha256.rs"]
 mod reference_sha256;
@@ -17,10 +19,39 @@ enum Outcome {
 }
 
 fn assert_named_error(error: ProvisioningError) {
+    match error {
+        ProvisioningError::InvalidRecordLength
+        | ProvisioningError::UnsupportedRecordVersion
+        | ProvisioningError::UnknownSource
+        | ProvisioningError::SourceOutOfOrder
+        | ProvisioningError::DuplicateSource
+        | ProvisioningError::InvalidSourceLength
+        | ProvisioningError::MissingRequiredSource
+        | ProvisioningError::SourceSetReuse
+        | ProvisioningError::InvalidDiceSymbol
+        | ProvisioningError::DiceCount
+        | ProvisioningError::TranscriptReuse
+        | ProvisioningError::InvalidMasterScalar
+        | ProvisioningError::InvalidChildTweak
+        | ProvisioningError::ZeroChild
+        | ProvisioningError::CryptographicBackend
+        | ProvisioningError::CryptographicInvariant
+        | ProvisioningError::GeneratedDescriptorInvalid
+        | ProvisioningError::NonceReuse
+        | ProvisioningError::AlreadyEncrypted => {}
+    }
     let rendered = error.to_string();
     assert!(!rendered.is_empty());
     assert!(rendered.is_ascii());
     assert!(rendered.len() < 96);
+}
+
+fn wipe(bytes: &mut [u8]) {
+    for byte in bytes {
+        // SAFETY: each byte is uniquely borrowed and live for this write.
+        unsafe { ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
 }
 
 fn sha256(bytes: &[u8]) -> [u8; 32] {
@@ -163,6 +194,7 @@ fn assert_artifacts(
     )
     .expect("slice-4 capsule must authenticate under dice-derived A2");
     assert_eq!(opened, seed_a);
+    wipe(&mut opened);
 }
 
 fn run_once(data: &[u8]) -> Outcome {

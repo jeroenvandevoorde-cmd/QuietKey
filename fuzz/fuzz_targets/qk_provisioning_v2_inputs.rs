@@ -18,10 +18,55 @@ enum Outcome {
 }
 
 fn assert_named_error(error: ProvisioningError) {
+    match error {
+        ProvisioningError::InvalidRecordLength
+        | ProvisioningError::UnsupportedRecordVersion
+        | ProvisioningError::UnknownSource
+        | ProvisioningError::SourceOutOfOrder
+        | ProvisioningError::DuplicateSource
+        | ProvisioningError::InvalidSourceLength
+        | ProvisioningError::MissingRequiredSource
+        | ProvisioningError::SourceSetReuse
+        | ProvisioningError::InvalidDiceSymbol
+        | ProvisioningError::DiceCount
+        | ProvisioningError::TranscriptReuse
+        | ProvisioningError::InvalidMasterScalar
+        | ProvisioningError::InvalidChildTweak
+        | ProvisioningError::ZeroChild
+        | ProvisioningError::CryptographicBackend
+        | ProvisioningError::CryptographicInvariant
+        | ProvisioningError::GeneratedDescriptorInvalid
+        | ProvisioningError::NonceReuse
+        | ProvisioningError::AlreadyEncrypted => {}
+    }
     let rendered = error.to_string();
     assert!(!rendered.is_empty());
     assert!(rendered.is_ascii());
     assert!(rendered.len() < 96);
+}
+
+fn expected_input_error(values: &[Vec<u8>; 4]) -> Option<ProvisioningError> {
+    for transcript in values {
+        for (position, &byte) in transcript.iter().enumerate() {
+            if position >= 100 {
+                return Some(ProvisioningError::DiceCount);
+            }
+            if !(b'1'..=b'6').contains(&byte) {
+                return Some(ProvisioningError::InvalidDiceSymbol);
+            }
+        }
+        if transcript.len() != 100 {
+            return Some(ProvisioningError::DiceCount);
+        }
+    }
+    for left in 0..values.len() {
+        for right in left + 1..values.len() {
+            if values[left] == values[right] {
+                return Some(ProvisioningError::TranscriptReuse);
+            }
+        }
+    }
+    None
 }
 
 fn transcripts() -> [Vec<u8>; 4] {
@@ -34,12 +79,7 @@ fn transcripts() -> [Vec<u8>; 4] {
 }
 
 fn construct(values: &[Vec<u8>; 4]) -> Result<HostProvisioningRunV2, ProvisioningError> {
-    HostProvisioningRunV2::from_manual_dice([
-        &values[0],
-        &values[1],
-        &values[2],
-        &values[3],
-    ])
+    HostProvisioningRunV2::from_manual_dice([&values[0], &values[1], &values[2], &values[3]])
 }
 
 fn finish(result: Result<HostProvisioningRunV2, ProvisioningError>) -> Outcome {
@@ -62,7 +102,24 @@ fn raw_transcript(data: &[u8]) -> Outcome {
     let mut values = transcripts();
     let slot = usize::from(data.get(1).copied().unwrap_or(0)) % values.len();
     values[slot] = data.get(2..).unwrap_or_default().to_vec();
-    finish(construct(&values))
+    let expected = expected_input_error(&values);
+    let outcome = finish(construct(&values));
+    match expected {
+        Some(error) => assert_eq!(outcome, Outcome::Rejected(error)),
+        None => match outcome {
+            Outcome::Ready(_) => {}
+            Outcome::Rejected(
+                ProvisioningError::InvalidMasterScalar
+                | ProvisioningError::InvalidChildTweak
+                | ProvisioningError::ZeroChild
+                | ProvisioningError::CryptographicBackend
+                | ProvisioningError::CryptographicInvariant
+                | ProvisioningError::GeneratedDescriptorInvalid,
+            ) => {}
+            _ => panic!("valid transcript reached a wrong outcome category"),
+        },
+    }
+    outcome
 }
 
 fn exact_scenario(data: &[u8]) -> Outcome {

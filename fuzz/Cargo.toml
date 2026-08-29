@@ -15,7 +15,7 @@ qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1" }
 qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1" }
-qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1" }
+qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1", features = ["fuzzing"] }
 qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
 qk-secp = { path = "../host/qk-secp", version = "=0.0.1" }
 

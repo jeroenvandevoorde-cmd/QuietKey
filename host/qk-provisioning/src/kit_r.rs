@@ -1,6 +1,8 @@
 //! Private deterministic Kit-R pad derivation for the v2 setup owner.
 
 use crate::hkdf_sha256::{expand, extract};
+#[cfg(any(test, feature = "fuzzing"))]
+use crate::hmac_sha256::{hmac_sha256, hmac_sha256_parts};
 use crate::secret::{wipe, Secret};
 use crate::sha256::sha256;
 use crate::ProvisioningError;
@@ -41,9 +43,52 @@ pub(crate) fn derive_pad(
     Ok(Secret::take(&mut pad))
 }
 
+#[cfg(any(test, feature = "fuzzing"))]
+pub(crate) fn assert_reference(
+    transcript_hash: &Secret<32>,
+    wallet_id: &[u8; 32],
+    actual: &Secret<PAD_BYTES>,
+) {
+    let mut salt_input = [0u8; SALT_INPUT_BYTES];
+    salt_input[..SALT_PREFIX.len()].copy_from_slice(SALT_PREFIX);
+    salt_input[SALT_PREFIX.len()..SALT_PREFIX.len() + PURPOSE.len()].copy_from_slice(PURPOSE);
+    salt_input[SALT_PREFIX.len() + PURPOSE.len()..].copy_from_slice(&wallet_id[..16]);
+    let mut salt = sha256(&salt_input);
+    let mut prk = hmac_sha256(&salt, transcript_hash.as_bytes());
+
+    let mut info = [0u8; INFO_BYTES];
+    info[..INFO_PREFIX.len()].copy_from_slice(INFO_PREFIX);
+    info[INFO_PREFIX.len()] = 0;
+    info[INFO_PREFIX.len() + 1..].copy_from_slice(wallet_id);
+
+    let counter_one = [1u8];
+    let counter_two = [2u8];
+    let counter_three = [3u8];
+    let mut block_one = hmac_sha256_parts(&prk, &[&info, &counter_one]);
+    let mut block_two = hmac_sha256_parts(&prk, &[&block_one, &info, &counter_two]);
+    let mut block_three = hmac_sha256_parts(&prk, &[&block_two, &info, &counter_three]);
+    let mut expected = [0u8; PAD_BYTES];
+    expected[..32].copy_from_slice(&block_one);
+    expected[32..64].copy_from_slice(&block_two);
+    expected[64..].copy_from_slice(&block_three);
+    assert!(
+        actual.as_bytes() == &expected,
+        "Kit-R production/reference mismatch"
+    );
+
+    wipe(&mut expected);
+    wipe(&mut block_three);
+    wipe(&mut block_two);
+    wipe(&mut block_one);
+    wipe(&mut info);
+    wipe(&mut prk);
+    wipe(&mut salt);
+    wipe(&mut salt_input);
+}
+
 #[cfg(test)]
 mod tests {
-    use super::derive_pad;
+    use super::{assert_reference, derive_pad};
     use crate::secret::Secret;
     use crate::sha256::sha256;
 
@@ -81,5 +126,22 @@ mod tests {
         let first = derive_pad(&transcript_hash, &[0u8; 32]).expect("first pad");
         let second = derive_pad(&transcript_hash, &[1u8; 32]).expect("second pad");
         assert_ne!(first.as_bytes(), second.as_bytes());
+    }
+
+    #[test]
+    fn varied_transcript_and_wallet_inputs_match_the_separate_expand_path() {
+        for case in 0u8..16 {
+            let mut transcript_hash = [case.wrapping_mul(17); 32];
+            for (index, byte) in transcript_hash.iter_mut().enumerate() {
+                *byte ^= (index as u8).wrapping_mul(29);
+            }
+            let transcript_hash = Secret::take(&mut transcript_hash);
+            let mut wallet_id = [case.wrapping_mul(31); 32];
+            for (index, byte) in wallet_id.iter_mut().enumerate() {
+                *byte ^= (index as u8).wrapping_mul(43);
+            }
+            let pad = derive_pad(&transcript_hash, &wallet_id).expect("bounded Kit-R case");
+            assert_reference(&transcript_hash, &wallet_id, &pad);
+        }
     }
 }
