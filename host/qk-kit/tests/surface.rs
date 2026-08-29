@@ -147,8 +147,8 @@ fn geometry_profile_and_wire_constants_are_locked() {
         "const TOTAL_CODEWORDS: usize = 346;",
         "const CORE_SIDE: usize = 57;",
         "const QUIET_ZONE: usize = 4;",
-        "append_bits(0b0100, 4, &mut result, &mut bit_length);",
-        "append_bits(FRAME_LEN as u32, 16, &mut result, &mut bit_length);",
+        "append_bits(0b0100, 4, result, &mut bit_length);",
+        "append_bits(FRAME_LEN as u32, 16, result, &mut bit_length);",
         "result[byte_length] = if use_first_pad { 0xec } else { 0x11 };",
     ] {
         assert!(QR.contains(required), "QR profile pin {required}");
@@ -312,6 +312,16 @@ fn volatile_wipe_boundary_and_output_commit_order_are_locked() {
     assert!(SECRET.contains("#![deny(unsafe_op_in_unsafe_fn)]"));
     assert!(SECRET.contains("impl<const N: usize> Drop for Secret<N>"));
     assert!(SECRET.contains("wipe(&mut self.bytes);"));
+    assert!(QR.contains("modules: Secret<CORE_MODULES>,"));
+    assert!(!QR.contains("#[derive(Clone, Copy)]\nstruct Matrix"));
+    for required in [
+        "let mut data = Secret::<DATA_CODEWORDS>::zeroed();",
+        "let mut codewords = Secret::<TOTAL_CODEWORDS>::zeroed();",
+        "let mut ecc = Secret::<{ BLOCK_COUNT * ECC_CODEWORDS_PER_BLOCK }>::zeroed();",
+        "let mut packed = Secret::<PACKED_OUTPUT_BYTES>::zeroed();",
+    ] {
+        assert!(QR.contains(required), "QR secret owner {required}");
+    }
 
     let take_start = SECRET
         .find("pub(crate) fn take(bytes: &mut [u8; N]) -> Self")
@@ -356,7 +366,7 @@ fn volatile_wipe_boundary_and_output_commit_order_are_locked() {
         .find("crate::frame::validate(frame)?;")
         .expect("QR validates before work");
     let qr_commit = QR
-        .find("output.copy_from_slice(&packed);")
+        .find("output.copy_from_slice(packed.as_bytes());")
         .expect("QR output commit");
     assert!(qr_validate < qr_commit);
     let fallback_validate = FALLBACK

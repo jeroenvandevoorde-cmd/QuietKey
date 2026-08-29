@@ -4,6 +4,7 @@
 //! frame encoded in QR version 10, error-correction level Q, byte mode, without
 //! ECI. It performs no allocation and exposes no variable QR parameters.
 
+use crate::secret::Secret;
 use crate::{KitError, QrMetadata};
 
 const FRAME_LEN: usize = 142;
@@ -33,27 +34,33 @@ const _: () = assert!(TOTAL_CODEWORDS * 8 == 2_768);
 const _: () = assert!(OUTPUT_SIDE == 65);
 const _: () = assert!(PACKED_OUTPUT_BYTES == 529);
 
-#[derive(Clone, Copy)]
 struct Matrix {
-    modules: [u8; CORE_MODULES],
+    modules: Secret<CORE_MODULES>,
     functions: [bool; CORE_MODULES],
 }
 
 impl Matrix {
     const fn new() -> Self {
         Self {
-            modules: [0; CORE_MODULES],
+            modules: Secret::zeroed(),
             functions: [false; CORE_MODULES],
         }
     }
 
+    fn reset_from(&mut self, source: &Self) {
+        self.modules
+            .as_mut_bytes()
+            .copy_from_slice(source.modules.as_bytes());
+        self.functions = source.functions;
+    }
+
     fn module(&self, x: usize, y: usize) -> u8 {
-        self.modules[y * CORE_SIDE + x]
+        self.modules.as_bytes()[y * CORE_SIDE + x]
     }
 
     fn set_function(&mut self, x: usize, y: usize, dark: bool) {
         let index = y * CORE_SIDE + x;
-        self.modules[index] = u8::from(dark);
+        self.modules.as_mut_bytes()[index] = u8::from(dark);
         self.functions[index] = true;
     }
 
@@ -176,7 +183,8 @@ impl Matrix {
                     let index = y * CORE_SIDE + x;
                     if !self.functions[index] {
                         debug_assert!(bit_index < TOTAL_CODEWORDS * 8);
-                        self.modules[index] = (codewords[bit_index / 8] >> (7 - bit_index % 8)) & 1;
+                        self.modules.as_mut_bytes()[index] =
+                            (codewords[bit_index / 8] >> (7 - bit_index % 8)) & 1;
                         bit_index += 1;
                     }
                 }
@@ -206,7 +214,7 @@ impl Matrix {
                 };
                 let index = y * CORE_SIDE + x;
                 if invert && !self.functions[index] {
-                    self.modules[index] ^= 1;
+                    self.modules.as_mut_bytes()[index] ^= 1;
                 }
             }
         }
@@ -265,18 +273,25 @@ pub fn encode_qr(frame: &[u8], output: &mut [u8; 529]) -> Result<QrMetadata, Kit
     crate::frame::validate(frame)?;
     debug_assert_eq!(frame.len(), FRAME_LEN);
 
-    let data = make_data_codewords(frame);
-    let codewords = add_ecc_and_interleave(&data);
+    Ok(encode_validated(frame, output))
+}
+
+fn encode_validated(frame: &[u8], output: &mut [u8; 529]) -> QrMetadata {
+    let mut data = Secret::<DATA_CODEWORDS>::zeroed();
+    make_data_codewords(frame, data.as_mut_bytes());
+    let mut codewords = Secret::<TOTAL_CODEWORDS>::zeroed();
+    add_ecc_and_interleave(data.as_bytes(), codewords.as_mut_bytes());
 
     let mut base = Matrix::new();
     base.draw_function_patterns();
-    base.draw_codewords(&codewords);
+    base.draw_codewords(codewords.as_bytes());
+    let mut candidate = Matrix::new();
 
     let mut penalties = [0u32; 8];
     let mut selected_mask = 0u8;
     let mut selected_penalty = u32::MAX;
     for mask in 0u8..8 {
-        let mut candidate = base;
+        candidate.reset_from(&base);
         candidate.apply_mask(mask);
         candidate.draw_format(mask);
         let penalty = penalty_score(&candidate);
@@ -287,28 +302,28 @@ pub fn encode_qr(frame: &[u8], output: &mut [u8; 529]) -> Result<QrMetadata, Kit
         }
     }
 
-    let mut selected = base;
-    selected.apply_mask(selected_mask);
-    selected.draw_format(selected_mask);
-    let packed = pack_with_quiet_zone(&selected);
-    output.copy_from_slice(&packed);
+    candidate.reset_from(&base);
+    candidate.apply_mask(selected_mask);
+    candidate.draw_format(selected_mask);
+    let mut packed = Secret::<PACKED_OUTPUT_BYTES>::zeroed();
+    pack_with_quiet_zone(&candidate, packed.as_mut_bytes());
+    output.copy_from_slice(packed.as_bytes());
 
-    Ok(QrMetadata {
+    QrMetadata {
         mask: selected_mask,
         penalties,
-    })
+    }
 }
 
-fn make_data_codewords(frame: &[u8]) -> [u8; DATA_CODEWORDS] {
-    let mut result = [0u8; DATA_CODEWORDS];
+fn make_data_codewords(frame: &[u8], result: &mut [u8; DATA_CODEWORDS]) {
     let mut bit_length = 0usize;
 
-    append_bits(0b0100, 4, &mut result, &mut bit_length);
-    append_bits(FRAME_LEN as u32, 16, &mut result, &mut bit_length);
+    append_bits(0b0100, 4, result, &mut bit_length);
+    append_bits(FRAME_LEN as u32, 16, result, &mut bit_length);
     for &byte in frame {
-        append_bits(u32::from(byte), 8, &mut result, &mut bit_length);
+        append_bits(u32::from(byte), 8, result, &mut bit_length);
     }
-    append_bits(0, 4, &mut result, &mut bit_length);
+    append_bits(0, 4, result, &mut bit_length);
 
     debug_assert_eq!(bit_length, 1_160);
     debug_assert_eq!(bit_length % 8, 0);
@@ -319,7 +334,6 @@ fn make_data_codewords(frame: &[u8]) -> [u8; DATA_CODEWORDS] {
         use_first_pad = !use_first_pad;
         byte_length += 1;
     }
-    result
 }
 
 fn append_bits(
@@ -338,38 +352,37 @@ fn append_bits(
     }
 }
 
-fn add_ecc_and_interleave(data: &[u8; DATA_CODEWORDS]) -> [u8; TOTAL_CODEWORDS] {
+fn add_ecc_and_interleave(data: &[u8; DATA_CODEWORDS], result: &mut [u8; TOTAL_CODEWORDS]) {
     let divisor = reed_solomon_divisor();
-    let mut blocks = [[0u8; LONG_DATA_CODEWORDS]; BLOCK_COUNT];
-    let mut ecc = [[0u8; ECC_CODEWORDS_PER_BLOCK]; BLOCK_COUNT];
-    let mut data_offset = 0usize;
+    let mut ecc = Secret::<{ BLOCK_COUNT * ECC_CODEWORDS_PER_BLOCK }>::zeroed();
 
     for block in 0..BLOCK_COUNT {
         let length = block_data_length(block);
-        blocks[block][..length].copy_from_slice(&data[data_offset..data_offset + length]);
-        ecc[block] = reed_solomon_remainder(&blocks[block][..length], &divisor);
-        data_offset += length;
+        let data_offset = block_data_offset(block);
+        let ecc_offset = block * ECC_CODEWORDS_PER_BLOCK;
+        reed_solomon_remainder(
+            &data[data_offset..data_offset + length],
+            &divisor,
+            &mut ecc.as_mut_bytes()[ecc_offset..ecc_offset + ECC_CODEWORDS_PER_BLOCK],
+        );
     }
-    debug_assert_eq!(data_offset, DATA_CODEWORDS);
 
-    let mut result = [0u8; TOTAL_CODEWORDS];
     let mut output_offset = 0usize;
     for column in 0..LONG_DATA_CODEWORDS {
-        for (block_index, block) in blocks.iter().enumerate() {
-            if column < block_data_length(block_index) {
-                result[output_offset] = block[column];
+        for block in 0..BLOCK_COUNT {
+            if column < block_data_length(block) {
+                result[output_offset] = data[block_data_offset(block) + column];
                 output_offset += 1;
             }
         }
     }
     for column in 0..ECC_CODEWORDS_PER_BLOCK {
-        for block in &ecc {
-            result[output_offset] = block[column];
+        for block in 0..BLOCK_COUNT {
+            result[output_offset] = ecc.as_bytes()[block * ECC_CODEWORDS_PER_BLOCK + column];
             output_offset += 1;
         }
     }
     debug_assert_eq!(output_offset, TOTAL_CODEWORDS);
-    result
 }
 
 const fn block_data_length(block: usize) -> usize {
@@ -377,6 +390,14 @@ const fn block_data_length(block: usize) -> usize {
         SHORT_DATA_CODEWORDS
     } else {
         LONG_DATA_CODEWORDS
+    }
+}
+
+const fn block_data_offset(block: usize) -> usize {
+    if block < SHORT_BLOCK_COUNT {
+        block * SHORT_DATA_CODEWORDS
+    } else {
+        SHORT_BLOCK_COUNT * SHORT_DATA_CODEWORDS + (block - SHORT_BLOCK_COUNT) * LONG_DATA_CODEWORDS
     }
 }
 
@@ -396,11 +417,9 @@ fn reed_solomon_divisor() -> [u8; ECC_CODEWORDS_PER_BLOCK] {
     result
 }
 
-fn reed_solomon_remainder(
-    data: &[u8],
-    divisor: &[u8; ECC_CODEWORDS_PER_BLOCK],
-) -> [u8; ECC_CODEWORDS_PER_BLOCK] {
-    let mut result = [0u8; ECC_CODEWORDS_PER_BLOCK];
+fn reed_solomon_remainder(data: &[u8], divisor: &[u8; ECC_CODEWORDS_PER_BLOCK], result: &mut [u8]) {
+    debug_assert_eq!(result.len(), ECC_CODEWORDS_PER_BLOCK);
+    result.fill(0);
     for &byte in data {
         let factor = byte ^ result[0];
         result.copy_within(1..ECC_CODEWORDS_PER_BLOCK, 0);
@@ -409,7 +428,6 @@ fn reed_solomon_remainder(
             result[index] ^= gf_multiply(divisor[index], factor);
         }
     }
-    result
 }
 
 fn gf_multiply(left: u8, right: u8) -> u8 {
@@ -492,7 +510,13 @@ fn penalty_score(matrix: &Matrix) -> u32 {
         }
     }
 
-    let dark = matrix.modules.iter().copied().map(u32::from).sum::<u32>();
+    let dark = matrix
+        .modules
+        .as_bytes()
+        .iter()
+        .copied()
+        .map(u32::from)
+        .sum::<u32>();
     let total = CORE_MODULES as u32;
     let imbalance = (dark * 20).abs_diff(total * 10);
     let bands_outside_inclusive_range = imbalance.div_ceil(total);
@@ -501,8 +525,7 @@ fn penalty_score(matrix: &Matrix) -> u32 {
     n1 + n2 + n3 + n4
 }
 
-fn pack_with_quiet_zone(matrix: &Matrix) -> [u8; PACKED_OUTPUT_BYTES] {
-    let mut result = [0u8; PACKED_OUTPUT_BYTES];
+fn pack_with_quiet_zone(matrix: &Matrix, result: &mut [u8; PACKED_OUTPUT_BYTES]) {
     for y in 0..CORE_SIDE {
         for x in 0..CORE_SIDE {
             if matrix.module(x, y) == 0 {
@@ -515,12 +538,12 @@ fn pack_with_quiet_zone(matrix: &Matrix) -> [u8; PACKED_OUTPUT_BYTES] {
         }
     }
     debug_assert_eq!(result[PACKED_OUTPUT_BYTES - 1] & 0x7f, 0);
-    result
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{add_ecc_and_interleave, make_data_codewords};
+    use super::{add_ecc_and_interleave, encode_validated, make_data_codewords};
+    use crate::secret::{reset_wiped_bytes, wiped_bytes};
 
     const FIXTURE: &str = include_str!("../tests/fixtures/kit_share_v2.txt");
 
@@ -546,15 +569,28 @@ mod tests {
     fn both_golden_data_and_interleaved_codeword_streams_are_exact() {
         for suffix in ["1", "2"] {
             let frame = hex::<142>(field(&format!("frame_{suffix}_hex")));
-            let data = make_data_codewords(&frame);
+            let mut data = [0u8; 154];
+            make_data_codewords(&frame, &mut data);
             assert_eq!(
                 data,
                 hex::<154>(field(&format!("qr_{suffix}_data_codewords_hex")))
             );
+            let mut codewords = [0u8; 346];
+            add_ecc_and_interleave(&data, &mut codewords);
             assert_eq!(
-                add_ecc_and_interleave(&data),
+                codewords,
                 hex::<346>(field(&format!("qr_{suffix}_interleaved_codewords_hex")))
             );
         }
+    }
+
+    #[test]
+    fn every_share_bearing_qr_work_buffer_routes_through_volatile_wipe() {
+        let frame = hex::<142>(field("frame_1_hex"));
+        let mut output = [0u8; 529];
+        reset_wiped_bytes();
+        let metadata = encode_validated(&frame, &mut output);
+        assert!(metadata.mask < 8);
+        assert_eq!(wiped_bytes(), 154 + 346 + 192 + 2 * 3_249 + 529);
     }
 }
