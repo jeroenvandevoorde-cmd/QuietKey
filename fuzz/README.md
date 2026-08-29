@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-twenty-three libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+twenty-five libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -51,6 +51,15 @@ It locks both descriptor round trips, exact GOLDEN facts, the tier fence,
 every record-line rejection and precedence, nonce-derived names, all mock-SD
 faults and collisions, namespace preservation, deterministic repeat outcomes,
 and the absence of any partial valid artifact or residual fuzz artifact. The
+two v2 slice-7 `qk-kit` targets drive only the canonical Kit frame, M18
+fallback, deterministic logical QR, and opaque pair-combination boundaries.
+The codec target locks exact frame and fallback parsing precedence, canonical
+round trips, fixed QR metadata, and unchanged caller output on rejection. The
+combine target locks left-then-right frame validation, duplicate/same-index/
+wallet-mismatch precedence, caller-order invariance, deterministic outcomes,
+and the absence of premature payload release. Neither target creates a Kit,
+releases a combined payload, or reaches a scanner, camera, display, card,
+restore, spend, persistence, rendering, target, performance, or Gate path. The
 M27 `qk-host-sim` target drives
 the typed provisioning, signing, and recovery screen-flow transition machine
 through bounded event streams. It checks deterministic typed outcomes, the closed named
@@ -105,6 +114,8 @@ fuzz/run-bounded.sh qk_provisioning_v2_chain 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s5_screen 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s5_manual_keypad 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s6_watch_only 100000
+fuzz/run-bounded.sh qk_kit_v2_s7_codec 100000
+fuzz/run-bounded.sh qk_kit_v2_s7_combine 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a

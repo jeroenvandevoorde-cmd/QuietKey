@@ -224,6 +224,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qk-kit"
+version = "0.0.1"
+
+[[package]]
 name = "qk-provisioning"
 version = "0.0.1"
 dependencies = [
@@ -255,6 +259,7 @@ dependencies = [
  "qk-card-trace",
  "qk-descriptor",
  "qk-host-sim",
+ "qk-kit",
  "qk-provisioning",
  "qk-psbt",
  "qk-secp",

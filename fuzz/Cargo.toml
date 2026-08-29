@@ -18,6 +18,7 @@ qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1" }
 qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1" }
+qk-kit = { path = "../host/qk-kit", version = "=0.0.1" }
 qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1" }
 qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
 qk-secp = { path = "../host/qk-secp", version = "=0.0.1" }
@@ -179,6 +180,20 @@ bench = false
 [[bin]]
 name = "qk_host_sim_v2_s6_watch_only"
 path = "fuzz_targets/qk_host_sim_v2_s6_watch_only.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_kit_v2_s7_codec"
+path = "fuzz_targets/qk_kit_v2_s7_codec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_kit_v2_s7_combine"
+path = "fuzz_targets/qk_kit_v2_s7_combine.rs"
 test = false
 doc = false
 bench = false

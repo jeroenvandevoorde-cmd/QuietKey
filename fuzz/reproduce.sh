@@ -28,6 +28,8 @@ case "$target" in
   qk_host_sim_v2_s5_screen) max_len=2048; seed=125001 ;;
   qk_host_sim_v2_s5_manual_keypad) max_len=1024; seed=125002 ;;
   qk_host_sim_v2_s6_watch_only) max_len=4096; seed=126001 ;;
+  qk_kit_v2_s7_codec) max_len=512; seed=127001 ;;
+  qk_kit_v2_s7_combine) max_len=512; seed=127002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -f "$test_case" ] || { printf 'missing test case: %s\n' "$test_case" >&2; exit 2; }
