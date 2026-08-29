@@ -777,7 +777,15 @@ const fn numeric_key(key: KeypadKey) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{wipe, ScannerCandidateGuard, SecretBytes, WIPED_BYTES};
+    use super::{
+        wipe, KitInputModeV2, KitIntakeErrorV2, KitIntakeOutcomeV2, KitIntakeSessionV2,
+        ScannerCandidateGuard, SecretBytes, WIPED_BYTES,
+    };
+    use crate::{
+        FlowApplyOutcomeV2, FlowEventV2, FlowKindV2, KeypadKey, KitDoorV2, ScreenFlowV2,
+        ScreenKindV2,
+    };
+    use qk_kit::{encode_frame, ShareIndex};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     fn reset_wiped_bytes() {
@@ -789,6 +797,30 @@ mod tests {
     }
 
     use core::cell::Cell;
+
+    fn flow_at_share_one() -> ScreenFlowV2 {
+        let mut flow = ScreenFlowV2::new(FlowKindV2::Kit);
+        for (event, expected) in [
+            (
+                FlowEventV2::Key(KeypadKey::EqualsConfirmEnter),
+                ScreenKindV2::KitDoorSelection,
+            ),
+            (
+                FlowEventV2::SelectKitDoor(KitDoorV2::KitSpend),
+                ScreenKindV2::KitDoorConfirmation,
+            ),
+            (
+                FlowEventV2::ConfirmKitDoor(KitDoorV2::KitSpend),
+                ScreenKindV2::ScanKitShareOne,
+            ),
+        ] {
+            assert!(matches!(
+                flow.apply(event).unwrap(),
+                FlowApplyOutcomeV2::Continue(actual) if actual == expected
+            ));
+        }
+        flow
+    }
 
     #[test]
     fn fixed_secret_owner_wipes_on_drop() {
@@ -821,5 +853,55 @@ mod tests {
         wipe(&mut bytes);
         assert_eq!(bytes, [0u8; 19]);
         assert_eq!(wiped_bytes(), 19);
+    }
+
+    #[test]
+    fn live_session_drop_wipes_retained_first_frame_and_all_fixed_buffers() {
+        let mut session =
+            KitIntakeSessionV2::begin(flow_at_share_one(), KitInputModeV2::Scanner).unwrap();
+        let expected = encode_frame(ShareIndex::One, &[0x31; 32], &[0x52; 96]);
+        let mut candidate = expected;
+        assert!(matches!(
+            session.submit_scanner_frame(&mut candidate).unwrap(),
+            KitIntakeOutcomeV2::FirstShareAccepted(_)
+        ));
+        assert_eq!(session.first_frame.as_array(), &expected);
+
+        reset_wiped_bytes();
+        drop(session);
+        assert_eq!(wiped_bytes(), 2 * (142 + 228));
+    }
+
+    #[test]
+    fn live_fallback_session_wipes_during_unwind() {
+        let mut session =
+            KitIntakeSessionV2::begin(flow_at_share_one(), KitInputModeV2::Fallback).unwrap();
+        session.apply_fallback_key(KeypadKey::One).unwrap();
+        session.apply_fallback_key(KeypadKey::One).unwrap();
+        assert_eq!(session.fallback.as_array()[0], b'2');
+
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _session = session;
+            panic!("synthetic session unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), 2 * (142 + 228));
+    }
+
+    #[test]
+    fn named_rejection_clears_retained_fallback_before_return() {
+        let mut session =
+            KitIntakeSessionV2::begin(flow_at_share_one(), KitInputModeV2::Fallback).unwrap();
+        session.apply_fallback_key(KeypadKey::One).unwrap();
+        session.apply_fallback_key(KeypadKey::One).unwrap();
+        reset_wiped_bytes();
+        assert_eq!(
+            session.apply_fallback_key(KeypadKey::Nine).err(),
+            Some(KitIntakeErrorV2::InvalidFallbackRow)
+        );
+        assert_eq!(session.first_frame.as_array(), &[0u8; 142]);
+        assert_eq!(session.fallback.as_array(), &[0u8; 228]);
+        assert_eq!(wiped_bytes(), 142 + 228);
     }
 }
