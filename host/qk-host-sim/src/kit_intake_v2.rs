@@ -653,12 +653,6 @@ impl KitIntakeSessionV2 {
         &mut self,
         key: KeypadKey,
     ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
-        if self.fallback_len == FALLBACK_SYMBOLS {
-            return Err(self.fail(
-                KitIntakeErrorV2::FallbackFull,
-                WipingReasonV2::OperationFailed,
-            ));
-        }
         let Some(number) = numeric_key(key) else {
             let error = if self.pending_row.is_some() {
                 KitIntakeErrorV2::InvalidFallbackColumn
@@ -682,6 +676,12 @@ impl KitIntakeSessionV2 {
         if !(1..=8).contains(&number) {
             return Err(self.fail(
                 KitIntakeErrorV2::InvalidFallbackColumn,
+                WipingReasonV2::OperationFailed,
+            ));
+        }
+        if self.fallback_len == FALLBACK_SYMBOLS {
+            return Err(self.fail(
+                KitIntakeErrorV2::FallbackFull,
                 WipingReasonV2::OperationFailed,
             ));
         }

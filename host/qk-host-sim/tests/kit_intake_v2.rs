@@ -603,6 +603,33 @@ fn every_fallback_entry_rejection_is_distinct_terminal_and_non_retrying() {
     assert_eq!(progress.next_line(), None);
     assert_eq!(progress.next_column(), None);
     assert_eq!(
+        full.apply_fallback_key(KeypadKey::Nine).err(),
+        Some(KitIntakeErrorV2::InvalidFallbackRow)
+    );
+
+    let mut full = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    enter_fallback_without_submit(&mut full, &fallback(1));
+    assert!(matches!(
+        full.apply_fallback_key(KeypadKey::One).unwrap(),
+        KitIntakeOutcomeV2::Continue(_)
+    ));
+    assert_eq!(
+        full.apply_fallback_key(KeypadKey::Nine).err(),
+        Some(KitIntakeErrorV2::InvalidFallbackColumn)
+    );
+
+    let mut full = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    enter_fallback_without_submit(&mut full, &fallback(1));
+    full.apply_fallback_key(KeypadKey::One).unwrap();
+    assert_eq!(
         full.apply_fallback_key(KeypadKey::One).err(),
         Some(KitIntakeErrorV2::FallbackFull)
     );
@@ -665,6 +692,29 @@ fn modes_accept_only_their_selected_representation_at_both_pages() {
         Some(KitIntakeErrorV2::KitScannerModeMismatch)
     );
     assert_eq!(scanner_candidate, [0u8; FRAME_LEN]);
+
+    for second_page in [false, true] {
+        let mut fallback_session = KitIntakeSessionV2::begin(
+            flow_at_share_one(KitDoorV2::KitRestore),
+            KitInputModeV2::Fallback,
+        )
+        .unwrap();
+        if second_page {
+            first_accepted(submit_fallback(&mut fallback_session, &fallback(1)).unwrap());
+        }
+        assert_eq!(
+            fallback_session
+                .reject_foreign_input(KitForeignInputV2::Camera)
+                .err(),
+            Some(KitIntakeErrorV2::KitScannerModeMismatch)
+        );
+        assert_eq!(
+            fallback_session.terminal(),
+            Some(FlowTerminalV2::FailedWiped(
+                WipingReasonV2::KitScannerModeMismatch
+            ))
+        );
+    }
 
     for second_page in [false, true] {
         let mut scanner_session = KitIntakeSessionV2::begin(
