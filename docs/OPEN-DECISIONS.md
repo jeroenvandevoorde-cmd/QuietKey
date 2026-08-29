@@ -28,7 +28,7 @@ Exact values for every `OPEN — VALUE NOT AUTHORIZED IN F1` row in `docs/RESOUR
 
 ## OD-06 — Boot, update, and rollback
 
-Which boot, update, and rollback properties are achievable without mechanical redesign. Nothing about secure boot or update resilience may be assumed. Also open: which component parses boot/update artifacts — explicitly **not** `qk-io` (QK-REQ-PLT-012's ownership note leaves this open); the containment design for the bounded **userspace** SD filesystem parser (the kernel never mounts removable media — QK-REQ-TRN-009/010), whose containment evidence is QK-TST-SAN-004; and the procedure producing exact-target **air-gap verification** evidence (radio absence/permanent disablement — QK-REQ-PLT-008, QK-TST-AUD-007).
+Which boot, update, and rollback properties are achievable without mechanical redesign. Nothing about secure boot or update resilience may be assumed. Stage-02 physical blocker: determine whether the CM0 provides an OTP-backed secure-boot or root mechanism usable by QuietKey; the recorded expectation is likely no, and no such capability may be assumed without exact-target evidence. Also open: which component parses boot/update artifacts — explicitly **not** `qk-io` (QK-REQ-PLT-012's ownership note leaves this open); the containment design for the bounded **userspace** SD filesystem parser (the kernel never mounts removable media — QK-REQ-TRN-009/010), whose containment evidence is QK-TST-SAN-004; and the procedure producing exact-target **air-gap verification** evidence (radio absence/permanent disablement — QK-REQ-PLT-008, QK-TST-AUD-007).
 
 ## OD-07 — Human factors and kit materials
 

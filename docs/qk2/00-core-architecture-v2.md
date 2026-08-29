@@ -33,7 +33,7 @@ V2 removes Card C, three-account descriptors, every A1+C or B+C recovery route, 
 
 Each wallet has exactly two signing authorities:
 
-- **A** — terminal-held signing authority derived from Seed-A; and
+- **A** — a session-held signing authority derived from Seed-A, reconstructed only during an active authorized session by authenticating and decrypting A1 with A2, and never resident on the terminal at rest; and
 - **B** — the one required Key Card authority derived from Signer-B.
 
 The wallet descriptor is native mainnet P2WSH:
@@ -94,8 +94,9 @@ The ordinary custody objects are:
 | Card missing, both Kit envelopes intact | Kit-Spend sweep only. |
 | Card damaged but remains physically in hand, both Kit envelopes intact | Kit-Restore may provision one replacement B, after which A1+B performs the required fresh-wallet sweep. |
 | A1 unavailable, B remains in hand, both Kit envelopes intact | Kit-Restore may reprint A1 with a fresh nonce, after which A1+B performs the required fresh-wallet sweep. |
+| One Kit envelope is lost while A1 and B remain available | Use normal A1+B to sweep into a fresh wallet at convenience; do not recreate the missing envelope or Kit. |
 | Any Kit seal is doubtful, opened unexpectedly, photographed, or custody-ambiguous | Sweep immediately; do not restore in place. |
-| Only one Kit envelope available | No payload and no spending route. |
+| Only one Kit envelope is available and normal A1+B is unavailable | No Kit payload and no Kit spending route. |
 | Watch-only coordinator lacks complete UTXO knowledge | Do not claim a complete sweep; resolve coordinator state first. |
 
 Periodic seal checks are a product requirement. The expected interval and physical wording remain implementation/bench decisions until separately ratified.
@@ -255,6 +256,8 @@ No v2 command, role, slot, fixture, or screen may retain a Card C semantic. Proc
 
 Provisioning, replacement, power-cut behavior, atomicity, endurance, timing, and target cleanup remain Gate-B/C physical obligations. A replacement card may be written through Kit-Restore only when the user confirms the old card remains physically in hand. A missing card requires sweep, not replacement.
 
+The exact card protocol and open rescue tooling for commodity CCID/ISO-7816 readers must be published before release.
+
 ## 9. Transaction intake, review, and fee policy
 
 The immutable-input and previous-transaction proof rules remain. Every input must be descriptor-owned with no skip path. Change is reconstructed from D. Every non-change output is classified under the ratified six-template destination policy. SIGHASH_ALL remains mandatory.
@@ -333,6 +336,8 @@ The Kit's QR is a setup/recovery share format, not a transaction or coordinator 
 
 ## 13. Screen and ceremony principles
 
+The terminal powers on in calculator decoy mode. Outside an active authorized session it contains no wallet secret; the decoy is camouflage, not authorization.
+
 Every shake or manual transcript is echoed exactly for confirmation before acceptance. Each complete transcript receives a displayed commitment. The fixed derivation explanation renders no mnemonic, seed byte, transcript, A2, Kit-R material, or private key. The final wallet fingerprint is displayed.
 
 All displayed claims are factual. There is no randomness meter or statistical score. Review and result screens select only bound fact objects and do not recompute, normalize, or invent facts.
@@ -367,11 +372,13 @@ The v2 design explicitly covers:
 
 The design does not claim that software senses physical copying, proves destruction, proves sole possession, discovers all UTXOs without coordinator input, or supplies target constant-time/remanence evidence before the relevant Gates.
 
+Writable flash must never simulate or be described as an immutable root of trust.
+
 ## 16. Maturity gates
 
 - **Gate A** — fixed-camera readability, kit QR/fallback morphology, print geometry, dice-grid evidence, and physical user flows.
 - **Gate B** — required-card capability, optional setup spare, atomic provisioning, replacement constraints, endurance, timing, power-cut behavior, and CCID reachability.
-- **Gate C** — production-core allocation, cleanup, constant-time boundaries, complete protocol/resource registry, and hardware integration.
+- **Gate C** — reproducible release builds, production-core allocation, cleanup, constant-time boundaries, complete protocol/resource registry, and hardware integration.
 - **Gate D** — real storage, print/export lifecycle, interruption, power-cut, and artifact-custody evidence.
 - **Gate E** — end-to-end normal A1+B, Kit-Spend, Kit-Restore, seal response, replacement discipline, and product ceremony behavior on the target stack.
 
