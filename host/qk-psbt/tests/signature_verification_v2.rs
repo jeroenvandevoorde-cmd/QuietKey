@@ -186,6 +186,10 @@ fn zero_one_and_two_valid_signatures_have_exact_two_role_status() {
     let descriptor = descriptor();
     let mut psbt = base_s0();
     let digest = signing_digest(&psbt, &descriptor);
+    assert_eq!(
+        digest,
+        fixed_hex::<32>(field(SIGNING_FIXTURE, "bip143_digest_hex: "))
+    );
     let (role_a, role_b) = role_keys();
 
     let view = parse(&psbt, InputSource::MicroSd).unwrap();
@@ -357,6 +361,64 @@ fn sighash_precedence_exact_derivation_count_and_witness_match_are_locked() {
             .unwrap_err()
             .category,
         SemanticCategory::DescriptorWitnessScriptMismatch
+    );
+}
+
+#[test]
+fn malformed_der_and_high_s_reject_by_name() {
+    let descriptor = descriptor();
+    let base = base_s0();
+    let (role_a, _) = role_keys();
+
+    let mut malformed = base.clone();
+    insert_input_record(
+        &mut malformed,
+        &partial_key(&role_a),
+        &[0x30, 0x01, 0x00, SIGHASH_ALL],
+    );
+    let view = parse(&malformed, InputSource::MicroSd).unwrap();
+    assert_eq!(
+        analyze_descriptor_ownership_v2(&view, &descriptor)
+            .unwrap_err()
+            .category,
+        SemanticCategory::StrictDer
+    );
+
+    // Strict DER for r=1 and s=2^255. The required 00 prefix keeps s
+    // positive, while the value is strictly above the BIP146 low-S bound.
+    let mut high_s = vec![0x30, 0x26, 0x02, 0x01, 0x01, 0x02, 0x21, 0x00, 0x80];
+    high_s.extend_from_slice(&[0u8; 31]);
+    high_s.push(SIGHASH_ALL);
+    let mut high_s_psbt = base;
+    insert_input_record(&mut high_s_psbt, &partial_key(&role_a), &high_s);
+    let view = parse(&high_s_psbt, InputSource::MicroSd).unwrap();
+    assert_eq!(
+        analyze_descriptor_ownership_v2(&view, &descriptor)
+            .unwrap_err()
+            .category,
+        SemanticCategory::HighS
+    );
+}
+
+#[test]
+fn threshold_complete_does_not_skip_later_foreign_signature() {
+    let descriptor = descriptor();
+    let mut psbt = hex(field(SIGNING_FIXTURE, "threshold_complete_psbt_hex: "));
+    let (_, role_b) = role_keys();
+    let mut foreign = [0xff; 33];
+    foreign[0] = 0x03;
+    assert!(partial_key(&role_b).as_slice() < partial_key(&foreign).as_slice());
+
+    let mut signature = hex(field(SIGNING_FIXTURE, "role_a_der_hex: "));
+    signature.push(SIGHASH_ALL);
+    insert_input_record(&mut psbt, &partial_key(&foreign), &signature);
+
+    let view = parse(&psbt, InputSource::MicroSd).unwrap();
+    assert_eq!(
+        analyze_descriptor_ownership_v2(&view, &descriptor)
+            .unwrap_err()
+            .category,
+        SemanticCategory::PartialSignaturePubkeyNotInWitnessScript
     );
 }
 
