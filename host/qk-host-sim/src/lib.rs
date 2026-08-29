@@ -36,6 +36,9 @@
 //! V2 slice 5 adds a separate two-key setup, normal A1+B, and pre-scanner Kit
 //! topology. It selects only schema-v3, v2 provisioning, and final export facts,
 //! keeps DiceGrid unavailable, and stops Kit routes at typed slice-10/11 seams.
+//! V2 slice 6 adds a type-separated two-key BSMS/BIP389 coordinator artifact,
+//! exact descriptor round-trip binding, and the unchanged mock-SD lifecycle.
+//! It exposes no coordinator QR path and does not integrate the screen topology.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -61,6 +64,7 @@
 #![forbid(unsafe_code)]
 
 mod bsms;
+mod bsms_v2;
 mod export;
 mod finalization;
 mod finalization_v2;
@@ -74,11 +78,13 @@ pub mod screen_flow;
 pub mod screen_flow_v2;
 mod signing_v2;
 mod watch_only_export;
+mod watch_only_export_v2;
 
 #[path = "../../qk-psbt/src/sha256.rs"]
 mod transaction_sha256;
 
 pub use bsms::{BsmsError, BSMS_RECORD_BYTES};
+pub use bsms_v2::{BsmsErrorV2, BSMS_RECORD_BYTES_V2};
 pub use export::{
     ArtifactBindingError, ExportArtifactKind, ExportArtifacts, ExportNonce, FinalizedPsbtArtifact,
     KitTier, MockFileKind, MockSdFilesystem, QuantumShelterRawTransactionArtifact,
@@ -130,6 +136,13 @@ pub use watch_only_export::{
     WatchOnlyExportError, WatchOnlyExportNonce, WatchOnlyMockFileKind, WatchOnlyMockSdFilesystem,
     WatchOnlySdArtifactNames, WatchOnlySdExportError, WatchOnlySdExportFault, WatchOnlySdFileName,
     WatchOnlySdLifecycleEvent, WatchOnlySdPublishedArtifact,
+};
+pub use watch_only_export_v2::{
+    WatchOnlyArtifactMetadataV2, WatchOnlyBsmsArtifactV2, WatchOnlyCoordinatorTierV2,
+    WatchOnlyExportArtifactsV2, WatchOnlyExportErrorV2, WatchOnlyExportNonceV2,
+    WatchOnlyMockFileKindV2, WatchOnlyMockSdFilesystemV2, WatchOnlySdArtifactNamesV2,
+    WatchOnlySdExportErrorV2, WatchOnlySdExportFaultV2, WatchOnlySdFileNameV2,
+    WatchOnlySdLifecycleEventV2, WatchOnlySdPublishedArtifactV2,
 };
 
 use qk_descriptor::DescriptorPair;
