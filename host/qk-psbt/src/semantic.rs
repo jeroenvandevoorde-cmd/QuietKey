@@ -1490,6 +1490,16 @@ pub fn analyze_semantic_subset<'a>(
 /// unreachable and exceeding it is an internal invariant violation.
 const MAX_VERIFICATION_CALLS: usize = 1_500;
 
+/// Exact HOST bound on existing-signature verification calls for the
+/// two-role v2 descriptor path.
+///
+/// Every accepted input has exactly the A and B descriptor members, so at
+/// most two partial signatures can reach the cryptographic verifier per
+/// input. The structural input cap is 100, giving `100 * 2 = 200` calls.
+pub const MAX_DESCRIPTOR_V2_VERIFICATION_CALLS: usize = 200;
+
+const _: [(); MAX_DESCRIPTOR_V2_VERIFICATION_CALLS] = [(); limits::MAX_INPUTS * 2];
+
 /// Per-input cryptographic verification status (M8). A status is a
 /// verified fact about existing partial signatures only; it is not an
 /// authorization and bypasses no later S4/S7, ownership, or change
@@ -1683,12 +1693,14 @@ fn verification_screen(
 enum VerificationScriptSource<'a> {
     Recorded,
     Descriptor(&'a [DerivedScript]),
+    DescriptorV2(&'a [DerivedScriptV2]),
 }
 
 fn verification_phase(
     view: &PsbtView<'_>,
     candidate: &SemanticCandidate<'_>,
     script_source: VerificationScriptSource<'_>,
+    max_verification_calls: usize,
 ) -> Result<(Vec<VerifiedInputFacts>, VerifiedAggregateStatus), SemanticError> {
     let global_offset = view.unsigned_tx().span.start;
     let mut builder = Bip143PrecomputeBuilder::new();
@@ -1735,6 +1747,17 @@ fn verification_phase(
                     MultisigForm {
                         required_m: 2,
                         total_n: 3,
+                    },
+                    map_start,
+                )
+            }
+            VerificationScriptSource::DescriptorV2(scripts) => {
+                let derived = scripts.get(i).ok_or(invariant)?;
+                (
+                    derived.witness_script.as_slice(),
+                    MultisigForm {
+                        required_m: 2,
+                        total_n: 2,
                     },
                     map_start,
                 )
@@ -1803,7 +1826,7 @@ fn verification_phase(
                 )
             })?;
             verification_calls = verification_calls.saturating_add(1);
-            if verification_calls > MAX_VERIFICATION_CALLS {
+            if verification_calls > max_verification_calls {
                 return Err(invariant);
             }
             match qk_secp::ecdsa_verify(&signature, &digest, &pubkey) {
@@ -1885,8 +1908,12 @@ pub fn analyze_and_verify_signatures<'a>(
     signature_phase(view, &mut state.work)?;
     token_phase(view, &state)?;
     let candidate = assemble(view, state)?;
-    let (verified_inputs, aggregate_status) =
-        verification_phase(view, &candidate, VerificationScriptSource::Recorded)?;
+    let (verified_inputs, aggregate_status) = verification_phase(
+        view,
+        &candidate,
+        VerificationScriptSource::Recorded,
+        MAX_VERIFICATION_CALLS,
+    )?;
     Ok(VerifiedSemanticCandidate {
         candidate,
         verified_inputs,
@@ -1905,8 +1932,9 @@ const BIP48_COIN_TYPE: u32 = 0x8000_0000;
 const BIP48_ACCOUNT: u32 = 0x8000_0000;
 const BIP48_SCRIPT_TYPE: u32 = 0x8000_0002;
 
-/// One input whose exact A/B/C derivation claims, reconstructed script,
-/// optional witnessScript, and selected prevout all cohered with D.
+/// One input whose complete required descriptor-role derivation claims,
+/// reconstructed script, optional witnessScript, and selected prevout all
+/// cohered with D.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProvenWalletInput {
     /// Descriptor branch: receive 0 or change 1.
@@ -1918,7 +1946,7 @@ pub struct ProvenWalletInput {
 /// Descriptor-backed fact about one unsigned transaction output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputOwnership {
-    /// No complete coherent A/B/C proof was present. This is neither
+    /// No complete coherent required-role proof was present. This is neither
     /// recipient authorization nor a renderability decision.
     NotProvenOwned,
     /// Exact branch-1 descriptor script at this child index.
@@ -1927,7 +1955,7 @@ pub enum OutputOwnership {
     ProvenSelfTransfer(u32),
 }
 
-/// M12 wallet facts, separate from structural and cryptographic facts.
+/// Descriptor wallet facts, separate from structural and cryptographic facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DescriptorWalletFacts {
     /// Every input, in unsigned-transaction order.
@@ -1936,7 +1964,7 @@ pub struct DescriptorWalletFacts {
     pub outputs: Vec<OutputOwnership>,
 }
 
-/// M12 result: a record-truthful semantic candidate, existing
+/// Descriptor-backed result: a record-truthful semantic candidate, existing
 /// cryptographic facts over D-reconstructed effective scripts, and
 /// separate wallet facts. No field authenticates D or authorizes a
 /// recipient, signing, finalization, or export.
@@ -2366,6 +2394,7 @@ pub fn analyze_descriptor_ownership<'a>(
         view,
         &candidate,
         VerificationScriptSource::Descriptor(&effective_scripts),
+        MAX_VERIFICATION_CALLS,
     )?;
 
     let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
@@ -2678,6 +2707,89 @@ fn classify_descriptor_output_v2(
             map_start,
         )),
     }
+}
+
+/// Analyze one structurally parsed PSBT v0 against one caller-supplied,
+/// already-authenticated two-role v2 descriptor pair and cryptographically
+/// verify every existing partial signature.
+///
+/// HOST-ONLY READ-ONLY FACTS. Structural checks and signature syntax run
+/// before descriptor proof. Every input then proves exact A/B derivation
+/// records, reconstructed witness script, and selected-prevout commitment.
+/// Missing witness-script records are permitted because the authenticated
+/// descriptor reconstruction supplies the exact script used for BIP143
+/// verification. Every present partial signature must name one of those two
+/// script members and verify against the exact input digest; no record is
+/// skipped. This function performs no signing, insertion, finalization,
+/// export, approval, session, or policy action.
+///
+/// Cryptographic calls are bounded by
+/// [`MAX_DESCRIPTOR_V2_VERIFICATION_CALLS`].
+///
+/// # Errors
+///
+/// Returns the first [`SemanticError`] in deterministic structural, input,
+/// record, descriptor, cryptographic, then output order.
+pub fn analyze_descriptor_ownership_v2<'a>(
+    view: &PsbtView<'a>,
+    descriptor: &DescriptorPairV2,
+) -> Result<DescriptorOwnershipAnalysis<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    verification_screen(view, &state, false)?;
+    signature_phase(view, &mut state.work)?;
+    token_phase(view, &state)?;
+
+    let global_offset = view.unsigned_tx().span.start;
+    let fingerprints = unique_descriptor_fingerprints_v2(descriptor, global_offset)?;
+    let mut derivation_calls = 0usize;
+
+    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
+    let mut effective_scripts: Vec<DerivedScriptV2> = Vec::new();
+    reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
+    for (input_index, work) in state.work.iter().enumerate() {
+        let (wallet_input, script) = prove_descriptor_input_v2(
+            view,
+            descriptor,
+            &fingerprints,
+            input_index,
+            work,
+            &mut derivation_calls,
+        )?;
+        wallet_inputs.push(wallet_input);
+        effective_scripts.push(script);
+    }
+
+    let candidate = assemble(view, state)?;
+    let (verified_inputs, aggregate_status) = verification_phase(
+        view,
+        &candidate,
+        VerificationScriptSource::DescriptorV2(&effective_scripts),
+        MAX_DESCRIPTOR_V2_VERIFICATION_CALLS,
+    )?;
+
+    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
+    for (output_index, output) in candidate.outputs.iter().enumerate() {
+        wallet_outputs.push(classify_descriptor_output_v2(
+            view,
+            descriptor,
+            &fingerprints,
+            output_index,
+            output,
+            &mut derivation_calls,
+        )?);
+    }
+
+    Ok(DescriptorOwnershipAnalysis {
+        candidate,
+        verified_inputs,
+        aggregate_status,
+        wallet: DescriptorWalletFacts {
+            inputs: wallet_inputs,
+            outputs: wallet_outputs,
+        },
+    })
 }
 
 // ====================================================================

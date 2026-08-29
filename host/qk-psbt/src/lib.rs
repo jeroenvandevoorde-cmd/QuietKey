@@ -133,11 +133,12 @@ pub use review_v3::{
     MAX_REVIEW_V3_HASH_TRANSCRIPT_BYTES, REVIEW_V3_HASH_DOMAIN, REVIEW_V3_SCHEMA_VERSION,
 };
 pub use semantic::{
-    analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_recipient_script_facts,
-    analyze_semantic_subset, DescriptorOwnershipAnalysis, DescriptorWalletFacts,
-    InputSemanticFacts, InputSignatureStatus, MalformedPush, MultisigForm, OutputOwnership,
-    OutputSemanticFacts, ProvenWalletInput, RecipientScriptAnalysis, RecipientScriptFacts,
-    RecipientType, ScriptToken, ScriptTokens, SemanticCandidate, SemanticCategory, SemanticError,
-    VerifiedAggregateStatus, VerifiedInputFacts, VerifiedInputStatus, VerifiedSemanticCandidate,
+    analyze_and_verify_signatures, analyze_descriptor_ownership, analyze_descriptor_ownership_v2,
+    analyze_recipient_script_facts, analyze_semantic_subset, DescriptorOwnershipAnalysis,
+    DescriptorWalletFacts, InputSemanticFacts, InputSignatureStatus, MalformedPush, MultisigForm,
+    OutputOwnership, OutputSemanticFacts, ProvenWalletInput, RecipientScriptAnalysis,
+    RecipientScriptFacts, RecipientType, ScriptToken, ScriptTokens, SemanticCandidate,
+    SemanticCategory, SemanticError, VerifiedAggregateStatus, VerifiedInputFacts,
+    VerifiedInputStatus, VerifiedSemanticCandidate, MAX_DESCRIPTOR_V2_VERIFICATION_CALLS,
 };
 pub use serialize::{canonical_serialize, SerializeError};
