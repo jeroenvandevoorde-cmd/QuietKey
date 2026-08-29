@@ -169,8 +169,9 @@ fn intended_public_types_are_available_without_new_capability_types() {
 #[test]
 fn kit_intake_has_one_private_wipe_boundary_and_no_dynamic_storage() {
     assert!(LIB.contains("#![deny(unsafe_code)]"));
-    assert!(LIB.contains("#[allow(unsafe_code)]\nmod kit_intake_v2;"));
+    assert!(!LIB.contains("#[allow(unsafe_code)]\nmod kit_intake_v2;"));
     assert!(KIT_INTAKE.contains("#![deny(unsafe_op_in_unsafe_fn)]"));
+    assert!(KIT_INTAKE.contains("#[allow(unsafe_code)]\n#[inline(never)]\nfn wipe("));
     assert_eq!(KIT_INTAKE.matches("unsafe {").count(), 1);
     for forbidden in [
         "Box<",

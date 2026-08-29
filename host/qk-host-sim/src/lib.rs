@@ -73,7 +73,6 @@ mod export;
 mod finalization;
 mod finalization_v2;
 mod insertion;
-#[allow(unsafe_code)]
 mod kit_intake_v2;
 mod m24_signing;
 mod manual_keypad;

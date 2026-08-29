@@ -32,6 +32,7 @@ const _: () = assert!(FALLBACK_SYMBOLS == 228);
 const _: () = assert!(FALLBACK_LINES == 4);
 
 /// Clear share-equivalent fixed-size bytes with observable writes.
+#[allow(unsafe_code)]
 #[inline(never)]
 fn wipe(bytes: &mut [u8]) {
     #[cfg(test)]
