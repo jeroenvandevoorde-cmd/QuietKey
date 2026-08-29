@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-twenty-two libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+twenty-three libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -45,7 +45,13 @@ interruption wipe set, immutable Kit-door and approval identities, honest
 slice-10/slice-11 deferred terminals, state-preserving keypad rejections,
 four-buffer retention through reuse detection, and no C-role or Kit capability
 release. M25 reuse is limited to its unchanged export-artifact types and
-metadata semantics over v2 slice-3 finalized facts. The M27 `qk-host-sim` target drives
+metadata semantics over v2 slice-3 finalized facts. The v2 slice-6 target
+drives only the two-key watch-only construction and mock-SD publication path.
+It locks both descriptor round trips, exact GOLDEN facts, the tier fence,
+every record-line rejection and precedence, nonce-derived names, all mock-SD
+faults and collisions, namespace preservation, deterministic repeat outcomes,
+and the absence of any partial valid artifact or residual fuzz artifact. The
+M27 `qk-host-sim` target drives
 the typed provisioning, signing, and recovery screen-flow transition machine
 through bounded event streams. It checks deterministic typed outcomes, the closed named
 error surface, fixed-order review visitation, approval identity binding,
@@ -98,6 +104,7 @@ fuzz/run-bounded.sh qk_provisioning_v2_inputs 100000
 fuzz/run-bounded.sh qk_provisioning_v2_chain 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s5_screen 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s5_manual_keypad 100000
+fuzz/run-bounded.sh qk_host_sim_v2_s6_watch_only 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -135,4 +142,6 @@ two completed v2 slice-5 campaigns are registered separately in
 `CORPUS-MANIFEST-V2-S5.tsv` and recorded together in `CAMPAIGN-011.md`. Both
 slice-5 targets executed 100,000 inputs, reached exact two-copy minimization
 fixed points, and replayed their hash-registered corpora under the pinned
-toolchain.
+toolchain. The v2 slice-6 corpus will be registered separately in
+`CORPUS-MANIFEST-V2-S6.tsv` and its completed run recorded in
+`CAMPAIGN-012.md`.
