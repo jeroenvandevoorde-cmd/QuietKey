@@ -218,6 +218,7 @@ dependencies = [
  "qk-bbqr",
  "qk-descriptor",
  "qk-host-model",
+ "qk-kit",
  "qk-provisioning",
  "qk-psbt",
  "qk-secp",
