@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-eighteen libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+twenty libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -30,9 +30,17 @@ also includes two M26 `qk-provisioning` targets: one drives canonical QKEC-1,
 dice, and same-run nonce state through hostile boundary inputs; the other drives
 the deterministic public full chain and reparses every descriptor, address, and
 capsule result. Both assert repeat consistency, named rejection, and the absence
-of partial artifacts. The M27 `qk-host-sim` target drives the typed
-provisioning, signing, and recovery screen-flow transition machine through
-bounded event streams. It checks deterministic typed outcomes, the closed named
+of partial artifacts. Those M26 targets and their corpus partition remain
+byte-frozen v1 migration residue. The separate v2 slice-4 inputs target drives
+only `HostProvisioningRunV2::from_manual_dice` and nonce state across hostile
+shape, symbol, all-six-pair reuse, and precedence cases. Its chain target drives
+valid pairwise-distinct transcripts through the public A/B wallet and A1 facts,
+then strictly reparses the v2 descriptors, scripts, addresses, and capsule.
+Both demand stable named outcomes, exact repeat consistency, no partial
+artifact, and public-artifact-only observations while the setup payload and
+Kit-R pad remain opaque run-owned values. The M27 `qk-host-sim` target drives
+the typed provisioning, signing, and recovery screen-flow transition machine
+through bounded event streams. It checks deterministic typed outcomes, the closed named
 error surface, fixed-order review visitation, approval identity binding,
 post-approval no-yield behavior, interruption wiping, terminal stability, and
 exact fact forwarding from public frozen fixture objects. This area changes no
@@ -79,6 +87,8 @@ fuzz/run-bounded.sh qk_host_sim_m28 100000
 fuzz/run-bounded.sh qk_host_sim_m29 100000
 fuzz/run-bounded.sh qk_bbqr_m30 100000
 fuzz/run-bounded.sh qk_host_sim_m30 100000
+fuzz/run-bounded.sh qk_provisioning_v2_inputs 100000
+fuzz/run-bounded.sh qk_provisioning_v2_chain 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -109,3 +119,9 @@ pass changed neither set; only matching sorted `SHA-256<TAB>bytes` sets
 replaced the persistent directories. The M23 registry retained its separate
 `qk_psbt_m23` source pin, the M24 registry advanced to generation V2, and both
 retained corpora replayed clean under the pinned toolchain.
+
+The two v2 slice-4 campaigns are registered separately in
+`CORPUS-MANIFEST-V2-S4.tsv` and recorded together in `CAMPAIGN-010.md`. The
+campaign record remains `TBD` until both qualifying 100,000-input runs,
+two-copy minimization agreement, manifest rendering, and retained-corpus replay
+have executed under the pinned toolchain.

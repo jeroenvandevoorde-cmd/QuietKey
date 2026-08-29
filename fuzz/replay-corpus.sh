@@ -22,6 +22,8 @@ case "$target" in
   qk_host_sim_m29) max_len=1024; seed=29001 ;;
   qk_bbqr_m30) max_len=4297; seed=30001 ;;
   qk_host_sim_m30) max_len=4096; seed=30002 ;;
+  qk_provisioning_v2_inputs) max_len=1024; seed=124001 ;;
+  qk_provisioning_v2_chain) max_len=512; seed=124002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 
