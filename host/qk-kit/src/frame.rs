@@ -153,3 +153,57 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     }
     difference == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{frame_digest, validate, CHECKSUM_OFFSET};
+    use crate::{combine_frames, encode_frame, KitError, ShareIndex};
+
+    fn reseal(frame: &mut [u8; 142]) {
+        let digest = frame_digest(&frame[..CHECKSUM_OFFSET]);
+        frame[CHECKSUM_OFFSET..].copy_from_slice(&digest[..8]);
+    }
+
+    #[test]
+    fn frame_rejection_precedence_is_exact() {
+        let wallet_id = [0x11u8; 32];
+        let share = [0x22u8; 96];
+        let valid = encode_frame(ShareIndex::One, &wallet_id, &share);
+        assert_eq!(validate(&valid[..141]).err(), Some(KitError::FrameLength));
+
+        let mut candidate = valid;
+        candidate[0] ^= 1;
+        assert_eq!(validate(&candidate).err(), Some(KitError::FrameChecksum));
+        reseal(&mut candidate);
+        assert_eq!(validate(&candidate).err(), Some(KitError::InvalidMagic));
+
+        candidate = valid;
+        candidate[4] = 2;
+        reseal(&mut candidate);
+        assert_eq!(
+            validate(&candidate).err(),
+            Some(KitError::UnsupportedVersion)
+        );
+
+        candidate = valid;
+        candidate[5] = 3;
+        reseal(&mut candidate);
+        assert_eq!(
+            validate(&candidate).err(),
+            Some(KitError::InvalidShareIndex)
+        );
+    }
+
+    #[test]
+    fn combination_normalizes_indices_and_owns_the_exact_xor() {
+        let wallet_id = [0x33u8; 32];
+        let one = [0x55u8; 96];
+        let two = [0xaau8; 96];
+        let frame_one = encode_frame(ShareIndex::One, &wallet_id, &one);
+        let frame_two = encode_frame(ShareIndex::Two, &wallet_id, &two);
+        let forward = combine_frames(&frame_one, &frame_two).unwrap();
+        let reverse = combine_frames(&frame_two, &frame_one).unwrap();
+        assert_eq!(forward._bytes.as_bytes(), &[0xffu8; 96]);
+        assert_eq!(reverse._bytes.as_bytes(), &[0xffu8; 96]);
+    }
+}

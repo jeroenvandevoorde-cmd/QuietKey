@@ -517,3 +517,44 @@ fn pack_with_quiet_zone(matrix: &Matrix) -> [u8; PACKED_OUTPUT_BYTES] {
     debug_assert_eq!(result[PACKED_OUTPUT_BYTES - 1] & 0x7f, 0);
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{add_ecc_and_interleave, make_data_codewords};
+
+    const FIXTURE: &str = include_str!("../tests/fixtures/kit_share_v2.txt");
+
+    fn field(name: &str) -> &str {
+        let prefix = format!("{name}: ");
+        FIXTURE
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .expect("fixture field")
+    }
+
+    fn hex<const N: usize>(value: &str) -> [u8; N] {
+        assert_eq!(value.len(), N * 2);
+        let mut output = [0u8; N];
+        for (index, slot) in output.iter_mut().enumerate() {
+            let pair = &value.as_bytes()[index * 2..index * 2 + 2];
+            *slot = u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap();
+        }
+        output
+    }
+
+    #[test]
+    fn both_golden_data_and_interleaved_codeword_streams_are_exact() {
+        for suffix in ["1", "2"] {
+            let frame = hex::<142>(field(&format!("frame_{suffix}_hex")));
+            let data = make_data_codewords(&frame);
+            assert_eq!(
+                data,
+                hex::<154>(field(&format!("qr_{suffix}_data_codewords_hex")))
+            );
+            assert_eq!(
+                add_ecc_and_interleave(&data),
+                hex::<346>(field(&format!("qr_{suffix}_interleaved_codewords_hex")))
+            );
+        }
+    }
+}

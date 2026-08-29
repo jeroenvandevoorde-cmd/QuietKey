@@ -55,3 +55,17 @@ impl<const N: usize> Drop for Secret<N> {
         wipe(&mut self.bytes);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Secret;
+
+    #[test]
+    fn taking_secret_bytes_clears_the_caller_scratch() {
+        let mut scratch = [0x5au8; 96];
+        let owner = Secret::take(&mut scratch);
+        assert_eq!(scratch, [0u8; 96]);
+        assert_eq!(owner.as_bytes(), &[0x5au8; 96]);
+        drop(owner);
+    }
+}
