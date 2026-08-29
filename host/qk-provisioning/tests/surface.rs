@@ -1,4 +1,4 @@
-//! Frozen M26 residue plus the exact v2 slice-4 public and secret surfaces.
+//! Frozen M26 residue plus the exact v2 slice-4 and slice-8 surfaces.
 
 const LIB: &str = include_str!("../src/lib.rs");
 const BIP39: &str = include_str!("../src/bip39.rs");
@@ -8,6 +8,7 @@ const DESCRIPTOR: &str = include_str!("../src/descriptor_build.rs");
 const DESCRIPTOR_V2: &str = include_str!("../src/descriptor_build_v2.rs");
 const DICE: &str = include_str!("../src/dice.rs");
 const KIT_R: &str = include_str!("../src/kit_r.rs");
+const KIT_SETUP: &str = include_str!("../src/kit_setup_v2.rs");
 const QKEC: &str = include_str!("../src/qkec.rs");
 const SECRET: &str = include_str!("../src/secret.rs");
 const SHA256: &str = include_str!("../src/sha256.rs");
@@ -28,6 +29,7 @@ fn public_surface_is_exactly_error_artifacts_and_run_operations() {
     assert_eq!(
         public_lines,
         [
+            "pub use kit_setup_v2::{",
             "pub enum ProvisioningError {",
             "pub struct ProvisioningArtifacts {",
             "pub account_xpubs: [[u8; 111]; 3],",
@@ -69,7 +71,6 @@ fn public_surface_is_exactly_error_artifacts_and_run_operations() {
     }
     for forbidden in [
         "pub mod ",
-        "pub use ",
         "pub fn mnemonic",
         "pub fn seed",
         "pub fn xprv",
@@ -88,6 +89,31 @@ fn public_surface_is_exactly_error_artifacts_and_run_operations() {
             "forbidden public surface {forbidden}"
         );
     }
+    let kit_public_lines: Vec<&str> = KIT_SETUP
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| line.starts_with("pub "))
+        .collect();
+    assert_eq!(
+        kit_public_lines,
+        [
+            "pub enum KitCopyV2 {",
+            "pub enum KitShareIndexV2 {",
+            "pub enum KitPageDispositionV2 {",
+            "pub struct KitPrintPageV2<'page> {",
+            "pub const fn copy(&self) -> KitCopyV2 {",
+            "pub const fn share_index(&self) -> KitShareIndexV2 {",
+            "pub const fn wallet_id(&self) -> &[u8; 32] {",
+            "pub const fn qr_metadata(&self) -> QrMetadata {",
+            "pub fn fallback_line(&self, line: usize) -> Option<&[u8; FALLBACK_LINE_SYMBOLS]> {",
+            "pub const fn qr_packed(&self) -> &[u8; QR_PACKED_BYTES] {",
+            "pub struct KitSetupReceiptV2 {",
+            "pub const fn wallet_id(&self) -> [u8; 32] {",
+            "pub const fn copy_count(&self) -> u8 {",
+            "pub const fn page_count(&self) -> u8 {",
+            "pub fn emit_two_kit_copies<F>(self, mut sink: F) -> Result<KitSetupReceiptV2, ProvisioningError>",
+        ]
+    );
 }
 
 #[test]
@@ -146,6 +172,39 @@ fn fixed_constants_and_private_traits_are_source_locked() {
     assert!(!LIB.contains("impl Debug for HostProvisioningRunV2"));
     assert!(!LIB.contains("impl Display for HostProvisioningRunV2"));
     assert!(!LIB.contains("impl PartialEq for HostProvisioningRunV2"));
+    for forbidden in [
+        "impl Clone for KitPrintPageV2",
+        "impl Copy for KitPrintPageV2",
+        "impl Debug for KitPrintPageV2",
+        "impl Display for KitPrintPageV2",
+        "impl PartialEq for KitPrintPageV2",
+        "pub fn frame",
+        "pub fn share",
+        "pub fn payload",
+        "pub fn pad",
+        "pub fn regenerate",
+        "pub fn retry",
+    ] {
+        assert!(
+            !KIT_SETUP.contains(forbidden),
+            "forbidden Kit setup surface {forbidden}"
+        );
+    }
+    for required in [
+        "const PAGE_BUFFER_BYTES: usize = FRAME_LEN + FALLBACK_SYMBOLS + QR_PACKED_BYTES;",
+        "const _: () = assert!(PAGE_BUFFER_BYTES == 899);",
+        "(KitCopyV2::One, KitShareIndexV2::One),",
+        "(KitCopyV2::One, KitShareIndexV2::Two),",
+        "(KitCopyV2::Two, KitShareIndexV2::One),",
+        "(KitCopyV2::Two, KitShareIndexV2::Two),",
+        "buffers.wipe_all();",
+        "let share_two = Secret::take(&mut share_two_scratch);",
+    ] {
+        assert!(
+            KIT_SETUP.contains(required),
+            "missing setup lock {required}"
+        );
+    }
 
     let v2_start = LIB
         .find("pub struct HostProvisioningRunV2")
@@ -252,6 +311,7 @@ fn production_sources_have_no_io_randomness_and_only_secret_unsafe_boundary() {
         DESCRIPTOR_V2,
         DICE,
         KIT_R,
+        KIT_SETUP,
         QKEC,
         SHA256,
         SHA512,
@@ -312,7 +372,7 @@ fn production_sources_have_no_io_randomness_and_only_secret_unsafe_boundary() {
 }
 
 #[test]
-fn manifest_has_only_three_reviewed_internal_dependencies() {
+fn manifest_has_only_four_reviewed_internal_dependencies() {
     let dependency_tail = MANIFEST
         .split_once("[dependencies]\n")
         .expect("dependency section")
@@ -326,6 +386,7 @@ fn manifest_has_only_three_reviewed_internal_dependencies() {
         [
             "qk-a1 = { path = \"../qk-a1\" }",
             "qk-descriptor = { path = \"../qk-descriptor\" }",
+            "qk-kit = { path = \"../qk-kit\" }",
             "qk-secp = { path = \"../qk-secp\" }",
         ]
     );
