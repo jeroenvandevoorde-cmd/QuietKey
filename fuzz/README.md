@@ -131,7 +131,8 @@ retained corpora replayed clean under the pinned toolchain.
 
 The two v2 slice-4 campaigns are registered separately in
 `CORPUS-MANIFEST-V2-S4.tsv` and recorded together in `CAMPAIGN-010.md`. The
-two v2 slice-5 campaigns use the separate `CORPUS-MANIFEST-V2-S5.tsv` and
-`CAMPAIGN-011.md`. Each campaign record becomes complete only after both
-qualifying 100,000-input runs, two-copy minimization agreement, manifest
-rendering, and retained-corpus replay have executed under the pinned toolchain.
+two completed v2 slice-5 campaigns are registered separately in
+`CORPUS-MANIFEST-V2-S5.tsv` and recorded together in `CAMPAIGN-011.md`. Both
+slice-5 targets executed 100,000 inputs, reached exact two-copy minimization
+fixed points, and replayed their hash-registered corpora under the pinned
+toolchain.
