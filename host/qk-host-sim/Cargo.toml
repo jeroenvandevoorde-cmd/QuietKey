@@ -3,11 +3,12 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only HOST seams through M28 watch-only export. No renderer, display, approval authority, real media I/O, or target claim."
+description = "Library-only HOST seams through v2 slice 9 Kit intake. No renderer, display, approval authority, real media I/O, or target claim."
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }
 qk-host-model = { path = "../qk-host-model" }
+qk-kit = { path = "../qk-kit" }
 qk-psbt = { path = "../qk-psbt" }
 qk-descriptor = { path = "../qk-descriptor" }
 qk-provisioning = { path = "../qk-provisioning" }

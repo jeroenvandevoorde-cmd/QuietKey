@@ -39,6 +39,10 @@
 //! V2 slice 6 adds a type-separated two-key BSMS/BIP389 coordinator artifact,
 //! exact descriptor round-trip binding, and the unchanged mock-SD lifecycle.
 //! It exposes no coordinator QR path and does not integrate the screen topology.
+//! V2 slice 9 adds one fixed-memory, mode-locked Kit-share intake owner over the
+//! existing v2 Kit screens and the frozen qk-kit frame/fallback decoder. It
+//! accepts only the representation selected before share one and releases only
+//! an opaque combined-payload capability for slices 10 and 11.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -61,7 +65,7 @@
 //! binds symbolic order only (see the canonical disclaimer's BINDING
 //! REQUIREMENT for what real implementations must still enforce).
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod bsms;
 mod bsms_v2;
@@ -69,6 +73,8 @@ mod export;
 mod finalization;
 mod finalization_v2;
 mod insertion;
+#[allow(unsafe_code)]
+mod kit_intake_v2;
 mod m24_signing;
 mod manual_keypad;
 mod manual_keypad_v2;
@@ -96,6 +102,11 @@ pub use finalization::{FinalizationError, FinalizedTransaction};
 pub use finalization_v2::FinalizationV2Error;
 pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
+};
+pub use kit_intake_v2::{
+    KitFallbackProgressV2, KitForeignInputV2, KitFrameIdentityV2, KitInputModeV2, KitIntakeErrorV2,
+    KitIntakeInterruptionV2, KitIntakeOutcomeV2, KitIntakeReadyV2, KitIntakeScreenV2,
+    KitIntakeSessionV2, KitShareOrdinalV2, KIT_FALLBACK_TABLE_V2,
 };
 pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, TerminalInputKey};
 pub use manual_keypad::{

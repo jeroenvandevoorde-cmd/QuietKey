@@ -1382,6 +1382,42 @@ impl ScreenFlowV2 {
         }
     }
 
+    pub(crate) fn terminate_kit_intake(&mut self, reason: WipingReasonV2) {
+        if !self.is_finished() {
+            self.wipe(FlowTerminalV2::FailedWiped(reason));
+        }
+    }
+
+    pub(crate) fn accept_kit_intake_share(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit {
+            return false;
+        }
+        self.state = match self.screen_kind() {
+            Some(ScreenKindV2::ScanKitShareOne) => {
+                MachineStateV2::Screen(ScreenKindV2::ScanKitShareTwo)
+            }
+            Some(ScreenKindV2::ScanKitShareTwo) => {
+                MachineStateV2::Screen(ScreenKindV2::CombineKitShares)
+            }
+            _ => return false,
+        };
+        true
+    }
+
+    pub(crate) fn complete_kit_intake(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.screen_kind() != Some(ScreenKindV2::CombineKitShares)
+        {
+            return false;
+        }
+        self.state = MachineStateV2::Screen(match self.door {
+            Some(KitDoorV2::KitSpend) => ScreenKindV2::KitSpendTransaction,
+            Some(KitDoorV2::KitRestore) => ScreenKindV2::KitRestoreActionSelection,
+            None => return false,
+        });
+        true
+    }
+
     pub(crate) fn begin_manual_keypad_echo(&mut self) -> bool {
         if self.flow != FlowKindV2::Setup
             || self.screen_kind() != Some(ScreenKindV2::CeremonyInput)
