@@ -13,6 +13,7 @@
 
 mod fallback;
 mod frame;
+mod qr;
 mod secret;
 mod sha256;
 
@@ -20,6 +21,7 @@ use core::fmt;
 
 pub use fallback::{decode_fallback, encode_fallback};
 pub use frame::{combine_frames, encode_frame, frame_metadata};
+pub use qr::encode_qr;
 
 /// Exact canonical Kit share-frame length in bytes.
 pub const FRAME_LEN: usize = 142;
