@@ -2,8 +2,8 @@
 
 use qk_kit::{combine_frames, decode_fallback, FrameMetadata, QrMetadata, ShareIndex};
 use qk_provisioning::{
-    HostProvisioningRunV2, KitCopyV2, KitPageDispositionV2, KitSetupReceiptV2, KitShareIndexV2,
-    ProvisioningError,
+    HostProvisioningRunV2, KitCopyV2, KitPageDispositionV2, KitSetupErrorV2, KitSetupReceiptV2,
+    KitShareIndexV2,
 };
 use std::collections::BTreeMap;
 
@@ -203,7 +203,7 @@ fn a1_gate_and_each_first_rejection_stop_are_named_and_receipt_free() {
             calls += 1;
             KitPageDispositionV2::Accepted
         }),
-        Err(ProvisioningError::A1NotReady)
+        Err(KitSetupErrorV2::A1NotReady)
     );
     assert_eq!(calls, 0);
 
@@ -222,7 +222,7 @@ fn a1_gate_and_each_first_rejection_stop_are_named_and_receipt_free() {
                     KitPageDispositionV2::Accepted
                 }
             }),
-            Err(ProvisioningError::PrintRejected)
+            Err(KitSetupErrorV2::PrintRejected)
         );
         assert_eq!(seen.len(), reject_at + 1);
     }

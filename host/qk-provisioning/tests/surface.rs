@@ -100,6 +100,7 @@ fn public_surface_is_exactly_error_artifacts_and_run_operations() {
             "pub enum KitCopyV2 {",
             "pub enum KitShareIndexV2 {",
             "pub enum KitPageDispositionV2 {",
+            "pub enum KitSetupErrorV2 {",
             "pub struct KitPrintPageV2<'page> {",
             "pub const fn copy(&self) -> KitCopyV2 {",
             "pub const fn share_index(&self) -> KitShareIndexV2 {",
@@ -111,7 +112,7 @@ fn public_surface_is_exactly_error_artifacts_and_run_operations() {
             "pub const fn wallet_id(&self) -> [u8; 32] {",
             "pub const fn copy_count(&self) -> u8 {",
             "pub const fn page_count(&self) -> u8 {",
-            "pub fn emit_two_kit_copies<F>(self, mut sink: F) -> Result<KitSetupReceiptV2, ProvisioningError>",
+            "pub fn emit_two_kit_copies<F>(self, mut sink: F) -> Result<KitSetupReceiptV2, KitSetupErrorV2>",
         ]
     );
 }

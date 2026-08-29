@@ -1,7 +1,8 @@
 //! Consuming HOST-only v2 Kit generation and logical print-export boundary.
 
 use crate::secret::{wipe, Secret};
-use crate::{HostProvisioningRunV2, ProvisioningError};
+use crate::HostProvisioningRunV2;
+use core::fmt;
 use qk_kit::{QrMetadata, ShareIndex, FALLBACK_SYMBOLS, FRAME_LEN, QR_PACKED_BYTES};
 
 const FALLBACK_LINE_SYMBOLS: usize = 57;
@@ -33,6 +34,26 @@ pub enum KitPageDispositionV2 {
     Accepted,
     Rejected,
 }
+
+/// Closed, non-share-bearing rejection surface for one consuming setup run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KitSetupErrorV2 {
+    A1NotReady,
+    KitEncodingInvariant,
+    PrintRejected,
+}
+
+impl fmt::Display for KitSetupErrorV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::A1NotReady => "A1NotReady",
+            Self::KitEncodingInvariant => "KitEncodingInvariant",
+            Self::PrintRejected => "PrintRejected",
+        })
+    }
+}
+
+impl std::error::Error for KitSetupErrorV2 {}
 
 /// Immutable scoped view of one complete logical Kit share page.
 ///
@@ -138,13 +159,13 @@ impl PageBuffers {
         share_index: ShareIndex,
         wallet_id: &[u8; 32],
         share: &[u8; 96],
-    ) -> Result<QrMetadata, ProvisioningError> {
+    ) -> Result<QrMetadata, KitSetupErrorV2> {
         self.wipe_all();
         self.frame = qk_kit::encode_frame(share_index, wallet_id, share);
         qk_kit::encode_fallback(&self.frame, &mut self.fallback)
-            .map_err(|_| ProvisioningError::KitEncodingInvariant)?;
+            .map_err(|_| KitSetupErrorV2::KitEncodingInvariant)?;
         qk_kit::encode_qr(&self.frame, &mut self.qr)
-            .map_err(|_| ProvisioningError::KitEncodingInvariant)
+            .map_err(|_| KitSetupErrorV2::KitEncodingInvariant)
     }
 }
 
@@ -162,13 +183,13 @@ impl HostProvisioningRunV2 {
     /// complete immutable scoped page. Rejection stops the sequence and no
     /// completion receipt is released. The run and all caller-owned codec
     /// output buffers are wiped on every exit path.
-    pub fn emit_two_kit_copies<F>(self, mut sink: F) -> Result<KitSetupReceiptV2, ProvisioningError>
+    pub fn emit_two_kit_copies<F>(self, mut sink: F) -> Result<KitSetupReceiptV2, KitSetupErrorV2>
     where
         F: for<'page> FnMut(KitPrintPageV2<'page>) -> KitPageDispositionV2,
     {
         let mut buffers = PageBuffers::zeroed();
         if self.nonce.is_none() {
-            return Err(ProvisioningError::A1NotReady);
+            return Err(KitSetupErrorV2::A1NotReady);
         }
 
         let mut share_two_scratch = [0u8; 96];
@@ -205,7 +226,7 @@ impl HostProvisioningRunV2 {
             });
             buffers.wipe_all();
             if disposition == KitPageDispositionV2::Rejected {
-                return Err(ProvisioningError::PrintRejected);
+                return Err(KitSetupErrorV2::PrintRejected);
             }
         }
 
@@ -292,7 +313,7 @@ mod tests {
                         KitPageDispositionV2::Accepted
                     }
                 }),
-                Err(ProvisioningError::PrintRejected)
+                Err(KitSetupErrorV2::PrintRejected)
             );
             assert_eq!(calls, reject_at + 1);
             assert_eq!(wipes(), (reject_at + 1) * 2 + 1);
@@ -301,7 +322,7 @@ mod tests {
         reset_wipes();
         assert_eq!(
             run().emit_two_kit_copies(|_| panic!("callback must not run")),
-            Err(ProvisioningError::A1NotReady)
+            Err(KitSetupErrorV2::A1NotReady)
         );
         assert_eq!(wipes(), 1, "drop-only wipe for unopened page buffers");
     }
