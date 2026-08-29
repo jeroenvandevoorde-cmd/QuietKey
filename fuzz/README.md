@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-twenty libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+twenty-two libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -38,7 +38,14 @@ valid pairwise-distinct transcripts through the public A/B wallet and A1 facts,
 then strictly reparses the v2 descriptors, scripts, addresses, and capsule.
 Both demand stable named outcomes, exact repeat consistency, no partial
 artifact, and public-artifact-only observations while the setup payload and
-Kit-R pad remain opaque run-owned values. The M27 `qk-host-sim` target drives
+Kit-R pad remain opaque run-owned values. The two v2 slice-5 targets drive the
+parallel screen topology and manual-keypad owner without consuming the v1 M27
+or M29 fixtures. They require deterministic transitions, the complete
+interruption wipe set, immutable Kit-door and approval identities, honest
+slice-10/slice-11 deferred terminals, state-preserving keypad rejections,
+four-buffer retention through reuse detection, and no C-role or Kit capability
+release. M25 reuse is limited to its unchanged export-artifact types and
+metadata semantics over v2 slice-3 finalized facts. The M27 `qk-host-sim` target drives
 the typed provisioning, signing, and recovery screen-flow transition machine
 through bounded event streams. It checks deterministic typed outcomes, the closed named
 error surface, fixed-order review visitation, approval identity binding,
@@ -89,6 +96,8 @@ fuzz/run-bounded.sh qk_bbqr_m30 100000
 fuzz/run-bounded.sh qk_host_sim_m30 100000
 fuzz/run-bounded.sh qk_provisioning_v2_inputs 100000
 fuzz/run-bounded.sh qk_provisioning_v2_chain 100000
+fuzz/run-bounded.sh qk_host_sim_v2_s5_screen 100000
+fuzz/run-bounded.sh qk_host_sim_v2_s5_manual_keypad 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -122,6 +131,7 @@ retained corpora replayed clean under the pinned toolchain.
 
 The two v2 slice-4 campaigns are registered separately in
 `CORPUS-MANIFEST-V2-S4.tsv` and recorded together in `CAMPAIGN-010.md`. The
-campaign record remains `TBD` until both qualifying 100,000-input runs,
-two-copy minimization agreement, manifest rendering, and retained-corpus replay
-have executed under the pinned toolchain.
+two v2 slice-5 campaigns use the separate `CORPUS-MANIFEST-V2-S5.tsv` and
+`CAMPAIGN-011.md`. Each campaign record becomes complete only after both
+qualifying 100,000-input runs, two-copy minimization agreement, manifest
+rendering, and retained-corpus replay have executed under the pinned toolchain.
