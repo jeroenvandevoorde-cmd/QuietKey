@@ -1,4 +1,4 @@
-QUIETKEY_V2_S3_CORE_DIFFERENTIAL_TRANSCRIPT_V1_SCHEMA_NOT_RUN_EVIDENCE
+QUIETKEY_V2_S3_CORE_DIFFERENTIAL_TRANSCRIPT_V2_SCHEMA_NOT_RUN_EVIDENCE
 commit_every_run=true
 run_utc=<RFC3339-UTC>
 repo_commit=<40-hex>
@@ -60,6 +60,36 @@ destroyed_directory_count=<decimal>
 destroyed_symlink_count=0
 destroyed_regular_file_byte_count=<decimal>
 destroyed_root_absent=true
+core_fixture_profile=QuietKey/v2-slice3/Core/legacy-coinbase/v1
+core_external_generation_transcript_sha256=<64-hex>
+core_external_generation_transcript_len=16005
+core_external_generation_transcript_line_count=1
+core_implementation_count=2
+core_agreement_result=54-of-54-shared-fields-byte-equal
+core_projection_report_sha256=2deaaa79d5f81300fdf1a7b35a8c03a02d216f765a439dca8e4c90433ed4def0
+core_screening_report_sha256=11164d6570216def204962c15046fee0cd32096f477392b1d5630eaa32bc542e
+core_screening_repository_head=8f8106c0f0d1be5ca5a57617723d7181dc9041ef
+core_screening_tracked_file_count=3317
+core_screening_tracked_byte_count=31298629
+core_screened_public_key_count=2
+core_screened_signature_r_count=2
+core_screening_expected_same_lineage_hit_records=20
+core_screening_same_lineage_paths=<closed-plus-separated-path-list>
+core_screening_collisions=0
+core_python_destruction_result=complete
+core_python_deletion_completed_utc=2026-08-29T01:16:03Z
+core_python_destroyed_regular_file_count=6
+core_python_destroyed_directory_count=1
+core_python_destroyed_symlink_count=0
+core_python_destroyed_regular_file_byte_count=92725
+core_python_destroyed_root_absent=true
+core_node_destruction_result=complete
+core_node_deletion_completed_utc=2026-08-29T01:16:03Z
+core_node_destroyed_regular_file_count=10
+core_node_destroyed_directory_count=1
+core_node_destroyed_symlink_count=0
+core_node_destroyed_regular_file_byte_count=144264
+core_node_destroyed_root_absent=true
 mainnet_funding_status=PERMANENTLY-NEVER-FUND
 regtest_coin_status=valueless-by-construction
 wallet_id=d5b7e52f569ae51e7c66af14240d8e4459c6246785ce5c441773995614f60e9e
@@ -72,6 +102,9 @@ max_input_witness=220
 max_type08_record=223
 max_raw_transaction=27537
 min_finalized_psbt_shrink_per_input=121
+seed_coinbase_serialization=legacy-no-witness
+seed_coinbase_witness_commitment=false
+unknown_free_non_witness_utxo_byte_equal=true
 bitcoind_sha256=55afd04193715ef76bb445a8aec7c18f1af780b9df8b8e5028c1b78baa15b4ee
 bitcoin_cli_sha256=2b53751345cdc0f326fa82e721c1f33b29db75d39f9125cb212d2e38524e4c1c
 bitcoind_version=Bitcoin Core version v28.0.0
@@ -172,7 +205,12 @@ assertions_total=<decimal>
 assertions_failed=0
 result=PASS
 
-<on failure, emission stops at the failing ordered field or RPC triple and is
-followed by failure_type, assertions_total, assertions_failed=1, result=FAIL;
-if the daemon started, its stop triple or stop-error fact and daemon-exit facts
-follow as available>
+<on failure, emission stops at the failing ordered field or RPC triple; if no
+daemon process was created, no daemon fields follow; if the process already
+exited, daemon_stop_requested=false and daemon_exit_code follow; otherwise its
+stop RPC triple or daemon_stop_rpc_error_type is followed by
+daemon_stop_requested=true and daemon_exit_code; if cleanup itself fails before
+an exit code is known, daemon_stop_error_type is the final process-state fact
+and carries no invented requested or exit value; all process-state fields
+precede temporary extraction cleanup, and failure_type, assertions_total,
+assertions_failed=1, and result=FAIL close the transcript>

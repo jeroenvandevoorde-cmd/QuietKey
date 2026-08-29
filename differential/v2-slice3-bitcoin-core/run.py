@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -143,7 +144,85 @@ PROVENANCE_FIELDS = {
     "role_b_route_private_scalar_hex",
 }
 
-HEADER_FIELDS = PROVENANCE_FIELDS | {
+CORE_PROVENANCE_FIELDS = {
+    "core_fixture_profile",
+    "core_repair_reason",
+    "core_generated_outside_git",
+    "core_implementation_count",
+    "core_implementation_a_name",
+    "core_implementation_a_runtime",
+    "core_implementation_a_runtime_sha256",
+    "core_implementation_a_source_bytes",
+    "core_implementation_a_source_lines",
+    "core_implementation_a_source_sha256",
+    "core_implementation_a_output_bytes",
+    "core_implementation_a_output_lines",
+    "core_implementation_a_output_sha256",
+    "core_implementation_b_name",
+    "core_implementation_b_runtime",
+    "core_implementation_b_runtime_sha256",
+    "core_implementation_b_source_bytes",
+    "core_implementation_b_source_lines",
+    "core_implementation_b_source_sha256",
+    "core_implementation_b_output_bytes",
+    "core_implementation_b_output_lines",
+    "core_implementation_b_output_sha256",
+    "core_implementation_independence",
+    "core_agreement_scope",
+    "core_agreement_result",
+    "core_projection_source_bytes",
+    "core_projection_source_lines",
+    "core_projection_source_sha256",
+    "core_projection_report_bytes",
+    "core_projection_report_lines",
+    "core_projection_report_sha256",
+    "core_shared_projection_key_count",
+    "core_python_semantic_key_count",
+    "core_node_projected_key_count",
+    "core_fixed_lineage_input_only_key_count",
+    "core_fixed_lineage_input_only_keys",
+    "core_normalized_agreement_bytes",
+    "core_normalized_agreement_lines",
+    "core_normalized_agreement_sha256",
+    "core_screening_policy",
+    "core_screening_representations",
+    "core_screening_named_sets",
+    "core_screening_source_bytes",
+    "core_screening_source_lines",
+    "core_screening_source_sha256",
+    "core_screening_report_bytes",
+    "core_screening_report_lines",
+    "core_screening_report_sha256",
+    "core_screening_repository_head",
+    "core_screening_tracked_file_count",
+    "core_screening_tracked_byte_count",
+    "core_screened_public_key_count",
+    "core_screened_signature_r_count",
+    "core_screening_small_multiple_limit",
+    "core_screening_expected_same_lineage_hit_records",
+    "core_screening_same_lineage_paths",
+    "core_screening_signature_r_hits",
+    "core_screening_unexpected_hits",
+    "core_screening_small_multiple_hits",
+    "core_python_generation_workspace",
+    "core_python_destruction_result",
+    "core_python_deletion_completed_utc",
+    "core_python_destroyed_regular_file_count",
+    "core_python_destroyed_directory_count",
+    "core_python_destroyed_symlink_count",
+    "core_python_destroyed_regular_file_byte_count",
+    "core_python_destroyed_root_absent",
+    "core_node_generation_workspace",
+    "core_node_destruction_result",
+    "core_node_deletion_completed_utc",
+    "core_node_destroyed_regular_file_count",
+    "core_node_destroyed_directory_count",
+    "core_node_destroyed_symlink_count",
+    "core_node_destroyed_regular_file_byte_count",
+    "core_node_destroyed_root_absent",
+}
+
+HEADER_FIELDS = PROVENANCE_FIELDS | CORE_PROVENANCE_FIELDS | {
     "corpus_state",
     "core_release",
     "core_archive",
@@ -267,6 +346,10 @@ EXPECTED_FINALIZED_MAP_TYPES = {
 AGREEMENT_SCOPE = (
     "public-keys,descriptors,derivations,scripts,digests,signatures,psbts,"
     "witnesses,raw-transactions,txids,wtxids,mutations,semantic-transcript"
+)
+CORE_AGREEMENT_SCOPE = (
+    "seed-block,legacy-coinbase,descriptors,scripts,digests,signatures,psbts,"
+    "witnesses,raw-transactions,txids,wtxids,review-v3,mutations"
 )
 SCREENING_POLICY = "QK-DEC-047/QK-DEC-058/QK-DEC-121/QK-DEC-123"
 SCREENING_REPRESENTATIONS = (
@@ -629,6 +712,124 @@ def validate_provenance(header: dict[str, str], checks: "Checks") -> None:
             expected,
             f"provenance {name}",
         )
+
+
+def validate_core_provenance(header: dict[str, str], checks: "Checks") -> None:
+    """Validate the separately registered legacy-coinbase Core repair block."""
+    literals = {
+        "core_fixture_profile": "QuietKey/v2-slice3/Core/legacy-coinbase/v1",
+        "core_repair_reason": "legacy-coinbase-required-for-byte-stable-non-witness-utxo",
+        "core_generated_outside_git": "true",
+        "core_implementation_count": "2",
+        "core_implementation_a_name": "python-stdlib-legacy-coinbase",
+        "core_implementation_a_runtime": "/usr/bin/python3:Python 3.9.6",
+        "core_implementation_b_name": "node-stdlib-legacy-coinbase",
+        "core_implementation_b_runtime": "/Users/admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node:v24.19.0",
+        "core_implementation_independence": "separately-written",
+        "core_agreement_scope": CORE_AGREEMENT_SCOPE,
+        "core_agreement_result": "54-of-54-shared-fields-byte-equal",
+        "core_fixed_lineage_input_only_keys": (
+            "role_a_account_public_key,role_a_master_public_key,"
+            "role_a_route_private_scalar,role_a_transcript,role_a_transcript_sha256,"
+            "role_b_account_public_key,role_b_master_public_key,"
+            "role_b_route_private_scalar,role_b_transcript,role_b_transcript_sha256"
+        ),
+        "core_screening_policy": SCREENING_POLICY,
+        "core_screening_representations": SCREENING_REPRESENTATIONS,
+        "core_screening_named_sets": SCREENING_NAMED_SETS,
+        "core_screening_same_lineage_paths": (
+            "differential/v2-slice3-bitcoin-core/fixtures/v2_core_vectors.txt+"
+            "host/qk-descriptor/tests/fixtures/bip67_sort_vectors.txt+"
+            "host/qk-descriptor/tests/fixtures/descriptor_pairs.txt+"
+            "host/qk-psbt/tests/fixtures/review_v3.txt+"
+            "host/qk-psbt/tests/fixtures/signing_finalization_v2.txt"
+        ),
+        "core_python_generation_workspace": "/private/tmp/qk-v2-s3-core-repair.0YMZQb",
+        "core_python_destruction_result": "complete",
+        "core_python_destroyed_root_absent": "true",
+        "core_node_generation_workspace": "/private/tmp/qk-v2-s3-legacy-node.cO6Q1v",
+        "core_node_destruction_result": "complete",
+        "core_node_destroyed_root_absent": "true",
+    }
+    for name, expected in literals.items():
+        checks.equal(required(header, name), expected, f"Core provenance {name}")
+
+    hashes = {
+        "core_implementation_a_runtime_sha256": "7f30f076d0e9c38f772a76449fca9da8cf97f6a3d43b94c90a00e4f9ce7ad39e",
+        "core_implementation_a_source_sha256": "ec53fe5d8e8f8e5dcf24199fcbc8a548a8d5d6f5c8be80196fd30e62a0c7dbec",
+        "core_implementation_a_output_sha256": "cee065d248941cfd12fa25723a64518ee67415493931f3712f5964d53f4053e5",
+        "core_implementation_b_runtime_sha256": "1052eb9c7d6c60a79b968e09f75af55a73462b0f6dff0964336d63b5e13eb63c",
+        "core_implementation_b_source_sha256": "fc78bfde88f4a5ba1ef2743ea91eb246f9b51c880579d4ab5805db756496b451",
+        "core_implementation_b_output_sha256": "9348de941c9a15468c47388468952d91da61d6abbc9fe3b93aae41624034a855",
+        "core_projection_source_sha256": "4b320c02c68500d7e1f46f73e379f0c68f083fbae383d1a4d32f9da5ce3c537d",
+        "core_projection_report_sha256": "2deaaa79d5f81300fdf1a7b35a8c03a02d216f765a439dca8e4c90433ed4def0",
+        "core_normalized_agreement_sha256": "fa27ee89e4fa9bcc0a06ba11c92822b2c5b3b76d45dd45c85ad98cee637afb46",
+        "core_screening_source_sha256": "7f83ec092d796ea2b2ff94c0b4bad27061da58aa0a7a4e9026261b7613d315e6",
+        "core_screening_report_sha256": "11164d6570216def204962c15046fee0cd32096f477392b1d5630eaa32bc542e",
+    }
+    for name, expected in hashes.items():
+        checks.equal(require_hash(header, name), expected, f"Core provenance {name}")
+
+    counts = {
+        "core_implementation_a_source_bytes": 25_828,
+        "core_implementation_a_source_lines": 707,
+        "core_implementation_a_output_bytes": 17_049,
+        "core_implementation_a_output_lines": 1,
+        "core_implementation_b_source_bytes": 26_600,
+        "core_implementation_b_source_lines": 681,
+        "core_implementation_b_output_bytes": 23_456,
+        "core_implementation_b_output_lines": 1,
+        "core_projection_source_bytes": 6_332,
+        "core_projection_source_lines": 136,
+        "core_projection_report_bytes": 853,
+        "core_projection_report_lines": 27,
+        "core_shared_projection_key_count": 54,
+        "core_python_semantic_key_count": 64,
+        "core_node_projected_key_count": 54,
+        "core_fixed_lineage_input_only_key_count": 10,
+        "core_normalized_agreement_bytes": 16_005,
+        "core_normalized_agreement_lines": 1,
+        "core_screening_source_bytes": 3_831,
+        "core_screening_source_lines": 89,
+        "core_screening_report_bytes": 3_157,
+        "core_screening_report_lines": 1,
+        "core_screening_tracked_file_count": 3_317,
+        "core_screening_tracked_byte_count": 31_298_629,
+        "core_screened_public_key_count": 2,
+        "core_screened_signature_r_count": 2,
+        "core_screening_small_multiple_limit": 4_096,
+        "core_screening_expected_same_lineage_hit_records": 20,
+        "core_screening_signature_r_hits": 0,
+        "core_screening_unexpected_hits": 0,
+        "core_screening_small_multiple_hits": 0,
+        "core_python_destroyed_regular_file_count": 6,
+        "core_python_destroyed_directory_count": 1,
+        "core_python_destroyed_symlink_count": 0,
+        "core_python_destroyed_regular_file_byte_count": 92_725,
+        "core_node_destroyed_regular_file_count": 10,
+        "core_node_destroyed_directory_count": 1,
+        "core_node_destroyed_symlink_count": 0,
+        "core_node_destroyed_regular_file_byte_count": 144_264,
+    }
+    for name, expected in counts.items():
+        checks.equal(
+            parse_uint(required(header, name), name),
+            expected,
+            f"Core provenance {name}",
+        )
+
+    checks.equal(
+        required(header, "core_screening_repository_head"),
+        "8f8106c0f0d1be5ca5a57617723d7181dc9041ef",
+        "Core screening repository HEAD",
+    )
+    for name in (
+        "core_python_deletion_completed_utc",
+        "core_node_deletion_completed_utc",
+    ):
+        completion = required(header, name)
+        checks.that(UTC_SECOND.fullmatch(completion) is not None, f"Core provenance {name}")
+        checks.equal(completion, "2026-08-29T01:16:03Z", f"Core provenance {name} pin")
 
 
 def read_cs(data: bytes, pos: int) -> tuple[int, int]:
@@ -1066,11 +1267,13 @@ class Core:
         self.rpc_index += 1
         return result
 
-    def stop(self) -> int:
+    def stop(self) -> "CoreStopResult | None":
         try:
             if self.process is None:
-                return 0
+                return None
+            requested = False
             if self.process.poll() is None:
+                requested = True
                 try:
                     self.rpc("stop")
                 except Exception as exc:  # preserve failure in transcript; still terminate below
@@ -1086,11 +1289,125 @@ class Core:
                     except subprocess.TimeoutExpired:
                         self.process.kill()
                         self.process.wait(timeout=10)
-            return int(self.process.returncode or 0)
+            return CoreStopResult(
+                requested=requested,
+                exit_code=int(self.process.returncode or 0),
+            )
         finally:
             if self.log_handle is not None:
                 self.log_handle.close()
                 self.log_handle = None
+
+
+@dataclass(frozen=True)
+class CoreStopResult:
+    requested: bool
+    exit_code: int
+
+
+class CoreStopper:
+    """Idempotently stop Core while its extracted binary still exists."""
+
+    def __init__(self, core: Core, transcript: list[str]):
+        self.core = core
+        self.transcript = transcript
+        self.attempted = False
+        self.exit_code: int | None = None
+
+    def stop(self) -> int | None:
+        if self.attempted:
+            return self.exit_code
+        self.attempted = True
+        try:
+            outcome = self.core.stop()
+            if outcome is None:
+                return None
+            self.exit_code = outcome.exit_code
+            self.transcript.extend(
+                [
+                    f"daemon_stop_requested={'true' if outcome.requested else 'false'}",
+                    f"daemon_exit_code={self.exit_code}",
+                ]
+            )
+            return self.exit_code
+        except Exception as exc:
+            self.transcript.append(f"daemon_stop_error_type={type(exc).__name__}")
+            raise
+
+
+def verify_cleanup_order_contract(checks: Checks) -> None:
+    """Boundedly prove ExitStack LIFO gives Core-stop-before-temp-cleanup."""
+    events: list[str] = []
+    with contextlib.ExitStack() as stack:
+        stack.callback(events.append, "temp-cleanup")
+        stack.callback(events.append, "core-stop")
+    checks.equal(events, ["core-stop", "temp-cleanup"], "runtime cleanup callback order")
+
+
+def verify_stopper_state_contract(checks: Checks) -> None:
+    """Freeze every process-state and cleanup-error transcript shape."""
+
+    class ContractCore:
+        def __init__(self, outcome: CoreStopResult | None):
+            self.outcome = outcome
+            self.calls = 0
+
+        def stop(self) -> CoreStopResult | None:
+            self.calls += 1
+            return self.outcome
+
+    cases = (
+        (None, None, []),
+        (
+            CoreStopResult(requested=False, exit_code=17),
+            17,
+            ["daemon_stop_requested=false", "daemon_exit_code=17"],
+        ),
+        (
+            CoreStopResult(requested=True, exit_code=0),
+            0,
+            ["daemon_stop_requested=true", "daemon_exit_code=0"],
+        ),
+    )
+    for outcome, expected_code, expected_transcript in cases:
+        transcript: list[str] = []
+        core = ContractCore(outcome)
+        stopper = CoreStopper(core, transcript)  # type: ignore[arg-type]
+        checks.equal(stopper.stop(), expected_code, "stopper state exit code")
+        checks.equal(transcript, expected_transcript, "stopper state transcript")
+        checks.equal(stopper.stop(), expected_code, "stopper state idempotent exit code")
+        checks.equal(transcript, expected_transcript, "stopper state idempotent transcript")
+        checks.equal(core.calls, 1, "stopper state one cleanup call")
+
+    class RaisingCore:
+        def __init__(self):
+            self.calls = 0
+
+        def stop(self) -> CoreStopResult | None:
+            self.calls += 1
+            raise RuntimeError("closed cleanup failure")
+
+    transcript = []
+    core = RaisingCore()
+    stopper = CoreStopper(core, transcript)  # type: ignore[arg-type]
+    try:
+        stopper.stop()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("stopper cleanup failure must propagate")
+    checks.equal(
+        transcript,
+        ["daemon_stop_error_type=RuntimeError"],
+        "stopper cleanup-error transcript",
+    )
+    checks.equal(stopper.stop(), None, "stopper cleanup-error idempotent result")
+    checks.equal(
+        transcript,
+        ["daemon_stop_error_type=RuntimeError"],
+        "stopper cleanup-error idempotent transcript",
+    )
+    checks.equal(core.calls, 1, "stopper cleanup-error one call")
 
 
 def git(repo: Path, *args: str) -> str:
@@ -1264,6 +1581,18 @@ def validate_positive_payload(
 
     signed_maps = parse_psbt(signed)
     finalized_maps = parse_psbt(finalized)
+    seed_coinbase = parse_hex(required(header, "seed_coinbase_hex"), "seed_coinbase_hex")
+    for stage, maps in (("signed", signed_maps), ("finalized", finalized_maps)):
+        non_witness_utxos = [
+            value
+            for record_type, key, value in maps[1]
+            if record_type == 0 and key == b"\x00"
+        ]
+        checks.equal(
+            non_witness_utxos,
+            [seed_coinbase],
+            f"{name} {stage} non_witness_utxo is byte-exact legacy seed transaction",
+        )
     checks.equal(
         tuple(tuple(record[0] for record in records) for records in signed_maps),
         EXPECTED_SIGNED_MAP_TYPES[name],
@@ -1443,11 +1772,12 @@ def main() -> int:
             "run-YYYYMMDDTHHMMSSZ-<HEAD>.txt path"
         )
     transcript: list[str] = [
-        "QUIETKEY_V2_S3_CORE_DIFFERENTIAL_TRANSCRIPT_V1",
+        "QUIETKEY_V2_S3_CORE_DIFFERENTIAL_TRANSCRIPT_V2",
         "commit_every_run=true",
     ]
     checks = Checks()
     core: Core | None = None
+    stopper: CoreStopper | None = None
     error: str | None = None
     error_detail: str | None = None
 
@@ -1535,6 +1865,7 @@ def main() -> int:
         checks.that("<" not in fixture_text and ">" not in fixture_text, "READY fixture contains no bracket token")
         validate_fixture_schema(header, cases)
         validate_provenance(header, checks)
+        validate_core_provenance(header, checks)
         signing_data = signing_fixture.read_bytes()
         checks.equal(
             len(signing_data),
@@ -1615,6 +1946,36 @@ def main() -> int:
                 f"destroyed_symlink_count={required(header, 'destroyed_symlink_count')}",
                 f"destroyed_regular_file_byte_count={required(header, 'destroyed_regular_file_byte_count')}",
                 "destroyed_root_absent=true",
+                f"core_fixture_profile={required(header, 'core_fixture_profile')}",
+                f"core_external_generation_transcript_sha256={require_hash(header, 'core_normalized_agreement_sha256')}",
+                f"core_external_generation_transcript_len={required(header, 'core_normalized_agreement_bytes')}",
+                f"core_external_generation_transcript_line_count={required(header, 'core_normalized_agreement_lines')}",
+                "core_implementation_count=2",
+                f"core_agreement_result={required(header, 'core_agreement_result')}",
+                f"core_projection_report_sha256={require_hash(header, 'core_projection_report_sha256')}",
+                f"core_screening_report_sha256={require_hash(header, 'core_screening_report_sha256')}",
+                f"core_screening_repository_head={required(header, 'core_screening_repository_head')}",
+                f"core_screening_tracked_file_count={required(header, 'core_screening_tracked_file_count')}",
+                f"core_screening_tracked_byte_count={required(header, 'core_screening_tracked_byte_count')}",
+                f"core_screened_public_key_count={required(header, 'core_screened_public_key_count')}",
+                f"core_screened_signature_r_count={required(header, 'core_screened_signature_r_count')}",
+                f"core_screening_expected_same_lineage_hit_records={required(header, 'core_screening_expected_same_lineage_hit_records')}",
+                f"core_screening_same_lineage_paths={required(header, 'core_screening_same_lineage_paths')}",
+                "core_screening_collisions=0",
+                "core_python_destruction_result=complete",
+                f"core_python_deletion_completed_utc={required(header, 'core_python_deletion_completed_utc')}",
+                f"core_python_destroyed_regular_file_count={required(header, 'core_python_destroyed_regular_file_count')}",
+                f"core_python_destroyed_directory_count={required(header, 'core_python_destroyed_directory_count')}",
+                f"core_python_destroyed_symlink_count={required(header, 'core_python_destroyed_symlink_count')}",
+                f"core_python_destroyed_regular_file_byte_count={required(header, 'core_python_destroyed_regular_file_byte_count')}",
+                "core_python_destroyed_root_absent=true",
+                "core_node_destruction_result=complete",
+                f"core_node_deletion_completed_utc={required(header, 'core_node_deletion_completed_utc')}",
+                f"core_node_destroyed_regular_file_count={required(header, 'core_node_destroyed_regular_file_count')}",
+                f"core_node_destroyed_directory_count={required(header, 'core_node_destroyed_directory_count')}",
+                f"core_node_destroyed_symlink_count={required(header, 'core_node_destroyed_symlink_count')}",
+                f"core_node_destroyed_regular_file_byte_count={required(header, 'core_node_destroyed_regular_file_byte_count')}",
+                "core_node_destroyed_root_absent=true",
                 "mainnet_funding_status=PERMANENTLY-NEVER-FUND",
                 "regtest_coin_status=valueless-by-construction",
                 f"wallet_id={GOLDEN_WALLET_ID.hex()}",
@@ -1638,13 +1999,84 @@ def main() -> int:
         seed_block_time = int.from_bytes(seed_block[68:72], "little")
         checks.equal(seed_block_time, 1_800_000_000, "seed block header time")
         seed_coinbase_tx = parse_transaction(seed_coinbase)
+        checks.that(not seed_coinbase_tx.has_witness, "seed coinbase is legacy and has no witness marker")
+        checks.equal(
+            serialize_transaction(seed_coinbase_tx, False),
+            seed_coinbase,
+            "seed coinbase legacy serialization is byte-stable",
+        )
+        checks.equal(len(seed_coinbase_tx.inputs), 1, "seed coinbase input count")
+        checks.equal(len(seed_coinbase_tx.outputs), 1, "seed coinbase output count")
+        coinbase_input = seed_coinbase_tx.inputs[0]
+        checks.equal(coinbase_input.prev_hash, bytes(32), "seed coinbase null prevout hash")
+        checks.equal(coinbase_input.prev_vout, 0xFFFF_FFFF, "seed coinbase null prevout index")
+        checks.equal(coinbase_input.script_sig, b"\x51\x00", "seed coinbase fixed height-one scriptSig")
+        checks.equal(coinbase_input.sequence, 0xFFFF_FFFF, "seed coinbase sequence")
+        checks.equal(coinbase_input.witness, (), "seed coinbase has no witness items")
+        seed_vout = parse_uint(required(header, "seed_vout"), "seed_vout", 0xFFFF_FFFF)
+        checks.equal(seed_vout, 0, "seed coinbase selected output")
+        seed_output = seed_coinbase_tx.outputs[seed_vout]
+        checks.equal(
+            seed_output.amount_sats,
+            parse_uint(required(header, "seed_amount_sats"), "seed_amount_sats"),
+            "seed coinbase output amount",
+        )
+        checks.equal(
+            seed_output.script_pubkey,
+            parse_hex(required(header, "seed_script_pubkey_hex"), "seed_script_pubkey_hex"),
+            "seed coinbase output script",
+        )
+        checks.that(
+            not any(output.script_pubkey.startswith(bytes.fromhex("6a24aa21a9ed")) for output in seed_coinbase_tx.outputs),
+            "seed coinbase has no witness commitment",
+        )
         checks.equal(
             sha256d_display(serialize_transaction(seed_coinbase_tx, False)),
             require_hash(header, "seed_coinbase_txid"),
             "seed coinbase txid",
         )
 
-        with tempfile.TemporaryDirectory(prefix="qk-v2-s3-core-") as temp_name:
+        positive_payloads: dict[str, PositivePayload] = {}
+        for case in positive:
+            name = required(case, "case")
+            signed = fixture_bytes(case, "signed_psbt", checks)
+            finalized = fixture_bytes(case, "finalized_psbt", checks)
+            raw_tx = fixture_bytes(case, "raw_tx", checks)
+            stripped = fixture_bytes(case, "stripped_tx", checks)
+            positive_payloads[name] = validate_positive_payload(
+                case,
+                header,
+                signed,
+                finalized,
+                raw_tx,
+                stripped,
+                checks,
+            )
+        unknown_free = positive_payloads["V2-S3-CORE-UNKNOWN-FREE"]
+        unknown_free_non_witness = [
+            value
+            for record_type, key, value in unknown_free.signed_maps[1]
+            if record_type == 0 and key == b"\x00"
+        ]
+        checks.equal(
+            unknown_free_non_witness,
+            [seed_coinbase],
+            "unknown-free equality premise uses byte-exact legacy non_witness_utxo",
+        )
+        transcript.extend(
+            [
+                "seed_coinbase_serialization=legacy-no-witness",
+                "seed_coinbase_witness_commitment=false",
+                "unknown_free_non_witness_utxo_byte_equal=true",
+            ]
+        )
+
+        verify_cleanup_order_contract(checks)
+        verify_stopper_state_contract(checks)
+        with contextlib.ExitStack() as runtime_stack:
+            temp_name = runtime_stack.enter_context(
+                tempfile.TemporaryDirectory(prefix="qk-v2-s3-core-")
+            )
             temp = Path(temp_name)
             extracted = temp / "release"
             extracted.mkdir()
@@ -1669,6 +2101,8 @@ def main() -> int:
             datadir = temp / "node"
             datadir.mkdir()
             core = Core(bitcoind, cli, datadir, choose_port(), transcript)
+            stopper = CoreStopper(core, transcript)
+            runtime_stack.callback(stopper.stop)
             core.start()
             chain = core.rpc("getblockchaininfo")
             checks.equal(chain["chain"], "regtest", "Core chain")
@@ -1719,7 +2153,6 @@ def main() -> int:
                 ]
             )
 
-            positive_payloads: dict[str, PositivePayload] = {}
             for case_index, case in enumerate(positive):
                 before = checks.total
                 name = required(case, "case")
@@ -1727,8 +2160,7 @@ def main() -> int:
                 finalized = fixture_bytes(case, "finalized_psbt", checks)
                 raw_tx = fixture_bytes(case, "raw_tx", checks)
                 stripped = fixture_bytes(case, "stripped_tx", checks)
-                payload = validate_positive_payload(case, header, signed, finalized, raw_tx, stripped, checks)
-                positive_payloads[name] = payload
+                payload = positive_payloads[name]
 
                 core_final = core.rpc("finalizepsbt", b64(signed), False)
                 checks.equal(core_final["complete"], True, f"{name} Core final complete")
@@ -1976,8 +2408,7 @@ def main() -> int:
                 )
             checks.equal(len(set(negative_raws)), 3, "three distinct negative raw transactions")
 
-            stop_code = core.stop()
-            transcript.extend(["daemon_stop_requested=true", f"daemon_exit_code={stop_code}"])
+            stop_code = stopper.stop()
             checks.equal(stop_code, 0, "bitcoind clean exit")
             transcript.extend(
                 [
@@ -2002,12 +2433,12 @@ def main() -> int:
             ]
         )
     finally:
-        if core is not None:
+        if stopper is not None and not stopper.attempted:
             try:
-                code = core.stop()
-                transcript.extend(["daemon_stop_requested=true", f"daemon_exit_code={code}"])
+                stopper.stop()
             except Exception as stop_exc:
-                transcript.append(f"daemon_stop_error_type={type(stop_exc).__name__}")
+                if not transcript or not transcript[-1].startswith("daemon_stop_error_type="):
+                    transcript.append(f"daemon_stop_error_type={type(stop_exc).__name__}")
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         with transcript_path.open("x", encoding="ascii", newline="\n") as out:
             out.write("\n".join(transcript) + "\n")

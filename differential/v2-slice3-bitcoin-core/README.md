@@ -8,12 +8,12 @@ dependency, or production claim.
 
 ## Current state
 
-The checked-in fixture is `READY`: the complete v2 corpus was produced outside
-Git by the two-constructor QK-DEC-047 procedure, every closed field is present,
-and its complete provenance is registered with the first fixture commit. The
-runner still fails closed on any other state before extracting or starting
-Bitcoin Core. No evidence transcript exists until the final slice-3 HOST
-implementation and the separately pinned Core inputs are both ready to run.
+The checked-in fixture is `READY`: every closed field is present and its
+complete provenance is registered. The original HOST semantic transcript is
+retained byte-for-byte, while a separate two-constructor block registers the
+legacy-coinbase Core repair. The runner fails closed on any other state before
+extracting or starting Bitcoin Core. Every attempted run remains in the
+evidence chain; only a transcript ending in `result=PASS` closes this suite.
 
 The final invocation is:
 
@@ -85,9 +85,14 @@ transcript-hash, and scalar fields with the Core fixture header.
 
 ## Static regtest state
 
-The final fixture embeds one exact height-1 regtest block whose coinbase pays
-the registered receive-0 P2WSH program. It records complete block and coinbase
-bytes, hashes, value, output index, header time, and scriptPubKey. The runner
+The final fixture embeds one exact height-1 regtest block whose legacy
+coinbase pays the registered receive-0 P2WSH program. The coinbase has no
+witness marker, witness stack, or witness-commitment output; therefore its
+`non_witness_utxo` representation is byte-stable under Core finalization. The
+fixture records complete block and coinbase bytes, hashes, value, output
+index, header time, and scriptPubKey. Before extracting Core, the runner
+parses and reserializes the coinbase, rejects any witness serialization or
+commitment, and byte-ties every positive's `non_witness_utxo` to it. It then
 sets mock time to the header time, submits the exact block, asserts the exact
 height-one state, generates exactly 100 maturity blocks to `raw(51)`, and
 asserts the seed UTXO remains unspent with 101 confirmations. No transaction
@@ -164,6 +169,18 @@ recorded.
 
 Every invocation writes one new transcript, including failed runs. It is
 committed without rewriting any prior transcript.
+The corrected runner emits the `QUIETKEY_V2_S3_CORE_DIFFERENTIAL_TRANSCRIPT_V2`
+magic; any retained v1 transcript remains a byte-frozen record of its own run.
+
+Runtime cleanup is fail-safe: an exit-stack callback is registered before
+daemon startup and stops and waits for Core before temporary extraction
+cleanup. A bounded in-run contract check locks the callback order. Thus a
+failure after startup retains the extracted `bitcoin-cli` until the stop
+attempt has completed. The same check freezes three truthful failure shapes:
+no daemon fields when process creation never completed, `stop_requested=false`
+for an already-exited process, and `stop_requested=true` only when the runner
+actually requested a live process to stop. A cleanup exception before the exit
+code is known records only its error type and never invents stop or exit facts.
 
 ## Fixture-production boundary
 
@@ -173,16 +190,25 @@ exact marking `PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL`. The companion
 HOST fixture and this Core header both record the public manual transcript
 construction and deliberately exposed route scalars, so all signatures are
 reproducible and the two fixture families are byte-tied.
-Constructors agree byte-for-byte on keys, derivations, scripts, digests,
-signatures, PSBT stages, witnesses, transactions, txids/wtxids, review-v3
-facts, Core vectors, mutations, and seed-block facts in one normalized semantic
-transcript. The registered fixture is a closed rendering of those agreed facts.
 
-Route keys and signature r values are screened against every registered KAT,
-NUMS, and fixture set, all standing encodings, and the small-multiple range;
-same-lineage GOLDEN matches are called out. Generators and all intermediates
-are destroyed before commit. No new entropy, secret authority, wallet, or
-fundable lineage is created.
+The registered 29,159-byte HOST semantic transcript and its existing
+destruction facts remain unchanged. For the legacy-coinbase repair, Python
+and Node constructors emitted different native shapes and matched exactly on
+all 54 shared closed fields after the registered deterministic projection.
+The ten Python-only fields are named fixed GOLDEN lineage inputs consumed but
+not emitted by Node; the fixture ties their transcript and scalar subset to
+the registered HOST fixture. The separate 16,005-byte Core projection covers
+the seed block, legacy coinbase, descriptors, scripts, digests, signatures,
+PSBT stages, witnesses, transactions, identifiers, review-v3 facts, and all
+three mutations.
+
+Route keys and the two repaired signature r values were screened against every
+registered KAT, NUMS, and fixture set, all standing encodings, and the
+small-multiple range at the registered source commit. Same-lineage GOLDEN
+matches are called out; neither r value appeared, and there were no unexpected
+or small-multiple hits. Generators and all intermediates were destroyed before
+commit. No new entropy, secret authority, wallet, or fundable lineage was
+created.
 
 The first generation workspace was destroyed before the closed Core fixture
 text was framed. The exact constructor sources were then recovered from the
@@ -192,3 +218,11 @@ the recovered workspace was destroyed. The fixture records both destruction
 times, file/directory/symlink counts, byte totals, and root-absence results.
 It also records the byte count, deletion time, and absence of the temporary
 text artifact used only to locate those task records.
+
+The Core repair then used two new exact outside-Git roots. The Python root was
+destroyed at `2026-08-29T01:16:03Z` (6 regular files/92,725 bytes, one
+directory including root, zero symlinks, root absent). The Node root was
+destroyed at the same second (10 regular files/144,264 bytes, one directory
+including root, zero symlinks, root absent). The closed fixture header records
+both native-source and output identities, the projection helper/report, the
+screening source/report, and both destruction inventories.
