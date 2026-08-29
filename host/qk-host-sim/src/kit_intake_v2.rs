@@ -303,6 +303,9 @@ impl KitIntakeScreenV2 {
     }
 }
 
+// The ready variant deliberately owns fixed-size secret state. Boxing it would
+// violate this slice's zero-direct-allocation boundary.
+#[allow(clippy::large_enum_variant)]
 pub enum KitIntakeOutcomeV2 {
     Continue(KitIntakeScreenV2),
     FirstShareAccepted(KitIntakeScreenV2),
