@@ -3,7 +3,7 @@ name = "qk-provisioning"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "HOST-only deterministic reference for the ratified v1 provisioning mathematics. No entropy, card, ceremony, target, or product claim."
+description = "HOST-only deterministic reference for the ratified v1 and v2 provisioning mathematics. No entropy, card, ceremony, target, or product claim."
 
 [dependencies]
 qk-a1 = { path = "../qk-a1" }

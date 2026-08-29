@@ -1,0 +1,83 @@
+# QuietKey v2 slice-4 provisioning and Kit-R aggregate fixture
+# PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL
+# Generated outside Git under QK-DEC-047/QK-DEC-121 from the registered v2 GOLDEN descriptor fixture and exact public ManualKeypad transcripts.
+# Two separately written standard-library constructors never import or execute QuietKey code; each verifies the registered fixture identity, BIP-380 checksums, wallet_id, xpub encodings and curve points, 71-byte scripts, P2WSH commitments, BIP173 addresses, KDF domains, and A1 authentication before emitting facts.
+# Exact public transcripts are the first 100 ASCII bytes of infinite repetitions 123456, 234561, 345612, and 456123 for Seed-A, Signer-B, Kit-R, and A2; all are pairwise distinct and each hashes once with SHA-256.
+# A/B account xpub, descriptor, route-key and script facts are byte-copied only after those checks from the registered GOLDEN file; this constructor does not recreate BIP39/BIP32 private derivation.
+# Kit-R is T=SHA256(literal transcript), salt=SHA256(ASCII QuietKey/QKEC-1 || ASCII Kit-R || wallet_id[0..16]), PRK=HKDF-SHA256-Extract(salt,T), R=HKDF-SHA256-Expand(PRK, ASCII QuietKey/Kit-R/pad/v1 || 00 || wallet_id,96).
+# Owned payload is exact Seed-A entropy || Signer-B entropy || A2. Its plaintext and Kit-R values are committed solely under the public known-private test exception and are exposed by no product API.
+# A1 uses HKDF-SHA256 Extract(salt=wallet_id,IKM=A2), Expand(info=ASCII QuietKey/A1/v1,L=32), fixed public nonce ASCII QKV2S4NONCE1, RFC8439 ChaCha20-Poly1305, AAD QKA1 || 01 || 01 || 01 || wallet_id, and plaintext Seed-A entropy.
+# This fixture adds no authority: all key facts are expected same-lineage values from QK-DEC-121. It contains no mnemonic, BIP39 seed, private scalar, chain code, xprv, random nonce, funded object, production secret, generator, or executable code.
+# python_constructor_bytes=19490 python_constructor_lf=444 python_constructor_sha256=a7db4202dc5f93efada8cbcf2a53d32927248cc1bfdaaa585a14dc4b8ed03629 runtime=CPython_3.9.6 executable_sha256=5c5950c62eee5fd227a67e4bdfcde81c9add59799bba0949635f3d5ba9661c26
+# node_constructor_bytes=18821 node_constructor_lf=501 node_constructor_sha256=031f26f335e05940785fc86cff55ade25e8ced33438a9de8550639d8b1bd604b runtime=Node_24.19.0_OpenSSL_3.5.7 executable_sha256=1052eb9c7d6c60a79b968e09f75af55a73462b0f6dff0964336d63b5e13eb63c
+# agreement=both constructors emitted the exact 66-field semantic body byte-for-byte: 5842 bytes, 66 LF, final LF, no CR, SHA256 b30138e9d66106c5aa64d6878673deaf46bd548870b704d96f5612acdf94ca97
+# key_screening=all account and route public keys are exact QK-DEC-121 same-lineage values already screened against committed KAT and NUMS sets plus 1G..4096G; this aggregate adds zero new keys or authority, and a fresh tracked-tree scan found only registered same-lineage occurrences.
+# Constructor roots, duplicate output, screening scratch, and all transient private intermediates were destroyed after this exact fixture was framed and its byte identity was recorded; neither source nor generator is committed.
+# Slice boundary: this file supplies a private-test oracle for secret ownership and A1 construction only; Kit frame, XOR share output, QR, M18 fallback, printing, card I/O, camera, display, target cleanup, performance, production, and Gate claims remain excluded.
+
+format: QUIETKEY_V2_SLICE4_PROVISIONING_PUBLIC_FACTS_V1
+funding_status: PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL
+profile: ManualKeypad
+purpose_order: Seed-A,Signer-B,Kit-R,A2
+source_descriptor_case: GOLDEN
+source_descriptor_bytes: 6893
+source_descriptor_lf: 72
+source_descriptor_sha256: 83aae00d4d780b6475534f99f7590994a67b37c6fcc45ff181e32cba8514f2ba
+source_descriptor_git_blob: cc0bd8e3fe1390c9ec7456c973f3e1eb0cf1a522
+seed_a_transcript_ascii: 1234561234561234561234561234561234561234561234561234561234561234561234561234561234561234561234561234
+seed_a_transcript_len: 100
+seed_a_transcript_sha256: e56403e8522ddeae1b44a1e8148b1ba4d3b4c626ccf20980056eedcc7e0c0f35
+signer_b_transcript_ascii: 2345612345612345612345612345612345612345612345612345612345612345612345612345612345612345612345612345
+signer_b_transcript_len: 100
+signer_b_transcript_sha256: ef160f7931ea80f62fcf15e95da32044559d14a5ac66587ecc556d66be3a4bf3
+kit_r_transcript_ascii: 3456123456123456123456123456123456123456123456123456123456123456123456123456123456123456123456123456
+kit_r_transcript_len: 100
+kit_r_transcript_sha256: 1f1f3bb4879a0150a5dfb257a4058181221bef16f575c62e6769ea86d8b46b90
+a2_transcript_ascii: 4561234561234561234561234561234561234561234561234561234561234561234561234561234561234561234561234561
+a2_transcript_len: 100
+a2_transcript_sha256: b21299c98fc10a0e30518253c65af87f354556f77b528faf5e95591bfefa1ae8
+role_a_origin_fingerprint: 2fae9711
+role_b_origin_fingerprint: 72a14ab8
+role_a_account_xpub: xpub6E4Ac9VDE5KxfwbtXAkZacVZ3XmbMo32suyVgt2mgn8mAZbyUuNEDXuZu9D396UYikuXXJ4tFkxE89fHNboRyNzfMzG2sph4V2MuourfoYr
+role_b_account_xpub: xpub6ETbdARx7dNLzy6RiMBLWHkr39b2KhiWsu1h3RQBp5DT79KCU5b5vhL2RfbEmVf4aW6yi8hQPkY8cNxBpjAS7USKboAguDQR8CRPgctyufF
+receive_descriptor: wsh(sortedmulti(2,[2fae9711/48'/0'/0'/2']xpub6E4Ac9VDE5KxfwbtXAkZacVZ3XmbMo32suyVgt2mgn8mAZbyUuNEDXuZu9D396UYikuXXJ4tFkxE89fHNboRyNzfMzG2sph4V2MuourfoYr/0/*,[72a14ab8/48'/0'/0'/2']xpub6ETbdARx7dNLzy6RiMBLWHkr39b2KhiWsu1h3RQBp5DT79KCU5b5vhL2RfbEmVf4aW6yi8hQPkY8cNxBpjAS7USKboAguDQR8CRPgctyufF/0/*))#0kuawcud
+change_descriptor: wsh(sortedmulti(2,[2fae9711/48'/0'/0'/2']xpub6E4Ac9VDE5KxfwbtXAkZacVZ3XmbMo32suyVgt2mgn8mAZbyUuNEDXuZu9D396UYikuXXJ4tFkxE89fHNboRyNzfMzG2sph4V2MuourfoYr/1/*,[72a14ab8/48'/0'/0'/2']xpub6ETbdARx7dNLzy6RiMBLWHkr39b2KhiWsu1h3RQBp5DT79KCU5b5vhL2RfbEmVf4aW6yi8hQPkY8cNxBpjAS7USKboAguDQR8CRPgctyufF/1/*))#k90eqtfc
+wallet_id: d5b7e52f569ae51e7c66af14240d8e4459c6246785ce5c441773995614f60e9e
+receive_0_role_a_pubkey: 022f11c22ddfe64b81d40ebdd5a3dd6524672185dc29e8a0cec8bf1e9f09898a60
+receive_0_role_b_pubkey: 039ad8f874de32ed2b168124da668f7ac6dbb5f8d9330da245ecf7098538bef79f
+receive_0_sorted_0_pubkey: 022f11c22ddfe64b81d40ebdd5a3dd6524672185dc29e8a0cec8bf1e9f09898a60
+receive_0_sorted_1_pubkey: 039ad8f874de32ed2b168124da668f7ac6dbb5f8d9330da245ecf7098538bef79f
+receive_0_witness_script: 5221022f11c22ddfe64b81d40ebdd5a3dd6524672185dc29e8a0cec8bf1e9f09898a6021039ad8f874de32ed2b168124da668f7ac6dbb5f8d9330da245ecf7098538bef79f52ae
+receive_0_script_pubkey: 00204f202480a991034742ecc4ba29049134bcd5fb79c56bfc502289de3e7e0ba104
+receive_0_address: bc1qfuszfq9fjyp5wshvcjazjpy3xj7dt7mec44lc5pz380rulst5yzqq9yjge
+change_0_role_a_pubkey: 028225302aaed50bd774bc236844b74b458a8dad7594caa40196b70deef3f9b870
+change_0_role_b_pubkey: 0355205cae1409c4cd9aced5eb4bfeb52bc4d9b3056c33f965005226878766dd96
+change_0_sorted_0_pubkey: 028225302aaed50bd774bc236844b74b458a8dad7594caa40196b70deef3f9b870
+change_0_sorted_1_pubkey: 0355205cae1409c4cd9aced5eb4bfeb52bc4d9b3056c33f965005226878766dd96
+change_0_witness_script: 5221028225302aaed50bd774bc236844b74b458a8dad7594caa40196b70deef3f9b870210355205cae1409c4cd9aced5eb4bfeb52bc4d9b3056c33f965005226878766dd9652ae
+change_0_script_pubkey: 0020af13c203a3389432b3a920c5f429dee4139c804ea692a3f77b1345f56e24b72f
+change_0_address: bc1q4ufuyqar8z2r9vafyrzlg2w7usfeeqzw56f28ammzdzl2m3ykuhsc25e58
+kit_r_ceremony_id_hex: d5b7e52f569ae51e7c66af14240d8e44
+kit_r_salt_input_hex: 51756965744b65792f514b45432d314b69742d52d5b7e52f569ae51e7c66af14240d8e44
+kit_r_t_hex: 1f1f3bb4879a0150a5dfb257a4058181221bef16f575c62e6769ea86d8b46b90
+kit_r_salt_hex: db0e6a2e150e0eb6caf960b418b5c4a0149af09d35a4b4087599cf0396af67b3
+kit_r_prk_hex: 5d1c1cc88dcda5772b486b932b95c1d4d24313fe179f35ca65f6a50275c4c5ad
+kit_r_info_hex: 51756965744b65792f4b69742d522f7061642f763100d5b7e52f569ae51e7c66af14240d8e4459c6246785ce5c441773995614f60e9e
+kit_r_pad_len: 96
+kit_r_pad_hex: 01763f94ae723d45c1010173a1f2f9e18c86406ccc7903d935fc37cd50b1f83016deb4f7c563f1fb4d6aed3a0210245ff0c0edd6ac428a8233eaf65dd48a95fd159067182b0db7acaa5e3689b5d36c661d5bc4fa9060143d1ea403aed893db6c
+kit_r_pad_sha256: b4109fdc94658de035b7c6658fa6301bcebea7d6099814abeabccf489bca8aec
+owned_payload_len: 96
+owned_payload_hex: e56403e8522ddeae1b44a1e8148b1ba4d3b4c626ccf20980056eedcc7e0c0f35ef160f7931ea80f62fcf15e95da32044559d14a5ac66587ecc556d66be3a4bf3b21299c98fc10a0e30518253c65af87f354556f77b528faf5e95591bfefa1ae8
+owned_payload_sha256: 531773c7c65c8432302bca2ae312c829463d2e349b8017bdac351880bfc39117
+a1_nonce_ascii: QKV2S4NONCE1
+a1_nonce_hex: 514b563253344e4f4e434531
+a1_prk_hex: 0f36a027febd06d1d1948930d0db66bfe3b44b1bc87665fdd4bdc61ed9e74372
+a1_key_hex: e6b32b130a7ed50c45c0340ebfb14f670c1043e212ee7404b21dce682f642e15
+a1_header_hex: 514b4131010101
+a1_aad_hex: 514b4131010101d5b7e52f569ae51e7c66af14240d8e4459c6246785ce5c441773995614f60e9e
+a1_plaintext_hex: e56403e8522ddeae1b44a1e8148b1ba4d3b4c626ccf20980056eedcc7e0c0f35
+a1_ciphertext_hex: 73c9232cda8df0ccc7565d93baad1d534b4341b217541fc262d86ef7fa3341da
+a1_tag_hex: 8e0b83fed20bcbeaa4ada8d73db845df
+a1_capsule_len: 67
+a1_capsule_hex: 514b4131010101514b563253344e4f4e43453173c9232cda8df0ccc7565d93baad1d534b4341b217541fc262d86ef7fa3341da8e0b83fed20bcbeaa4ada8d73db845df
+a1_capsule_sha256: c88180ef882ae3f5191d7973d8c4b98d48743be190fb78060bd397a238ee50d8
