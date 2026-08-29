@@ -67,6 +67,7 @@ mod finalization_v2;
 mod insertion;
 mod m24_signing;
 mod manual_keypad;
+mod manual_keypad_v2;
 mod review_ready;
 mod review_ready_v3;
 pub mod screen_flow;
@@ -94,6 +95,10 @@ pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, Terminal
 pub use manual_keypad::{
     ManualKeypadError, ManualKeypadEvent, ManualKeypadOutcome, ManualKeypadScreen,
     ManualKeypadSession, ManualTranscriptView, MANUAL_TRANSCRIPT_BYTES,
+};
+pub use manual_keypad_v2::{
+    ManualKeypadErrorV2, ManualKeypadEventV2, ManualKeypadOutcomeV2, ManualKeypadScreenV2,
+    ManualKeypadSessionV2, ManualTranscriptViewV2, MANUAL_TRANSCRIPT_BYTES_V2,
 };
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
 pub use review_ready_v3::{ReviewReadyV3, ReviewReadyV3Error, ReviewReadyV3Workflow};
