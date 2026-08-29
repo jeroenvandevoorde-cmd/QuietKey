@@ -19,6 +19,7 @@ mod hkdf_sha256;
 mod hmac_sha256;
 mod hmac_sha512;
 mod kit_r;
+mod kit_setup_v2;
 mod qkec;
 mod ripemd160;
 mod secret;
@@ -30,6 +31,10 @@ use core::fmt;
 use descriptor_build::{build_wallet, WalletPublic};
 use descriptor_build_v2::{build_wallet_v2, WalletPublicV2};
 use secret::Secret;
+
+pub use kit_setup_v2::{
+    KitCopyV2, KitPageDispositionV2, KitPrintPageV2, KitSetupReceiptV2, KitShareIndexV2,
+};
 
 /// Closed failure surface for v1 and v2 HOST provisioning mathematics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +58,9 @@ pub enum ProvisioningError {
     GeneratedDescriptorInvalid,
     NonceReuse,
     AlreadyEncrypted,
+    A1NotReady,
+    KitEncodingInvariant,
+    PrintRejected,
 }
 
 impl fmt::Display for ProvisioningError {
@@ -77,6 +85,9 @@ impl fmt::Display for ProvisioningError {
             Self::GeneratedDescriptorInvalid => "generated descriptor failed strict reparse",
             Self::NonceReuse => "A1 nonce reused within provisioning run",
             Self::AlreadyEncrypted => "A1 capsule already created",
+            Self::A1NotReady => "A1 capsule must exist before Kit generation",
+            Self::KitEncodingInvariant => "Kit encoding invariant failed",
+            Self::PrintRejected => "Kit print page rejected",
         };
         f.write_str(text)
     }

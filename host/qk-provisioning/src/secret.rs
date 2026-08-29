@@ -6,9 +6,29 @@
 use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 
+#[cfg(test)]
+use core::cell::Cell;
+
+#[cfg(test)]
+std::thread_local! {
+    static WIPED_BYTES: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_wiped_bytes() {
+    WIPED_BYTES.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn wiped_bytes() -> usize {
+    WIPED_BYTES.with(Cell::get)
+}
+
 /// Optimization-resistant clearing for private scratch bytes.
 #[inline(never)]
 pub(crate) fn wipe(bytes: &mut [u8]) {
+    #[cfg(test)]
+    let byte_count = bytes.len();
     for byte in bytes {
         // SAFETY: byte is a uniquely borrowed live byte. Volatile
         // writes make the clearing operation observable to the
@@ -16,6 +36,8 @@ pub(crate) fn wipe(bytes: &mut [u8]) {
         unsafe { ptr::write_volatile(byte, 0) };
     }
     compiler_fence(Ordering::SeqCst);
+    #[cfg(test)]
+    WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
 /// Non-copyable, non-debuggable move-stable fixed-size bytes cleared on drop.
