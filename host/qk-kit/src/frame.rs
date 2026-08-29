@@ -159,6 +159,26 @@ mod tests {
     use super::{frame_digest, validate, CHECKSUM_OFFSET};
     use crate::{combine_frames, encode_frame, KitError, ShareIndex};
 
+    const FIXTURE: &str = include_str!("../tests/fixtures/kit_share_v2.txt");
+
+    fn field(name: &str) -> &str {
+        let prefix = format!("{name}: ");
+        FIXTURE
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .expect("fixture field")
+    }
+
+    fn hex<const N: usize>(value: &str) -> [u8; N] {
+        assert_eq!(value.len(), N * 2);
+        let mut output = [0u8; N];
+        for (index, slot) in output.iter_mut().enumerate() {
+            let pair = &value.as_bytes()[index * 2..index * 2 + 2];
+            *slot = u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap();
+        }
+        output
+    }
+
     fn reseal(frame: &mut [u8; 142]) {
         let digest = frame_digest(&frame[..CHECKSUM_OFFSET]);
         frame[CHECKSUM_OFFSET..].copy_from_slice(&digest[..8]);
@@ -196,14 +216,13 @@ mod tests {
 
     #[test]
     fn combination_normalizes_indices_and_owns_the_exact_xor() {
-        let wallet_id = [0x33u8; 32];
-        let one = [0x55u8; 96];
-        let two = [0xaau8; 96];
-        let frame_one = encode_frame(ShareIndex::One, &wallet_id, &one);
-        let frame_two = encode_frame(ShareIndex::Two, &wallet_id, &two);
+        let frame_one = hex::<142>(field("frame_1_hex"));
+        let frame_two = hex::<142>(field("frame_2_hex"));
+        let owned_payload = hex::<96>(field("owned_payload_hex"));
+        assert_eq!(owned_payload, hex::<96>(field("combined_payload_hex")));
         let forward = combine_frames(&frame_one, &frame_two).unwrap();
         let reverse = combine_frames(&frame_two, &frame_one).unwrap();
-        assert_eq!(forward._bytes.as_bytes(), &[0xffu8; 96]);
-        assert_eq!(reverse._bytes.as_bytes(), &[0xffu8; 96]);
+        assert_eq!(forward._bytes.as_bytes(), &owned_payload);
+        assert_eq!(reverse._bytes.as_bytes(), &owned_payload);
     }
 }
