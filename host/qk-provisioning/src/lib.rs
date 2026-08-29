@@ -237,16 +237,7 @@ impl HostProvisioningRunV2 {
     fn from_secrets(secrets: [Secret<32>; 4]) -> Result<Self, ProvisioningError> {
         let [seed_a, signer_b, kit_r_transcript_hash, a2] = secrets;
 
-        let seed_a_bip39 = bip39::entropy_to_seed(seed_a.as_bytes())?;
-        let account_a = derive_account(seed_a_bip39.as_bytes())?;
-        drop(seed_a_bip39);
-
-        let signer_b_bip39 = bip39::entropy_to_seed(signer_b.as_bytes())?;
-        let account_b = derive_account(signer_b_bip39.as_bytes())?;
-        drop(signer_b_bip39);
-
-        let account_xpubs = [account_a.xpub, account_b.xpub];
-        let wallet = build_wallet_v2([account_a, account_b])?;
+        let (account_xpubs, wallet) = build_wallet_v2(seed_a.as_bytes(), signer_b.as_bytes())?;
         let kit_r_pad = kit_r::derive_pad(&kit_r_transcript_hash, &wallet.wallet_id)?;
         #[cfg(any(test, feature = "fuzzing"))]
         kit_r::assert_reference(&kit_r_transcript_hash, &wallet.wallet_id, &kit_r_pad);

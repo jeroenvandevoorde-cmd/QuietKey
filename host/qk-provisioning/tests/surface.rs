@@ -373,7 +373,7 @@ fn production_sources_have_no_io_randomness_and_only_secret_unsafe_boundary() {
 }
 
 #[test]
-fn manifest_has_only_four_reviewed_internal_dependencies() {
+fn manifest_has_only_five_reviewed_internal_dependencies() {
     let dependency_tail = MANIFEST
         .split_once("[dependencies]\n")
         .expect("dependency section")
@@ -389,6 +389,7 @@ fn manifest_has_only_four_reviewed_internal_dependencies() {
             "qk-descriptor = { path = \"../qk-descriptor\" }",
             "qk-kit = { path = \"../qk-kit\" }",
             "qk-secp = { path = \"../qk-secp\" }",
+            "qk-wallet-v2 = { path = \"../qk-wallet-v2\" }",
         ]
     );
     assert!(!MANIFEST.contains("[dev-dependencies]"));

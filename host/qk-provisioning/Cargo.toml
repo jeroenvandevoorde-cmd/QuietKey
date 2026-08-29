@@ -13,3 +13,4 @@ qk-a1 = { path = "../qk-a1" }
 qk-descriptor = { path = "../qk-descriptor" }
 qk-kit = { path = "../qk-kit" }
 qk-secp = { path = "../qk-secp" }
+qk-wallet-v2 = { path = "../qk-wallet-v2" }
