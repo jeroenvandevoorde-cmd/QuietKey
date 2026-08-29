@@ -1,11 +1,13 @@
-//! Frozen M26 public surface and HOST-only source restrictions.
+//! Frozen M26 residue plus the exact v2 slice-4 public and secret surfaces.
 
 const LIB: &str = include_str!("../src/lib.rs");
 const BIP39: &str = include_str!("../src/bip39.rs");
 const BIP32: &str = include_str!("../src/bip32_private.rs");
 const BECH32: &str = include_str!("../src/bech32.rs");
 const DESCRIPTOR: &str = include_str!("../src/descriptor_build.rs");
+const DESCRIPTOR_V2: &str = include_str!("../src/descriptor_build_v2.rs");
 const DICE: &str = include_str!("../src/dice.rs");
+const KIT_R: &str = include_str!("../src/kit_r.rs");
 const QKEC: &str = include_str!("../src/qkec.rs");
 const SECRET: &str = include_str!("../src/secret.rs");
 const SHA256: &str = include_str!("../src/sha256.rs");
@@ -34,13 +36,33 @@ fn public_surface_is_exactly_error_artifacts_and_run_operations() {
             "pub first_scripts: [[u8; 34]; 2],",
             "pub first_addresses: [[u8; 62]; 2],",
             "pub a1_capsule: [u8; 67],",
+            "pub struct ProvisioningArtifactsV2 {",
+            "pub account_xpubs: [[u8; 111]; 2],",
+            "pub descriptors: [[u8; 306]; 2],",
+            "pub wallet_id: [u8; 32],",
+            "pub first_scripts: [[u8; 34]; 2],",
+            "pub first_addresses: [[u8; 62]; 2],",
+            "pub a1_capsule: [u8; 67],",
             "pub struct HostProvisioningRun {",
             "pub fn from_qkec(",
             "pub fn from_dice(transcripts: [&[u8]; 4]) -> Result<Self, ProvisioningError> {",
             "pub fn encrypt_a1(",
+            "pub struct HostProvisioningRunV2 {",
+            "pub fn from_manual_dice(transcripts: [&[u8]; 4]) -> Result<Self, ProvisioningError> {",
+            "pub fn encrypt_a1(",
         ]
     );
-    for source in [BIP39, BIP32, BECH32, DESCRIPTOR, DICE, QKEC, SECRET] {
+    for source in [
+        BIP39,
+        BIP32,
+        BECH32,
+        DESCRIPTOR,
+        DESCRIPTOR_V2,
+        DICE,
+        KIT_R,
+        QKEC,
+        SECRET,
+    ] {
         assert!(!source.contains("pub fn "), "private helper operation");
         assert!(!source.contains("pub struct "), "private helper type");
         assert!(!source.contains("pub enum "), "private helper error");
@@ -119,6 +141,48 @@ fn fixed_constants_and_private_traits_are_source_locked() {
     assert!(!LIB.contains("impl Clone for HostProvisioningRun"));
     assert!(!LIB.contains("impl Copy for HostProvisioningRun"));
     assert!(!LIB.contains("impl Debug for HostProvisioningRun"));
+    assert!(!LIB.contains("impl Clone for HostProvisioningRunV2"));
+    assert!(!LIB.contains("impl Copy for HostProvisioningRunV2"));
+    assert!(!LIB.contains("impl Debug for HostProvisioningRunV2"));
+    assert!(!LIB.contains("impl Display for HostProvisioningRunV2"));
+    assert!(!LIB.contains("impl PartialEq for HostProvisioningRunV2"));
+
+    let v2_start = LIB
+        .find("pub struct HostProvisioningRunV2")
+        .expect("v2 private owner");
+    let v2 = &LIB[v2_start..];
+    assert!(v2.contains("payload: Secret<96>,"));
+    assert!(v2.contains("kit_r_pad: Secret<96>,"));
+    assert!(!v2.contains("Signer-C"));
+    assert!(!v2.contains("signer_c"));
+    for forbidden in [
+        "pub payload:",
+        "pub kit_r_pad:",
+        "pub fn payload",
+        "pub fn kit_r_pad",
+        "pub fn secret",
+        "pub fn entropy",
+        "pub fn regenerate",
+        "pub fn share",
+    ] {
+        assert!(
+            !v2.contains(forbidden),
+            "forbidden v2 secret surface {forbidden}"
+        );
+    }
+
+    for required in [
+        "const SALT_PREFIX: &[u8; 15] = b\"QuietKey/QKEC-1\";",
+        "const PURPOSE: &[u8; 5] = b\"Kit-R\";",
+        "const INFO_PREFIX: &[u8; 21] = b\"QuietKey/Kit-R/pad/v1\";",
+        "const CEREMONY_ID_BYTES: usize = 16;",
+        "const PAD_BYTES: usize = 96;",
+    ] {
+        assert!(
+            KIT_R.contains(required),
+            "missing Kit-R constant {required}"
+        );
+    }
 }
 
 #[test]
@@ -151,6 +215,22 @@ fn secret_storage_and_successful_capsule_consumption_are_source_locked() {
         .find("self.nonce = Some(*nonce)")
         .expect("nonce state committed");
     assert!(capsule < seed_drop && seed_drop < a2_drop && a2_drop < nonce_commit);
+
+    let v2_start = LIB
+        .find("pub struct HostProvisioningRunV2")
+        .expect("v2 owner");
+    let v2 = &LIB[v2_start..];
+    let encrypt_start = v2.find("pub fn encrypt_a1(").expect("v2 capsule operation");
+    let encrypt = &v2[encrypt_start..];
+    let capsule = encrypt
+        .find("let capsule = qk_a1::encrypt")
+        .expect("v2 capsule construction");
+    let nonce_commit = encrypt
+        .find("self.nonce = Some(*nonce)")
+        .expect("v2 nonce state committed");
+    assert!(capsule < nonce_commit);
+    assert!(!encrypt[..nonce_commit].contains("self.payload.take"));
+    assert!(!encrypt[..nonce_commit].contains("self.kit_r_pad.take"));
 }
 
 #[test]
@@ -161,7 +241,9 @@ fn production_sources_have_no_io_randomness_and_only_secret_unsafe_boundary() {
         BIP32,
         BECH32,
         DESCRIPTOR,
+        DESCRIPTOR_V2,
         DICE,
+        KIT_R,
         QKEC,
         SHA256,
         SHA512,
