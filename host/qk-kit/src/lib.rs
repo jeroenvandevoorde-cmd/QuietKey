@@ -11,12 +11,14 @@
 
 #![deny(unsafe_code)]
 
+mod fallback;
 mod frame;
 mod secret;
 mod sha256;
 
 use core::fmt;
 
+pub use fallback::{decode_fallback, encode_fallback};
 pub use frame::{combine_frames, encode_frame, frame_metadata};
 
 /// Exact canonical Kit share-frame length in bytes.
