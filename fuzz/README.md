@@ -53,11 +53,14 @@ faults and collisions, namespace preservation, deterministic repeat outcomes,
 and the absence of any partial valid artifact or residual fuzz artifact. The
 two v2 slice-7 `qk-kit` targets drive only the canonical Kit frame, M18
 fallback, deterministic logical QR, and opaque pair-combination boundaries.
-The codec target locks exact frame and fallback parsing precedence, canonical
-round trips, fixed QR metadata, and unchanged caller output on rejection. The
+Dependency-free reference classifiers use the separately implemented,
+NIST-vector-locked qk-psbt SHA-256 source and no qk-kit parser. The codec
+target locks exact frame and fallback parsing precedence, canonical bytes,
+fixed QR metadata, and unchanged caller output on rejection. The
 combine target locks left-then-right frame validation, duplicate/same-index/
-wallet-mismatch precedence, caller-order invariance, deterministic outcomes,
-and the absence of premature payload release. Neither target creates a Kit,
+wallet-mismatch precedence, caller-order outcome invariance, deterministic
+outcomes, and the absence of premature payload release; the qk-kit unit suite
+separately locks exact caller-order payload identity. Neither target creates a Kit,
 releases a combined payload, or reaches a scanner, camera, display, card,
 restore, spend, persistence, rendering, target, performance, or Gate path. The
 M27 `qk-host-sim` target drives
