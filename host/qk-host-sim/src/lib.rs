@@ -33,6 +33,9 @@
 //! M30 adds a Quantum-Shelter-only raw-transaction capability whose sole new
 //! operation is bounded, sequential file-type-T BBQr framing; SD behavior is
 //! unchanged and the other two tiers cannot obtain the QR capability.
+//! V2 slice 5 adds a separate two-key setup, normal A1+B, and pre-scanner Kit
+//! topology. It selects only schema-v3, v2 provisioning, and final export facts,
+//! keeps DiceGrid unavailable, and stops Kit routes at typed slice-10/11 seams.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -67,6 +70,7 @@ mod manual_keypad;
 mod review_ready;
 mod review_ready_v3;
 pub mod screen_flow;
+pub mod screen_flow_v2;
 mod signing_v2;
 mod watch_only_export;
 
@@ -102,6 +106,18 @@ pub use screen_flow::{
     ReviewOpReturnView, ReviewOverviewView, ReviewRecipientView, ReviewSequenceView, ReviewSession,
     ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind,
     TransactionResultSession, TransactionResultView, WipingReason,
+};
+pub use screen_flow_v2::{
+    ApprovalIdentityV2, ApprovalTokenV2, CardRemainsStatementV2, CeremonyCommitmentV2View,
+    CeremonyPurposeV2, CompletedOperationV2, DeferredBoundaryV2, EntropyInputModeV2,
+    FinalApprovalV2View, FlowApplyOutcomeV2, FlowEventV2, FlowFinishedV2, FlowKindV2,
+    FlowTerminalV2, KitDoorV2, KitRestoreActionV2, ProvisioningResultSessionV2,
+    ProvisioningResultV2View, RecipientFactV2View, ReviewArithmeticV2View, ReviewChangeV2View,
+    ReviewFeePolicyV2View, ReviewLocktimeV2View, ReviewOpReturnV2View, ReviewOverviewV2View,
+    ReviewRecipientV2View, ReviewSequenceV2View, ReviewSessionOutcomeV2, ReviewSessionV2,
+    ScopedApplyOutcomeV2, ScreenFlowV2, ScreenKindV2, ScreenV2, SpareBChoiceV2,
+    StatePreservingRejectionV2, TransactionResultSessionV2, TransactionResultV2View,
+    WipingReasonV2,
 };
 pub use signing_v2::{MockCardBSignature, SigningV2Error, TerminalInputKeyV2};
 pub use watch_only_export::{
