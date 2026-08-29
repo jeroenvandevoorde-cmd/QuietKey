@@ -1,19 +1,25 @@
-//! Fixed-memory HOST reference for the canonical QuietKey v2 Kit share codec.
+//! Fixed-memory HOST reference for the canonical QuietKey v2 Kit share codec
+//! and opaque consuming restore mathematics.
 //!
-//! HOST REFERENCE ONLY -- NOT A KIT GENERATOR, SCANNER, RECOVERY TOOL, OR
-//! WALLET -- NO TARGET, PERFORMANCE, OR GATE CLAIM.
+//! HOST REFERENCE ONLY -- NOT A KIT GENERATOR, SCANNER, WALLET, CARD
+//! PROVISIONER, OR NORMAL-WALLET RESUME PATH -- NO TARGET, PERFORMANCE, OR
+//! GATE CLAIM.
 //!
 //! This crate validates and encodes one exact share-frame profile, its exact
 //! M18 fallback text and one deterministic logical QR symbol. It can combine
 //! one valid opposite-index same-wallet pair only into an opaque, zeroizing
-//! owner. It performs no allocation, I/O, logging, randomness, rendering,
-//! image recognition, normalization, persistence, signing, or payload release.
+//! owner, rebind that owner to exact public wallet facts, and prepare one
+//! non-signing replacement-B or A1-reprint mock boundary. Its own storage is
+//! fixed-size; bounded allocations inherited from qk-bip32 remain separately
+//! measured. It performs no I/O, logging, randomness, rendering, image
+//! recognition, normalization, persistence, signing, or payload release.
 
 #![deny(unsafe_code)]
 
 mod fallback;
 mod frame;
 mod qr;
+mod restore_v2;
 mod secret;
 mod sha256;
 
@@ -22,6 +28,11 @@ use core::fmt;
 pub use fallback::{decode_fallback, encode_fallback};
 pub use frame::{combine_frames, encode_frame, frame_metadata};
 pub use qr::encode_qr;
+pub use restore_v2::{
+    A1ReprintDispositionV2, A1ReprintReceiptV2, A1ReprintViewV2, BoundKitRestoreV2,
+    KitRestoreDispositionV2, KitRestoreErrorV2, PreparedA1ReprintV2, PreparedReplacementBV2,
+    ReplacementBReceiptV2, ReplacementBViewV2, SurvivingBFactorV2,
+};
 
 /// Exact canonical Kit share-frame length in bytes.
 pub const FRAME_LEN: usize = 142;
