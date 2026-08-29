@@ -601,14 +601,15 @@ fn assert_exact_control_outcome(outcome: &Outcome, terminal_mode: u8, mock_mode:
             _ => unreachable!("mock mode modulo seven is exhaustive"),
         },
         1 => match mock_mode {
-            3 => assert_signing_error(outcome, SigningV2Error::DuplicateSignature),
             5 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
             _ => assert_signing_error(outcome, SigningV2Error::MissingTerminalKey),
         },
+        2 if mock_mode == 5 => {
+            assert_signing_error(outcome, SigningV2Error::InputOutOfRange)
+        }
         2 => assert_signing_error(outcome, SigningV2Error::DuplicateTerminalKey),
         3 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
         4 => match mock_mode {
-            3 => assert_signing_error(outcome, SigningV2Error::DuplicateSignature),
             5 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
             _ => assert_signing_error(outcome, SigningV2Error::TerminalKeyMismatch),
         },
