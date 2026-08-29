@@ -102,11 +102,10 @@ regression fixture, and a decision row when the affected crate is frozen.
 Every retained unit can be replayed once under the pinned build with
 `fuzz/replay-corpus.sh TARGET`.
 
-The two v2 slice-3 campaigns are preregistered together in
-`CAMPAIGN-009.md`. Each executes exactly 100,000 inputs under AddressSanitizer
-and starts from its separately retained public corpus. Two copied corpora are
-minimized separately until a further pass changes neither set; only matching
-sorted `SHA-256<TAB>bytes` sets may replace the persistent directories. M23
-and M24 manifests move to their v2 generations only after both targets build,
-both qualifying campaigns finish, minimization agrees, and retained replay is
-clean.
+The two v2 slice-3 campaigns are recorded together in `CAMPAIGN-009.md`.
+Each executed exactly 100,000 inputs under AddressSanitizer from its retained
+public corpus. Two copied corpora were minimized separately until a further
+pass changed neither set; only matching sorted `SHA-256<TAB>bytes` sets
+replaced the persistent directories. The M23 registry retained its separate
+`qk_psbt_m23` source pin, the M24 registry advanced to generation V2, and both
+retained corpora replayed clean under the pinned toolchain.

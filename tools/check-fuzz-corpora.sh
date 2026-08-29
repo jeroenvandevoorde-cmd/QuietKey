@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..122 corpus registries.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..123 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -423,7 +423,7 @@ case "$mode" in
     render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$m23_source" "$m23_targets" \
       "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 \
       "$m23_review_v3_source"
-    render_partition 'QK-M24-CORPUS-MANIFEST-V1' "$m24_source" "$m24_targets" \
+    render_partition 'QK-M24-CORPUS-MANIFEST-V2' "$m24_source" "$m24_targets" \
       "$m24_order" "$m24_entries" "$m24_expected"
     render_partition 'QK-M25-CORPUS-MANIFEST-V1' "$m25_source" "$m25_targets" \
       "$m25_order" "$m25_entries" "$m25_expected"
@@ -507,7 +507,7 @@ case "$mode" in
     sed -n 'p' "$m23_expected"
     ;;
   render_m24)
-    render_partition 'QK-M24-CORPUS-MANIFEST-V1' "$render_source" "$m24_targets" \
+    render_partition 'QK-M24-CORPUS-MANIFEST-V2' "$render_source" "$m24_targets" \
       "$m24_order" "$m24_entries" "$m24_expected"
     sed -n 'p' "$m24_expected"
     ;;
