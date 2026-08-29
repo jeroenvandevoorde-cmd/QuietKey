@@ -1,0 +1,8 @@
+[package]
+name = "qk-kit"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Dependency-free HOST-only reference for canonical QuietKey v2 Kit share frames, fallback text, logical QR symbols, and opaque two-share combination."
+
+[dependencies]

@@ -1,0 +1,57 @@
+//! Private fixed-size secret ownership and optimization-resistant clearing.
+
+#![allow(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
+
+use core::ptr;
+use core::sync::atomic::{compiler_fence, Ordering};
+
+/// Clear private scratch bytes with observable volatile writes.
+#[inline(never)]
+pub(crate) fn wipe(bytes: &mut [u8]) {
+    for byte in bytes {
+        // SAFETY: `byte` is a uniquely borrowed, live byte. A volatile write
+        // makes the clearing operation observable to the abstract machine.
+        unsafe { ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
+/// Clear private SHA-256 words with observable volatile writes.
+#[inline(never)]
+pub(crate) fn wipe_u32(words: &mut [u32]) {
+    for word in words {
+        // SAFETY: `word` is a uniquely borrowed, live word. A volatile write
+        // makes the clearing operation observable to the abstract machine.
+        unsafe { ptr::write_volatile(word, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
+/// Non-copyable, non-debuggable fixed-size bytes cleared on drop.
+pub(crate) struct Secret<const N: usize> {
+    bytes: [u8; N],
+}
+
+impl<const N: usize> Secret<N> {
+    pub(crate) fn copy_from(bytes: &[u8; N]) -> Self {
+        Self { bytes: *bytes }
+    }
+
+    /// Transfer caller scratch into this owner and clear the caller scratch.
+    pub(crate) fn take(bytes: &mut [u8; N]) -> Self {
+        let owned = Self { bytes: *bytes };
+        wipe(bytes);
+        owned
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8; N] {
+        &self.bytes
+    }
+}
+
+impl<const N: usize> Drop for Secret<N> {
+    fn drop(&mut self) {
+        wipe(&mut self.bytes);
+    }
+}
