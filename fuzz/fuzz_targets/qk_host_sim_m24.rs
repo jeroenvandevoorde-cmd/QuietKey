@@ -1,13 +1,14 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use qk_descriptor::{parse_descriptor_pair, DescriptorPair};
+use qk_descriptor::{parse_descriptor_pair_v2, DescriptorPairV2};
 use qk_host_sim::{
-    FinalizationError, FinalizedTransaction, M24SigningError, MockCardRole, MockCardSignature,
-    ReviewReadyError, ReviewReadyWorkflow, TerminalInputKey, WorkflowRejection,
+    FinalizationV2Error, FinalizedTransaction, MockCardBSignature, ReviewReadyV3Error,
+    ReviewReadyV3Workflow, SigningV2Error, TerminalInputKeyV2, WorkflowRejection,
 };
 use qk_psbt::{
-    canonical_serialize, parse, InputSource, IntakeError, ParseError, RejectCategory, ReviewV2Error,
+    canonical_serialize, parse, InputSource, IntakeError, ParseError, RejectCategory,
+    ReviewV3Error, FEE_POLICY_V2_IDENTIFIER, REVIEW_V3_SCHEMA_VERSION,
 };
 use qk_secp::{secret_key_import, SecpError};
 use std::sync::OnceLock;
@@ -15,7 +16,10 @@ use std::sync::OnceLock;
 const MAX_CANDIDATE_BYTES: usize = 4096;
 const MAX_MUTATIONS: usize = 64;
 const MAX_HOSTILE_DER_BYTES: usize = 256;
-const FIXTURE: &[u8] = include_bytes!("../../host/qk-host-sim/tests/fixtures/m24_signing.txt");
+const DESCRIPTOR_FIXTURE: &[u8] =
+    include_bytes!("../../host/qk-descriptor/tests/fixtures/descriptor_pairs.txt");
+const FIXTURE: &[u8] =
+    include_bytes!("../../host/qk-psbt/tests/fixtures/signing_finalization_v2.txt");
 
 static GOLDEN_S0: OnceLock<Vec<u8>> = OnceLock::new();
 
@@ -30,15 +34,22 @@ enum Stage {
     SignAndFinalize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CandidateExpectation {
+    MustReject,
+    ExactGolden,
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Outcome {
     ReviewRejected {
         stage: Stage,
-        error: ReviewReadyError,
+        error: ReviewReadyV3Error,
     },
     SigningRejected {
         stage: Stage,
-        error: M24SigningError,
+        error: SigningV2Error,
     },
     Finalized {
         finalized_psbt: Vec<u8>,
@@ -50,7 +61,6 @@ enum Outcome {
 
 struct OwnedMock {
     input_index: u32,
-    role: MockCardRole,
     der_signature: Vec<u8>,
 }
 
@@ -61,20 +71,11 @@ fn fixture_value<'a>(prefix: &[u8]) -> &'a [u8] {
         .expect("committed public fixture field")
 }
 
-fn case_value<'a>(case_name: &[u8], prefix: &[u8]) -> &'a [u8] {
-    let mut active = false;
-    for line in FIXTURE.split(|byte| *byte == b'\n') {
-        if let Some(name) = line.strip_prefix(b"case: ") {
-            active = name == case_name;
-            continue;
-        }
-        if active {
-            if let Some(value) = line.strip_prefix(prefix) {
-                return value;
-            }
-        }
-    }
-    panic!("committed public fixture case field missing")
+fn descriptor_value<'a>(prefix: &[u8]) -> &'a [u8] {
+    DESCRIPTOR_FIXTURE
+        .split(|byte| *byte == b'\n')
+        .find_map(|line| line.strip_prefix(prefix))
+        .expect("committed public descriptor fixture field")
 }
 
 fn hex_nibble(byte: u8) -> Option<u8> {
@@ -106,17 +107,17 @@ fn decode_fixture_hex_32(encoded: &[u8]) -> [u8; 32] {
         .expect("committed 32-byte fixture field")
 }
 
-fn descriptor() -> DescriptorPair {
-    parse_descriptor_pair(
-        fixture_value(b"receive_descriptor: "),
-        fixture_value(b"change_descriptor: "),
+fn descriptor() -> DescriptorPairV2 {
+    parse_descriptor_pair_v2(
+        descriptor_value(b"receive: "),
+        descriptor_value(b"change: "),
     )
-    .expect("committed public descriptor pair")
+    .expect("committed public v2 descriptor pair")
 }
 
 fn golden_s0() -> &'static [u8] {
     GOLDEN_S0
-        .get_or_init(|| decode_fixture_hex(fixture_value(b"initial_psbt_hex: ")))
+        .get_or_init(|| decode_fixture_hex(fixture_value(b"s0_hex: ")))
         .as_slice()
 }
 
@@ -159,21 +160,35 @@ fn mutated_golden(commands: &[u8]) -> Vec<u8> {
     candidate
 }
 
-fn candidate(data: &[u8]) -> (Vec<u8>, InputSource, u8, u8, &[u8]) {
+fn candidate(data: &[u8]) -> (Vec<u8>, InputSource, u8, u8, &[u8], CandidateExpectation) {
     let selector = data.first().copied().unwrap_or(0);
     let terminal_mode = data.get(1).copied().unwrap_or(0) % 5;
-    let mock_mode = data.get(2).copied().unwrap_or(0) % 10;
+    let mock_mode = data.get(2).copied().unwrap_or(0) % 7;
     let remainder = data.get(3..).unwrap_or_default();
-    let bytes = match selector & 3 {
-        0 => golden_s0().to_vec(),
-        1 => mutated_golden(remainder),
+    let (bytes, expectation) = match selector & 3 {
+        0 => (golden_s0().to_vec(), CandidateExpectation::ExactGolden),
+        1 => {
+            let bytes = mutated_golden(remainder);
+            let expectation = if bytes == golden_s0() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::Unknown
+            };
+            (bytes, expectation)
+        }
         2 => {
             let requested = remainder
                 .get(..2)
                 .and_then(|raw| <[u8; 2]>::try_from(raw).ok())
                 .map(u16::from_le_bytes)
                 .map_or(0, usize::from);
-            golden_s0()[..requested.min(golden_s0().len())].to_vec()
+            let length = requested.min(golden_s0().len());
+            let expectation = if length == golden_s0().len() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::MustReject
+            };
+            (golden_s0()[..length].to_vec(), expectation)
         }
         3 => {
             let mut bytes = golden_s0().to_vec();
@@ -183,21 +198,33 @@ fn candidate(data: &[u8]) -> (Vec<u8>, InputSource, u8, u8, &[u8]) {
                     .get(..remainder.len().min(available))
                     .unwrap_or_default(),
             );
-            bytes
+            let expectation = if bytes.len() == golden_s0().len() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::MustReject
+            };
+            (bytes, expectation)
         }
         _ => unreachable!("two-bit selector is exhaustive"),
     };
-    (bytes, source(selector), terminal_mode, mock_mode, remainder)
+    (
+        bytes,
+        source(selector),
+        terminal_mode,
+        mock_mode,
+        remainder,
+        expectation,
+    )
 }
 
-fn imported_terminal(input_index: u32, scalar_field: &[u8]) -> TerminalInputKey {
+fn imported_terminal(input_index: u32, scalar_field: &[u8]) -> TerminalInputKeyV2 {
     let mut source = decode_fixture_hex_32(fixture_value(scalar_field));
     let secret = secret_key_import(&mut source).expect("public NEVER-FUND fixture scalar import");
     assert_eq!(source, [0u8; 32], "secret import source must be wiped");
-    TerminalInputKey::new(input_index, secret)
+    TerminalInputKeyV2::new(input_index, secret)
 }
 
-fn terminal_keys(mode: u8) -> Vec<TerminalInputKey> {
+fn terminal_keys(mode: u8) -> Vec<TerminalInputKeyV2> {
     match mode {
         0 => vec![imported_terminal(0, b"role_a_route_private_scalar_hex: ")],
         1 => Vec::new(),
@@ -211,47 +238,30 @@ fn terminal_keys(mode: u8) -> Vec<TerminalInputKey> {
     }
 }
 
-fn owned_mock(input_index: u32, role: MockCardRole, der_signature: &[u8]) -> OwnedMock {
+fn owned_mock(input_index: u32, der_signature: &[u8]) -> OwnedMock {
     OwnedMock {
         input_index,
-        role,
         der_signature: der_signature.to_vec(),
     }
 }
 
 fn mock_signatures(mode: u8, hostile: &[u8]) -> Vec<OwnedMock> {
-    let b = decode_fixture_hex(fixture_value(b"signature_b_der_hex: "));
-    let c = decode_fixture_hex(fixture_value(b"signature_c_der_hex: "));
+    let b = decode_fixture_hex(fixture_value(b"role_b_der_hex: "));
+    let a = decode_fixture_hex(fixture_value(b"role_a_der_hex: "));
     match mode {
-        0 => vec![owned_mock(0, MockCardRole::B, &b)],
-        1 => vec![owned_mock(0, MockCardRole::C, &c)],
-        2 => Vec::new(),
-        3 => vec![owned_mock(
+        0 => vec![owned_mock(0, &b)],
+        1 => Vec::new(),
+        2 => vec![owned_mock(
             0,
-            MockCardRole::B,
             hostile
                 .get(..hostile.len().min(MAX_HOSTILE_DER_BYTES))
                 .unwrap_or_default(),
         )],
-        4 => vec![
-            owned_mock(0, MockCardRole::B, &b),
-            owned_mock(0, MockCardRole::B, &b),
-        ],
-        5 => vec![
-            owned_mock(0, MockCardRole::B, &b),
-            owned_mock(0, MockCardRole::C, &b),
-        ],
-        6 => vec![
-            owned_mock(0, MockCardRole::B, &b),
-            owned_mock(0, MockCardRole::B, &c),
-        ],
-        7 => vec![
-            owned_mock(0, MockCardRole::B, &b),
-            owned_mock(0, MockCardRole::C, &c),
-        ],
-        8 => vec![owned_mock(1, MockCardRole::B, &b)],
-        9 => vec![owned_mock(0, MockCardRole::B, &c)],
-        _ => unreachable!("mock mode modulo ten is exhaustive"),
+        3 => vec![owned_mock(0, &b), owned_mock(0, &b)],
+        4 => vec![owned_mock(0, &b), owned_mock(0, &a)],
+        5 => vec![owned_mock(1, &b)],
+        6 => vec![owned_mock(0, &a)],
+        _ => unreachable!("mock mode modulo seven is exhaustive"),
     }
 }
 
@@ -301,25 +311,27 @@ fn intake_error_name(error: IntakeError) -> &'static str {
     }
 }
 
-fn assert_review_error(error: ReviewV2Error) {
+fn assert_review_error(error: ReviewV3Error) {
     match error {
-        ReviewV2Error::SourceMismatch => {}
-        ReviewV2Error::Semantic(semantic) => {
+        ReviewV3Error::SourceMismatch => {}
+        ReviewV3Error::Semantic(semantic) => {
             assert!(!semantic.category.to_string().is_empty());
         }
-        ReviewV2Error::FeePolicyArithmeticOverflow
-        | ReviewV2Error::EmergencyFeeCeilingExceeded
-        | ReviewV2Error::InputCountTooLarge
-        | ReviewV2Error::OutputCountTooLarge
-        | ReviewV2Error::UnsignedTransactionTooLong
-        | ReviewV2Error::InputIndexMismatch
-        | ReviewV2Error::OutputIndexMismatch
-        | ReviewV2Error::LengthOverflow
-        | ReviewV2Error::FieldLengthOverflow
-        | ReviewV2Error::CanonicalTooLong
-        | ReviewV2Error::AllocationFailed
-        | ReviewV2Error::HashFailure
-        | ReviewV2Error::InternalInvariant => {}
+        ReviewV3Error::FeePolicyArithmeticOverflow
+        | ReviewV3Error::EmergencyFeeCeilingExceeded
+        | ReviewV3Error::InputCountTooLarge
+        | ReviewV3Error::OutputCountTooLarge
+        | ReviewV3Error::UnsignedTransactionTooLong
+        | ReviewV3Error::InputIndexMismatch
+        | ReviewV3Error::OutputIndexMismatch
+        | ReviewV3Error::LengthOverflow
+        | ReviewV3Error::FieldLengthOverflow
+        | ReviewV3Error::CanonicalTooLong
+        | ReviewV3Error::AllocationFailed
+        | ReviewV3Error::HashFailure
+        | ReviewV3Error::UnsupportedReviewSchemaVersion
+        | ReviewV3Error::CanonicalReviewMismatch
+        | ReviewV3Error::InternalInvariant => {}
     }
     assert!(!error.to_string().is_empty());
 }
@@ -333,23 +345,23 @@ fn assert_workflow_rejection(error: WorkflowRejection) {
     }
 }
 
-fn assert_review_ready_error(error: ReviewReadyError, candidate_len: usize) {
+fn assert_review_ready_error(error: ReviewReadyV3Error, candidate_len: usize) {
     match error {
-        ReviewReadyError::Intake(error) => assert!(!intake_error_name(error).is_empty()),
-        ReviewReadyError::WorkflowUnavailable
-        | ReviewReadyError::Finished
-        | ReviewReadyError::WorkflowInvariant
-        | ReviewReadyError::ReviewMismatch
-        | ReviewReadyError::ReviewHashMismatch
-        | ReviewReadyError::RetainedS0Mismatch => {}
-        ReviewReadyError::WorkflowRejected(error) => assert_workflow_rejection(error),
-        ReviewReadyError::ValidationParse(error)
-        | ReviewReadyError::ConstructionParse(error)
-        | ReviewReadyError::Reparse(error) => assert_parse_error(error, candidate_len),
-        ReviewReadyError::Build(error)
-        | ReviewReadyError::Rebuild(error)
-        | ReviewReadyError::Hash(error)
-        | ReviewReadyError::Rehash(error) => assert_review_error(error),
+        ReviewReadyV3Error::Intake(error) => assert!(!intake_error_name(error).is_empty()),
+        ReviewReadyV3Error::WorkflowUnavailable
+        | ReviewReadyV3Error::Finished
+        | ReviewReadyV3Error::WorkflowInvariant
+        | ReviewReadyV3Error::ReviewMismatch
+        | ReviewReadyV3Error::ReviewHashMismatch
+        | ReviewReadyV3Error::RetainedS0Mismatch => {}
+        ReviewReadyV3Error::WorkflowRejected(error) => assert_workflow_rejection(error),
+        ReviewReadyV3Error::ValidationParse(error)
+        | ReviewReadyV3Error::ConstructionParse(error)
+        | ReviewReadyV3Error::Reparse(error) => assert_parse_error(error, candidate_len),
+        ReviewReadyV3Error::Build(error)
+        | ReviewReadyV3Error::Rebuild(error)
+        | ReviewReadyV3Error::Hash(error)
+        | ReviewReadyV3Error::Rehash(error) => assert_review_error(error),
     }
     assert!(!error.to_string().is_empty());
 }
@@ -375,103 +387,103 @@ fn assert_secp_error(error: SecpError) {
     assert!(!error.to_string().is_empty());
 }
 
-fn assert_finalization_error(error: FinalizationError) {
+fn assert_finalization_error(error: FinalizationV2Error) {
     match error {
-        FinalizationError::CryptographicVerification(semantic) => {
+        FinalizationV2Error::CryptographicVerification(semantic) => {
             assert!(!semantic.category.to_string().is_empty());
         }
-        FinalizationError::CapabilityParse
-        | FinalizationError::NonCanonicalInput
-        | FinalizationError::ThresholdIncomplete
-        | FinalizationError::WitnessShapeMismatch
-        | FinalizationError::WitnessOrderMismatch
-        | FinalizationError::LengthOverflow
-        | FinalizationError::ArtifactTooLarge
-        | FinalizationError::AllocationFailed
-        | FinalizationError::FinalizedPsbtReparse
-        | FinalizationError::FinalizedPsbtNonCanonical
-        | FinalizationError::ForbiddenDelta
-        | FinalizationError::RawTransactionReparse
-        | FinalizationError::BaseTransactionMismatch
-        | FinalizationError::WitnessMismatch
-        | FinalizationError::HashFailed
-        | FinalizationError::InternalInvariant => {}
+        FinalizationV2Error::CapabilityParse
+        | FinalizationV2Error::NonCanonicalInput
+        | FinalizationV2Error::ReviewFactsMismatch
+        | FinalizationV2Error::ThresholdIncomplete
+        | FinalizationV2Error::WitnessShapeMismatch
+        | FinalizationV2Error::WitnessOrderMismatch
+        | FinalizationV2Error::LengthOverflow
+        | FinalizationV2Error::ArtifactTooLarge
+        | FinalizationV2Error::AllocationFailed
+        | FinalizationV2Error::FinalizedPsbtReparse
+        | FinalizationV2Error::FinalizedPsbtNonCanonical
+        | FinalizationV2Error::ForbiddenDelta
+        | FinalizationV2Error::RawTransactionReparse
+        | FinalizationV2Error::BaseTransactionMismatch
+        | FinalizationV2Error::WitnessMismatch
+        | FinalizationV2Error::FinalSignatureVerificationFailed
+        | FinalizationV2Error::HashFailed
+        | FinalizationV2Error::InternalInvariant => {}
     }
     assert!(!error.to_string().is_empty());
 }
 
-fn assert_m24_error(error: M24SigningError) {
+fn assert_signing_error_named(error: SigningV2Error) {
     match error {
-        M24SigningError::ReviewRebuild(error) => assert_review_error(error),
-        M24SigningError::ExistingSignatureVerification(error) => {
+        SigningV2Error::ReviewRebuild(error) => assert_review_error(error),
+        SigningV2Error::ExistingSignatureVerification(error) => {
             assert!(!error.category.to_string().is_empty());
             assert!(!error.to_string().is_empty());
         }
-        M24SigningError::SerializeFailed(error) => {
+        SigningV2Error::SerializeFailed(error) => {
             assert!(!format!("{error:?}").is_empty());
         }
-        M24SigningError::TerminalSigning(error) => assert_secp_error(error),
-        M24SigningError::Finalization(error) => assert_finalization_error(error),
-        M24SigningError::WrongState
-        | M24SigningError::RetainedS0Mismatch
-        | M24SigningError::ParseFailed
-        | M24SigningError::ReviewFactsMismatch
-        | M24SigningError::ReviewHashMismatch
-        | M24SigningError::DigestFailed
-        | M24SigningError::InputOutOfRange
-        | M24SigningError::DuplicateTerminalKey
-        | M24SigningError::MissingTerminalKey
-        | M24SigningError::UnexpectedTerminalKey
-        | M24SigningError::DuplicateSignature
-        | M24SigningError::DuplicateRole
-        | M24SigningError::SignatureConflict
-        | M24SigningError::ThresholdAlreadyMet
-        | M24SigningError::ThresholdWouldBeExceeded
-        | M24SigningError::ThresholdIncomplete
-        | M24SigningError::TooManyInsertions
-        | M24SigningError::TerminalPreInsertionVerificationFailed
-        | M24SigningError::InvalidMockSignature
-        | M24SigningError::ForbiddenDelta
-        | M24SigningError::NonCanonicalOutput
-        | M24SigningError::ArtifactTooLarge
-        | M24SigningError::AllocationFailed
-        | M24SigningError::FinalTransactionReparse
-        | M24SigningError::WitnessOrderMismatch
-        | M24SigningError::FinalSignatureVerificationFailed
-        | M24SigningError::InternalInvariant => {}
+        SigningV2Error::TerminalSigning(error) => assert_secp_error(error),
+        SigningV2Error::Finalization(error) => assert_finalization_error(error),
+        SigningV2Error::WrongState
+        | SigningV2Error::RetainedS0Mismatch
+        | SigningV2Error::ParseFailed
+        | SigningV2Error::ReviewFactsMismatch
+        | SigningV2Error::ReviewHashMismatch
+        | SigningV2Error::DigestFailed
+        | SigningV2Error::InputOutOfRange
+        | SigningV2Error::DuplicateTerminalKey
+        | SigningV2Error::MissingTerminalKey
+        | SigningV2Error::UnexpectedTerminalKey
+        | SigningV2Error::TerminalKeyMismatch
+        | SigningV2Error::DuplicateSignature
+        | SigningV2Error::DuplicateRole
+        | SigningV2Error::SignatureConflict
+        | SigningV2Error::ThresholdAlreadyMet
+        | SigningV2Error::ThresholdWouldBeExceeded
+        | SigningV2Error::ThresholdIncomplete
+        | SigningV2Error::TooManyInsertions
+        | SigningV2Error::TerminalPreInsertionVerificationFailed
+        | SigningV2Error::InvalidMockSignature
+        | SigningV2Error::ForbiddenDelta
+        | SigningV2Error::NonCanonicalOutput
+        | SigningV2Error::ArtifactTooLarge
+        | SigningV2Error::AllocationFailed
+        | SigningV2Error::InternalInvariant => {}
     }
     assert!(!error.to_string().is_empty());
 }
 
 fn review_rejected(
-    workflow: &mut ReviewReadyWorkflow,
+    workflow: &mut ReviewReadyV3Workflow,
     stage: Stage,
-    error: ReviewReadyError,
+    error: ReviewReadyV3Error,
     candidate_len: usize,
 ) -> Outcome {
     assert_review_ready_error(error, candidate_len);
     assert!(workflow.is_finished());
     assert!(workflow.review_ready().is_none());
-    assert_eq!(workflow.wake(), Err(ReviewReadyError::Finished));
+    assert_eq!(workflow.wake(), Err(ReviewReadyV3Error::Finished));
     Outcome::ReviewRejected { stage, error }
 }
 
-fn assert_exact_final(case_name: &[u8], finalized: &FinalizedTransaction) {
+fn assert_exact_final(finalized: &FinalizedTransaction) {
     assert_eq!(
         finalized.finalized_psbt(),
-        decode_fixture_hex(case_value(case_name, b"finalized_psbt_hex: "))
+        decode_fixture_hex(fixture_value(b"finalized_psbt_hex: "))
     );
     assert_eq!(
         finalized.raw_transaction(),
-        decode_fixture_hex(case_value(case_name, b"raw_tx_hex: "))
+        decode_fixture_hex(fixture_value(b"raw_transaction_hex: "))
     );
     assert_eq!(
         finalized.txid(),
-        decode_fixture_hex_32(case_value(case_name, b"txid_raw_hex: "))
+        decode_fixture_hex_32(fixture_value(b"txid_raw_hex: "))
     );
     assert_eq!(
         finalized.wtxid(),
-        decode_fixture_hex_32(case_value(case_name, b"wtxid_raw_hex: "))
+        decode_fixture_hex_32(fixture_value(b"wtxid_raw_hex: "))
     );
 }
 
@@ -482,7 +494,7 @@ fn run_once(
     mock_mode: u8,
     hostile_mock: &[u8],
 ) -> Outcome {
-    let mut workflow = match ReviewReadyWorkflow::new(descriptor()) {
+    let mut workflow = match ReviewReadyV3Workflow::new(descriptor()) {
         Ok(workflow) => workflow,
         Err(error) => {
             assert_review_ready_error(error, candidate.len());
@@ -521,18 +533,25 @@ fn run_once(
     }
 
     let owned_mocks = mock_signatures(mock_mode, hostile_mock);
-    let mocks: Vec<MockCardSignature<'_>> = owned_mocks
+    let mocks: Vec<MockCardBSignature<'_>> = owned_mocks
         .iter()
-        .map(|mock| MockCardSignature {
+        .map(|mock| MockCardBSignature {
             input_index: mock.input_index,
-            role: mock.role,
             der_signature: &mock.der_signature,
         })
         .collect();
-    let result = workflow.sign_and_finalize_m24(terminal_keys(terminal_mode), &mocks);
+    let ready = workflow
+        .review_ready()
+        .expect("forward path produced schema-v3 ReviewReady");
+    assert_eq!(ready.review().schema_version(), REVIEW_V3_SCHEMA_VERSION);
+    assert_eq!(
+        ready.review().fee_policy_identifier(),
+        FEE_POLICY_V2_IDENTIFIER
+    );
+    let result = workflow.sign_and_finalize_v2(terminal_keys(terminal_mode), &mocks);
     match result {
         Err(error) => {
-            assert_m24_error(error);
+            assert_signing_error_named(error);
             // The error surface carries no artifact, signature, key, or hostile bytes.
             Outcome::SigningRejected {
                 stage: Stage::SignAndFinalize,
@@ -546,12 +565,8 @@ fn run_once(
                 canonical_serialize(&view).expect("released finalized PSBT must serialize"),
                 finalized.finalized_psbt()
             );
-            if candidate == golden_s0() && terminal_mode == 0 {
-                match mock_mode {
-                    0 => assert_exact_final(b"M24-A-B", &finalized),
-                    1 => assert_exact_final(b"M24-A-C", &finalized),
-                    _ => panic!("unexpected M24 acceptance for exact fixture controls"),
-                }
+            if candidate == golden_s0() && terminal_mode == 0 && mock_mode == 0 {
+                assert_exact_final(&finalized);
             }
             Outcome::Finalized {
                 finalized_psbt: finalized.finalized_psbt().to_vec(),
@@ -563,7 +578,7 @@ fn run_once(
     }
 }
 
-fn assert_signing_error(outcome: &Outcome, expected: M24SigningError) {
+fn assert_signing_error(outcome: &Outcome, expected: SigningV2Error) {
     match outcome {
         Outcome::SigningRejected {
             stage: Stage::SignAndFinalize,
@@ -576,40 +591,39 @@ fn assert_signing_error(outcome: &Outcome, expected: M24SigningError) {
 fn assert_exact_control_outcome(outcome: &Outcome, terminal_mode: u8, mock_mode: u8) {
     match terminal_mode {
         0 => match mock_mode {
-            0 | 1 => assert!(matches!(outcome, Outcome::Finalized { .. })),
-            2 => assert_signing_error(outcome, M24SigningError::ThresholdIncomplete),
-            3 => {}
-            4 | 5 => assert_signing_error(outcome, M24SigningError::DuplicateSignature),
-            6 => assert_signing_error(outcome, M24SigningError::DuplicateRole),
-            7 => assert_signing_error(outcome, M24SigningError::ThresholdWouldBeExceeded),
-            8 => assert_signing_error(outcome, M24SigningError::InputOutOfRange),
-            9 => assert_signing_error(outcome, M24SigningError::InvalidMockSignature),
-            _ => unreachable!("mock mode modulo ten is exhaustive"),
+            0 => assert!(matches!(outcome, Outcome::Finalized { .. })),
+            1 => assert_signing_error(outcome, SigningV2Error::ThresholdIncomplete),
+            2 => {}
+            3 => assert_signing_error(outcome, SigningV2Error::DuplicateSignature),
+            4 => assert_signing_error(outcome, SigningV2Error::DuplicateRole),
+            5 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
+            6 => assert_signing_error(outcome, SigningV2Error::InvalidMockSignature),
+            _ => unreachable!("mock mode modulo seven is exhaustive"),
         },
         1 => match mock_mode {
-            4 | 5 => assert_signing_error(outcome, M24SigningError::DuplicateSignature),
-            8 => assert_signing_error(outcome, M24SigningError::InputOutOfRange),
-            _ => assert_signing_error(outcome, M24SigningError::MissingTerminalKey),
+            3 => assert_signing_error(outcome, SigningV2Error::DuplicateSignature),
+            5 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
+            _ => assert_signing_error(outcome, SigningV2Error::MissingTerminalKey),
         },
-        2 => assert_signing_error(outcome, M24SigningError::DuplicateTerminalKey),
-        3 => assert_signing_error(outcome, M24SigningError::InputOutOfRange),
+        2 => assert_signing_error(outcome, SigningV2Error::DuplicateTerminalKey),
+        3 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
         4 => match mock_mode {
-            4 | 5 => assert_signing_error(outcome, M24SigningError::DuplicateSignature),
-            8 => assert_signing_error(outcome, M24SigningError::InputOutOfRange),
-            _ => assert_signing_error(
-                outcome,
-                M24SigningError::TerminalSigning(SecpError::SelfVerificationFailed),
-            ),
+            3 => assert_signing_error(outcome, SigningV2Error::DuplicateSignature),
+            5 => assert_signing_error(outcome, SigningV2Error::InputOutOfRange),
+            _ => assert_signing_error(outcome, SigningV2Error::TerminalKeyMismatch),
         },
         _ => unreachable!("terminal mode modulo five is exhaustive"),
     }
 }
 
 fuzz_target!(|data: &[u8]| {
-    let (candidate, source, terminal_mode, mock_mode, hostile_mock) = candidate(data);
+    let (candidate, source, terminal_mode, mock_mode, hostile_mock, expectation) = candidate(data);
     let first = run_once(&candidate, source, terminal_mode, mock_mode, hostile_mock);
     let second = run_once(&candidate, source, terminal_mode, mock_mode, hostile_mock);
     assert_eq!(first, second);
+    if expectation == CandidateExpectation::MustReject {
+        assert!(matches!(first, Outcome::ReviewRejected { .. }));
+    }
     if candidate == golden_s0() {
         assert_exact_control_outcome(&first, terminal_mode, mock_mode);
     }

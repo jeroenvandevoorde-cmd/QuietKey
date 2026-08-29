@@ -7,13 +7,20 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-fourteen libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+eighteen libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
-the M24 `qk-host-sim` signing/finalization continuation. The M24 target uses
-only the public, permanently NEVER-FUND fixture lineage and asserts secret
-import-source wiping, named rejection, exact golden completion, absence of
-partial output, and repeat consistency over hostile PSBT and mock controls. It
+the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
+two host-simulator targets migrate together to the parallel v2 slice: the M23
+target owns exact hostile S0 into schema-v3 review readiness, and the M24
+target continues that exact identity through A/B signing, strict 2-of-2
+finalization, and raw-transaction reparse. Neither target accepts a v1 or v2
+review object as a v3 object, and both keep the earlier public entrypoints
+outside the fuzzed acceptance path. The M24 target uses only the public,
+permanently NEVER-FUND QK-DEC-121 GOLDEN fixture lineage and asserts secret
+import-source wiping, stable named rejection, exact golden completion,
+absence of partial output, and repeat consistency over hostile PSBT and mock
+controls. It
 also includes the M25 `qk-host-sim` export boundary: that target reconstructs
 the dedicated public threshold-complete NEVER-FUND fixture without any secret,
 then drives tier/artifact selection, every mock-SD edge, nonce-derived names,
@@ -68,6 +75,10 @@ fuzz/run-bounded.sh qk_host_sim_m25 100000
 fuzz/run-bounded.sh qk_provisioning_inputs_m26 100000
 fuzz/run-bounded.sh qk_provisioning_chain_m26 100000
 fuzz/run-bounded.sh qk_host_sim_m27 100000
+fuzz/run-bounded.sh qk_host_sim_m28 100000
+fuzz/run-bounded.sh qk_host_sim_m29 100000
+fuzz/run-bounded.sh qk_bbqr_m30 100000
+fuzz/run-bounded.sh qk_host_sim_m30 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -90,3 +101,12 @@ A reproduced parser finding follows QK-DEC-106: ordinary fix commit, minimized
 regression fixture, and a decision row when the affected crate is frozen.
 Every retained unit can be replayed once under the pinned build with
 `fuzz/replay-corpus.sh TARGET`.
+
+The two v2 slice-3 campaigns are preregistered together in
+`CAMPAIGN-009.md`. Each executes exactly 100,000 inputs under AddressSanitizer
+and starts from its separately retained public corpus. Two copied corpora are
+minimized separately until a further pass changes neither set; only matching
+sorted `SHA-256<TAB>bytes` sets may replace the persistent directories. M23
+and M24 manifests move to their v2 generations only after both targets build,
+both qualifying campaigns finish, minimization agrees, and retained replay is
+clean.

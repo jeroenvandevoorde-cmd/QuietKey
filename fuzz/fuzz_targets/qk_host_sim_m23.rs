@@ -1,19 +1,24 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use qk_descriptor::{parse_descriptor_pair, DescriptorPair};
-use qk_host_sim::{ReviewReadyError, ReviewReadyWorkflow, WorkflowRejection};
+use qk_descriptor::{parse_descriptor_pair_v2, DescriptorPairV2};
+use qk_host_sim::{ReviewReadyV3Error, ReviewReadyV3Workflow, WorkflowRejection};
 use qk_psbt::{
-    InputSource, IntakeError, OwnedS0, ParseError, RejectCategory, ReviewV2Error,
-    MAX_CANONICAL_REVIEW_V2_BYTES,
+    InputSource, IntakeError, OwnedS0, ParseError, RejectCategory, ReviewV3Error,
+    FEE_POLICY_V2_IDENTIFIER, MAX_CANONICAL_REVIEW_V3_BYTES, REVIEW_V3_SCHEMA_VERSION,
 };
 use std::sync::OnceLock;
 
 const MAX_CANDIDATE_BYTES: usize = 4096;
 const MAX_MUTATIONS: usize = 64;
 const DESCRIPTOR_FIXTURE: &[u8] =
-    include_bytes!("../../host/qk-psbt/tests/fixtures/descriptor_ownership.txt");
-const REVIEW_FIXTURE: &[u8] = include_bytes!("../../host/qk-psbt/tests/fixtures/review_v2.txt");
+    include_bytes!("../../host/qk-descriptor/tests/fixtures/descriptor_pairs.txt");
+const REVIEW_FIXTURE: &[u8] = include_bytes!("../../host/qk-psbt/tests/fixtures/review_v3.txt");
+const GOLDEN_WALLET_ID: [u8; 32] = [
+    0xd5, 0xb7, 0xe5, 0x2f, 0x56, 0x9a, 0xe5, 0x1e, 0x7c, 0x66, 0xaf, 0x14, 0x24, 0x0d, 0x8e, 0x44,
+    0x59, 0xc6, 0x24, 0x67, 0x85, 0xce, 0x5c, 0x44, 0x17, 0x73, 0x99, 0x56, 0x14, 0xf6, 0x0e, 0x9e,
+];
+const GOLDEN_FINGERPRINTS: [[u8; 4]; 2] = [[0x2f, 0xae, 0x97, 0x11], [0x72, 0xa1, 0x4a, 0xb8]];
 
 static GOLDEN_S0: OnceLock<Vec<u8>> = OnceLock::new();
 
@@ -27,11 +32,18 @@ enum Stage {
     ConstructReview,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CandidateExpectation {
+    MustReject,
+    ExactGolden,
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Outcome {
     Rejected {
         stage: Stage,
-        error: ReviewReadyError,
+        error: ReviewReadyV3Error,
     },
     Ready {
         review_hash: [u8; 32],
@@ -70,10 +82,10 @@ fn decode_fixture_hex(encoded: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn descriptor() -> DescriptorPair {
+fn descriptor() -> DescriptorPairV2 {
     let receive = fixture_value(DESCRIPTOR_FIXTURE, b"receive: ");
     let change = fixture_value(DESCRIPTOR_FIXTURE, b"change: ");
-    parse_descriptor_pair(receive, change).expect("committed public descriptor pair")
+    parse_descriptor_pair_v2(receive, change).expect("committed public v2 descriptor pair")
 }
 
 fn golden_s0() -> &'static [u8] {
@@ -123,22 +135,46 @@ fn mutated_golden(commands: &[u8]) -> Vec<u8> {
     candidate
 }
 
-fn candidate(data: &[u8]) -> (Vec<u8>, InputSource, u8) {
+fn candidate(data: &[u8]) -> (Vec<u8>, InputSource, u8, CandidateExpectation) {
     let selector = data.first().copied().unwrap_or(0);
     let remainder = data.get(1..).unwrap_or_default();
-    let bytes = match selector % 4 {
-        0 => remainder
-            .get(..remainder.len().min(MAX_CANDIDATE_BYTES))
-            .unwrap_or_default()
-            .to_vec(),
-        1 => mutated_golden(remainder),
+    let (bytes, expectation) = match selector % 4 {
+        0 => {
+            let bytes = remainder
+                .get(..remainder.len().min(MAX_CANDIDATE_BYTES))
+                .unwrap_or_default()
+                .to_vec();
+            let expectation = if bytes.is_empty() {
+                CandidateExpectation::MustReject
+            } else if bytes == golden_s0() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::Unknown
+            };
+            (bytes, expectation)
+        }
+        1 => {
+            let bytes = mutated_golden(remainder);
+            let expectation = if bytes == golden_s0() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::Unknown
+            };
+            (bytes, expectation)
+        }
         2 => {
             let requested = remainder
                 .get(..2)
                 .and_then(|raw| <[u8; 2]>::try_from(raw).ok())
                 .map(u16::from_le_bytes)
                 .map_or(0, usize::from);
-            golden_s0()[..requested.min(golden_s0().len())].to_vec()
+            let length = requested.min(golden_s0().len());
+            let expectation = if length == golden_s0().len() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::MustReject
+            };
+            (golden_s0()[..length].to_vec(), expectation)
         }
         3 => {
             let mut bytes = golden_s0().to_vec();
@@ -148,11 +184,16 @@ fn candidate(data: &[u8]) -> (Vec<u8>, InputSource, u8) {
                     .get(..remainder.len().min(available))
                     .unwrap_or_default(),
             );
-            bytes
+            let expectation = if bytes.len() == golden_s0().len() {
+                CandidateExpectation::ExactGolden
+            } else {
+                CandidateExpectation::MustReject
+            };
+            (bytes, expectation)
         }
         _ => unreachable!("modulo four is exhaustive"),
     };
-    (bytes, source(selector), (selector >> 3) % 4)
+    (bytes, source(selector), (selector >> 3) % 4, expectation)
 }
 
 fn reject_name(category: RejectCategory) -> &'static str {
@@ -201,25 +242,27 @@ fn intake_error_name(error: IntakeError) -> &'static str {
     }
 }
 
-fn assert_review_error(error: ReviewV2Error) {
+fn assert_review_error(error: ReviewV3Error) {
     match error {
-        ReviewV2Error::SourceMismatch => {}
-        ReviewV2Error::Semantic(semantic) => {
+        ReviewV3Error::SourceMismatch => {}
+        ReviewV3Error::Semantic(semantic) => {
             assert!(!semantic.category.to_string().is_empty());
         }
-        ReviewV2Error::FeePolicyArithmeticOverflow
-        | ReviewV2Error::EmergencyFeeCeilingExceeded
-        | ReviewV2Error::InputCountTooLarge
-        | ReviewV2Error::OutputCountTooLarge
-        | ReviewV2Error::UnsignedTransactionTooLong
-        | ReviewV2Error::InputIndexMismatch
-        | ReviewV2Error::OutputIndexMismatch
-        | ReviewV2Error::LengthOverflow
-        | ReviewV2Error::FieldLengthOverflow
-        | ReviewV2Error::CanonicalTooLong
-        | ReviewV2Error::AllocationFailed
-        | ReviewV2Error::HashFailure
-        | ReviewV2Error::InternalInvariant => {}
+        ReviewV3Error::FeePolicyArithmeticOverflow
+        | ReviewV3Error::EmergencyFeeCeilingExceeded
+        | ReviewV3Error::InputCountTooLarge
+        | ReviewV3Error::OutputCountTooLarge
+        | ReviewV3Error::UnsignedTransactionTooLong
+        | ReviewV3Error::InputIndexMismatch
+        | ReviewV3Error::OutputIndexMismatch
+        | ReviewV3Error::LengthOverflow
+        | ReviewV3Error::FieldLengthOverflow
+        | ReviewV3Error::CanonicalTooLong
+        | ReviewV3Error::AllocationFailed
+        | ReviewV3Error::HashFailure
+        | ReviewV3Error::UnsupportedReviewSchemaVersion
+        | ReviewV3Error::CanonicalReviewMismatch
+        | ReviewV3Error::InternalInvariant => {}
     }
     assert!(!error.to_string().is_empty());
 }
@@ -233,45 +276,45 @@ fn assert_workflow_rejection(error: WorkflowRejection) {
     }
 }
 
-fn assert_named_error(error: ReviewReadyError, candidate_len: usize) {
+fn assert_named_error(error: ReviewReadyV3Error, candidate_len: usize) {
     match error {
-        ReviewReadyError::Intake(error) => {
+        ReviewReadyV3Error::Intake(error) => {
             assert!(!intake_error_name(error).is_empty());
         }
-        ReviewReadyError::WorkflowUnavailable
-        | ReviewReadyError::Finished
-        | ReviewReadyError::WorkflowInvariant
-        | ReviewReadyError::ReviewMismatch
-        | ReviewReadyError::ReviewHashMismatch
-        | ReviewReadyError::RetainedS0Mismatch => {}
-        ReviewReadyError::WorkflowRejected(error) => assert_workflow_rejection(error),
-        ReviewReadyError::ValidationParse(error)
-        | ReviewReadyError::ConstructionParse(error)
-        | ReviewReadyError::Reparse(error) => assert_parse_error(error, candidate_len),
-        ReviewReadyError::Build(error)
-        | ReviewReadyError::Rebuild(error)
-        | ReviewReadyError::Hash(error)
-        | ReviewReadyError::Rehash(error) => assert_review_error(error),
+        ReviewReadyV3Error::WorkflowUnavailable
+        | ReviewReadyV3Error::Finished
+        | ReviewReadyV3Error::WorkflowInvariant
+        | ReviewReadyV3Error::ReviewMismatch
+        | ReviewReadyV3Error::ReviewHashMismatch
+        | ReviewReadyV3Error::RetainedS0Mismatch => {}
+        ReviewReadyV3Error::WorkflowRejected(error) => assert_workflow_rejection(error),
+        ReviewReadyV3Error::ValidationParse(error)
+        | ReviewReadyV3Error::ConstructionParse(error)
+        | ReviewReadyV3Error::Reparse(error) => assert_parse_error(error, candidate_len),
+        ReviewReadyV3Error::Build(error)
+        | ReviewReadyV3Error::Rebuild(error)
+        | ReviewReadyV3Error::Hash(error)
+        | ReviewReadyV3Error::Rehash(error) => assert_review_error(error),
     }
     assert!(!error.to_string().is_empty());
 }
 
 fn rejected(
-    workflow: &mut ReviewReadyWorkflow,
+    workflow: &mut ReviewReadyV3Workflow,
     stage: Stage,
-    error: ReviewReadyError,
+    error: ReviewReadyV3Error,
     candidate_len: usize,
 ) -> Outcome {
     assert_named_error(error, candidate_len);
     assert!(workflow.is_finished());
     assert!(workflow.review_ready().is_none());
-    assert_eq!(workflow.wake(), Err(ReviewReadyError::Finished));
+    assert_eq!(workflow.wake(), Err(ReviewReadyV3Error::Finished));
     Outcome::Rejected { stage, error }
 }
 
 fn run_once(candidate: &[u8], source: InputSource, sequence: u8) -> Outcome {
     let mut caller = candidate.to_vec();
-    let mut workflow = match ReviewReadyWorkflow::new(descriptor()) {
+    let mut workflow = match ReviewReadyV3Workflow::new(descriptor()) {
         Ok(workflow) => workflow,
         Err(error) => {
             assert_named_error(error, candidate.len());
@@ -374,13 +417,53 @@ fn run_once(candidate: &[u8], source: InputSource, sequence: u8) -> Outcome {
     assert_eq!(ready.input_source(), source);
     assert_eq!(ready.s0_sha256(), ready.review().s0_sha256());
     assert_eq!(ready.review_hash(), ready.review().review_hash().unwrap());
+    assert_eq!(ready.review().schema_version(), REVIEW_V3_SCHEMA_VERSION);
+    assert_eq!(
+        ready.review().fee_policy_identifier(),
+        FEE_POLICY_V2_IDENTIFIER
+    );
+    assert_eq!(ready.review().wallet_id(), GOLDEN_WALLET_ID);
+    assert_eq!(ready.review().origin_fingerprints(), GOLDEN_FINGERPRINTS);
     assert_eq!(
         ready.s0_sha256(),
         OwnedS0::new(candidate, source)
             .expect("accepted workflow candidate remains within source cap")
             .sha256()
     );
-    assert!(ready.review().canonical_bytes().len() <= MAX_CANONICAL_REVIEW_V2_BYTES);
+    assert!(ready.review().canonical_bytes().len() <= MAX_CANONICAL_REVIEW_V3_BYTES);
+
+    let mut wrong_schema = ready.review().canonical_bytes().to_vec();
+    assert!(!wrong_schema.is_empty());
+    for old_schema in [1, 2] {
+        wrong_schema[0] = old_schema;
+        assert_eq!(
+            ready.review().verify_exact_identity(&wrong_schema),
+            Err(ReviewV3Error::UnsupportedReviewSchemaVersion)
+        );
+    }
+    wrong_schema[0] = REVIEW_V3_SCHEMA_VERSION;
+    wrong_schema.push(0);
+    assert_eq!(
+        ready.review().verify_exact_identity(&wrong_schema),
+        Err(ReviewV3Error::CanonicalReviewMismatch)
+    );
+    assert_eq!(
+        ready
+            .review()
+            .verify_exact_identity(ready.review().canonical_bytes()),
+        Ok(())
+    );
+    if candidate == golden_s0() && source == InputSource::MicroSd {
+        let expected_canonical =
+            decode_fixture_hex(fixture_value(REVIEW_FIXTURE, b"canonical_review_v3_hex: "));
+        let expected_hash = decode_fixture_hex(fixture_value(REVIEW_FIXTURE, b"review_hash: "));
+        assert_eq!(ready.review().canonical_bytes(), expected_canonical);
+        assert_eq!(ready.review_hash().as_slice(), expected_hash);
+        assert_eq!(
+            ready.s0_sha256().as_slice(),
+            decode_fixture_hex(fixture_value(REVIEW_FIXTURE, b"s0_sha256: "))
+        );
+    }
 
     Outcome::Ready {
         review_hash: ready.review_hash(),
@@ -392,8 +475,19 @@ fn run_once(candidate: &[u8], source: InputSource, sequence: u8) -> Outcome {
 }
 
 fuzz_target!(|data: &[u8]| {
-    let (candidate, source, sequence) = candidate(data);
+    let (candidate, source, sequence, expectation) = candidate(data);
     let first = run_once(&candidate, source, sequence);
     let second = run_once(&candidate, source, sequence);
     assert_eq!(first, second);
+    if sequence == 0 {
+        match expectation {
+            CandidateExpectation::MustReject => {
+                assert!(matches!(first, Outcome::Rejected { .. }));
+            }
+            CandidateExpectation::ExactGolden => {
+                assert!(matches!(first, Outcome::Ready { .. }));
+            }
+            CandidateExpectation::Unknown => {}
+        }
+    }
 });
