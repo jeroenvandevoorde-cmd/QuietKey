@@ -4,7 +4,7 @@ use qk_host_sim::{
     FlowApplyOutcomeV2, FlowEventV2, FlowKindV2, FlowTerminalV2, KeypadKey, KitDoorV2,
     KitForeignInputV2, KitInputModeV2, KitIntakeErrorV2, KitIntakeInterruptionV2,
     KitIntakeOutcomeV2, KitIntakeSessionV2, KitShareOrdinalV2, ScreenFlowV2, ScreenKindV2,
-    WipingReasonV2,
+    WipingReasonV2, KIT_FALLBACK_TABLE_V2,
 };
 use qk_kit::{encode_frame, KitError, ShareIndex, FALLBACK_SYMBOLS, FRAME_LEN};
 
@@ -90,6 +90,66 @@ fn expected_next(door: KitDoorV2) -> ScreenKindV2 {
         KitDoorV2::KitSpend => ScreenKindV2::KitSpendTransaction,
         KitDoorV2::KitRestore => ScreenKindV2::KitRestoreActionSelection,
     }
+}
+
+fn numeric_key(number: u8) -> KeypadKey {
+    match number {
+        0 => KeypadKey::Zero,
+        1 => KeypadKey::One,
+        2 => KeypadKey::TwoDown,
+        3 => KeypadKey::Three,
+        4 => KeypadKey::FourLeft,
+        5 => KeypadKey::Five,
+        6 => KeypadKey::SixRight,
+        7 => KeypadKey::Seven,
+        8 => KeypadKey::EightUp,
+        9 => KeypadKey::Nine,
+        _ => panic!("single decimal digit"),
+    }
+}
+
+fn append_fallback_symbol(session: &mut KitIntakeSessionV2, symbol: u8, expected_count: usize) {
+    let (row, column) = KIT_FALLBACK_TABLE_V2
+        .iter()
+        .enumerate()
+        .find_map(|(row, symbols)| {
+            symbols
+                .iter()
+                .position(|candidate| *candidate == symbol)
+                .map(|column| (row + 1, column + 1))
+        })
+        .unwrap_or_else(|| panic!("symbol outside exact fallback alphabet: {symbol}"));
+    let KitIntakeOutcomeV2::Continue(screen) = session
+        .apply_fallback_key(numeric_key(row as u8))
+        .expect("valid fallback row")
+    else {
+        panic!("row selection must retain current screen");
+    };
+    assert_eq!(screen.fallback().pending_row(), Some(row as u8));
+    assert_eq!(screen.fallback().committed_symbols(), expected_count);
+
+    let KitIntakeOutcomeV2::Continue(screen) = session
+        .apply_fallback_key(numeric_key(column as u8))
+        .expect("valid fallback column")
+    else {
+        panic!("coordinate completion must retain current screen");
+    };
+    assert_eq!(screen.fallback().pending_row(), None);
+    assert_eq!(screen.fallback().committed_symbols(), expected_count + 1);
+}
+
+fn enter_fallback_without_submit(session: &mut KitIntakeSessionV2, symbols: &[u8; 228]) {
+    for (index, symbol) in symbols.iter().copied().enumerate() {
+        append_fallback_symbol(session, symbol, index);
+    }
+}
+
+fn submit_fallback(
+    session: &mut KitIntakeSessionV2,
+    symbols: &[u8; 228],
+) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+    enter_fallback_without_submit(session, symbols);
+    session.apply_fallback_key(KeypadKey::EqualsConfirmEnter)
 }
 
 #[test]
@@ -354,4 +414,277 @@ fn fixture_helpers_cover_exact_registered_input_widths() {
     assert_eq!(frame(2).len(), FRAME_LEN);
     assert_eq!(fallback(1).len(), FALLBACK_SYMBOLS);
     assert_eq!(fallback(2).len(), FALLBACK_SYMBOLS);
+}
+
+#[test]
+fn fallback_accepts_both_doors_orders_and_all_coordinate_positions() {
+    let mut seen = [false; 32];
+    for symbol in fallback(1).into_iter().chain(fallback(2)) {
+        let position = KIT_FALLBACK_TABLE_V2
+            .iter()
+            .flatten()
+            .position(|candidate| *candidate == symbol)
+            .expect("fixture symbol in exact table");
+        seen[position] = true;
+    }
+    assert!(seen.into_iter().all(|value| value));
+
+    for door in [KitDoorV2::KitSpend, KitDoorV2::KitRestore] {
+        for order in [[1u8, 2u8], [2, 1]] {
+            let mut session =
+                KitIntakeSessionV2::begin(flow_at_share_one(door), KitInputModeV2::Fallback)
+                    .unwrap();
+            let initial = session.screen().unwrap();
+            assert_eq!(initial.fallback_table(), &KIT_FALLBACK_TABLE_V2);
+            assert_eq!(initial.fallback().next_line(), Some(1));
+            assert_eq!(initial.fallback().next_column(), Some(1));
+
+            let first = fallback(order[0]);
+            first_accepted(submit_fallback(&mut session, &first).unwrap());
+            let second = fallback(order[1]);
+            let KitIntakeOutcomeV2::Ready(ready) = submit_fallback(&mut session, &second).unwrap()
+            else {
+                panic!("second fallback must release ready owner");
+            };
+            assert_eq!(ready.door(), door);
+            assert_eq!(ready.mode(), KitInputModeV2::Fallback);
+            assert_eq!(ready.wallet_id(), wallet_id());
+            assert_eq!(ready.next_screen(), expected_next(door));
+            assert_eq!(
+                ready
+                    .frame_identities()
+                    .map(|identity| identity.share_index().as_u8()),
+                order
+            );
+        }
+    }
+}
+
+#[test]
+fn fallback_progress_and_ce_boundaries_are_exact() {
+    let mut session = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    let symbols = fallback(1);
+    for (index, symbol) in symbols[..57].iter().copied().enumerate() {
+        append_fallback_symbol(&mut session, symbol, index);
+    }
+    let progress = session.screen().unwrap().fallback();
+    assert_eq!(progress.committed_symbols(), 57);
+    assert_eq!(progress.next_line(), Some(2));
+    assert_eq!(progress.next_column(), Some(1));
+
+    assert!(matches!(
+        session.apply_fallback_key(KeypadKey::One).unwrap(),
+        KitIntakeOutcomeV2::Continue(_)
+    ));
+    assert_eq!(session.screen().unwrap().fallback().pending_row(), Some(1));
+    assert!(matches!(
+        session.apply_fallback_key(KeypadKey::CeDelete).unwrap(),
+        KitIntakeOutcomeV2::Continue(_)
+    ));
+    assert_eq!(session.screen().unwrap().fallback().pending_row(), None);
+    assert_eq!(session.screen().unwrap().fallback().committed_symbols(), 57);
+
+    assert!(matches!(
+        session.apply_fallback_key(KeypadKey::CeDelete).unwrap(),
+        KitIntakeOutcomeV2::Continue(_)
+    ));
+    let progress = session.screen().unwrap().fallback();
+    assert_eq!(progress.committed_symbols(), 56);
+    assert_eq!(progress.next_line(), Some(1));
+    assert_eq!(progress.next_column(), Some(57));
+}
+
+#[test]
+fn every_fallback_entry_rejection_is_distinct_terminal_and_non_retrying() {
+    let invalid_rows = [
+        KeypadKey::Five,
+        KeypadKey::SixRight,
+        KeypadKey::Seven,
+        KeypadKey::EightUp,
+        KeypadKey::Nine,
+        KeypadKey::Zero,
+        KeypadKey::Decimal,
+        KeypadKey::Plus,
+        KeypadKey::Minus,
+        KeypadKey::Multiply,
+        KeypadKey::Divide,
+        KeypadKey::Percent,
+    ];
+    for key in invalid_rows {
+        let mut session = KitIntakeSessionV2::begin(
+            flow_at_share_one(KitDoorV2::KitSpend),
+            KitInputModeV2::Fallback,
+        )
+        .unwrap();
+        assert_eq!(
+            session.apply_fallback_key(key).err(),
+            Some(KitIntakeErrorV2::InvalidFallbackRow)
+        );
+        assert_eq!(session.screen(), None);
+        assert_eq!(
+            session.terminal(),
+            Some(FlowTerminalV2::FailedWiped(WipingReasonV2::OperationFailed))
+        );
+        assert_eq!(
+            session.apply_fallback_key(KeypadKey::One).err(),
+            Some(KitIntakeErrorV2::Finished)
+        );
+    }
+
+    for key in [
+        KeypadKey::Nine,
+        KeypadKey::Zero,
+        KeypadKey::Decimal,
+        KeypadKey::Plus,
+        KeypadKey::Minus,
+        KeypadKey::Multiply,
+        KeypadKey::Divide,
+        KeypadKey::Percent,
+    ] {
+        let mut session = KitIntakeSessionV2::begin(
+            flow_at_share_one(KitDoorV2::KitRestore),
+            KitInputModeV2::Fallback,
+        )
+        .unwrap();
+        session.apply_fallback_key(KeypadKey::One).unwrap();
+        assert_eq!(
+            session.apply_fallback_key(key).err(),
+            Some(KitIntakeErrorV2::InvalidFallbackColumn)
+        );
+    }
+
+    let mut empty_delete = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    assert_eq!(
+        empty_delete.apply_fallback_key(KeypadKey::CeDelete).err(),
+        Some(KitIntakeErrorV2::FallbackEmptyDelete)
+    );
+
+    let mut incomplete = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    assert_eq!(
+        incomplete
+            .apply_fallback_key(KeypadKey::EqualsConfirmEnter)
+            .err(),
+        Some(KitIntakeErrorV2::FallbackIncomplete)
+    );
+
+    let mut pending = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    pending.apply_fallback_key(KeypadKey::One).unwrap();
+    assert_eq!(
+        pending
+            .apply_fallback_key(KeypadKey::EqualsConfirmEnter)
+            .err(),
+        Some(KitIntakeErrorV2::FallbackPendingCoordinate)
+    );
+
+    let mut full = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    enter_fallback_without_submit(&mut full, &fallback(1));
+    let progress = full.screen().unwrap().fallback();
+    assert_eq!(progress.committed_symbols(), FALLBACK_SYMBOLS);
+    assert_eq!(progress.next_line(), None);
+    assert_eq!(progress.next_column(), None);
+    assert_eq!(
+        full.apply_fallback_key(KeypadKey::One).err(),
+        Some(KitIntakeErrorV2::FallbackFull)
+    );
+}
+
+#[test]
+fn fallback_codec_rejection_and_cancel_are_terminal() {
+    let mut bad_checksum = fallback(1);
+    bad_checksum[0] = if bad_checksum[0] == b'2' { b'3' } else { b'2' };
+    let mut session = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    assert_eq!(
+        submit_fallback(&mut session, &bad_checksum).err(),
+        Some(KitIntakeErrorV2::Codec(KitError::FrameChecksum))
+    );
+
+    let mut bad_padding = fallback(1);
+    bad_padding[FALLBACK_SYMBOLS - 1] = b'3';
+    let mut session = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitRestore),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    assert_eq!(
+        submit_fallback(&mut session, &bad_padding).err(),
+        Some(KitIntakeErrorV2::Codec(KitError::NonCanonicalPadding))
+    );
+
+    let mut cancelled = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitRestore),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    append_fallback_symbol(&mut cancelled, fallback(1)[0], 0);
+    assert_eq!(
+        cancelled.apply_fallback_key(KeypadKey::CancelBack).err(),
+        Some(KitIntakeErrorV2::Cancelled)
+    );
+    assert_eq!(
+        cancelled.terminal(),
+        Some(FlowTerminalV2::FailedWiped(WipingReasonV2::Cancelled))
+    );
+}
+
+#[test]
+fn modes_accept_only_their_selected_representation_at_both_pages() {
+    let mut fallback_session = KitIntakeSessionV2::begin(
+        flow_at_share_one(KitDoorV2::KitSpend),
+        KitInputModeV2::Fallback,
+    )
+    .unwrap();
+    let mut scanner_candidate = frame(1);
+    assert_eq!(
+        fallback_session
+            .submit_scanner_frame(&mut scanner_candidate)
+            .err(),
+        Some(KitIntakeErrorV2::KitScannerModeMismatch)
+    );
+    assert_eq!(scanner_candidate, [0u8; FRAME_LEN]);
+
+    for second_page in [false, true] {
+        let mut scanner_session = KitIntakeSessionV2::begin(
+            flow_at_share_one(KitDoorV2::KitSpend),
+            KitInputModeV2::Scanner,
+        )
+        .unwrap();
+        if second_page {
+            let mut first = frame(1);
+            first_accepted(scanner_session.submit_scanner_frame(&mut first).unwrap());
+        }
+        assert_eq!(
+            scanner_session.apply_fallback_key(KeypadKey::One).err(),
+            Some(KitIntakeErrorV2::KitScannerModeMismatch)
+        );
+        assert_eq!(
+            scanner_session.terminal(),
+            Some(FlowTerminalV2::FailedWiped(
+                WipingReasonV2::KitScannerModeMismatch
+            ))
+        );
+    }
 }
