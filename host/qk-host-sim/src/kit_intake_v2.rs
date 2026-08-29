@@ -7,14 +7,15 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use crate::screen_flow::KeypadKey;
 use crate::screen_flow_v2::{
     FlowKindV2, FlowTerminalV2, KitDoorV2, ScreenFlowV2, ScreenKindV2, WipingReasonV2,
 };
 use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 use qk_kit::{
-    combine_frames, frame_metadata, FrameMetadata, KitError, RecoveredKitPayload, ShareIndex,
-    FALLBACK_SYMBOLS, FRAME_LEN,
+    combine_frames, decode_fallback, frame_metadata, FrameMetadata, KitError, RecoveredKitPayload,
+    ShareIndex, FALLBACK_SYMBOLS, FRAME_LEN,
 };
 
 /// Exact semantic fallback table. This is not a pixel or keypad-layout claim.
@@ -420,6 +421,79 @@ impl KitIntakeSessionV2 {
         self.accept_frame(candidate.as_array())
     }
 
+    pub fn apply_fallback_key(
+        &mut self,
+        key: KeypadKey,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        if !self.active {
+            return Err(KitIntakeErrorV2::Finished);
+        }
+        if self.mode != KitInputModeV2::Fallback {
+            return Err(self.fail(
+                KitIntakeErrorV2::KitScannerModeMismatch,
+                WipingReasonV2::KitScannerModeMismatch,
+            ));
+        }
+
+        match key {
+            KeypadKey::CancelBack => {
+                Err(self.fail(KitIntakeErrorV2::Cancelled, WipingReasonV2::Cancelled))
+            }
+            KeypadKey::CeDelete => {
+                if self.pending_row.take().is_some() {
+                    return Ok(KitIntakeOutcomeV2::Continue(self.current_screen()));
+                }
+                if self.fallback_len == 0 {
+                    return Err(self.fail(
+                        KitIntakeErrorV2::FallbackEmptyDelete,
+                        WipingReasonV2::OperationFailed,
+                    ));
+                }
+                self.fallback_len -= 1;
+                wipe(&mut self.fallback.as_mut_array()[self.fallback_len..=self.fallback_len]);
+                Ok(KitIntakeOutcomeV2::Continue(self.current_screen()))
+            }
+            KeypadKey::EqualsConfirmEnter => {
+                if self.pending_row.is_some() {
+                    return Err(self.fail(
+                        KitIntakeErrorV2::FallbackPendingCoordinate,
+                        WipingReasonV2::OperationFailed,
+                    ));
+                }
+                if self.fallback_len != FALLBACK_SYMBOLS {
+                    return Err(self.fail(
+                        KitIntakeErrorV2::FallbackIncomplete,
+                        WipingReasonV2::OperationFailed,
+                    ));
+                }
+                let mut decoded = SecretBytes::<FRAME_LEN>::zeroed();
+                if let Err(error) =
+                    decode_fallback(self.fallback.as_array(), decoded.as_mut_array())
+                {
+                    return Err(self.fail(
+                        KitIntakeErrorV2::Codec(error),
+                        WipingReasonV2::OperationFailed,
+                    ));
+                }
+                self.accept_frame(decoded.as_array())
+            }
+            _ => self.apply_fallback_coordinate(key),
+        }
+    }
+
+    pub fn select_mode(
+        &mut self,
+        _mode: KitInputModeV2,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        if !self.active {
+            return Err(KitIntakeErrorV2::Finished);
+        }
+        Err(self.fail(
+            KitIntakeErrorV2::KitScannerModeMismatch,
+            WipingReasonV2::KitScannerModeMismatch,
+        ))
+    }
+
     pub fn reject_foreign_input(
         &mut self,
         _input: KitForeignInputV2,
@@ -575,6 +649,49 @@ impl KitIntakeSessionV2 {
         }
     }
 
+    fn apply_fallback_coordinate(
+        &mut self,
+        key: KeypadKey,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        if self.fallback_len == FALLBACK_SYMBOLS {
+            return Err(self.fail(
+                KitIntakeErrorV2::FallbackFull,
+                WipingReasonV2::OperationFailed,
+            ));
+        }
+        let Some(number) = numeric_key(key) else {
+            let error = if self.pending_row.is_some() {
+                KitIntakeErrorV2::InvalidFallbackColumn
+            } else {
+                KitIntakeErrorV2::InvalidFallbackRow
+            };
+            return Err(self.fail(error, WipingReasonV2::OperationFailed));
+        };
+
+        let Some(row) = self.pending_row else {
+            if !(1..=4).contains(&number) {
+                return Err(self.fail(
+                    KitIntakeErrorV2::InvalidFallbackRow,
+                    WipingReasonV2::OperationFailed,
+                ));
+            }
+            self.pending_row = Some(number);
+            return Ok(KitIntakeOutcomeV2::Continue(self.current_screen()));
+        };
+
+        if !(1..=8).contains(&number) {
+            return Err(self.fail(
+                KitIntakeErrorV2::InvalidFallbackColumn,
+                WipingReasonV2::OperationFailed,
+            ));
+        }
+        self.fallback.as_mut_array()[self.fallback_len] =
+            KIT_FALLBACK_TABLE_V2[(row - 1) as usize][(number - 1) as usize];
+        self.fallback_len += 1;
+        self.pending_row = None;
+        Ok(KitIntakeOutcomeV2::Continue(self.current_screen()))
+    }
+
     fn current_screen(&self) -> KitIntakeScreenV2 {
         let (next_line, next_column) = if self.fallback_len == FALLBACK_SYMBOLS {
             (None, None)
@@ -640,6 +757,22 @@ fn frame_identity(metadata: FrameMetadata, frame: &[u8; FRAME_LEN]) -> KitFrameI
         wallet_id: metadata.wallet_id,
         checksum,
     }
+}
+
+const fn numeric_key(key: KeypadKey) -> Option<u8> {
+    Some(match key {
+        KeypadKey::One => 1,
+        KeypadKey::TwoDown => 2,
+        KeypadKey::Three => 3,
+        KeypadKey::FourLeft => 4,
+        KeypadKey::Five => 5,
+        KeypadKey::SixRight => 6,
+        KeypadKey::Seven => 7,
+        KeypadKey::EightUp => 8,
+        KeypadKey::Nine => 9,
+        KeypadKey::Zero => 0,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
