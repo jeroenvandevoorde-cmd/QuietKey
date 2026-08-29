@@ -31,9 +31,10 @@ const _: [(); MIN_FINALIZED_PSBT_SHRINK_PER_INPUT] = [(); 3 * DERIVATION_RECORD_
 
 /// One fully checked finalized PSBT and its exact extracted transaction.
 ///
-/// Fields are private and the type has no constructor. It can be obtained
+/// Fields are private and the type has no public constructor. It can be obtained
 /// only by consuming a checked [`ThresholdCompletePsbt`] capability through
-/// the M15 external-signature path or the separate M24 HOST continuation.
+/// the M15 external-signature path, the separate M24 HOST continuation, or
+/// the parallel v2 slice-3 continuation.
 pub struct FinalizedTransaction {
     finalized_psbt: Vec<u8>,
     raw_transaction: Vec<u8>,
@@ -42,6 +43,20 @@ pub struct FinalizedTransaction {
 }
 
 impl FinalizedTransaction {
+    pub(super) fn from_checked_parts(
+        finalized_psbt: Vec<u8>,
+        raw_transaction: Vec<u8>,
+        txid: [u8; 32],
+        wtxid: [u8; 32],
+    ) -> Self {
+        Self {
+            finalized_psbt,
+            raw_transaction,
+            txid,
+            wtxid,
+        }
+    }
+
     /// Borrow the exact M5-canonical finalized PSBT bytes.
     #[must_use]
     pub fn finalized_psbt(&self) -> &[u8] {

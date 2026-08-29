@@ -14,6 +14,9 @@
 //! reaches an immutable D-09 schema-v2 [`ReviewReady`] fact, which M24
 //! may consume for bounded terminal-role signing, verified mock-card
 //! insertion, M16 finalization, and a fresh final-transaction check.
+//! [`ReviewReadyV3Workflow`] is the parallel v2-wallet seam: it binds exact
+//! schema-v3 facts before its non-authorizing A+B continuation performs
+//! verified insertion, 2-of-2 finalization, extraction, and fresh verification.
 //! M25 consumes only that checked finalization capability, binds exact
 //! immutable export facts, models each mock-SD artifact lifecycle, and
 //! exposes file-type-P BBQr framing only for the finalized PSBT.
@@ -57,11 +60,14 @@
 mod bsms;
 mod export;
 mod finalization;
+mod finalization_v2;
 mod insertion;
 mod m24_signing;
 mod manual_keypad;
 mod review_ready;
+mod review_ready_v3;
 pub mod screen_flow;
+mod signing_v2;
 mod watch_only_export;
 
 #[path = "../../qk-psbt/src/sha256.rs"]
@@ -76,6 +82,7 @@ pub use export::{
     SequentialTransactionBbqr, TierArtifacts,
 };
 pub use finalization::{FinalizationError, FinalizedTransaction};
+pub use finalization_v2::FinalizationV2Error;
 pub use insertion::{
     DescriptorRole, SignatureInsertionError, SubmittedSignature, ThresholdCompletePsbt,
 };
@@ -85,6 +92,7 @@ pub use manual_keypad::{
     ManualKeypadSession, ManualTranscriptView, MANUAL_TRANSCRIPT_BYTES,
 };
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
+pub use review_ready_v3::{ReviewReadyV3, ReviewReadyV3Error, ReviewReadyV3Workflow};
 pub use screen_flow::{
     ApprovalIdentity, ApprovalToken, CeremonyCommitmentView, CeremonyPurpose, CeremonySession,
     CeremonySessionOutcome, CeremonyUnitView, CompletedOperation, EntropyInputMode, FactorRole,
@@ -95,6 +103,7 @@ pub use screen_flow::{
     ReviewSessionOutcome, ScopedApplyOutcome, Screen, ScreenFlow, ScreenKind,
     TransactionResultSession, TransactionResultView, WipingReason,
 };
+pub use signing_v2::{MockCardBSignature, SigningV2Error, TerminalInputKeyV2};
 pub use watch_only_export::{
     WatchOnlyArtifactMetadata, WatchOnlyBsmsArtifact, WatchOnlyExportArtifacts,
     WatchOnlyExportError, WatchOnlyExportNonce, WatchOnlyMockFileKind, WatchOnlyMockSdFilesystem,
