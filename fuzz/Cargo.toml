@@ -198,6 +198,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "qk_provisioning_v2_s8_kit_setup"
+path = "fuzz_targets/qk_provisioning_v2_s8_kit_setup.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 overflow-checks = true
 debug-assertions = true

@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-twenty-five libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+twenty-six libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -63,6 +63,18 @@ outcomes, and the absence of premature payload release; the qk-kit unit suite
 separately locks exact caller-order payload identity. Neither target creates a Kit,
 releases a combined payload, or reaches a scanner, camera, display, card,
 restore, spend, persistence, rendering, target, performance, or Gate path. The
+v2 slice-8 `qk_provisioning_v2_s8_kit_setup` target drives the sole consuming
+setup-generation seam. It makes valid work deliberately sparse while retaining
+all six fixed scenarios: missing A1, rejection at each of four page callbacks,
+and success. Every delivered page is checked for exact callback order,
+canonical frame/checksum/fallback, repeat QR equality and quiet-zone geometry,
+same-index copy identity, full wallet binding, and XOR payload identity from
+the four literal transcript hashes. The target repeats every selected
+scenario, requires the closed named result and exact callback count, and uses
+the in-crate fuzzing assertions that require every reusable 899-byte caller
+output-buffer wipe. It creates no persistent Kit, renderer, scanner, retry,
+card, camera, display, physical print, production, target-resource,
+performance, or Gate path. The
 M27 `qk-host-sim` target drives
 the typed provisioning, signing, and recovery screen-flow transition machine
 through bounded event streams. It checks deterministic typed outcomes, the closed named
@@ -119,6 +131,7 @@ fuzz/run-bounded.sh qk_host_sim_v2_s5_manual_keypad 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s6_watch_only 100000
 fuzz/run-bounded.sh qk_kit_v2_s7_codec 100000
 fuzz/run-bounded.sh qk_kit_v2_s7_combine 100000
+fuzz/run-bounded.sh qk_provisioning_v2_s8_kit_setup 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -158,4 +171,7 @@ slice-5 targets executed 100,000 inputs, reached exact two-copy minimization
 fixed points, and replayed their hash-registered corpora under the pinned
 toolchain. The v2 slice-6 corpus will be registered separately in
 `CORPUS-MANIFEST-V2-S6.tsv` and its completed run recorded in
-`CAMPAIGN-012.md`.
+`CAMPAIGN-012.md`. The two completed v2 slice-7 campaigns are registered in
+`CORPUS-MANIFEST-V2-S7.tsv` and recorded in `CAMPAIGN-013.md`. The v2 slice-8
+setup-generation campaign is registered separately in
+`CORPUS-MANIFEST-V2-S8.tsv` and recorded in `CAMPAIGN-014.md`.

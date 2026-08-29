@@ -30,6 +30,7 @@ case "$target" in
   qk_host_sim_v2_s6_watch_only) max_len=4096 ;;
   qk_kit_v2_s7_codec) max_len=512 ;;
   qk_kit_v2_s7_combine) max_len=512 ;;
+  qk_provisioning_v2_s8_kit_setup) max_len=512 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -d "$corpus" ] || { printf 'missing corpus directory: %s\n' "$corpus" >&2; exit 2; }

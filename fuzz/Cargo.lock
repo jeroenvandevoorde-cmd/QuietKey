@@ -233,6 +233,7 @@ version = "0.0.1"
 dependencies = [
  "qk-a1",
  "qk-descriptor",
+ "qk-kit",
  "qk-secp",
 ]
 
