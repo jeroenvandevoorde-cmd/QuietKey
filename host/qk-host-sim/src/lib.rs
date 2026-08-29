@@ -43,6 +43,9 @@
 //! existing v2 Kit screens and the frozen qk-kit frame/fallback decoder. It
 //! accepts only the representation selected before share one and releases only
 //! an opaque combined-payload capability for slices 10 and 11.
+//! V2 slice 10 consumes only the KitRestore form of that capability, rebinds
+//! exact public wallet facts, stages one non-signing restore branch before a
+//! screen-named assertion digit, and returns only a mandatory-migration result.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -74,6 +77,7 @@ mod finalization;
 mod finalization_v2;
 mod insertion;
 mod kit_intake_v2;
+mod kit_restore_v2;
 mod m24_signing;
 mod manual_keypad;
 mod manual_keypad_v2;
@@ -107,6 +111,11 @@ pub use kit_intake_v2::{
     KitIntakeInterruptionV2, KitIntakeOutcomeV2, KitIntakeReadyV2, KitIntakeScreenV2,
     KitIntakeSessionV2, KitShareOrdinalV2, KIT_FALLBACK_TABLE_V2,
 };
+pub use kit_restore_v2::{
+    HumanAssertionDigitV2, KitRestoreArtifactV2, KitRestoreErrorV2, KitRestoreForeignOperationV2,
+    KitRestoreInterruptionV2, KitRestoreOutcomeV2, KitRestoreScreenV2, KitRestoreSessionV2,
+    KitRestoreStageV2, MandatoryFreshWalletMigrationV2,
+};
 pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, TerminalInputKey};
 pub use manual_keypad::{
     ManualKeypadError, ManualKeypadEvent, ManualKeypadOutcome, ManualKeypadScreen,
@@ -115,6 +124,10 @@ pub use manual_keypad::{
 pub use manual_keypad_v2::{
     ManualKeypadErrorV2, ManualKeypadEventV2, ManualKeypadOutcomeV2, ManualKeypadScreenV2,
     ManualKeypadSessionV2, ManualTranscriptViewV2, MANUAL_TRANSCRIPT_BYTES_V2,
+};
+pub use qk_kit::{
+    A1ReprintDispositionV2, A1ReprintReceiptV2, A1ReprintViewV2, KitRestoreDispositionV2,
+    ReplacementBReceiptV2, ReplacementBViewV2, SurvivingBFactorV2,
 };
 pub use review_ready::{ReviewReady, ReviewReadyError, ReviewReadyWorkflow};
 pub use review_ready_v3::{ReviewReadyV3, ReviewReadyV3Error, ReviewReadyV3Workflow};

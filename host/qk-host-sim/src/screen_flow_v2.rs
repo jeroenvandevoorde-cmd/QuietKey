@@ -1388,6 +1388,12 @@ impl ScreenFlowV2 {
         }
     }
 
+    pub(crate) fn terminate_kit_restore(&mut self, reason: WipingReasonV2) {
+        if !self.is_finished() {
+            self.wipe(FlowTerminalV2::FailedWiped(reason));
+        }
+    }
+
     pub(crate) fn accept_kit_intake_share(&mut self) -> bool {
         if self.flow != FlowKindV2::Kit {
             return false;
@@ -1415,6 +1421,61 @@ impl ScreenFlowV2 {
             Some(KitDoorV2::KitRestore) => ScreenKindV2::KitRestoreActionSelection,
             None => return false,
         });
+        true
+    }
+
+    pub(crate) fn select_kit_restore_action_semantic(
+        &mut self,
+        action: KitRestoreActionV2,
+    ) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitRestore)
+            || self.screen_kind() != Some(ScreenKindV2::KitRestoreActionSelection)
+            || self.restore_action.is_some()
+        {
+            return false;
+        }
+        self.restore_action = Some(action);
+        self.state = MachineStateV2::Screen(match action {
+            KitRestoreActionV2::ReplacementB => ScreenKindV2::CardRemainsConfirmation,
+            KitRestoreActionV2::A1Reprint => ScreenKindV2::KitRestoreDeferred,
+        });
+        true
+    }
+
+    pub(crate) fn confirm_kit_restore_card_remains_semantic(
+        &mut self,
+        statement: CardRemainsStatementV2,
+    ) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitRestore)
+            || self.restore_action != Some(KitRestoreActionV2::ReplacementB)
+            || self.screen_kind() != Some(ScreenKindV2::CardRemainsConfirmation)
+        {
+            return false;
+        }
+        match statement {
+            CardRemainsStatementV2::InHand => {
+                self.state = MachineStateV2::Screen(ScreenKindV2::KitRestoreDeferred);
+            }
+            CardRemainsStatementV2::Missing => {
+                self.wipe(FlowTerminalV2::FailedWiped(
+                    WipingReasonV2::MissingCardRequiresKitSpend,
+                ));
+            }
+        }
+        true
+    }
+
+    pub(crate) fn complete_kit_restore_semantic(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitRestore)
+            || self.restore_action.is_none()
+            || self.screen_kind() != Some(ScreenKindV2::KitRestoreDeferred)
+        {
+            return false;
+        }
+        self.wipe(FlowTerminalV2::CompletedWiped);
         true
     }
 
