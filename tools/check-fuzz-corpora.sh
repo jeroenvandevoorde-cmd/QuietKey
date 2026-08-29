@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..120 corpus registries.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..122 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -243,16 +243,17 @@ case "$#" in
       --render-m29) mode=render_m29 ;;
       --render-m30) mode=render_m30 ;;
       --render-qk-descriptor) mode=render_qk_descriptor ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
+      --render-qk-psbt-v3) mode=render_qk_psbt_v3 ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
     esac
     render_source=$2
-    if [ "$mode" = render_qk_descriptor ]; then
+    if [ "$mode" = render_qk_descriptor ] || [ "$mode" = render_qk_psbt_v3 ]; then
       validate_source_commit "$render_source" target_source
     else
       validate_source_commit "$render_source"
     fi
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT]' ;;
 esac
 
 if [ "$mode" = check ]; then
@@ -406,6 +407,7 @@ case "$mode" in
     m21_descriptor_source=$(manifest_target_source "$m21_manifest" qk_descriptor)
     m22_source=$(manifest_source "$m22_manifest")
     m23_source=$(manifest_source "$m23_manifest")
+    m23_review_v3_source=$(manifest_target_source "$m23_manifest" qk_psbt_m23)
     m24_source=$(manifest_source "$m24_manifest")
     m25_source=$(manifest_source "$m25_manifest")
     m26_source=$(manifest_source "$m26_manifest")
@@ -418,8 +420,9 @@ case "$mode" in
       "$m21_descriptor_source"
     render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$m22_source" "$m22_targets" \
       "$m22_order" "$m22_entries" "$m22_expected"
-    render_partition 'QK-M23-CORPUS-MANIFEST-V1' "$m23_source" "$m23_targets" \
-      "$m23_order" "$m23_entries" "$m23_expected"
+    render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$m23_source" "$m23_targets" \
+      "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 \
+      "$m23_review_v3_source"
     render_partition 'QK-M24-CORPUS-MANIFEST-V1' "$m24_source" "$m24_targets" \
       "$m24_order" "$m24_entries" "$m24_expected"
     render_partition 'QK-M25-CORPUS-MANIFEST-V1' "$m25_source" "$m25_targets" \
@@ -491,8 +494,16 @@ case "$mode" in
     sed -n 'p' "$m22_expected"
     ;;
   render_m23)
-    render_partition 'QK-M23-CORPUS-MANIFEST-V1' "$render_source" "$m23_targets" \
-      "$m23_order" "$m23_entries" "$m23_expected"
+    m23_review_v3_source=$(manifest_target_source "$m23_manifest" qk_psbt_m23)
+    render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$render_source" "$m23_targets" \
+      "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 \
+      "$m23_review_v3_source"
+    sed -n 'p' "$m23_expected"
+    ;;
+  render_qk_psbt_v3)
+    m23_source=$(manifest_source "$m23_manifest")
+    render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$m23_source" "$m23_targets" \
+      "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 "$render_source"
     sed -n 'p' "$m23_expected"
     ;;
   render_m24)
