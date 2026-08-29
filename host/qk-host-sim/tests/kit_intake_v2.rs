@@ -9,6 +9,8 @@ use qk_host_sim::{
 use qk_kit::{encode_frame, KitError, ShareIndex, FALLBACK_SYMBOLS, FRAME_LEN};
 
 const FIXTURE: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
+const EXPECTED_FALLBACK_TABLE: [[u8; 8]; 4] =
+    [*b"23456789", *b"abcdefgh", *b"ijkmnpqr", *b"stuvwxyz"];
 
 fn field(name: &str) -> &'static str {
     let prefix = format!("{name}: ");
@@ -109,7 +111,7 @@ fn numeric_key(number: u8) -> KeypadKey {
 }
 
 fn append_fallback_symbol(session: &mut KitIntakeSessionV2, symbol: u8, expected_count: usize) {
-    let (row, column) = KIT_FALLBACK_TABLE_V2
+    let (row, column) = EXPECTED_FALLBACK_TABLE
         .iter()
         .enumerate()
         .find_map(|(row, symbols)| {
@@ -136,6 +138,20 @@ fn append_fallback_symbol(session: &mut KitIntakeSessionV2, symbol: u8, expected
     };
     assert_eq!(screen.fallback().pending_row(), None);
     assert_eq!(screen.fallback().committed_symbols(), expected_count + 1);
+    let progress = screen.fallback();
+    if expected_count + 1 == FALLBACK_SYMBOLS {
+        assert_eq!(progress.next_line(), None);
+        assert_eq!(progress.next_column(), None);
+    } else {
+        assert_eq!(
+            progress.next_line(),
+            Some(((expected_count + 1) / 57 + 1) as u8)
+        );
+        assert_eq!(
+            progress.next_column(),
+            Some(((expected_count + 1) % 57 + 1) as u8)
+        );
+    }
 }
 
 fn enter_fallback_without_submit(session: &mut KitIntakeSessionV2, symbols: &[u8; 228]) {
@@ -418,9 +434,10 @@ fn fixture_helpers_cover_exact_registered_input_widths() {
 
 #[test]
 fn fallback_accepts_both_doors_orders_and_all_coordinate_positions() {
+    assert_eq!(KIT_FALLBACK_TABLE_V2, EXPECTED_FALLBACK_TABLE);
     let mut seen = [false; 32];
     for symbol in fallback(1).into_iter().chain(fallback(2)) {
-        let position = KIT_FALLBACK_TABLE_V2
+        let position = EXPECTED_FALLBACK_TABLE
             .iter()
             .flatten()
             .position(|candidate| *candidate == symbol)
@@ -435,7 +452,7 @@ fn fallback_accepts_both_doors_orders_and_all_coordinate_positions() {
                 KitIntakeSessionV2::begin(flow_at_share_one(door), KitInputModeV2::Fallback)
                     .unwrap();
             let initial = session.screen().unwrap();
-            assert_eq!(initial.fallback_table(), &KIT_FALLBACK_TABLE_V2);
+            assert_eq!(initial.fallback_table(), &EXPECTED_FALLBACK_TABLE);
             assert_eq!(initial.fallback().next_line(), Some(1));
             assert_eq!(initial.fallback().next_column(), Some(1));
 
