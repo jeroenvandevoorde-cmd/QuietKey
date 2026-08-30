@@ -99,7 +99,7 @@ impl StreamDecoder {
         }
 
         let mut consumed = 0usize;
-        if self.header_len < HEADER_BYTES {
+        if self.parsed_header.is_none() {
             let required = HEADER_BYTES - self.header_len;
             let copied = required.min(input.len());
             let source = input.get(..copied).ok_or(IpcError::InvalidTransition)?;
@@ -199,10 +199,7 @@ impl StreamDecoder {
         if self.terminated {
             return IpcError::DecoderTerminated;
         }
-        let partial = self.header_len != 0
-            || self.parsed_header.is_some()
-            || self.payload_len != 0
-            || self.frame_ready;
+        let partial = self.header_len != 0 || (self.parsed_header.is_some() && !self.frame_ready);
         if partial {
             self.terminate(IpcError::ConnectionClosedMidFrame)
         } else {
@@ -236,5 +233,85 @@ impl Drop for StreamDecoder {
         if let Some(header) = self.parsed_header.as_mut() {
             wipe::bytes(&mut header.session_id);
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::StreamDecoder;
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+    use crate::{encode_frame, Direction, IpcError, MessageKind};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    fn operation(payload_len: usize) -> Vec<u8> {
+        let payload = vec![0x5a; payload_len];
+        let mut output = vec![0; 32 + payload_len];
+        let length = encode_frame(
+            Direction::CoreToIo,
+            MessageKind::OperationRequest,
+            [0x33; 16],
+            1,
+            &payload,
+            &mut output,
+        )
+        .unwrap();
+        output.truncate(length);
+        output
+    }
+
+    #[test]
+    fn successful_owner_drop_clears_header_session_and_payload_capacity() {
+        let frame = operation(71);
+        let mut decoder = StreamDecoder::new();
+        reset_wiped_bytes();
+        assert!(decoder.ingest(&frame, false).unwrap().frame_ready());
+        let received = decoder.take_frame().unwrap();
+        let payload_capacity = received.payload.capacity();
+        drop(received);
+        drop(decoder);
+        assert_eq!(wiped_bytes(), 32 + 16 + payload_capacity + 32);
+    }
+
+    #[test]
+    fn partial_decoder_drop_clears_header_session_and_payload_capacity() {
+        let frame = operation(137);
+        let mut decoder = StreamDecoder::new();
+        assert_eq!(decoder.ingest(&frame[..40], false).unwrap().consumed(), 40);
+        let payload_capacity = decoder.payload.capacity();
+        reset_wiped_bytes();
+        drop(decoder);
+        assert_eq!(wiped_bytes(), 32 + 16 + payload_capacity);
+    }
+
+    #[test]
+    fn ancillary_termination_clears_partial_state_before_latching() {
+        let frame = operation(19);
+        let mut decoder = StreamDecoder::new();
+        assert_eq!(decoder.ingest(&frame[..11], false).unwrap().consumed(), 11);
+        reset_wiped_bytes();
+        assert_eq!(
+            decoder.ingest(&frame[11..], true),
+            Err(IpcError::AncillaryData)
+        );
+        assert_eq!(wiped_bytes(), 32);
+        drop(decoder);
+        assert_eq!(wiped_bytes(), 64);
+    }
+
+    #[test]
+    fn received_owner_clears_during_caught_unwind() {
+        let frame = operation(83);
+        let mut decoder = StreamDecoder::new();
+        decoder.ingest(&frame, false).unwrap();
+        let received = decoder.take_frame().unwrap();
+        let payload_capacity = received.payload.capacity();
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _kept_alive = received;
+            panic!("test-only caught unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), 16 + payload_capacity);
     }
 }
