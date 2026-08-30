@@ -241,11 +241,11 @@ fn sign_role(
         .map_err(|_| KitSweepSigningErrorV3::CryptographicSigningFailed)?;
     let signature = qk_secp::ecdsa_sign_rfc6979(&secret_key, digest, &public_key)
         .map_err(|_| KitSweepSigningErrorV3::CryptographicSigningFailed)?;
-    let mut der = [0u8; DER_CAPACITY];
-    let len = qk_secp::signature_serialize_der(&signature, &mut der)
+    let mut der = Secret::<DER_CAPACITY>::zeroed();
+    let len = qk_secp::signature_serialize_der(&signature, der.as_mut_bytes())
         .map_err(|_| KitSweepSigningErrorV3::CryptographicSigningFailed)?;
     Ok(KitSweepDerSignatureV3 {
-        bytes: Secret::take(&mut der),
+        bytes: der,
         len,
     })
 }

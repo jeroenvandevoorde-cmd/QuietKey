@@ -260,11 +260,11 @@ fn collect_input_shapes(
             .inputs()
             .get(input_index)
             .ok_or(FinalizationV2Error::InternalInvariant)?;
-        let derived = derive_script(
+        let derived = WipingDerivedScript(derive_script(
             descriptor,
             review_input.branch(),
             review_input.child_index(),
-        )?;
+        )?);
         let records = view
             .input_records(input_index)
             .ok_or(FinalizationV2Error::InternalInvariant)?;
@@ -296,11 +296,11 @@ fn collect_input_shapes(
         if derivations != 2 || partials != 2 {
             return Err(FinalizationV2Error::WitnessShapeMismatch);
         }
-        if witness_script.is_some_and(|value| value != derived.witness_script.as_slice()) {
+        if witness_script.is_some_and(|value| value != derived.0.witness_script.as_slice()) {
             return Err(FinalizationV2Error::WitnessShapeMismatch);
         }
         shapes.push(InputShape {
-            witness_script: derived.witness_script,
+            witness_script: derived.0.witness_script,
         });
     }
     Ok(shapes)
