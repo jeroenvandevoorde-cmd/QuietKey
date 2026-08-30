@@ -59,7 +59,8 @@
 //! remain unchanged.
 
 use crate::bip143::{
-    sighash_all_digest, Bip143Error, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL,
+    sighash_all_digest, Bip143Error, Bip143InputFacts, Bip143PrecomputeBuilder, Bip143Precomputed,
+    SIGHASH_ALL,
 };
 use crate::limits;
 use crate::parse::PsbtView;
@@ -67,6 +68,7 @@ use crate::raw::{decode_compact_size, Record, Span};
 use crate::review_v2::{apply_fee_policy, FeePolicyFacts, ReviewV2Error};
 use crate::review_v3::{apply_fee_policy_v2, FeePolicyV2Facts, ReviewV3Error};
 use crate::sha256::{sha256, sha256d};
+use crate::wipe::{ByteArray, TransactionMaterialVec, WipingValueArray, WipingValueVec};
 use core::fmt;
 use qk_descriptor::{
     match_change_derivation_claims, match_change_derivation_claims_v2,
@@ -83,6 +85,52 @@ const LOW_S_MAX: [u8; 32] = [
     0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
 ];
+
+/// Scoped owner for the three transaction-level BIP143 digests while
+/// semantic verification is live.
+struct WipingPrecomputed(Bip143Precomputed);
+
+impl Drop for WipingPrecomputed {
+    fn drop(&mut self) {
+        crate::wipe::bytes(&mut self.0.hash_prevouts);
+        crate::wipe::bytes(&mut self.0.hash_sequence);
+        crate::wipe::bytes(&mut self.0.hash_outputs);
+    }
+}
+
+struct WipingDerivedScript(DerivedScript);
+
+impl core::ops::Deref for WipingDerivedScript {
+    type Target = DerivedScript;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for WipingDerivedScript {
+    fn drop(&mut self) {
+        crate::wipe::bytes(&mut self.0.witness_script);
+        crate::wipe::bytes(&mut self.0.script_pubkey);
+    }
+}
+
+struct WipingDerivedScriptV2(DerivedScriptV2);
+
+impl core::ops::Deref for WipingDerivedScriptV2 {
+    type Target = DerivedScriptV2;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for WipingDerivedScriptV2 {
+    fn drop(&mut self) {
+        crate::wipe::bytes(&mut self.0.witness_script);
+        crate::wipe::bytes(&mut self.0.script_pubkey);
+    }
+}
 
 /// Stable semantic rejection category. Fail-closed; no category ever
 /// carries attacker-controlled bytes.
@@ -480,7 +528,8 @@ impl<'a> Iterator for ScriptTokens<'a> {
             },
             0x4d => match self.script.get(after..after.checked_add(2)?) {
                 Some([a, b]) => {
-                    let l = usize::from(u16::from_le_bytes([*a, *b]));
+                    let mut declared = ByteArray::new([*a, *b]);
+                    let l = usize::from(u16::from_le_bytes(declared.take()));
                     self.push(at, after.checked_add(2)?, l)
                 }
                 _ => {
@@ -490,7 +539,8 @@ impl<'a> Iterator for ScriptTokens<'a> {
             },
             0x4e => match self.script.get(after..after.checked_add(4)?) {
                 Some([a, b, c, d]) => {
-                    let declared = u32::from_le_bytes([*a, *b, *c, *d]);
+                    let mut declared = ByteArray::new([*a, *b, *c, *d]);
+                    let declared = u32::from_le_bytes(declared.take());
                     match usize::try_from(declared) {
                         Ok(l) => self.push(at, after.checked_add(4)?, l),
                         Err(_) => {
@@ -597,9 +647,9 @@ pub struct SemanticCandidate<'a> {
     /// Unsigned-transaction locktime, little-endian decoded.
     pub locktime: u32,
     /// Per-input candidate facts, in unsigned-transaction order.
-    pub inputs: Vec<InputSemanticFacts<'a>>,
+    pub inputs: TransactionMaterialVec<InputSemanticFacts<'a>>,
     /// Per-output candidate facts, in unsigned-transaction order.
-    pub outputs: Vec<OutputSemanticFacts<'a>>,
+    pub outputs: TransactionMaterialVec<OutputSemanticFacts<'a>>,
     /// Checked sum of selected prevout amounts (MoneyRange-checked).
     pub total_input_amount: u64,
     /// Checked sum of unsigned output amounts (MoneyRange-checked).
@@ -644,13 +694,13 @@ impl<'a> TxCursor<'a> {
     }
 
     fn u32_le(&mut self) -> Option<u32> {
-        let b: [u8; 4] = self.bytes(4)?.try_into().ok()?;
-        Some(u32::from_le_bytes(b))
+        let mut bytes = ByteArray::new(self.bytes(4)?.try_into().ok()?);
+        Some(u32::from_le_bytes(bytes.take()))
     }
 
     fn u64_le(&mut self) -> Option<u64> {
-        let b: [u8; 8] = self.bytes(8)?.try_into().ok()?;
-        Some(u64::from_le_bytes(b))
+        let mut bytes = ByteArray::new(self.bytes(8)?.try_into().ok()?);
+        Some(u64::from_le_bytes(bytes.take()))
     }
 
     /// Minimal CompactSize wholly inside the span; `None` on
@@ -675,6 +725,7 @@ impl<'a> TxCursor<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
 struct UnsignedInputFacts {
     txid: Span,
     vout: u32,
@@ -682,6 +733,7 @@ struct UnsignedInputFacts {
     outpoint_offset: usize,
 }
 
+#[derive(Clone, Copy)]
 struct UnsignedOutputFacts {
     amount: u64,
     amount_offset: usize,
@@ -691,8 +743,8 @@ struct UnsignedOutputFacts {
 struct UnsignedFacts {
     version: u32,
     locktime: u32,
-    inputs: Vec<UnsignedInputFacts>,
-    outputs: Vec<UnsignedOutputFacts>,
+    inputs: TransactionMaterialVec<UnsignedInputFacts>,
+    outputs: TransactionMaterialVec<UnsignedOutputFacts>,
 }
 
 fn reserve_exact<T>(v: &mut Vec<T>, n: usize, offset: usize) -> Result<(), SemanticError> {
@@ -709,7 +761,7 @@ fn unsigned_facts(view: &PsbtView<'_>) -> Result<UnsignedFacts, SemanticError> {
     let mut c = TxCursor::new(view.buffer(), span);
     let version = c.u32_le().ok_or(inv)?;
     let input_count = usize::try_from(c.compact().ok_or(inv)?).map_err(|_| inv)?;
-    let mut inputs: Vec<UnsignedInputFacts> = Vec::new();
+    let mut inputs = WipingValueVec::new();
     reserve_exact(&mut inputs, input_count, span.start)?;
     for _ in 0..input_count {
         let outpoint_offset = c.pos;
@@ -728,7 +780,7 @@ fn unsigned_facts(view: &PsbtView<'_>) -> Result<UnsignedFacts, SemanticError> {
         });
     }
     let output_count = usize::try_from(c.compact().ok_or(inv)?).map_err(|_| inv)?;
-    let mut outputs: Vec<UnsignedOutputFacts> = Vec::new();
+    let mut outputs = WipingValueVec::new();
     reserve_exact(&mut outputs, output_count, span.start)?;
     for _ in 0..output_count {
         let amount_offset = c.pos;
@@ -748,8 +800,8 @@ fn unsigned_facts(view: &PsbtView<'_>) -> Result<UnsignedFacts, SemanticError> {
     Ok(UnsignedFacts {
         version,
         locktime,
-        inputs,
-        outputs,
+        inputs: inputs.into_owner(),
+        outputs: outputs.into_owner(),
     })
 }
 
@@ -790,7 +842,7 @@ fn parse_prevtx(
     value: Span,
     selected_vout: u32,
     input_index: usize,
-) -> Result<([u8; 32], Option<SelectedPrevout>, u64), SemanticError> {
+) -> Result<(ByteArray<32>, Option<SelectedPrevout>, u64), SemanticError> {
     let cat = |category: SemanticCategory, offset: usize| {
         SemanticError::at_input(category, input_index, offset)
     };
@@ -922,8 +974,10 @@ fn parse_prevtx(
     let version_bytes = version.slice(buf).ok_or(inv)?;
     let body_bytes = buf.get(body_start..body_end).ok_or(inv)?;
     let locktime_bytes = locktime.slice(buf).ok_or(inv)?;
-    let txid = sha256d(&[version_bytes, body_bytes, locktime_bytes])
-        .map_err(|_| cat(SemanticCategory::HashFailure, value.start))?;
+    let txid = ByteArray::new(
+        sha256d(&[version_bytes, body_bytes, locktime_bytes])
+            .map_err(|_| cat(SemanticCategory::HashFailure, value.start))?,
+    );
     Ok((txid, selected, output_count))
 }
 
@@ -1121,6 +1175,7 @@ fn add_checked(
     money_checked(next, offset, input_index)
 }
 
+#[derive(Clone, Copy)]
 struct InputWork<'a> {
     prevout_amount: u64,
     prevout_script: &'a [u8],
@@ -1137,7 +1192,7 @@ struct InputWork<'a> {
 /// no M6 behavior changed.
 struct AnalysisState<'a> {
     facts: UnsignedFacts,
-    work: Vec<InputWork<'a>>,
+    work: TransactionMaterialVec<InputWork<'a>>,
     total_input: u64,
     total_output: u64,
     fee: u64,
@@ -1152,7 +1207,7 @@ fn structural_phase<'a>(view: &PsbtView<'a>) -> Result<AnalysisState<'a>, Semant
 
     // Inputs ascending: missing/parse/caps -> txid -> vout -> amount
     // -> witness-utxo equality.
-    let mut work: Vec<InputWork<'a>> = Vec::new();
+    let mut work = WipingValueVec::new();
     reserve_exact(&mut work, facts.inputs.len(), view.unsigned_tx().span.start)?;
     let mut total_input: u64 = 0;
     for (i, uin) in facts.inputs.iter().enumerate() {
@@ -1187,7 +1242,7 @@ fn structural_phase<'a>(view: &PsbtView<'a>) -> Result<AnalysisState<'a>, Semant
         ))?;
         // Wire-order digest comparison: the 32 outpoint bytes are the
         // double-SHA256 exactly as serialized, never reversed.
-        if txid.as_slice() != outpoint_txid {
+        if txid.as_array().as_slice() != outpoint_txid {
             return Err(SemanticError::at_input(
                 SemanticCategory::PrevTxIdMismatch,
                 i,
@@ -1255,7 +1310,7 @@ fn structural_phase<'a>(view: &PsbtView<'a>) -> Result<AnalysisState<'a>, Semant
         ))?;
     Ok(AnalysisState {
         facts,
-        work,
+        work: work.into_owner(),
         total_input,
         total_output,
         fee,
@@ -1282,14 +1337,14 @@ fn signature_phase(view: &PsbtView<'_>, work: &mut [InputWork<'_>]) -> Result<()
                 0x03 => {
                     // PSBT_IN_SIGHASH_TYPE: absent means SIGHASH_ALL;
                     // present must be the 4-byte little-endian value 1.
-                    let b: [u8; 4] = r.value.try_into().map_err(|_| {
+                    let mut bytes = ByteArray::new(r.value.try_into().map_err(|_| {
                         SemanticError::at_input(
                             SemanticCategory::InternalInvariant,
                             i,
                             r.value_span.start,
                         )
-                    })?;
-                    if u32::from_le_bytes(b) != u32::from(SIGHASH_ALL) {
+                    })?);
+                    if u32::from_le_bytes(bytes.take()) != u32::from(SIGHASH_ALL) {
                         return Err(SemanticError::at_input(
                             SemanticCategory::UnsupportedSighash,
                             i,
@@ -1394,7 +1449,7 @@ fn assemble<'a>(
     state: AnalysisState<'a>,
 ) -> Result<SemanticCandidate<'a>, SemanticError> {
     let buf = view.buffer();
-    let mut inputs: Vec<InputSemanticFacts<'a>> = Vec::new();
+    let mut inputs = WipingValueVec::new();
     reserve_exact(&mut inputs, state.work.len(), view.unsigned_tx().span.start)?;
     for (uin, w) in state.facts.inputs.iter().zip(state.work.iter()) {
         let outpoint_txid_wire = uin.txid.slice(buf).ok_or(SemanticError::global(
@@ -1421,7 +1476,7 @@ fn assemble<'a>(
             signature_status,
         });
     }
-    let mut outputs: Vec<OutputSemanticFacts<'a>> = Vec::new();
+    let mut outputs = WipingValueVec::new();
     reserve_exact(
         &mut outputs,
         state.facts.outputs.len(),
@@ -1440,8 +1495,8 @@ fn assemble<'a>(
     Ok(SemanticCandidate {
         version: state.facts.version,
         locktime: state.facts.locktime,
-        inputs,
-        outputs,
+        inputs: inputs.into_owner(),
+        outputs: outputs.into_owner(),
         total_input_amount: state.total_input,
         total_output_amount: state.total_output,
         fee: state.fee,
@@ -1471,7 +1526,7 @@ pub fn analyze_semantic_subset<'a>(
     view: &PsbtView<'a>,
 ) -> Result<SemanticCandidate<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
-    signature_phase(view, &mut state.work)?;
+    signature_phase(view, state.work.as_mut_slice())?;
     token_phase(view, &state)?;
     assemble(view, state)
 }
@@ -1555,7 +1610,7 @@ pub struct VerifiedSemanticCandidate<'a> {
     /// remain unverified claims).
     pub candidate: SemanticCandidate<'a>,
     /// Per-input verified facts in unsigned-transaction input order.
-    pub verified_inputs: Vec<VerifiedInputFacts>,
+    pub verified_inputs: TransactionMaterialVec<VerifiedInputFacts>,
     /// Aggregate verified status across all inputs.
     pub aggregate_status: VerifiedAggregateStatus,
 }
@@ -1654,9 +1709,9 @@ fn verification_screen(
                 ));
             }
             if witness_required {
-                let commitment = sha256(&[ws.value]).map_err(|_| {
+                let commitment = ByteArray::new(sha256(&[ws.value]).map_err(|_| {
                     SemanticError::at_input(SemanticCategory::HashFailure, i, ws.value_span.start)
-                })?;
+                })?);
                 let native = w.prevout_script.len() == 34
                     && w.prevout_script.first() == Some(&0x00)
                     && w.prevout_script.get(1) == Some(&0x20)
@@ -1692,8 +1747,8 @@ fn verification_screen(
 /// verification. Any failing record rejects the whole result.
 enum VerificationScriptSource<'a> {
     Recorded,
-    Descriptor(&'a [DerivedScript]),
-    DescriptorV2(&'a [DerivedScriptV2]),
+    Descriptor(&'a [WipingDerivedScript]),
+    DescriptorV2(&'a [WipingDerivedScriptV2]),
 }
 
 fn verification_phase(
@@ -1701,7 +1756,13 @@ fn verification_phase(
     candidate: &SemanticCandidate<'_>,
     script_source: VerificationScriptSource<'_>,
     max_verification_calls: usize,
-) -> Result<(Vec<VerifiedInputFacts>, VerifiedAggregateStatus), SemanticError> {
+) -> Result<
+    (
+        TransactionMaterialVec<VerifiedInputFacts>,
+        VerifiedAggregateStatus,
+    ),
+    SemanticError,
+> {
     let global_offset = view.unsigned_tx().span.start;
     let mut builder = Bip143PrecomputeBuilder::new();
     for (i, input) in candidate.inputs.iter().enumerate() {
@@ -1717,11 +1778,13 @@ fn verification_phase(
             .add_output(output.amount, output.script_pubkey)
             .map_err(|e| map_bip143(e, None, global_offset))?;
     }
-    let precomputed = builder
-        .finish()
-        .map_err(|e| map_bip143(e, None, global_offset))?;
+    let precomputed = WipingPrecomputed(
+        builder
+            .finish()
+            .map_err(|e| map_bip143(e, None, global_offset))?,
+    );
 
-    let mut verified_inputs: Vec<VerifiedInputFacts> = Vec::new();
+    let mut verified_inputs = WipingValueVec::new();
     reserve_exact(&mut verified_inputs, candidate.inputs.len(), global_offset)?;
     let mut verification_calls = 0usize;
     for (i, input) in candidate.inputs.iter().enumerate() {
@@ -1771,9 +1834,15 @@ fn verification_phase(
             amount_sats: input.prevout_amount,
             sequence: input.sequence,
         };
-        let digest =
-            sighash_all_digest(candidate.version, candidate.locktime, &precomputed, &facts)
-                .map_err(|e| map_bip143(e, Some(i), script_offset))?;
+        let digest = ByteArray::new(
+            sighash_all_digest(
+                candidate.version,
+                candidate.locktime,
+                &precomputed.0,
+                &facts,
+            )
+            .map_err(|e| map_bip143(e, Some(i), script_offset))?,
+        );
         let mut verified = 0usize;
         for r in records.clone() {
             if r.key_type != 0x02 {
@@ -1790,18 +1859,19 @@ fn verification_phase(
             // A normal parse failure is an attacker-input rejection;
             // an unknown backend return code is never attributed to
             // input and fails closed as a backend invariant.
-            let pubkey = qk_secp::pubkey_parse_compressed(key).map_err(|e| {
-                SemanticError::at_input(
-                    match e {
-                        qk_secp::SecpError::UnknownReturnCode => {
-                            SemanticCategory::CryptographicBackendInvariant
-                        }
-                        _ => SemanticCategory::InvalidCryptographicPubkey,
-                    },
-                    i,
-                    r.key_data_span.start,
-                )
-            })?;
+            let pubkey_owner = WipingValueArray::new([qk_secp::pubkey_parse_compressed(key)
+                .map_err(|e| {
+                    SemanticError::at_input(
+                        match e {
+                            qk_secp::SecpError::UnknownReturnCode => {
+                                SemanticCategory::CryptographicBackendInvariant
+                            }
+                            _ => SemanticCategory::InvalidCryptographicPubkey,
+                        },
+                        i,
+                        r.key_data_span.start,
+                    )
+                })?]);
             let (trailing, der) = r.value.split_last().ok_or(invariant)?;
             if *trailing != SIGHASH_ALL {
                 return Err(SemanticError::at_input(
@@ -1813,23 +1883,30 @@ fn verification_phase(
             // Same fail-closed split for signature parsing: unknown
             // backend return codes are a backend invariant, never an
             // ordinary attacker-input rejection.
-            let signature = qk_secp::signature_parse_der(der).map_err(|e| {
-                SemanticError::at_input(
-                    match e {
-                        qk_secp::SecpError::UnknownReturnCode => {
-                            SemanticCategory::CryptographicBackendInvariant
-                        }
-                        _ => SemanticCategory::SignatureVerificationFailed,
-                    },
-                    i,
-                    r.value_span.start,
-                )
-            })?;
+            let signature_owner = WipingValueArray::new([qk_secp::signature_parse_der(der)
+                .map_err(|e| {
+                    SemanticError::at_input(
+                        match e {
+                            qk_secp::SecpError::UnknownReturnCode => {
+                                SemanticCategory::CryptographicBackendInvariant
+                            }
+                            _ => SemanticCategory::SignatureVerificationFailed,
+                        },
+                        i,
+                        r.value_span.start,
+                    )
+                })?]);
             verification_calls = verification_calls.saturating_add(1);
             if verification_calls > max_verification_calls {
                 return Err(invariant);
             }
-            match qk_secp::ecdsa_verify(&signature, &digest, &pubkey) {
+            let [signature] = signature_owner.as_slice() else {
+                return Err(invariant);
+            };
+            let [pubkey] = pubkey_owner.as_slice() else {
+                return Err(invariant);
+            };
+            match qk_secp::ecdsa_verify(signature, digest.as_array(), pubkey) {
                 Ok(()) => {}
                 Err(qk_secp::SecpError::VerificationFailed) => {
                     return Err(SemanticError::at_input(
@@ -1872,7 +1949,7 @@ fn verification_phase(
     } else {
         VerifiedAggregateStatus::MixedInputCompleteness
     };
-    Ok((verified_inputs, aggregate_status))
+    Ok((verified_inputs.into_owner(), aggregate_status))
 }
 
 /// Analyze one structurally parsed PSBT v0 and cryptographically
@@ -1905,7 +1982,7 @@ pub fn analyze_and_verify_signatures<'a>(
 ) -> Result<VerifiedSemanticCandidate<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
     verification_screen(view, &state, true)?;
-    signature_phase(view, &mut state.work)?;
+    signature_phase(view, state.work.as_mut_slice())?;
     token_phase(view, &state)?;
     let candidate = assemble(view, state)?;
     let (verified_inputs, aggregate_status) = verification_phase(
@@ -1959,9 +2036,9 @@ pub enum OutputOwnership {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DescriptorWalletFacts {
     /// Every input, in unsigned-transaction order.
-    pub inputs: Vec<ProvenWalletInput>,
+    pub inputs: TransactionMaterialVec<ProvenWalletInput>,
     /// One descriptor-backed classification per unsigned output.
-    pub outputs: Vec<OutputOwnership>,
+    pub outputs: TransactionMaterialVec<OutputOwnership>,
 }
 
 /// Descriptor-backed result: a record-truthful semantic candidate, existing
@@ -1974,7 +2051,7 @@ pub struct DescriptorOwnershipAnalysis<'a> {
     /// visibly absent here.
     pub candidate: SemanticCandidate<'a>,
     /// Existing-signature cryptographic facts, in input order.
-    pub verified_inputs: Vec<VerifiedInputFacts>,
+    pub verified_inputs: TransactionMaterialVec<VerifiedInputFacts>,
     /// Existing aggregate cryptographic status.
     pub aggregate_status: VerifiedAggregateStatus,
     /// Descriptor-backed input and output facts.
@@ -1988,15 +2065,15 @@ struct DescriptorCoordinates {
 }
 
 struct DescriptorClaims {
-    keys: [Option<[u8; 33]>; 3],
+    keys: WipingValueArray<Option<[u8; 33]>, 3>,
     coordinates: Option<DescriptorCoordinates>,
     relevant_count: usize,
 }
 
 impl DescriptorClaims {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
-            keys: [None; 3],
+            keys: WipingValueArray::new([None; 3]),
             coordinates: None,
             relevant_count: 0,
         }
@@ -2005,12 +2082,12 @@ impl DescriptorClaims {
     fn add(
         &mut self,
         role: usize,
-        key: [u8; 33],
+        mut key: ByteArray<33>,
         coordinates: DescriptorCoordinates,
         input_index: Option<usize>,
         offset: usize,
     ) -> Result<(), SemanticError> {
-        let slot = self.keys.get(role).ok_or(SemanticError {
+        let slot = self.keys.as_slice().get(role).ok_or(SemanticError {
             category: SemanticCategory::InternalInvariant,
             input_index,
             offset,
@@ -2035,12 +2112,16 @@ impl DescriptorClaims {
         if self.coordinates.is_none() {
             self.coordinates = Some(coordinates);
         }
-        let slot = self.keys.get_mut(role).ok_or(SemanticError {
-            category: SemanticCategory::InternalInvariant,
-            input_index,
-            offset,
-        })?;
-        *slot = Some(key);
+        let slot = self
+            .keys
+            .as_mut_array()
+            .get_mut(role)
+            .ok_or(SemanticError {
+                category: SemanticCategory::InternalInvariant,
+                input_index,
+                offset,
+            })?;
+        *slot = Some(key.take());
         self.relevant_count = self.relevant_count.saturating_add(1);
         Ok(())
     }
@@ -2048,8 +2129,8 @@ impl DescriptorClaims {
 
 fn little_endian_u32_at(value: &[u8], offset: usize) -> Option<u32> {
     let end = offset.checked_add(4)?;
-    let bytes: [u8; 4] = value.get(offset..end)?.try_into().ok()?;
-    Some(u32::from_le_bytes(bytes))
+    let mut bytes = ByteArray::new(value.get(offset..end)?.try_into().ok()?);
+    Some(u32::from_le_bytes(bytes.take()))
 }
 
 fn descriptor_role(fingerprints: &[[u8; 4]; 3], candidate: &[u8]) -> Option<usize> {
@@ -2061,19 +2142,19 @@ fn descriptor_role(fingerprints: &[[u8; 4]; 3], candidate: &[u8]) -> Option<usiz
 fn parse_descriptor_claim(
     record: Record<'_>,
     input_index: Option<usize>,
-) -> Result<([u8; 33], DescriptorCoordinates), SemanticError> {
+) -> Result<(ByteArray<33>, DescriptorCoordinates), SemanticError> {
     let error = |category, offset| SemanticError {
         category,
         input_index,
         offset,
     };
-    let key: [u8; 33] = record.key_data.try_into().map_err(|_| {
+    let key = ByteArray::new(record.key_data.try_into().map_err(|_| {
         error(
             SemanticCategory::DescriptorDerivationPublicKey,
             record.key_data_span.start,
         )
-    })?;
-    if !matches!(key.first(), Some(0x02 | 0x03)) {
+    })?);
+    if !matches!(key.as_array().first(), Some(0x02 | 0x03)) {
         return Err(error(
             SemanticCategory::DescriptorDerivationPublicKey,
             record.key_data_span.start,
@@ -2169,7 +2250,7 @@ fn match_descriptor_claims(
     calls: &mut usize,
     input_index: Option<usize>,
     offset: usize,
-) -> Result<DerivedScript, SemanticError> {
+) -> Result<WipingDerivedScript, SemanticError> {
     let coordinates = claims.coordinates.ok_or(SemanticError {
         category: SemanticCategory::InternalInvariant,
         input_index,
@@ -2177,8 +2258,8 @@ fn match_descriptor_claims(
     })?;
     consume_descriptor_route(calls, input_index, offset)?;
     let matched = match coordinates.branch {
-        0 => match_receive_derivation_claims(descriptor, coordinates.index, &claims.keys),
-        1 => match_change_derivation_claims(descriptor, coordinates.index, &claims.keys),
+        0 => match_receive_derivation_claims(descriptor, coordinates.index, claims.keys.as_array()),
+        1 => match_change_derivation_claims(descriptor, coordinates.index, claims.keys.as_array()),
         _ => {
             return Err(SemanticError {
                 category: SemanticCategory::InternalInvariant,
@@ -2192,7 +2273,7 @@ fn match_descriptor_claims(
         input_index,
         offset,
     })?;
-    matched.ok_or(SemanticError {
+    matched.map(WipingDerivedScript).ok_or(SemanticError {
         category: SemanticCategory::DescriptorDerivationKeyMismatch,
         input_index,
         offset,
@@ -2206,7 +2287,7 @@ fn prove_descriptor_input(
     input_index: usize,
     work: &InputWork<'_>,
     calls: &mut usize,
-) -> Result<(ProvenWalletInput, DerivedScript), SemanticError> {
+) -> Result<(ProvenWalletInput, WipingDerivedScript), SemanticError> {
     let map_start = view
         .input_map_span(input_index)
         .map_or(0, |span| span.start);
@@ -2256,7 +2337,7 @@ fn prove_descriptor_input(
     let derived =
         match_descriptor_claims(descriptor, &claims, calls, Some(input_index), map_start)?;
     if let Some(record) = witness_script {
-        if record.value != derived.witness_script {
+        if record.value != derived.witness_script.as_slice() {
             return Err(SemanticError::at_input(
                 SemanticCategory::DescriptorWitnessScriptMismatch,
                 input_index,
@@ -2264,7 +2345,7 @@ fn prove_descriptor_input(
             ));
         }
     }
-    if work.prevout_script != derived.script_pubkey {
+    if work.prevout_script != derived.script_pubkey.as_slice() {
         return Err(SemanticError::at_input(
             SemanticCategory::DescriptorPrevoutScriptMismatch,
             input_index,
@@ -2321,7 +2402,7 @@ fn classify_descriptor_output(
     if claims.relevant_count < 3 {
         return Ok(OutputOwnership::NotProvenOwned);
     }
-    if output.script_pubkey != derived.script_pubkey {
+    if output.script_pubkey != derived.script_pubkey.as_slice() {
         return Err(SemanticError::global(
             SemanticCategory::DescriptorOutputScriptMismatch,
             map_start,
@@ -2365,16 +2446,16 @@ pub fn analyze_descriptor_ownership<'a>(
 ) -> Result<DescriptorOwnershipAnalysis<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
     verification_screen(view, &state, false)?;
-    signature_phase(view, &mut state.work)?;
+    signature_phase(view, state.work.as_mut_slice())?;
     token_phase(view, &state)?;
 
     let global_offset = view.unsigned_tx().span.start;
     let fingerprints = unique_descriptor_fingerprints(descriptor, global_offset)?;
     let mut derivation_calls = 0usize;
 
-    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    let mut wallet_inputs = WipingValueVec::new();
     reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
-    let mut effective_scripts: Vec<DerivedScript> = Vec::new();
+    let mut effective_scripts = WipingValueVec::new();
     reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
     for (input_index, work) in state.work.iter().enumerate() {
         let (wallet_input, script) = prove_descriptor_input(
@@ -2393,11 +2474,11 @@ pub fn analyze_descriptor_ownership<'a>(
     let (verified_inputs, aggregate_status) = verification_phase(
         view,
         &candidate,
-        VerificationScriptSource::Descriptor(&effective_scripts),
+        VerificationScriptSource::Descriptor(effective_scripts.as_slice()),
         MAX_VERIFICATION_CALLS,
     )?;
 
-    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    let mut wallet_outputs = WipingValueVec::new();
     reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
     for (output_index, output) in candidate.outputs.iter().enumerate() {
         wallet_outputs.push(classify_descriptor_output(
@@ -2415,8 +2496,8 @@ pub fn analyze_descriptor_ownership<'a>(
         verified_inputs,
         aggregate_status,
         wallet: DescriptorWalletFacts {
-            inputs: wallet_inputs,
-            outputs: wallet_outputs,
+            inputs: wallet_inputs.into_owner(),
+            outputs: wallet_outputs.into_owner(),
         },
     })
 }
@@ -2429,15 +2510,15 @@ pub fn analyze_descriptor_ownership<'a>(
 const CHILD_DERIVATIONS_PER_ROUTE_V2: usize = 4;
 
 struct DescriptorClaimsV2 {
-    keys: [Option<[u8; 33]>; 2],
+    keys: WipingValueArray<Option<[u8; 33]>, 2>,
     coordinates: Option<DescriptorCoordinates>,
     relevant_count: usize,
 }
 
 impl DescriptorClaimsV2 {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
-            keys: [None; 2],
+            keys: WipingValueArray::new([None; 2]),
             coordinates: None,
             relevant_count: 0,
         }
@@ -2446,12 +2527,12 @@ impl DescriptorClaimsV2 {
     fn add(
         &mut self,
         role: usize,
-        key: [u8; 33],
+        mut key: ByteArray<33>,
         coordinates: DescriptorCoordinates,
         input_index: Option<usize>,
         offset: usize,
     ) -> Result<(), SemanticError> {
-        let slot = self.keys.get(role).ok_or(SemanticError {
+        let slot = self.keys.as_slice().get(role).ok_or(SemanticError {
             category: SemanticCategory::InternalInvariant,
             input_index,
             offset,
@@ -2476,12 +2557,16 @@ impl DescriptorClaimsV2 {
         if self.coordinates.is_none() {
             self.coordinates = Some(coordinates);
         }
-        let slot = self.keys.get_mut(role).ok_or(SemanticError {
-            category: SemanticCategory::InternalInvariant,
-            input_index,
-            offset,
-        })?;
-        *slot = Some(key);
+        let slot = self
+            .keys
+            .as_mut_array()
+            .get_mut(role)
+            .ok_or(SemanticError {
+                category: SemanticCategory::InternalInvariant,
+                input_index,
+                offset,
+            })?;
+        *slot = Some(key.take());
         self.relevant_count = self.relevant_count.saturating_add(1);
         Ok(())
     }
@@ -2537,7 +2622,7 @@ fn match_descriptor_claims_v2(
     calls: &mut usize,
     input_index: Option<usize>,
     offset: usize,
-) -> Result<DerivedScriptV2, SemanticError> {
+) -> Result<WipingDerivedScriptV2, SemanticError> {
     let coordinates = claims.coordinates.ok_or(SemanticError {
         category: SemanticCategory::InternalInvariant,
         input_index,
@@ -2545,8 +2630,14 @@ fn match_descriptor_claims_v2(
     })?;
     consume_descriptor_route_v2(calls, input_index, offset)?;
     let matched = match coordinates.branch {
-        0 => match_receive_derivation_claims_v2(descriptor, coordinates.index, &claims.keys),
-        1 => match_change_derivation_claims_v2(descriptor, coordinates.index, &claims.keys),
+        0 => match_receive_derivation_claims_v2(
+            descriptor,
+            coordinates.index,
+            claims.keys.as_array(),
+        ),
+        1 => {
+            match_change_derivation_claims_v2(descriptor, coordinates.index, claims.keys.as_array())
+        }
         _ => {
             return Err(SemanticError {
                 category: SemanticCategory::InternalInvariant,
@@ -2560,7 +2651,7 @@ fn match_descriptor_claims_v2(
         input_index,
         offset,
     })?;
-    matched.ok_or(SemanticError {
+    matched.map(WipingDerivedScriptV2).ok_or(SemanticError {
         category: SemanticCategory::DescriptorDerivationKeyMismatch,
         input_index,
         offset,
@@ -2574,7 +2665,7 @@ fn prove_descriptor_input_v2(
     input_index: usize,
     work: &InputWork<'_>,
     calls: &mut usize,
-) -> Result<(ProvenWalletInput, DerivedScriptV2), SemanticError> {
+) -> Result<(ProvenWalletInput, WipingDerivedScriptV2), SemanticError> {
     let map_start = view
         .input_map_span(input_index)
         .map_or(0, |span| span.start);
@@ -2624,7 +2715,7 @@ fn prove_descriptor_input_v2(
     let derived =
         match_descriptor_claims_v2(descriptor, &claims, calls, Some(input_index), map_start)?;
     if let Some(record) = witness_script {
-        if record.value != derived.witness_script {
+        if record.value != derived.witness_script.as_slice() {
             return Err(SemanticError::at_input(
                 SemanticCategory::DescriptorWitnessScriptMismatch,
                 input_index,
@@ -2632,7 +2723,7 @@ fn prove_descriptor_input_v2(
             ));
         }
     }
-    if work.prevout_script != derived.script_pubkey {
+    if work.prevout_script != derived.script_pubkey.as_slice() {
         return Err(SemanticError::at_input(
             SemanticCategory::DescriptorPrevoutScriptMismatch,
             input_index,
@@ -2689,7 +2780,7 @@ fn classify_descriptor_output_v2(
     if claims.relevant_count < 2 {
         return Ok(OutputOwnership::NotProvenOwned);
     }
-    if output.script_pubkey != derived.script_pubkey {
+    if output.script_pubkey != derived.script_pubkey.as_slice() {
         return Err(SemanticError::global(
             SemanticCategory::DescriptorOutputScriptMismatch,
             map_start,
@@ -2736,16 +2827,16 @@ pub fn analyze_descriptor_ownership_v2<'a>(
 ) -> Result<DescriptorOwnershipAnalysis<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
     verification_screen(view, &state, false)?;
-    signature_phase(view, &mut state.work)?;
+    signature_phase(view, state.work.as_mut_slice())?;
     token_phase(view, &state)?;
 
     let global_offset = view.unsigned_tx().span.start;
     let fingerprints = unique_descriptor_fingerprints_v2(descriptor, global_offset)?;
     let mut derivation_calls = 0usize;
 
-    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    let mut wallet_inputs = WipingValueVec::new();
     reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
-    let mut effective_scripts: Vec<DerivedScriptV2> = Vec::new();
+    let mut effective_scripts = WipingValueVec::new();
     reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
     for (input_index, work) in state.work.iter().enumerate() {
         let (wallet_input, script) = prove_descriptor_input_v2(
@@ -2764,11 +2855,11 @@ pub fn analyze_descriptor_ownership_v2<'a>(
     let (verified_inputs, aggregate_status) = verification_phase(
         view,
         &candidate,
-        VerificationScriptSource::DescriptorV2(&effective_scripts),
+        VerificationScriptSource::DescriptorV2(effective_scripts.as_slice()),
         MAX_DESCRIPTOR_V2_VERIFICATION_CALLS,
     )?;
 
-    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    let mut wallet_outputs = WipingValueVec::new();
     reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
     for (output_index, output) in candidate.outputs.iter().enumerate() {
         wallet_outputs.push(classify_descriptor_output_v2(
@@ -2786,8 +2877,8 @@ pub fn analyze_descriptor_ownership_v2<'a>(
         verified_inputs,
         aggregate_status,
         wallet: DescriptorWalletFacts {
-            inputs: wallet_inputs,
-            outputs: wallet_outputs,
+            inputs: wallet_inputs.into_owner(),
+            outputs: wallet_outputs.into_owner(),
         },
     })
 }
@@ -2839,7 +2930,7 @@ pub struct RecipientScriptAnalysis<'a> {
     /// Complete unchanged M12 descriptor-ownership analysis.
     pub ownership: DescriptorOwnershipAnalysis<'a>,
     /// Parallel to unsigned outputs in exact order.
-    pub recipient_outputs: Vec<Option<RecipientScriptFacts<'a>>>,
+    pub recipient_outputs: TransactionMaterialVec<Option<RecipientScriptFacts<'a>>>,
 }
 
 fn recipient_fact<'a>(
@@ -2982,16 +3073,17 @@ fn classify_op_return<'a>(
         );
     }
     if opcode == 0x4d {
-        let declared: [u8; 2] = rest
-            .get(1..3)
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or_else(|| {
-                SemanticError::global(
-                    SemanticCategory::MalformedScriptPush,
-                    script_span.start.saturating_add(1),
-                )
-            })?;
-        let data_len = usize::from(u16::from_le_bytes(declared));
+        let mut declared = ByteArray::new(
+            rest.get(1..3)
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| {
+                    SemanticError::global(
+                        SemanticCategory::MalformedScriptPush,
+                        script_span.start.saturating_add(1),
+                    )
+                })?,
+        );
+        let data_len = usize::from(u16::from_le_bytes(declared.take()));
         let data_start = 4usize;
         complete_op_return_push(script, script_span, data_start, data_len)?;
         let category = if data_len <= usize::from(u8::MAX) {
@@ -3011,16 +3103,17 @@ fn classify_op_return<'a>(
         ));
     }
     if opcode == 0x4e {
-        let declared: [u8; 4] = rest
-            .get(1..5)
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or_else(|| {
-                SemanticError::global(
-                    SemanticCategory::MalformedScriptPush,
-                    script_span.start.saturating_add(1),
-                )
-            })?;
-        let data_len = usize::try_from(u32::from_le_bytes(declared)).map_err(|_| {
+        let mut declared = ByteArray::new(
+            rest.get(1..5)
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| {
+                    SemanticError::global(
+                        SemanticCategory::MalformedScriptPush,
+                        script_span.start.saturating_add(1),
+                    )
+                })?,
+        );
+        let data_len = usize::try_from(u32::from_le_bytes(declared.take())).map_err(|_| {
             SemanticError::global(
                 SemanticCategory::MalformedScriptPush,
                 script_span.start.saturating_add(1),
@@ -3179,7 +3272,7 @@ pub fn analyze_recipient_script_facts<'a>(
         ));
     }
 
-    let mut recipient_outputs: Vec<Option<RecipientScriptFacts<'a>>> = Vec::new();
+    let mut recipient_outputs = WipingValueVec::new();
     reserve_exact(&mut recipient_outputs, output_count, tx_span.start)?;
     let mut op_return_seen = false;
     for (owner, output) in ownership
@@ -3212,7 +3305,7 @@ pub fn analyze_recipient_script_facts<'a>(
 
     Ok(RecipientScriptAnalysis {
         ownership,
-        recipient_outputs,
+        recipient_outputs: recipient_outputs.into_owner(),
     })
 }
 
@@ -3283,9 +3376,9 @@ pub(crate) struct ReviewV2SemanticAnalysis<'a> {
     /// Raw transaction locktime.
     pub locktime: u32,
     /// Proven input facts in unsigned-transaction order.
-    pub inputs: Vec<ReviewV2SemanticInput<'a>>,
+    pub inputs: TransactionMaterialVec<ReviewV2SemanticInput<'a>>,
     /// Classified output facts in unsigned-transaction order.
-    pub outputs: Vec<ReviewV2SemanticOutput<'a>>,
+    pub outputs: TransactionMaterialVec<ReviewV2SemanticOutput<'a>>,
     /// MoneyRange-checked selected-input total.
     pub total_input_amount: u64,
     /// MoneyRange-checked unsigned-output total.
@@ -3325,7 +3418,7 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
 ) -> Result<ReviewV2SemanticAnalysis<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
     verification_screen(view, &state, false)?;
-    signature_phase(view, &mut state.work)?;
+    signature_phase(view, state.work.as_mut_slice())?;
     token_phase(view, &state)?;
 
     let tx_span = view.unsigned_tx().span;
@@ -3333,9 +3426,9 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
     let fingerprints = unique_descriptor_fingerprints(descriptor, global_offset)?;
     let mut derivation_calls = 0usize;
 
-    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    let mut wallet_inputs = WipingValueVec::new();
     reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
-    let mut effective_scripts: Vec<DerivedScript> = Vec::new();
+    let mut effective_scripts = WipingValueVec::new();
     reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
     for (input_index, work) in state.work.iter().enumerate() {
         let (wallet_input, script) = prove_descriptor_input(
@@ -3360,13 +3453,13 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
         ));
     }
 
-    let mut inputs: Vec<ReviewV2SemanticInput<'a>> = Vec::new();
+    let mut inputs = WipingValueVec::new();
     reserve_exact(&mut inputs, candidate.inputs.len(), global_offset)?;
     for ((input, wallet), script) in candidate
         .inputs
         .iter()
-        .zip(&wallet_inputs)
-        .zip(&effective_scripts)
+        .zip(wallet_inputs.iter())
+        .zip(effective_scripts.iter())
     {
         inputs.push(ReviewV2SemanticInput {
             outpoint_txid_wire: input.outpoint_txid_wire,
@@ -3381,7 +3474,7 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
         });
     }
 
-    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    let mut wallet_outputs = WipingValueVec::new();
     reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
     for (output_index, output) in candidate.outputs.iter().enumerate() {
         wallet_outputs.push(classify_descriptor_output(
@@ -3414,7 +3507,7 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
         return Err(inv);
     }
 
-    let mut outputs: Vec<ReviewV2SemanticOutput<'a>> = Vec::new();
+    let mut outputs = WipingValueVec::new();
     reserve_exact(&mut outputs, output_count, global_offset)?;
     let mut op_return_seen = false;
     for (owner, output) in wallet_outputs.iter().zip(&candidate.outputs) {
@@ -3467,8 +3560,8 @@ pub(crate) fn analyze_review_v2_semantics<'a>(
     Ok(ReviewV2SemanticAnalysis {
         version: candidate.version,
         locktime: candidate.locktime,
-        inputs,
-        outputs,
+        inputs: inputs.into_owner(),
+        outputs: outputs.into_owner(),
         total_input_amount: candidate.total_input_amount,
         total_output_amount: candidate.total_output_amount,
         fee: candidate.fee,
@@ -3544,9 +3637,9 @@ pub(crate) struct ReviewV3SemanticAnalysis<'a> {
     /// Raw transaction locktime.
     pub locktime: u32,
     /// Proven input facts in unsigned-transaction order.
-    pub inputs: Vec<ReviewV3SemanticInput<'a>>,
+    pub inputs: TransactionMaterialVec<ReviewV3SemanticInput<'a>>,
     /// Classified output facts in unsigned-transaction order.
-    pub outputs: Vec<ReviewV3SemanticOutput<'a>>,
+    pub outputs: TransactionMaterialVec<ReviewV3SemanticOutput<'a>>,
     /// MoneyRange-checked selected-input total.
     pub total_input_amount: u64,
     /// MoneyRange-checked unsigned-output total.
@@ -3585,7 +3678,7 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
 ) -> Result<ReviewV3SemanticAnalysis<'a>, SemanticError> {
     let mut state = structural_phase(view)?;
     verification_screen(view, &state, false)?;
-    signature_phase(view, &mut state.work)?;
+    signature_phase(view, state.work.as_mut_slice())?;
     token_phase(view, &state)?;
 
     let tx_span = view.unsigned_tx().span;
@@ -3593,9 +3686,9 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
     let fingerprints = unique_descriptor_fingerprints_v2(descriptor, global_offset)?;
     let mut derivation_calls = 0usize;
 
-    let mut wallet_inputs: Vec<ProvenWalletInput> = Vec::new();
+    let mut wallet_inputs = WipingValueVec::new();
     reserve_exact(&mut wallet_inputs, state.work.len(), global_offset)?;
-    let mut effective_scripts: Vec<DerivedScriptV2> = Vec::new();
+    let mut effective_scripts = WipingValueVec::new();
     reserve_exact(&mut effective_scripts, state.work.len(), global_offset)?;
     for (input_index, work) in state.work.iter().enumerate() {
         let (wallet_input, script) = prove_descriptor_input_v2(
@@ -3620,13 +3713,13 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
         ));
     }
 
-    let mut inputs: Vec<ReviewV3SemanticInput<'a>> = Vec::new();
+    let mut inputs = WipingValueVec::new();
     reserve_exact(&mut inputs, candidate.inputs.len(), global_offset)?;
     for ((input, wallet), script) in candidate
         .inputs
         .iter()
-        .zip(&wallet_inputs)
-        .zip(&effective_scripts)
+        .zip(wallet_inputs.iter())
+        .zip(effective_scripts.iter())
     {
         inputs.push(ReviewV3SemanticInput {
             outpoint_txid_wire: input.outpoint_txid_wire,
@@ -3641,7 +3734,7 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
         });
     }
 
-    let mut wallet_outputs: Vec<OutputOwnership> = Vec::new();
+    let mut wallet_outputs = WipingValueVec::new();
     reserve_exact(&mut wallet_outputs, candidate.outputs.len(), global_offset)?;
     for (output_index, output) in candidate.outputs.iter().enumerate() {
         wallet_outputs.push(classify_descriptor_output_v2(
@@ -3674,7 +3767,7 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
         return Err(inv);
     }
 
-    let mut outputs: Vec<ReviewV3SemanticOutput<'a>> = Vec::new();
+    let mut outputs = WipingValueVec::new();
     reserve_exact(&mut outputs, output_count, global_offset)?;
     let mut op_return_seen = false;
     for (owner, output) in wallet_outputs.iter().zip(&candidate.outputs) {
@@ -3727,11 +3820,107 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
     Ok(ReviewV3SemanticAnalysis {
         version: candidate.version,
         locktime: candidate.locktime,
-        inputs,
-        outputs,
+        inputs: inputs.into_owner(),
+        outputs: outputs.into_owner(),
         total_input_amount: candidate.total_input_amount,
         total_output_amount: candidate.total_output_amount,
         fee: candidate.fee,
         fee_policy,
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::panic)]
+mod secret_memory_tests {
+    use super::{
+        little_endian_u32_at, DescriptorClaims, DescriptorClaimsV2, ScriptTokens, TxCursor,
+        WipingDerivedScript, WipingDerivedScriptV2, WipingPrecomputed,
+    };
+    use crate::bip143::Bip143Precomputed;
+    use crate::raw::Span;
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes, WipingValueArray};
+    use qk_descriptor::{DerivedScript, DerivedScriptV2};
+
+    #[test]
+    fn fixed_transaction_owners_clear_exact_bytes() {
+        reset_wiped_bytes();
+        drop(WipingPrecomputed(Bip143Precomputed {
+            hash_prevouts: [0x11; 32],
+            hash_sequence: [0x22; 32],
+            hash_outputs: [0x33; 32],
+        }));
+        assert_eq!(wiped_bytes(), 96);
+
+        reset_wiped_bytes();
+        drop(WipingDerivedScript(DerivedScript {
+            witness_script: [0x44; 105],
+            script_pubkey: [0x55; 34],
+        }));
+        assert_eq!(wiped_bytes(), 139);
+
+        reset_wiped_bytes();
+        drop(WipingDerivedScriptV2(DerivedScriptV2 {
+            witness_script: [0x66; 71],
+            script_pubkey: [0x77; 34],
+        }));
+        assert_eq!(wiped_bytes(), 105);
+    }
+
+    #[test]
+    fn descriptor_claim_owners_clear_every_key() {
+        let v1 = DescriptorClaims {
+            keys: WipingValueArray::new([Some([0x11; 33]), Some([0x22; 33]), Some([0x33; 33])]),
+            coordinates: None,
+            relevant_count: 3,
+        };
+        reset_wiped_bytes();
+        drop(v1);
+        assert_eq!(wiped_bytes(), core::mem::size_of::<[Option<[u8; 33]>; 3]>());
+
+        let v2 = DescriptorClaimsV2 {
+            keys: WipingValueArray::new([Some([0x44; 33]), Some([0x55; 33])]),
+            coordinates: None,
+            relevant_count: 2,
+        };
+        reset_wiped_bytes();
+        drop(v2);
+        assert_eq!(wiped_bytes(), core::mem::size_of::<[Option<[u8; 33]>; 2]>());
+
+        reset_wiped_bytes();
+        let result = std::panic::catch_unwind(|| {
+            let _claims = DescriptorClaims::new();
+            panic!("test unwind");
+        });
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), core::mem::size_of::<[Option<[u8; 33]>; 3]>());
+    }
+
+    #[test]
+    fn decode_scratch_uses_exact_fixed_owners() {
+        let bytes = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0x4d, 1, 0, 0xaa, 0x4e, 1, 0, 0, 0, 0xbb,
+        ];
+        reset_wiped_bytes();
+        let mut cursor = TxCursor::new(&bytes, Span { start: 0, end: 12 });
+        assert_eq!(cursor.u32_le(), Some(0x0403_0201));
+        assert_eq!(cursor.u64_le(), Some(0x0c0b_0a09_0807_0605));
+        assert_eq!(little_endian_u32_at(&bytes, 0), Some(0x0403_0201));
+        assert!(ScriptTokens::new(&bytes[12..16]).next().is_some());
+        assert!(ScriptTokens::new(&bytes[16..22]).next().is_some());
+        assert_eq!(wiped_bytes(), 4 + 8 + 4 + 2 + 4);
+    }
+
+    #[test]
+    fn derived_script_owner_clears_on_caught_unwind() {
+        reset_wiped_bytes();
+        let result = std::panic::catch_unwind(|| {
+            let _owner = WipingDerivedScriptV2(DerivedScriptV2 {
+                witness_script: [0x88; 71],
+                script_pubkey: [0x99; 34],
+            });
+            panic!("test unwind");
+        });
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), 105);
+    }
 }
