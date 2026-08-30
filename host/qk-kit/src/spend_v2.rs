@@ -7,7 +7,7 @@
 
 use crate::RecoveredKitPayload;
 use core::fmt;
-use qk_psbt::ValidatedKitSweepV3;
+use qk_psbt::{ValidatedKitSweepV3, ValidatedKitSweepV3Parts};
 use qk_wallet_v2::{
     rebind_wallet_v2, sign_validated_kit_sweep_v3, KitSweepSigningErrorV3,
     WalletKitSweepSignaturesV3, WalletPublicV2, WalletSignedKitSweepV3,
@@ -127,7 +127,7 @@ impl SignedKitSweepV3 {
         self.signed.input_count()
     }
 
-    pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {
+    pub fn into_execution_parts(self) -> (ValidatedKitSweepV3Parts, WalletKitSweepSignaturesV3) {
         self.signed.into_execution_parts()
     }
 }

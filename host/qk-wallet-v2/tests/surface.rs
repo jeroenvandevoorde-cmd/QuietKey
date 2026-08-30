@@ -65,7 +65,9 @@ fn public_surface_is_only_errors_public_facts_and_purpose_bound_operations() {
     assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
     assert!(!SPEND.contains("proof: &ValidatedKitSweepV3,"));
     assert!(SPEND.contains("pub struct WalletSignedKitSweepV3 {"));
-    assert!(SPEND.contains("pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {"));
+    assert!(SPEND.contains("proof: ValidatedKitSweepV3Parts,"));
+    assert!(SPEND.contains("let proof = proof.into_parts();"));
+    assert!(SPEND.contains("pub fn into_execution_parts(self) -> (ValidatedKitSweepV3Parts, WalletKitSweepSignaturesV3) {"));
     for forbidden in [
         "pub fn digest",
         "pub fn scalar",

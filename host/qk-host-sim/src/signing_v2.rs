@@ -360,8 +360,7 @@ pub(super) fn finalize_signed_kit_sweep_v3(
             .then_with(|| left.public_key.cmp(&right.public_key))
     });
 
-    let parts = proof.into_parts();
-    let (s0, descriptor, bound_review, bound_hash, proof_plans) = parts.into_execution_parts();
+    let (s0, descriptor, bound_review, bound_hash, proof_plans) = proof.into_execution_parts();
     drop(proof_plans);
     let prepared = prepare_bound_signing(&s0, &descriptor, &bound_review, bound_hash.value())?;
     execute_planned_signatures(prepared, descriptor, bound_review, planned)

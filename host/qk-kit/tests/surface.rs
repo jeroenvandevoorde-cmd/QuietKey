@@ -117,7 +117,7 @@ fn public_surface_is_exactly_the_fixed_codec_and_opaque_owner() {
             "pub struct SignedKitSweepV3 {",
             "pub fn wallet_id(&self) -> [u8; 32] {",
             "pub fn input_count(&self) -> usize {",
-            "pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {",
+            "pub fn into_execution_parts(self) -> (ValidatedKitSweepV3Parts, WalletKitSweepSignaturesV3) {",
         ]
     );
     assert!(public_lines(SHA256).is_empty());

@@ -127,8 +127,9 @@ fn no_reusable_or_arbitrary_signing_owner_exists() {
     assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
     assert!(!SPEND.contains("proof: &ValidatedKitSweepV3,"));
     assert!(SPEND.contains("pub struct WalletSignedKitSweepV3 {"));
-    assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("proof: ValidatedKitSweepV3Parts,"));
     assert!(SPEND.contains("signatures: WalletKitSweepSignaturesV3,"));
+    assert!(SPEND.contains("let proof = proof.into_parts();"));
     assert!(SPEND.contains("pub struct WalletKitSweepSignaturesV3 {"));
     assert!(SPEND.contains("role_a: Option<KitSweepDerSignatureV3>,"));
     assert!(SPEND.contains("role_b: Option<KitSweepDerSignatureV3>,"));

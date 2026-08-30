@@ -11,7 +11,7 @@ use crate::bip39::entropy_to_seed;
 use crate::secret::Secret;
 use crate::{rebind_wallet_v2, WalletV2Error};
 use core::fmt;
-use qk_psbt::ValidatedKitSweepV3;
+use qk_psbt::{ValidatedKitSweepV3, ValidatedKitSweepV3Parts};
 
 const MAX_INPUTS: usize = 100;
 const DER_CAPACITY: usize = 72;
@@ -103,7 +103,7 @@ impl WalletKitSweepSignaturesV3 {
 /// prevents the same exact-sweep capability from being reused to mint a
 /// second signature set through the wallet boundary.
 pub struct WalletSignedKitSweepV3 {
-    proof: ValidatedKitSweepV3,
+    proof: ValidatedKitSweepV3Parts,
     signatures: WalletKitSweepSignaturesV3,
 }
 
@@ -118,7 +118,7 @@ impl WalletSignedKitSweepV3 {
         self.proof.input_count()
     }
 
-    pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {
+    pub fn into_execution_parts(self) -> (ValidatedKitSweepV3Parts, WalletKitSweepSignaturesV3) {
         (self.proof, self.signatures)
     }
 }
@@ -142,6 +142,7 @@ pub fn sign_validated_kit_sweep_v3(
     if rebound.wallet_id() != proof.wallet_id() || proof.wallet_id() != *expected_wallet_id {
         return Err(KitSweepSigningErrorV3::RecoveredWalletMismatch);
     }
+    let proof = proof.into_parts();
 
     let plans = proof.input_signing_plans();
     if plans.is_empty() || plans.len() != proof.input_count() || plans.len() > MAX_INPUTS {
