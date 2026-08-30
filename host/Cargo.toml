@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["qk-a1", "qk-a1-codec", "qk-a1-smoke", "qk-bbqr", "qk-bip32", "qk-card-trace", "qk-descriptor", "qk-host-model", "qk-host-sim", "qk-kit", "qk-provisioning", "qk-psbt", "qk-secp", "qk-update", "qk-wallet-v2"]
+members = ["qk-a1", "qk-a1-codec", "qk-a1-smoke", "qk-bbqr", "qk-bip32", "qk-card-trace", "qk-descriptor", "qk-host-model", "qk-host-sim", "qk-ipc", "qk-kit", "qk-provisioning", "qk-psbt", "qk-secp", "qk-update", "qk-wallet-v2"]
 
 [profile.release]
 overflow-checks = true
