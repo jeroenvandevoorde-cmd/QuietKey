@@ -2,6 +2,7 @@
 name = "qk-a1"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Fixed-memory HOST reference for the canonical QuietKey A1 authenticated capsule. Not production cryptography, provisioning, a print codec, or a wallet."
 

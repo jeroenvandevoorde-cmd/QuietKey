@@ -2,6 +2,7 @@
 name = "qk-a1-codec"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Fixed-memory HOST reference for the three QuietKey M18 A1 print-codec calibration profiles. Not a reader, renderer, production profile, or wallet."
 

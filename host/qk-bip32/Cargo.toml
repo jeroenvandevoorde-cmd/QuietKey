@@ -2,6 +2,7 @@
 name = "qk-bip32"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Bounded public BIP32 foundation: presented-index-only nonhardened CKDpub plus a strict mainnet-xpub public decoder over private fixed-memory SHA-256/Base58Check. HOST evidence only. Not product code. Not a wallet. No private derivation, xprv or seed handling, Base58 encoder, HASH160/fingerprint calculation, descriptors, ownership/change proof, PSBT integration, conformance, or target claim."
 

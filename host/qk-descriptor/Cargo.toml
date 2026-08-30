@@ -2,6 +2,7 @@
 name = "qk-descriptor"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Strict HOST-only paired mainnet 2-of-3 descriptor parsing, wallet-id hashing, and bounded public P2WSH script derivation. Not a wallet, ownership proof, or product."
 

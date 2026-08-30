@@ -2,6 +2,7 @@
 name = "qk-bbqr"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Bounded fixed-memory HOST reference for the QuietKey M22 BBQr v1 profile. Not a QR reader, renderer, or wallet."
 

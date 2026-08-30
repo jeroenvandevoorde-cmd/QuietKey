@@ -2,5 +2,6 @@
 name = "qk-secp"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Bounded libsecp256k1 v0.8.0 FFI boundary over the vendored pinned tree: public-key operations and verification, an opaque wiping secret owner, deterministic RFC6979 signing with immediate self-verification, and purpose-bound provisioning public-key/tweak operations. HOST evidence only. Not product code. Not a wallet. No PSBT integration, randomness, general scalar arithmetic, context-randomization, side-channel, constant-time, conformance, target, or Gate claim."

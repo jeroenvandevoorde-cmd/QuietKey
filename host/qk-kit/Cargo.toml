@@ -2,6 +2,7 @@
 name = "qk-kit"
 version = "0.0.1"
 edition = "2021"
+license = "Apache-2.0"
 publish = false
 description = "Fixed-memory HOST-only reference for canonical QuietKey v2 Kit shares and opaque, consuming restore and exact-sweep operations."
 
