@@ -430,7 +430,7 @@ fn prepare_bound_signing(
     {
         return Err(SigningV2Error::RetainedS0Mismatch);
     }
-    let rebuilt = build_review(&retained_view, &descriptor, source)?;
+    let rebuilt = build_review(&retained_view, descriptor, source)?;
     if &rebuilt != bound_review {
         return Err(SigningV2Error::ReviewFactsMismatch);
     }
@@ -440,7 +440,7 @@ fn prepare_bound_signing(
     if rebuilt_hash != bound_hash {
         return Err(SigningV2Error::ReviewHashMismatch);
     }
-    analyze_descriptor_ownership_v2(&retained_view, &descriptor)
+    analyze_descriptor_ownership_v2(&retained_view, descriptor)
         .map_err(SigningV2Error::ExistingSignatureVerification)?;
 
     let current = WipingVec::take(
@@ -449,11 +449,11 @@ fn prepare_bound_signing(
     drop(retained_view);
     let baseline_view =
         parse(current.as_slice(), source).map_err(|_| SigningV2Error::ParseFailed)?;
-    let baseline_review = build_review(&baseline_view, &descriptor, source)?;
-    if !transition_review_facts_equal(&bound_review, &baseline_review) {
+    let baseline_review = build_review(&baseline_view, descriptor, source)?;
+    if !transition_review_facts_equal(bound_review, &baseline_review) {
         return Err(SigningV2Error::ReviewFactsMismatch);
     }
-    let verified = analyze_descriptor_ownership_v2(&baseline_view, &descriptor)
+    let verified = analyze_descriptor_ownership_v2(&baseline_view, descriptor)
         .map_err(SigningV2Error::ExistingSignatureVerification)?;
     let mut verified_counts = WipingVec::take(Vec::new());
     verified_counts
