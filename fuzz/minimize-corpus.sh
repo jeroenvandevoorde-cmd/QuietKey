@@ -34,6 +34,8 @@ case "$target" in
   qk_host_sim_v2_s9_kit_intake) max_len=512 ;;
   qk_host_sim_v2_s10_kit_restore) max_len=512 ;;
   qk_host_sim_v2_s11_kit_spend) max_len=512 ;;
+  qk_update_package) max_len=4096 ;;
+  qk_update_lifecycle) max_len=512 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -d "$corpus" ] || { printf 'missing corpus directory: %s\n' "$corpus" >&2; exit 2; }

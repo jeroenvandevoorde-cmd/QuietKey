@@ -8,7 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [features]
-default = ["qk-provisioning/fuzzing", "qk-host-sim/fuzzing"]
+default = ["qk-provisioning/fuzzing", "qk-host-sim/fuzzing", "qk-update/fuzzing"]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }
@@ -22,6 +22,7 @@ qk-kit = { path = "../host/qk-kit", version = "=0.0.1" }
 qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1" }
 qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
 qk-secp = { path = "../host/qk-secp", version = "=0.0.1" }
+qk-update = { path = "../host/qk-update", version = "=0.0.1" }
 
 [[bin]]
 name = "qk_psbt"
@@ -222,6 +223,20 @@ bench = false
 [[bin]]
 name = "qk_host_sim_v2_s11_kit_spend"
 path = "fuzz_targets/qk_host_sim_v2_s11_kit_spend.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_update_package"
+path = "fuzz_targets/qk_update_package.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_update_lifecycle"
+path = "fuzz_targets/qk_update_lifecycle.rs"
 test = false
 doc = false
 bench = false

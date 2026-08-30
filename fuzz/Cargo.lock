@@ -257,6 +257,13 @@ name = "qk-secp"
 version = "0.0.1"
 
 [[package]]
+name = "qk-update"
+version = "0.0.1"
+dependencies = [
+ "qk-secp",
+]
+
+[[package]]
 name = "qk-wallet-v2"
 version = "0.0.1"
 dependencies = [
@@ -280,6 +287,7 @@ dependencies = [
  "qk-provisioning",
  "qk-psbt",
  "qk-secp",
+ "qk-update",
 ]
 
 [[package]]
