@@ -32,6 +32,22 @@ enum ResultTag {
     Committed(CommittedInstallerState),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExpectedOperation {
+    Error(UpdateError),
+    Display(ReleaseVersion),
+    Committed(CommittedInstallerState),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedSuccess {
+    operations: Vec<ExpectedOperation>,
+    committed: CommittedInstallerState,
+    has_trial: bool,
+    boot_attempts: u32,
+    last_display_version: Option<ReleaseVersion>,
+}
+
 fn fixture_value(prefix: &[u8]) -> &'static [u8] {
     FIXTURE
         .split(|byte| *byte == b'\n')
@@ -198,6 +214,146 @@ fn record<T>(result: Result<T, UpdateError>, map: impl FnOnce(T) -> ResultTag) -
     }
 }
 
+fn assert_display(display: &BootVersionDisplay, expected_version: ReleaseVersion) {
+    assert_eq!(display.target(), *b"QKT1");
+    assert_eq!(display.version(), expected_version);
+    assert_eq!(
+        expected_version.sequence().to_string(),
+        display.sequence_decimal()
+    );
+}
+
+fn expected_success(
+    scenario: u8,
+    original: CommittedInstallerState,
+    trial_slot: SlotId,
+    candidate_version: ReleaseVersion,
+    candidate_image: [u8; 32],
+    target_keyset: [u8; 32],
+) -> ExpectedSuccess {
+    let candidate_committed = CommittedInstallerState::new(
+        trial_slot,
+        candidate_version,
+        target_keyset,
+        candidate_image,
+    );
+    let fallback = ExpectedOperation::Display(original.floor());
+    let candidate_display = ExpectedOperation::Display(candidate_version);
+    let candidate_commit = ExpectedOperation::Committed(candidate_committed);
+    let (operations, committed, boot_attempts, last_display_version) = match scenario {
+        0 => (vec![fallback], original, 1, Some(original.floor())),
+        1 => (
+            vec![
+                ExpectedOperation::Error(UpdateError::BootNotConfirmed),
+                fallback,
+            ],
+            original,
+            1,
+            Some(original.floor()),
+        ),
+        2 => (
+            vec![candidate_display, candidate_commit],
+            candidate_committed,
+            1,
+            Some(candidate_version),
+        ),
+        3..=6 => (
+            vec![
+                ExpectedOperation::Error(UpdateError::BootReportMismatch),
+                fallback,
+            ],
+            original,
+            2,
+            Some(original.floor()),
+        ),
+        7 => (
+            vec![
+                ExpectedOperation::Error(UpdateError::BootNotConfirmed),
+                ExpectedOperation::Error(UpdateError::InvalidTransition),
+                fallback,
+            ],
+            original,
+            2,
+            Some(original.floor()),
+        ),
+        8 => (
+            vec![candidate_display, fallback],
+            original,
+            2,
+            Some(original.floor()),
+        ),
+        9 => (
+            vec![
+                candidate_display,
+                ExpectedOperation::Error(UpdateError::InvalidTransition),
+                candidate_commit,
+            ],
+            candidate_committed,
+            1,
+            Some(candidate_version),
+        ),
+        10 => (
+            vec![
+                ExpectedOperation::Error(UpdateError::WalletSessionActive),
+                candidate_display,
+                candidate_commit,
+            ],
+            candidate_committed,
+            1,
+            Some(candidate_version),
+        ),
+        11 => (
+            vec![
+                candidate_display,
+                ExpectedOperation::Error(UpdateError::CardPresent),
+                candidate_commit,
+            ],
+            candidate_committed,
+            1,
+            Some(candidate_version),
+        ),
+        _ => unreachable!("modulo twelve is exhaustive"),
+    };
+    ExpectedSuccess {
+        operations,
+        committed,
+        has_trial: false,
+        boot_attempts,
+        last_display_version,
+    }
+}
+
+fn assert_success_model(
+    operations: &[ResultTag],
+    installer: &MockPrivilegedInstaller,
+    expected: &ExpectedSuccess,
+) {
+    assert_eq!(operations.len(), expected.operations.len());
+    for (actual, expected_operation) in operations.iter().zip(&expected.operations) {
+        match (actual, expected_operation) {
+            (ResultTag::Error(actual), ExpectedOperation::Error(expected_error)) => {
+                assert_eq!(actual, expected_error);
+                assert_named_error(*actual);
+            }
+            (ResultTag::Display(actual), ExpectedOperation::Display(expected_version)) => {
+                assert_display(actual, *expected_version);
+            }
+            (ResultTag::Committed(actual), ExpectedOperation::Committed(expected_state)) => {
+                assert_eq!(actual, expected_state);
+            }
+            _ => panic!("operation differs from the closed lifecycle model"),
+        }
+    }
+    assert_eq!(installer.committed(), expected.committed);
+    assert_eq!(installer.has_trial(), expected.has_trial);
+    assert_eq!(installer.boot_attempts(), expected.boot_attempts);
+    match (installer.last_display(), expected.last_display_version) {
+        (Some(actual), Some(expected_version)) => assert_display(&actual, expected_version),
+        (None, None) => {}
+        _ => panic!("display state differs from the closed lifecycle model"),
+    }
+}
+
 fn exercise(data: &[u8]) -> Outcome {
     let rotation = control(data, 0) & 1 != 0;
     let package = verified(rotation);
@@ -255,7 +411,11 @@ fn exercise(data: &[u8]) -> Outcome {
             }
         }
         (Ok(trial_slot), None) => {
-            assert_ne!(trial_slot, active_slot);
+            let expected_trial_slot = match active_slot {
+                SlotId::A => SlotId::B,
+                SlotId::B => SlotId::A,
+            };
+            assert_eq!(trial_slot, expected_trial_slot);
             assert!(installer.has_trial());
             assert_eq!(installer.committed(), original);
             let good = report(
@@ -266,7 +426,16 @@ fn exercise(data: &[u8]) -> Outcome {
                 true,
             );
             let mut operations = Vec::new();
-            match control(data, 5) % 12 {
+            let scenario = control(data, 5) % 12;
+            let expected = expected_success(
+                scenario,
+                original,
+                trial_slot,
+                candidate_version,
+                candidate_image,
+                target_keyset,
+            );
+            match scenario {
                 0 => {
                     let result = installer.fallback_to_committed(UpdatePresence::clear());
                     let tagged = record(result, ResultTag::Display);
@@ -457,18 +626,7 @@ fn exercise(data: &[u8]) -> Outcome {
                 _ => unreachable!("modulo twelve is exhaustive"),
             }
 
-            for tagged in &operations {
-                if let ResultTag::Error(error) = tagged {
-                    assert_named_error(*error);
-                }
-            }
-            if let Some(display) = installer.last_display() {
-                assert_eq!(display.target(), *b"QKT1");
-                assert_eq!(
-                    display.version().sequence().to_string(),
-                    display.sequence_decimal()
-                );
-            }
+            assert_success_model(&operations, &installer, &expected);
             Outcome {
                 preparation: Ok(trial_slot),
                 operations,
