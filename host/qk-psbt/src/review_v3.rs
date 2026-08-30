@@ -249,6 +249,13 @@ impl ReviewV3Input {
     }
 }
 
+impl Drop for ReviewV3Input {
+    fn drop(&mut self) {
+        wipe::bytes(&mut self.outpoint_txid_wire);
+        wipe::byte_vec(&mut self.prevout_script_pubkey);
+    }
+}
+
 /// Fully owned facts for one schema-v3 output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewV3Output {
@@ -284,6 +291,19 @@ impl ReviewV3Output {
     }
 }
 
+impl Drop for ReviewV3Output {
+    fn drop(&mut self) {
+        wipe::byte_vec(&mut self.script_pubkey);
+        match &mut self.ownership {
+            ReviewV3OutputOwnership::NotOwned { data, .. } => wipe::byte_vec(data),
+            ReviewV3OutputOwnership::ProvenChange { .. } => {}
+            ReviewV3OutputOwnership::ProvenSelfTransfer {
+                witness_program, ..
+            } => wipe::byte_vec(witness_program),
+        }
+    }
+}
+
 /// Complete, fully owned, session-free D-09 review schema-v3 object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewV3 {
@@ -313,21 +333,13 @@ impl Drop for ReviewV3 {
         wipe::byte_vec(&mut self.unsigned_tx);
         wipe::byte_vec(&mut self.canonical);
 
-        while let Some(mut input) = self.inputs.pop() {
-            wipe::bytes(&mut input.outpoint_txid_wire);
-            wipe::byte_vec(&mut input.prevout_script_pubkey);
+        while let Some(input) = self.inputs.pop() {
+            drop(input);
         }
         wipe::empty_vec_allocation(&mut self.inputs);
 
-        while let Some(mut output) = self.outputs.pop() {
-            wipe::byte_vec(&mut output.script_pubkey);
-            match &mut output.ownership {
-                ReviewV3OutputOwnership::NotOwned { data, .. } => wipe::byte_vec(data),
-                ReviewV3OutputOwnership::ProvenChange { .. } => {}
-                ReviewV3OutputOwnership::ProvenSelfTransfer {
-                    witness_program, ..
-                } => wipe::byte_vec(witness_program),
-            }
+        while let Some(output) = self.outputs.pop() {
+            drop(output);
         }
         wipe::empty_vec_allocation(&mut self.outputs);
     }
@@ -886,7 +898,7 @@ fn canonical_length(
 fn canonical_bytes(
     facts: &ReviewV3Facts<'_>,
     fee_policy: FeePolicyV2Facts,
-) -> Result<Vec<u8>, ReviewV3Error> {
+) -> Result<wipe::WipingByteVec, ReviewV3Error> {
     let length = canonical_length(facts, fee_policy)?;
     let input_count =
         u32::try_from(facts.inputs.len()).map_err(|_| ReviewV3Error::FieldLengthOverflow)?;
@@ -895,7 +907,7 @@ fn canonical_bytes(
     let warning_count = u32::try_from(fee_policy.warning_count())
         .map_err(|_| ReviewV3Error::FieldLengthOverflow)?;
 
-    let mut bytes = Vec::new();
+    let mut bytes = wipe::WipingByteVec::new();
     bytes
         .try_reserve_exact(length)
         .map_err(|_| ReviewV3Error::AllocationFailed)?;
@@ -967,8 +979,8 @@ fn canonical_bytes(
     Ok(bytes)
 }
 
-fn own_bytes(bytes: &[u8]) -> Result<Vec<u8>, ReviewV3Error> {
-    let mut owned = Vec::new();
+fn own_bytes(bytes: &[u8]) -> Result<wipe::WipingByteVec, ReviewV3Error> {
+    let mut owned = wipe::WipingByteVec::new();
     owned
         .try_reserve_exact(bytes.len())
         .map_err(|_| ReviewV3Error::AllocationFailed)?;
@@ -976,18 +988,21 @@ fn own_bytes(bytes: &[u8]) -> Result<Vec<u8>, ReviewV3Error> {
     Ok(owned)
 }
 
-fn own_inputs(inputs: &[ReviewV3InputFacts<'_>]) -> Result<Vec<ReviewV3Input>, ReviewV3Error> {
-    let mut owned = Vec::new();
+fn own_inputs(
+    inputs: &[ReviewV3InputFacts<'_>],
+) -> Result<wipe::WipingValueVec<ReviewV3Input>, ReviewV3Error> {
+    let mut owned = wipe::WipingValueVec::new();
     owned
         .try_reserve_exact(inputs.len())
         .map_err(|_| ReviewV3Error::AllocationFailed)?;
     for input in inputs {
+        let prevout_script_pubkey = own_bytes(input.prevout_script_pubkey)?;
         owned.push(ReviewV3Input {
             index: input.index,
             outpoint_txid_wire: input.outpoint_txid_wire,
             outpoint_vout: input.outpoint_vout,
             prevout_amount: input.prevout_amount,
-            prevout_script_pubkey: own_bytes(input.prevout_script_pubkey)?,
+            prevout_script_pubkey: prevout_script_pubkey.into_vec(),
             sequence: input.sequence,
             effective_sighash: input.effective_sighash,
             branch: input.branch,
@@ -997,37 +1012,54 @@ fn own_inputs(inputs: &[ReviewV3InputFacts<'_>]) -> Result<Vec<ReviewV3Input>, R
     Ok(owned)
 }
 
-fn own_outputs(outputs: &[ReviewV3OutputFacts<'_>]) -> Result<Vec<ReviewV3Output>, ReviewV3Error> {
-    let mut owned = Vec::new();
+fn own_outputs(
+    outputs: &[ReviewV3OutputFacts<'_>],
+) -> Result<wipe::WipingValueVec<ReviewV3Output>, ReviewV3Error> {
+    let mut owned = wipe::WipingValueVec::new();
     owned
         .try_reserve_exact(outputs.len())
         .map_err(|_| ReviewV3Error::AllocationFailed)?;
     for output in outputs {
-        let ownership = match output.ownership {
+        let script_pubkey = own_bytes(output.script_pubkey)?;
+        let owned_output = match output.ownership {
             ReviewV3OutputOwnership::NotOwned {
                 recipient_type,
                 data,
-            } => ReviewV3OutputOwnership::NotOwned {
-                recipient_type,
-                data: own_bytes(data)?,
+            } => {
+                let data = own_bytes(data)?;
+                ReviewV3Output {
+                    index: output.index,
+                    amount: output.amount,
+                    script_pubkey: script_pubkey.into_vec(),
+                    ownership: ReviewV3OutputOwnership::NotOwned {
+                        recipient_type,
+                        data: data.into_vec(),
+                    },
+                }
             },
-            ReviewV3OutputOwnership::ProvenChange { child_index } => {
-                ReviewV3OutputOwnership::ProvenChange { child_index }
-            }
+            ReviewV3OutputOwnership::ProvenChange { child_index } => ReviewV3Output {
+                index: output.index,
+                amount: output.amount,
+                script_pubkey: script_pubkey.into_vec(),
+                ownership: ReviewV3OutputOwnership::ProvenChange { child_index },
+            },
             ReviewV3OutputOwnership::ProvenSelfTransfer {
                 child_index,
                 witness_program,
-            } => ReviewV3OutputOwnership::ProvenSelfTransfer {
-                child_index,
-                witness_program: own_bytes(witness_program)?,
-            },
+            } => {
+                let witness_program = own_bytes(witness_program)?;
+                ReviewV3Output {
+                    index: output.index,
+                    amount: output.amount,
+                    script_pubkey: script_pubkey.into_vec(),
+                    ownership: ReviewV3OutputOwnership::ProvenSelfTransfer {
+                        child_index,
+                        witness_program: witness_program.into_vec(),
+                    },
+                }
+            }
         };
-        owned.push(ReviewV3Output {
-            index: output.index,
-            amount: output.amount,
-            script_pubkey: own_bytes(output.script_pubkey)?,
-            ownership,
-        });
+        owned.push(owned_output);
     }
     Ok(owned)
 }
@@ -1052,7 +1084,7 @@ pub fn build_review_v3(
     }
     let analysis = analyze_review_v3_semantics(view, descriptor)?;
 
-    let mut inputs = Vec::new();
+    let mut inputs = wipe::WipingValueVec::new();
     inputs
         .try_reserve_exact(analysis.inputs.len())
         .map_err(|_| ReviewV3Error::AllocationFailed)?;
@@ -1075,7 +1107,7 @@ pub fn build_review_v3(
         });
     }
 
-    let mut outputs = Vec::new();
+    let mut outputs = wipe::WipingValueVec::new();
     outputs
         .try_reserve_exact(analysis.outputs.len())
         .map_err(|_| ReviewV3Error::AllocationFailed)?;
@@ -1115,8 +1147,8 @@ pub fn build_review_v3(
         unsigned_tx: view.unsigned_tx_bytes(),
         version: analysis.version,
         locktime: analysis.locktime,
-        inputs: &inputs,
-        outputs: &outputs,
+        inputs: inputs.as_slice(),
+        outputs: outputs.as_slice(),
         total_input_amount: analysis.total_input_amount,
         total_output_amount: analysis.total_output_amount,
         fee: analysis.fee,
@@ -1150,16 +1182,16 @@ pub(crate) fn build_review_v3_from_facts(
         s0_sha256: facts.s0_sha256,
         wallet_id: facts.wallet_id,
         origin_fingerprints: facts.origin_fingerprints,
-        unsigned_tx,
+        unsigned_tx: unsigned_tx.into_vec(),
         version: facts.version,
         locktime: facts.locktime,
-        inputs,
-        outputs,
+        inputs: inputs.into_vec(),
+        outputs: outputs.into_vec(),
         total_input_amount: facts.total_input_amount,
         total_output_amount: facts.total_output_amount,
         fee: facts.fee,
         fee_policy,
-        canonical,
+        canonical: canonical.into_vec(),
     })
 }
 

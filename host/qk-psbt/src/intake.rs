@@ -37,7 +37,7 @@ impl OwnedS0 {
             return Err(IntakeError::TooLarge);
         }
 
-        let mut owned = Vec::new();
+        let mut owned = wipe::WipingByteVec::new();
         owned
             .try_reserve_exact(bytes.len())
             .map_err(|_| IntakeError::AllocationFailed)?;
@@ -45,7 +45,7 @@ impl OwnedS0 {
         let digest = sha256(&[owned.as_slice()]).map_err(|_| IntakeError::HashFailure)?;
 
         Ok(Self {
-            bytes: owned,
+            bytes: owned.into_vec(),
             source,
             sha256: digest,
         })

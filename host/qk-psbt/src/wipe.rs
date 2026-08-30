@@ -1,6 +1,7 @@
 //! One private optimization-resistant byte-clearing boundary.
 
 use core::mem;
+use core::ops::{Deref, DerefMut};
 use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 
@@ -119,6 +120,81 @@ pub(crate) fn empty_vec_allocation<T>(value: &mut Vec<T>) {
     allocation(value.as_mut_ptr().cast::<u8>(), byte_count);
 }
 
+/// Byte-vector construction guard that clears live and spare bytes unless
+/// ownership is explicitly transferred into another wiping type.
+pub(crate) struct WipingByteVec {
+    value: Vec<u8>,
+}
+
+impl WipingByteVec {
+    pub(crate) const fn new() -> Self {
+        Self { value: Vec::new() }
+    }
+
+    pub(crate) fn into_vec(mut self) -> Vec<u8> {
+        mem::take(&mut self.value)
+    }
+}
+
+impl Deref for WipingByteVec {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl DerefMut for WipingByteVec {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl Drop for WipingByteVec {
+    fn drop(&mut self) {
+        byte_vec(&mut self.value);
+    }
+}
+
+/// Generic vector construction guard. Live elements are dropped first, then
+/// the complete now-empty backing allocation is cleared with raw writes.
+pub(crate) struct WipingValueVec<T> {
+    value: Vec<T>,
+}
+
+impl<T> WipingValueVec<T> {
+    pub(crate) const fn new() -> Self {
+        Self { value: Vec::new() }
+    }
+
+    pub(crate) fn into_vec(mut self) -> Vec<T> {
+        mem::take(&mut self.value)
+    }
+}
+
+impl<T> Deref for WipingValueVec<T> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> DerefMut for WipingValueVec<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl<T> Drop for WipingValueVec<T> {
+    fn drop(&mut self) {
+        while let Some(value) = self.value.pop() {
+            drop(value);
+        }
+        empty_vec_allocation(&mut self.value);
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn reset_wiped_bytes() {
     WIPED_BYTES.with(|count| count.set(0));
@@ -127,4 +203,32 @@ pub(crate) fn reset_wiped_bytes() {
 #[cfg(test)]
 pub(crate) fn wiped_bytes() -> usize {
     WIPED_BYTES.with(Cell::get)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{reset_wiped_bytes, wiped_bytes, WipingByteVec, WipingValueVec};
+
+    #[test]
+    fn byte_construction_guard_clears_live_and_spare_allocation() {
+        let mut guarded = WipingByteVec::new();
+        guarded.try_reserve_exact(64).unwrap();
+        guarded.extend_from_slice(&[0xa5; 7]);
+        let capacity = guarded.capacity();
+        reset_wiped_bytes();
+        drop(guarded);
+        assert_eq!(wiped_bytes(), capacity);
+    }
+
+    #[test]
+    fn value_construction_guard_clears_popped_element_allocation() {
+        let mut guarded = WipingValueVec::new();
+        guarded.try_reserve_exact(3).unwrap();
+        guarded.push([0xa5u8; 32]);
+        guarded.push([0x5au8; 32]);
+        let allocation_bytes = guarded.capacity() * core::mem::size_of::<[u8; 32]>();
+        reset_wiped_bytes();
+        drop(guarded);
+        assert_eq!(wiped_bytes(), allocation_bytes);
+    }
 }
