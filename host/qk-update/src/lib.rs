@@ -21,6 +21,10 @@
 
 use core::fmt;
 
+mod manifest;
+
+pub use manifest::{ArtifactFact, ArtifactKind, ManifestFacts, ReleaseVersion};
+
 /// Canonical signed-manifest size.
 pub const MANIFEST_BYTES: usize = 328;
 /// Fixed-width artifact-record size.
