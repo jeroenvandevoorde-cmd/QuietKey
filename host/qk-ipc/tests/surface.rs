@@ -31,6 +31,7 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
             "pub use session::{CoreEvent, CoreProtocol, IoEvent, IoProtocol, OutboundFrame};",
             "pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};",
             "pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};",
+            "pub use wipe::{reset_wiped_bytes, wiped_bytes};",
             "pub const MAGIC: [u8; 4] = *b\"QKIP\";",
             "pub const VERSION: u8 = 1;",
             "pub const HEADER_BYTES: usize = 32;",
@@ -40,6 +41,82 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
         ]
     );
     assert!(!LIB.contains("pub mod "));
+}
+
+fn public_methods(source: &str) -> Vec<&str> {
+    source
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| line.starts_with("pub fn ") || line.starts_with("pub const fn "))
+        .collect()
+}
+
+#[test]
+fn every_public_method_entry_is_pinned() {
+    assert_eq!(
+        public_methods(SESSION),
+        [
+            "pub const fn direction(&self) -> Direction {",
+            "pub const fn kind(&self) -> MessageKind {",
+            "pub const fn session_id(&self) -> &[u8; 16] {",
+            "pub const fn exchange_id(&self) -> u32 {",
+            "pub fn encode(&self, payload: &[u8], output: &mut [u8]) -> Result<usize, IpcError> {",
+            "pub const fn new(session_id: [u8; 16]) -> Self {",
+            "pub fn begin(&mut self) -> Result<OutboundFrame, IpcError> {",
+            "pub fn request(&mut self) -> Result<OutboundFrame, IpcError> {",
+            "pub fn close(&mut self) -> Result<OutboundFrame, IpcError> {",
+            "pub fn accept(&mut self, frame: &ReceivedFrame) -> Result<CoreEvent, IpcError> {",
+            "pub fn peer_lost(&mut self) -> IpcError {",
+            "pub fn receive_failed(&mut self, error: IpcError) -> IpcError {",
+            "pub const fn is_closed(&self) -> bool {",
+            "pub const fn is_terminated(&self) -> bool {",
+            "pub const fn new() -> Self {",
+            "pub fn accept(&mut self, frame: &ReceivedFrame) -> Result<IoEvent, IpcError> {",
+            "pub fn reply(&mut self) -> Result<OutboundFrame, IpcError> {",
+            "pub fn peer_lost(&mut self) -> IpcError {",
+            "pub fn receive_failed(&mut self, error: IpcError) -> IpcError {",
+            "pub const fn is_closed(&self) -> bool {",
+            "pub const fn is_terminated(&self) -> bool {",
+        ]
+    );
+    assert_eq!(
+        public_methods(STREAM),
+        [
+            "pub const fn consumed(&self) -> usize {",
+            "pub const fn frame_ready(&self) -> bool {",
+            "pub const fn header(&self) -> &FrameHeader {",
+            "pub fn payload(&self) -> &[u8] {",
+            "pub fn new() -> Self {",
+            "pub fn ingest(",
+            "pub fn take_frame(&mut self) -> Result<ReceivedFrame, IpcError> {",
+            "pub fn finish(&mut self) -> IpcError {",
+        ]
+    );
+    assert_eq!(
+        public_methods(WIRE),
+        [
+            "pub const fn wire_value(self) -> u8 {",
+            "pub const fn wire_value(self) -> u16 {",
+            "pub const fn direction(self) -> Direction {",
+            "pub const fn requires_payload(self) -> bool {",
+            "pub const fn direction(&self) -> Direction {",
+            "pub const fn kind(&self) -> MessageKind {",
+            "pub const fn session_id(&self) -> &[u8; 16] {",
+            "pub const fn exchange_id(&self) -> u32 {",
+            "pub const fn payload_len(&self) -> u32 {",
+            "pub const fn header(&self) -> &FrameHeader {",
+            "pub const fn payload(&self) -> &'a [u8] {",
+            "pub fn parse_frame(bytes: &[u8]) -> Result<FrameRef<'_>, IpcError> {",
+            "pub fn encode_frame(",
+        ]
+    );
+    assert_eq!(
+        public_methods(WIPE),
+        [
+            "pub fn reset_wiped_bytes() {",
+            "pub fn wiped_bytes() -> usize {",
+        ]
+    );
 }
 
 #[test]

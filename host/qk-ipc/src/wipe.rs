@@ -3,10 +3,10 @@
 use core::ptr;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzzing"))]
 use core::cell::Cell;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzzing"))]
 std::thread_local! {
     static WIPED_BYTES: Cell<usize> = const { Cell::new(0) };
 }
@@ -15,14 +15,14 @@ std::thread_local! {
 #[allow(unsafe_code)]
 #[inline(never)]
 pub(crate) fn bytes(value: &mut [u8]) {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzzing"))]
     let byte_count = value.len();
     for byte in value {
         // SAFETY: every byte is live and uniquely borrowed for this write.
         unsafe { ptr::write_volatile(byte, 0) };
     }
     compiler_fence(Ordering::SeqCst);
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzzing"))]
     WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
@@ -37,7 +37,7 @@ fn allocation(pointer: *mut u8, byte_count: usize) {
         unsafe { ptr::write_volatile(pointer.add(offset), 0) };
     }
     compiler_fence(Ordering::SeqCst);
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzzing"))]
     WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
@@ -78,13 +78,13 @@ impl Drop for WipingByteVec {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn reset_wiped_bytes() {
+#[cfg(any(test, feature = "fuzzing"))]
+pub fn reset_wiped_bytes() {
     WIPED_BYTES.with(|count| count.set(0));
 }
 
-#[cfg(test)]
-pub(crate) fn wiped_bytes() -> usize {
+#[cfg(any(test, feature = "fuzzing"))]
+pub fn wiped_bytes() -> usize {
     WIPED_BYTES.with(Cell::get)
 }
 

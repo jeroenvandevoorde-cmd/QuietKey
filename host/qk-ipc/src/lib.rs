@@ -22,6 +22,9 @@ use core::fmt;
 pub use session::{CoreEvent, CoreProtocol, IoEvent, IoProtocol, OutboundFrame};
 pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};
 pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub use wipe::{reset_wiped_bytes, wiped_bytes};
 
 /// Exact QK-DEC-140 frame magic.
 pub const MAGIC: [u8; 4] = *b"QKIP";
