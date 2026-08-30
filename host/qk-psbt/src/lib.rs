@@ -118,7 +118,7 @@ pub use error::{ParseError, RejectCategory};
 pub use intake::{IntakeError, OwnedS0};
 pub use kit_sweep_v3::{
     build_validated_kit_sweep_v3, KitSweepInputSigningPlanV3, KitSweepReviewHashV3,
-    KitSweepV3Error, ValidatedKitSweepV3, ValidatedKitSweepV3Parts,
+    KitSweepV3Error, ReplacementReceiveIndexV2, ValidatedKitSweepV3, ValidatedKitSweepV3Parts,
 };
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};

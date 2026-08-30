@@ -14,6 +14,27 @@ use qk_descriptor::{
     derive_change_script_v2, derive_receive_script_v2, DerivedScriptV2, DescriptorPairV2,
 };
 
+/// Typed untrusted candidate for the replacement wallet's receive branch.
+///
+/// The type fixes branch zero at the API boundary. The exact child-index cap
+/// is checked before descriptor, transaction, or wallet processing so an
+/// over-cap candidate retains the named rejection precedence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReplacementReceiveIndexV2(u32);
+
+impl ReplacementReceiveIndexV2 {
+    #[must_use]
+    pub const fn from_untrusted(value: u32) -> Self {
+        Self(value)
+    }
+
+    fn validated_value(self) -> Result<u32, KitSweepV3Error> {
+        (self.0 <= limits::MAX_CHILD_INDEX)
+            .then_some(self.0)
+            .ok_or(KitSweepV3Error::DestinationIndexOutOfRange)
+    }
+}
+
 /// One immutable signing plan proven from exact schema-v3 transaction facts.
 ///
 /// Public keys remain in authenticated descriptor role A/B order. The digest
@@ -316,11 +337,9 @@ pub fn build_validated_kit_sweep_v3(
     s0: OwnedS0,
     old_descriptor: DescriptorPairV2,
     replacement_descriptor: DescriptorPairV2,
-    destination_index: u32,
+    destination_index: ReplacementReceiveIndexV2,
 ) -> Result<ValidatedKitSweepV3, KitSweepV3Error> {
-    if destination_index > limits::MAX_CHILD_INDEX {
-        return Err(KitSweepV3Error::DestinationIndexOutOfRange);
-    }
+    let destination_index = destination_index.validated_value()?;
     let old_wallet_id = old_descriptor.wallet_id();
     let replacement_wallet_id = replacement_descriptor.wallet_id();
     if replacement_wallet_id == old_wallet_id {

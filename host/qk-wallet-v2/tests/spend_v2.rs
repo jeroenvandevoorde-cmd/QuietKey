@@ -1,7 +1,10 @@
 //! Public capability, exact-proof integration, and fixed-error checks.
 
 use qk_descriptor::parse_descriptor_pair_v2;
-use qk_psbt::{build_validated_kit_sweep_v3, parse, InputSource, OwnedS0, ValidatedKitSweepV3};
+use qk_psbt::{
+    build_validated_kit_sweep_v3, parse, InputSource, OwnedS0, ReplacementReceiveIndexV2,
+    ValidatedKitSweepV3,
+};
 use qk_wallet_v2::{sign_validated_kit_sweep_v3, KitSweepSigningErrorV3};
 
 const SPEND: &str = include_str!("../src/spend_v2.rs");
@@ -76,7 +79,7 @@ fn validated_proof(existing_role_a: bool) -> ValidatedKitSweepV3 {
         OwnedS0::new(&s0, InputSource::MicroSd).expect("bounded S0"),
         old,
         replacement,
-        0,
+        ReplacementReceiveIndexV2::from_untrusted(0),
     )
     .expect("registered exact sweep")
 }

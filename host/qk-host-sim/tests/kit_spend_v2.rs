@@ -7,7 +7,7 @@ use qk_host_sim::{
     KitSpendSessionV2, KitSpendStageV2, ScreenFlowV2, ScreenKindV2, WipingReasonV2,
     KIT_FALLBACK_TABLE_V2,
 };
-use qk_psbt::InputSource;
+use qk_psbt::{InputSource, ReplacementReceiveIndexV2};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const KIT_SHARES: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
@@ -200,7 +200,12 @@ fn session(digit: u8) -> KitSpendSessionV2 {
 fn submit_registered(session: &mut KitSpendSessionV2) {
     let mut s0 = hex(field(SPEND, "s0_hex"));
     let screen = session
-        .submit_sweep(&mut s0, InputSource::MicroSd, &replacement_descriptors(), 0)
+        .submit_sweep(
+            &mut s0,
+            InputSource::MicroSd,
+            &replacement_descriptors(),
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
         .unwrap();
     assert!(s0.iter().all(|byte| *byte == 0));
     assert_eq!(screen.stage(), KitSpendStageV2::CompletenessStatement);
@@ -328,7 +333,7 @@ fn transaction_failure_and_completeness_failures_wipe_and_close_the_session() {
             &mut bytes,
             InputSource::MicroSd,
             &replacement_descriptors(),
-            0,
+            ReplacementReceiveIndexV2::from_untrusted(0),
         ),
         Err(KitSpendErrorV2::Intake(_) | KitSpendErrorV2::Sweep(_))
     ));

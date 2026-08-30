@@ -12,7 +12,7 @@ use core::fmt;
 use qk_kit::{BoundKitSpendV2, KitSpendMathErrorV3};
 use qk_psbt::{
     build_validated_kit_sweep_v3, InputSource, IntakeError, KitSweepV3Error, OwnedS0, ReviewV3Hash,
-    ValidatedKitSweepV3,
+    ReplacementReceiveIndexV2, ValidatedKitSweepV3,
 };
 
 /// The coordinator's factual statement; HOST does not derive this fact.
@@ -379,7 +379,7 @@ impl KitSpendSessionV2 {
         caller_psbt: &mut [u8],
         source: InputSource,
         replacement_descriptors: &[[u8; 306]; 2],
-        destination_index: u32,
+        destination_index: ReplacementReceiveIndexV2,
     ) -> Result<KitSpendScreenV2, KitSpendErrorV2> {
         let guard = CallerPsbtGuard { bytes: caller_psbt };
         if !self.active {

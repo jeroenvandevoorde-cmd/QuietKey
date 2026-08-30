@@ -5,7 +5,7 @@ use qk_host_sim::{
     KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2, KitSpendAssertionDigitV2,
     KitSpendSessionV2, ScreenFlowV2, ScreenKindV2,
 };
-use qk_psbt::InputSource;
+use qk_psbt::{InputSource, ReplacementReceiveIndexV2};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -140,7 +140,14 @@ fn bounded_golden_sweep_has_a_fixed_host_allocation_ledger() {
 
     let mut s0 = hex(field(SPEND, "s0_hex"));
     let (screen, validation_counts) =
-        measured(|| session.submit_sweep(&mut s0, InputSource::MicroSd, &replacement, 0));
+        measured(|| {
+            session.submit_sweep(
+                &mut s0,
+                InputSource::MicroSd,
+                &replacement,
+                ReplacementReceiveIndexV2::from_untrusted(0),
+            )
+        });
     screen.unwrap();
     assert_eq!(s0.iter().filter(|byte| **byte != 0).count(), 0);
     assert_eq!(validation_counts, [58, 6_668]);

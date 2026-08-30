@@ -5,7 +5,7 @@ use qk_descriptor::{
 };
 use qk_psbt::{
     build_validated_kit_sweep_v3, parse, InputSource, KitSweepV3Error, OwnedS0, RecipientType,
-    ReviewV3OutputOwnership, ValidatedKitSweepV3,
+    ReplacementReceiveIndexV2, ReviewV3OutputOwnership, ValidatedKitSweepV3,
 };
 
 const SIGNING_FIXTURE: &str = include_str!("fixtures/signing_finalization_v2.txt");
@@ -30,6 +30,10 @@ fn hex(text: &str) -> Vec<u8> {
 
 fn hex_array<const N: usize>(text: &str) -> [u8; N] {
     hex(text).try_into().expect("registered fixed-size hex")
+}
+
+fn receive_index(value: u32) -> ReplacementReceiveIndexV2 {
+    ReplacementReceiveIndexV2::from_untrusted(value)
 }
 
 fn old_descriptor() -> DescriptorPairV2 {
@@ -192,8 +196,8 @@ fn exact_one_output_replacement_sweep_binds_review_and_input_plans() {
     let old_wallet_id = old.wallet_id();
     let replacement = replacement_descriptor();
     let replacement_wallet_id = replacement.wallet_id();
-    let proof =
-        build_validated_kit_sweep_v3(s0, old, replacement, 0).expect("exact replacement sweep");
+    let proof = build_validated_kit_sweep_v3(s0, old, replacement, receive_index(0))
+        .expect("exact replacement sweep");
 
     assert_eq!(proof.wallet_id(), old_wallet_id);
     assert_eq!(proof.replacement_wallet_id(), replacement_wallet_id);
@@ -269,7 +273,7 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
         OwnedS0::new(&unsigned, InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     )
     .unwrap();
     let digest = proof.input_signing_plans()[0].digest();
@@ -282,7 +286,7 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
         OwnedS0::new(&signed, InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     )
     .expect("cryptographically valid existing role A");
     assert_eq!(
@@ -299,7 +303,7 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
         OwnedS0::new(&invalid, InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(error.name(), "ExistingSignatureVerificationFailed");
 
@@ -315,7 +319,7 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
         OwnedS0::new(&invalid_and_wrong_destination, InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(precedence.name(), "ExistingSignatureVerificationFailed");
 }
@@ -372,7 +376,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
             OwnedS0::new(&bytes, InputSource::MicroSd).unwrap(),
             old_descriptor(),
             replacement_descriptor(),
-            index,
+            receive_index(index),
         ));
         assert_eq!(error.name(), expected);
     }
@@ -389,7 +393,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         OwnedS0::new(&change, InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(change_error.name(), "ChangeOutputProhibited");
 
@@ -397,7 +401,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(zero_count_error.name(), "OutputCountNotOne");
 
@@ -409,7 +413,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         .unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(over_cap_count_error.name(), "OutputCountNotOne");
 
@@ -422,7 +426,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         .unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(mixed_count_error.name(), "OutputCountNotOne");
 
@@ -430,7 +434,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         OwnedS0::new(&base, InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(count_error.name(), "OutputCountNotOne");
 
@@ -438,15 +442,35 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         OwnedS0::new(&unsigned_sweep(), InputSource::MicroSd).unwrap(),
         old_descriptor(),
         replacement_descriptor(),
-        65_536,
+        receive_index(65_536),
     ));
     assert_eq!(index_error, KitSweepV3Error::DestinationIndexOutOfRange);
+
+    let maximum_destination =
+        derive_receive_script_v2(&replacement_descriptor(), 65_535).unwrap();
+    let maximum_index_proof = build_validated_kit_sweep_v3(
+        OwnedS0::new(
+            &one_output_psbt(
+                &base,
+                900_000,
+                &maximum_destination.script_pubkey,
+                None,
+            ),
+            InputSource::MicroSd,
+        )
+        .unwrap(),
+        old_descriptor(),
+        replacement_descriptor(),
+        receive_index(65_535),
+    )
+    .expect("inclusive maximum replacement receive index");
+    assert_eq!(maximum_index_proof.destination_index(), 65_535);
 
     let same_error = rejected(build_validated_kit_sweep_v3(
         OwnedS0::new(&unsigned_sweep(), InputSource::MicroSd).unwrap(),
         old_descriptor(),
         old_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(same_error, KitSweepV3Error::ReplacementWalletUnchanged);
 
@@ -454,7 +478,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
         old_descriptor(),
         old_descriptor(),
-        65_536,
+        receive_index(65_536),
     ));
     assert_eq!(precedence_index, KitSweepV3Error::DestinationIndexOutOfRange);
 
@@ -462,7 +486,7 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
         old_descriptor(),
         old_descriptor(),
-        0,
+        receive_index(0),
     ));
     assert_eq!(precedence_wallet, KitSweepV3Error::ReplacementWalletUnchanged);
 }
