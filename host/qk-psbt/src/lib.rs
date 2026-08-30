@@ -90,7 +90,7 @@
 //! (QK-DEC-044): it computes hashes, never signatures, and authorizes
 //! nothing.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -102,6 +102,7 @@
 pub mod bip143;
 pub mod error;
 mod intake;
+mod kit_sweep_v3;
 pub mod limits;
 mod parse;
 mod raw;
@@ -111,9 +112,14 @@ mod review_v3;
 mod semantic;
 mod serialize;
 mod sha256;
+mod wipe;
 
 pub use error::{ParseError, RejectCategory};
 pub use intake::{IntakeError, OwnedS0};
+pub use kit_sweep_v3::{
+    build_validated_kit_sweep_v3, KitSweepInputSigningPlanV3, KitSweepReviewHashV3,
+    KitSweepV3Error, ValidatedKitSweepV3, ValidatedKitSweepV3Parts,
+};
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
 pub use review::{

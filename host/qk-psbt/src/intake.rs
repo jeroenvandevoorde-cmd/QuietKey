@@ -3,6 +3,7 @@
 use crate::error::ParseError;
 use crate::parse::{parse, InputSource, PsbtView};
 use crate::sha256::sha256;
+use crate::wipe;
 use core::fmt;
 
 /// One bounded, immutable copy of the exact caller-supplied S0 bytes.
@@ -14,6 +15,13 @@ pub struct OwnedS0 {
     bytes: Vec<u8>,
     source: InputSource,
     sha256: [u8; 32],
+}
+
+impl Drop for OwnedS0 {
+    fn drop(&mut self) {
+        wipe::byte_vec(&mut self.bytes);
+        wipe::bytes(&mut self.sha256);
+    }
 }
 
 impl OwnedS0 {
@@ -117,6 +125,7 @@ mod tests {
     use crate::limits;
     use crate::parse::InputSource;
     use crate::sha256::sha256;
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
 
     fn minimal_psbt() -> Vec<u8> {
         let mut tx = vec![2, 0, 0, 0, 1];
@@ -197,5 +206,14 @@ mod tests {
         assert_eq!(first.source(), InputSource::Qr);
         assert_eq!(second.source(), InputSource::Qr);
         assert_eq!(owned.sha256(), sha256(&[owned.bytes()]).unwrap());
+    }
+
+    #[test]
+    fn retained_s0_allocation_and_identity_are_wiped_on_drop() {
+        let owned = OwnedS0::new(&minimal_psbt(), InputSource::MicroSd).unwrap();
+        let expected = owned.bytes.capacity() + 32;
+        reset_wiped_bytes();
+        drop(owned);
+        assert_eq!(wiped_bytes(), expected);
     }
 }

@@ -8,6 +8,7 @@ use crate::semantic::{
     analyze_review_v3_semantics, RecipientType, ReviewV3SemanticOutputOwnership, SemanticError,
 };
 use crate::sha256::sha256;
+use crate::wipe;
 use core::fmt;
 use qk_descriptor::DescriptorPairV2;
 
@@ -300,6 +301,36 @@ pub struct ReviewV3 {
     fee: u64,
     fee_policy: FeePolicyV2Facts,
     canonical: Vec<u8>,
+}
+
+impl Drop for ReviewV3 {
+    fn drop(&mut self) {
+        wipe::bytes(&mut self.s0_sha256);
+        wipe::bytes(&mut self.wallet_id);
+        for fingerprint in &mut self.origin_fingerprints {
+            wipe::bytes(fingerprint);
+        }
+        wipe::byte_vec(&mut self.unsigned_tx);
+        wipe::byte_vec(&mut self.canonical);
+
+        while let Some(mut input) = self.inputs.pop() {
+            wipe::bytes(&mut input.outpoint_txid_wire);
+            wipe::byte_vec(&mut input.prevout_script_pubkey);
+        }
+        wipe::empty_vec_allocation(&mut self.inputs);
+
+        while let Some(mut output) = self.outputs.pop() {
+            wipe::byte_vec(&mut output.script_pubkey);
+            match &mut output.ownership {
+                ReviewV3OutputOwnership::NotOwned { data, .. } => wipe::byte_vec(data),
+                ReviewV3OutputOwnership::ProvenChange { .. } => {}
+                ReviewV3OutputOwnership::ProvenSelfTransfer {
+                    witness_program, ..
+                } => wipe::byte_vec(witness_program),
+            }
+        }
+        wipe::empty_vec_allocation(&mut self.outputs);
+    }
 }
 
 impl ReviewV3 {
@@ -1150,6 +1181,7 @@ mod tests {
     use crate::review::{ReviewContext, ReviewNetwork};
     use crate::semantic::RecipientType;
     use crate::sha256::sha256;
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
     use crate::InputSource;
 
     fn warning_vec(
@@ -1314,6 +1346,41 @@ mod tests {
         assert_eq!(review.review_hash().unwrap(), expected);
         let missing_separator = sha256(&[REVIEW_V3_HASH_DOMAIN, review.canonical_bytes()]).unwrap();
         assert_ne!(review.review_hash().unwrap(), missing_separator);
+    }
+
+    #[test]
+    fn every_owned_review_byte_buffer_is_wiped_on_drop() {
+        let review = build_maximum_review();
+        let fixed_bytes = 32 + 32 + (2 * 4);
+        let input_bytes = review
+            .inputs
+            .iter()
+            .map(|input| 32 + input.prevout_script_pubkey.capacity())
+            .sum::<usize>();
+        let output_bytes = review
+            .outputs
+            .iter()
+            .map(|output| {
+                let ownership_bytes = match &output.ownership {
+                    ReviewV3OutputOwnership::NotOwned { data, .. } => data.capacity(),
+                    ReviewV3OutputOwnership::ProvenChange { .. } => 0,
+                    ReviewV3OutputOwnership::ProvenSelfTransfer {
+                        witness_program, ..
+                    } => witness_program.capacity(),
+                };
+                output.script_pubkey.capacity() + ownership_bytes
+            })
+            .sum::<usize>();
+        let expected = fixed_bytes
+            + review.unsigned_tx.capacity()
+            + review.canonical.capacity()
+            + input_bytes
+            + output_bytes
+            + review.inputs.capacity() * core::mem::size_of::<super::ReviewV3Input>()
+            + review.outputs.capacity() * core::mem::size_of::<super::ReviewV3Output>();
+        reset_wiped_bytes();
+        drop(review);
+        assert_eq!(wiped_bytes(), expected);
     }
 
     #[test]
