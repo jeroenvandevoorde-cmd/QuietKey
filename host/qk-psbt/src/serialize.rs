@@ -27,6 +27,7 @@
 use crate::limits::MAX_RECORDS_PER_MAP;
 use crate::parse::PsbtView;
 use crate::raw::{Record, Records};
+use crate::wipe;
 use core::cmp::Ordering;
 
 /// Number of magic-prefix bytes (`psbt` + 0xff) copied verbatim.
@@ -45,8 +46,8 @@ pub enum SerializeError {
 /// Perform the single allocation: an empty vector with exactly the
 /// output budget reserved. Reservation failure is reported as a clean
 /// [`SerializeError::AllocationFailed`].
-fn reserve_exact_output(budget: usize) -> Result<Vec<u8>, SerializeError> {
-    let mut bytes = Vec::new();
+fn reserve_exact_output(budget: usize) -> Result<wipe::WipingByteVec, SerializeError> {
+    let mut bytes = wipe::WipingByteVec::new();
     bytes
         .try_reserve_exact(budget)
         .map_err(|_| SerializeError::AllocationFailed)?;
@@ -56,7 +57,7 @@ fn reserve_exact_output(budget: usize) -> Result<Vec<u8>, SerializeError> {
 /// Output vector wrapper that refuses any append past the input-length
 /// budget, so the pre-reserved vector can never reallocate.
 struct BudgetedOutput {
-    bytes: Vec<u8>,
+    bytes: wipe::WipingByteVec,
     budget: usize,
 }
 
@@ -77,19 +78,20 @@ impl BudgetedOutput {
 
 /// Minimal CompactSize encoding into a fixed stack buffer; returns the
 /// buffer and the number of significant bytes.
-fn encode_compact_size(value: u64) -> ([u8; 9], usize) {
+fn encode_compact_size(value: u64) -> (wipe::ByteArray<9>, usize) {
+    let encoded = wipe::ByteArray::new(value.to_le_bytes());
+    let [b0, b1, b2, b3, b4, b5, b6, b7] = *encoded.as_array();
     if value < 0xfd {
-        let [b0, ..] = value.to_le_bytes();
-        ([b0, 0, 0, 0, 0, 0, 0, 0, 0], 1)
+        (wipe::ByteArray::new([b0, 0, 0, 0, 0, 0, 0, 0, 0]), 1)
     } else if value <= 0xffff {
-        let [b0, b1, ..] = value.to_le_bytes();
-        ([0xfd, b0, b1, 0, 0, 0, 0, 0, 0], 3)
+        (wipe::ByteArray::new([0xfd, b0, b1, 0, 0, 0, 0, 0, 0]), 3)
     } else if value <= 0xffff_ffff {
-        let [b0, b1, b2, b3, ..] = value.to_le_bytes();
-        ([0xfe, b0, b1, b2, b3, 0, 0, 0, 0], 5)
+        (wipe::ByteArray::new([0xfe, b0, b1, b2, b3, 0, 0, 0, 0]), 5)
     } else {
-        let [b0, b1, b2, b3, b4, b5, b6, b7] = value.to_le_bytes();
-        ([0xff, b0, b1, b2, b3, b4, b5, b6, b7], 9)
+        (
+            wipe::ByteArray::new([0xff, b0, b1, b2, b3, b4, b5, b6, b7]),
+            9,
+        )
     }
 }
 
@@ -116,6 +118,7 @@ fn emit_record(record: &Record<'_>, out: &mut BudgetedOutput) -> Result<(), Seri
     let (key_cs, key_cs_len) = encode_compact_size(key_len);
     out.append(
         key_cs
+            .as_array()
             .get(..key_cs_len)
             .ok_or(SerializeError::InvariantViolation)?,
     )?;
@@ -125,6 +128,7 @@ fn emit_record(record: &Record<'_>, out: &mut BudgetedOutput) -> Result<(), Seri
     let (value_cs, value_cs_len) = encode_compact_size(value_len);
     out.append(
         value_cs
+            .as_array()
             .get(..value_cs_len)
             .ok_or(SerializeError::InvariantViolation)?,
     )?;
@@ -172,29 +176,31 @@ pub fn canonical_serialize(view: &PsbtView<'_>) -> Result<Vec<u8>, SerializeErro
         .get(..MAGIC_LEN)
         .ok_or(SerializeError::InvariantViolation)?;
     out.append(magic)?;
-    let mut scratch: [Option<Record<'_>>; MAX_RECORDS_PER_MAP] = [None; MAX_RECORDS_PER_MAP];
-    serialize_map(view.global_records(), &mut scratch, &mut out)?;
+    let mut scratch = wipe::WipingValueArray::new([None; MAX_RECORDS_PER_MAP]);
+    serialize_map(view.global_records(), scratch.as_mut_array(), &mut out)?;
     for index in 0..view.input_map_count() {
         let records = view
             .input_records(index)
             .ok_or(SerializeError::InvariantViolation)?;
-        serialize_map(records, &mut scratch, &mut out)?;
+        serialize_map(records, scratch.as_mut_array(), &mut out)?;
     }
     for index in 0..view.output_map_count() {
         let records = view
             .output_records(index)
             .ok_or(SerializeError::InvariantViolation)?;
-        serialize_map(records, &mut scratch, &mut out)?;
+        serialize_map(records, scratch.as_mut_array(), &mut out)?;
     }
     if out.bytes.len() != budget {
         return Err(SerializeError::InvariantViolation);
     }
-    Ok(out.bytes)
+    Ok(out.bytes.into_vec())
 }
 
 #[cfg(test)]
+#[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
-    use super::{reserve_exact_output, SerializeError};
+    use super::{reserve_exact_output, BudgetedOutput, SerializeError};
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
 
     /// A `usize::MAX` reservation can never be satisfied; the helper
     /// must surface a clean `AllocationFailed` instead of aborting.
@@ -204,5 +210,35 @@ mod tests {
             reserve_exact_output(usize::MAX),
             Err(SerializeError::AllocationFailed)
         ));
+    }
+
+    #[test]
+    fn rejected_append_clears_the_complete_output_capacity() {
+        let bytes = reserve_exact_output(64).unwrap();
+        let mut out = BudgetedOutput { bytes, budget: 7 };
+        out.append(&[0xa5; 7]).unwrap();
+        let capacity = out.bytes.capacity();
+        reset_wiped_bytes();
+        assert!(matches!(
+            out.append(&[0x5a]),
+            Err(SerializeError::InvariantViolation)
+        ));
+        drop(out);
+        assert_eq!(wiped_bytes(), capacity);
+    }
+
+    #[test]
+    fn output_guard_clears_the_complete_capacity_on_unwind() {
+        let bytes = reserve_exact_output(48).unwrap();
+        let capacity = bytes.capacity();
+        let mut out = BudgetedOutput { bytes, budget: 48 };
+        out.append(&[0xa5; 11]).unwrap();
+        reset_wiped_bytes();
+        let caught = std::panic::catch_unwind(|| {
+            let _out = out;
+            std::panic::panic_any("cleanup probe");
+        });
+        assert!(caught.is_err());
+        assert_eq!(wiped_bytes(), capacity);
     }
 }
