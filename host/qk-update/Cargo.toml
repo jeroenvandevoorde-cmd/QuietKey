@@ -1,0 +1,12 @@
+[package]
+name = "qk-update"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Bounded HOST-only QuietKey firmware-package verification and mock update lifecycle. Public-key verification only; no signer, real media, installer, boot, target, or Gate claim."
+
+[features]
+fuzzing = []
+
+[dependencies]
+qk-secp = { path = "../qk-secp" }
