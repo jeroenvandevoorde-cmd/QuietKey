@@ -27,6 +27,21 @@ pub(crate) fn bytes(value: &mut [u8]) {
     WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
+/// Clear an owned allocation without creating references to spare capacity.
+#[allow(unsafe_code)]
+#[inline(never)]
+fn allocation(pointer: *mut u8, byte_count: usize) {
+    for offset in 0..byte_count {
+        // SAFETY: callers pass a live allocation pointer and its exact byte
+        // capacity. Raw volatile writes do not claim spare bytes were already
+        // initialized as Rust values.
+        unsafe { ptr::write_volatile(pointer.add(offset), 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+    #[cfg(test)]
+    WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
+}
+
 /// Clear boolean occupancy facts with observable writes.
 #[allow(unsafe_code)]
 #[inline(never)]
@@ -82,11 +97,7 @@ pub(crate) fn byte_vec(value: &mut Vec<u8>) {
         compiler_fence(Ordering::SeqCst);
         return;
     }
-    // SAFETY: a Vec owns `capacity` bytes beginning at `as_mut_ptr`. Writing
-    // u8 values into initialized or spare allocation bytes is valid. Length,
-    // capacity, and the allocation pointer remain unchanged for Vec::drop.
-    let allocation = unsafe { core::slice::from_raw_parts_mut(value.as_mut_ptr(), capacity) };
-    bytes(allocation);
+    allocation(value.as_mut_ptr(), capacity);
 }
 
 /// Clear the backing allocation of an already-empty vector of plain values.
@@ -105,12 +116,7 @@ pub(crate) fn empty_vec_allocation<T>(value: &mut Vec<T>) {
         compiler_fence(Ordering::SeqCst);
         return;
     }
-    // SAFETY: all live elements were removed, so the complete still-owned
-    // allocation may be treated as bytes without invalidating a value. Vec's
-    // pointer/capacity are unchanged and its length remains zero.
-    let allocation =
-        unsafe { core::slice::from_raw_parts_mut(value.as_mut_ptr().cast::<u8>(), byte_count) };
-    bytes(allocation);
+    allocation(value.as_mut_ptr().cast::<u8>(), byte_count);
 }
 
 #[cfg(test)]

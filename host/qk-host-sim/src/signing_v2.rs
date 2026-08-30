@@ -937,16 +937,18 @@ fn serialize_and_verify_signature(
     expected: &qk_secp::PublicKey,
     failure: SigningV2Error,
 ) -> Result<Vec<u8>, SigningV2Error> {
-    let mut bounded = [0u8; DER_CONTAINER_BYTES];
-    let len = qk_secp::signature_serialize_der(signature, &mut bounded).map_err(|_| failure)?;
+    let mut bounded = crate::transaction_wipe_v2::WipingArray::<DER_CONTAINER_BYTES>::zeroed();
+    let len = qk_secp::signature_serialize_der(signature, bounded.as_mut_slice())
+        .map_err(|_| failure)?;
     let der = bounded
+        .as_slice()
         .get(..len)
         .ok_or(SigningV2Error::InternalInvariant)?;
     let parsed = qk_secp::signature_parse_der(der).map_err(|_| failure)?;
-    let mut canonical = [0u8; DER_CONTAINER_BYTES];
-    let canonical_len =
-        qk_secp::signature_serialize_der(&parsed, &mut canonical).map_err(|_| failure)?;
-    if canonical.get(..canonical_len) != Some(der) {
+    let mut canonical = crate::transaction_wipe_v2::WipingArray::<DER_CONTAINER_BYTES>::zeroed();
+    let canonical_len = qk_secp::signature_serialize_der(&parsed, canonical.as_mut_slice())
+        .map_err(|_| failure)?;
+    if canonical.as_slice().get(..canonical_len) != Some(der) {
         return Err(failure);
     }
     qk_secp::ecdsa_verify(&parsed, digest, expected).map_err(|_| failure)?;
@@ -965,10 +967,10 @@ pub(super) fn verify_der_signature(
 ) -> Result<(), ()> {
     let key = qk_secp::pubkey_parse_compressed(public_key).map_err(|_| ())?;
     let signature = qk_secp::signature_parse_der(der).map_err(|_| ())?;
-    let mut canonical = [0u8; DER_CONTAINER_BYTES];
-    let canonical_len =
-        qk_secp::signature_serialize_der(&signature, &mut canonical).map_err(|_| ())?;
-    if canonical.get(..canonical_len) != Some(der) {
+    let mut canonical = crate::transaction_wipe_v2::WipingArray::<DER_CONTAINER_BYTES>::zeroed();
+    let canonical_len = qk_secp::signature_serialize_der(&signature, canonical.as_mut_slice())
+        .map_err(|_| ())?;
+    if canonical.as_slice().get(..canonical_len) != Some(der) {
         return Err(());
     }
     qk_secp::ecdsa_verify(&signature, digest, &key).map_err(|_| ())
