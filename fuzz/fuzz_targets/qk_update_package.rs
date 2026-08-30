@@ -31,6 +31,26 @@ enum Policy {
     Production,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ControlledCandidate {
+    Pristine,
+    Rotation,
+    HighS,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExpectedOutcome {
+    Rejected {
+        stage: Stage,
+        error: UpdateError,
+        consumed: bool,
+        read_attempts: u8,
+    },
+    Verified {
+        rotation: bool,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Outcome {
     Rejected {
@@ -210,6 +230,135 @@ fn floor_and_policy(selector: u8) -> (ReleaseVersion, Policy) {
     }
 }
 
+fn controlled_candidate(data: &[u8]) -> Option<ControlledCandidate> {
+    match control(data, 0) % 8 {
+        1 | 7 => Some(ControlledCandidate::Pristine),
+        5 => Some(ControlledCandidate::HighS),
+        6 => Some(ControlledCandidate::Rotation),
+        0 | 2 | 3 | 4 => None,
+        _ => unreachable!("modulo eight is exhaustive"),
+    }
+}
+
+fn presence_error(selector: u8) -> Option<UpdateError> {
+    match selector % 4 {
+        0 => None,
+        1 | 3 => Some(UpdateError::WalletSessionActive),
+        2 => Some(UpdateError::CardPresent),
+        _ => unreachable!("modulo four is exhaustive"),
+    }
+}
+
+fn expected_controlled(data: &[u8]) -> Option<ExpectedOutcome> {
+    let candidate = controlled_candidate(data)?;
+    if let Some(error) = presence_error(control(data, 2)) {
+        return Some(ExpectedOutcome::Rejected {
+            stage: Stage::Staging,
+            error,
+            consumed: false,
+            read_attempts: 0,
+        });
+    }
+    let staging_error = match control(data, 1) % 8 {
+        0 | 7 => None,
+        1 | 3 => Some(UpdateError::UpdateCandidateMissing),
+        2 => Some(UpdateError::SecondUpdateCandidate),
+        4 => Some(UpdateError::MediaReadFailed),
+        5 | 6 => Some(UpdateError::StagingCopyFailed),
+        _ => unreachable!("modulo eight is exhaustive"),
+    };
+    if let Some(error) = staging_error {
+        return Some(ExpectedOutcome::Rejected {
+            stage: Stage::Staging,
+            error,
+            consumed: true,
+            read_attempts: 1,
+        });
+    }
+    if let Some(error) = presence_error(control(data, 4)) {
+        return Some(ExpectedOutcome::Rejected {
+            stage: Stage::Verification,
+            error,
+            consumed: true,
+            read_attempts: 1,
+        });
+    }
+    let (_, policy) = floor_and_policy(control(data, 3));
+    if policy == Policy::Production {
+        return Some(ExpectedOutcome::Rejected {
+            stage: Stage::Verification,
+            error: UpdateError::TestAnchorInProduction,
+            consumed: true,
+            read_attempts: 1,
+        });
+    }
+    if candidate == ControlledCandidate::HighS {
+        return Some(ExpectedOutcome::Rejected {
+            stage: Stage::Verification,
+            error: UpdateError::HighSSignature,
+            consumed: true,
+            read_attempts: 1,
+        });
+    }
+    match control(data, 3) % 8 {
+        1 | 2 | 3 => Some(ExpectedOutcome::Rejected {
+            stage: Stage::Verification,
+            error: UpdateError::NotStrictlyNewer,
+            consumed: true,
+            read_attempts: 1,
+        }),
+        0 | 4 | 7 => Some(ExpectedOutcome::Verified {
+            rotation: candidate == ControlledCandidate::Rotation,
+        }),
+        5 | 6 => unreachable!("production policy returned above"),
+        _ => unreachable!("modulo eight is exhaustive"),
+    }
+}
+
+fn assert_controlled_outcome(expected: Option<ExpectedOutcome>, outcome: &Outcome) {
+    let Some(expected) = expected else {
+        return;
+    };
+    match (expected, outcome) {
+        (
+            ExpectedOutcome::Rejected {
+                stage: expected_stage,
+                error: expected_error,
+                consumed: expected_consumed,
+                read_attempts: expected_attempts,
+            },
+            Outcome::Rejected {
+                stage,
+                error,
+                consumed,
+                read_attempts,
+            },
+        ) => {
+            assert_eq!(*stage, expected_stage);
+            assert_eq!(*error, expected_error);
+            assert_eq!(*consumed, expected_consumed);
+            assert_eq!(*read_attempts, expected_attempts);
+        }
+        (
+            ExpectedOutcome::Verified {
+                rotation: expected_rotation,
+            },
+            Outcome::Verified {
+                signing_keyset_id,
+                target_keyset_id,
+                consumed,
+                read_attempts,
+                ..
+            },
+        ) => {
+            assert_eq!(*target_keyset_id != *signing_keyset_id, expected_rotation);
+            assert!(*consumed);
+            assert_eq!(*read_attempts, 1);
+        }
+        (expected, actual) => panic!("controlled outcome mismatch: {expected:?} != {actual:?}"),
+    }
+}
+
 fn media(bytes: Vec<u8>, selector: u8, fault_position: usize) -> MockReadOnlyMedia {
     match selector % 8 {
         0 | 7 => MockReadOnlyMedia::new(vec![MockMediaCandidate::canonical(bytes)]),
@@ -286,6 +435,7 @@ fn assert_named_error(error: UpdateError) {
 }
 
 fn exercise(data: &[u8]) -> Outcome {
+    let expected = expected_controlled(data);
     let candidate = candidate(data);
     let media_selector = control(data, 1);
     let candidate_length = candidate.len();
@@ -316,12 +466,14 @@ fn exercise(data: &[u8]) -> Outcome {
                     Err(UpdateError::MediaAlreadyRead)
                 ));
             }
-            return Outcome::Rejected {
+            let outcome = Outcome::Rejected {
                 stage: Stage::Staging,
                 error,
                 consumed,
                 read_attempts,
             };
+            assert_controlled_outcome(expected, &outcome);
+            return outcome;
         }
     };
     assert!(media.consumed());
@@ -338,7 +490,7 @@ fn exercise(data: &[u8]) -> Outcome {
         Policy::Fixture => verify_staged_fixture_package(staged, floor, verification_presence),
         Policy::Production => verify_staged_package(staged, floor, verification_presence),
     };
-    match result {
+    let outcome = match result {
         Err(error) => {
             assert_named_error(error);
             Outcome::Rejected {
@@ -427,7 +579,9 @@ fn exercise(data: &[u8]) -> Outcome {
                 read_attempts: media.read_attempts(),
             }
         }
-    }
+    };
+    assert_controlled_outcome(expected, &outcome);
+    outcome
 }
 
 fuzz_target!(|data: &[u8]| {
