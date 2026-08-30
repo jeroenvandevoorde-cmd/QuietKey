@@ -1,11 +1,17 @@
 //! Final-only M15 signature insertion over the retained D-09 binding.
 
 use super::{ApplyOutcome, ReviewBoundWorkflow, TransactionEvent, TransactionState, WorkflowEvent};
+use crate::transaction_wipe_v2::{WipingArray, WipingValueVec, WipingVec};
 use core::fmt;
 use qk_psbt::{
     build_review, canonical_serialize, parse, InputSource, PsbtView, Review, ReviewContext,
     ReviewError, ReviewNetwork, SerializeError, Span, VerifiedAggregateStatus, VerifiedInputStatus,
 };
+
+#[cfg(test)]
+std::thread_local! {
+    static LAST_PARTIAL_OUTPUT_CAPACITY: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 const THRESHOLD: usize = 2;
 const MAX_INSERTIONS: usize = 200;
@@ -154,22 +160,19 @@ impl fmt::Display for SignatureInsertionError {
 
 impl std::error::Error for SignatureInsertionError {}
 
-#[derive(Clone, Copy)]
 struct InputSlots {
-    public_keys: [[u8; 33]; 3],
+    public_keys: [WipingArray<33>; 3],
     existing: [Option<Span>; 3],
 }
 
-#[derive(Clone, Copy)]
 struct NormalizedSignature<'a> {
     input_index: usize,
     role_index: usize,
-    public_key: [u8; 33],
     der_signature: &'a [u8],
 }
 
 struct SignatureState {
-    inputs: Vec<(u32, VerifiedInputStatus)>,
+    inputs: WipingValueVec<(u32, VerifiedInputStatus)>,
     aggregate: VerifiedAggregateStatus,
 }
 
@@ -231,10 +234,12 @@ impl ReviewBoundWorkflow<'_> {
             return Err(SignatureInsertionError::ReviewHashMismatch);
         }
 
-        let mut current = canonical_serialize(&retained_view)
-            .map_err(SignatureInsertionError::SerializeFailed)?;
-        let baseline_view =
-            parse(&current, self.source).map_err(|_| SignatureInsertionError::ParseFailed)?;
+        let mut current = WipingVec::take(
+            canonical_serialize(&retained_view)
+                .map_err(SignatureInsertionError::SerializeFailed)?,
+        );
+        let baseline_view = parse(current.as_slice(), self.source)
+            .map_err(|_| SignatureInsertionError::ParseFailed)?;
         let baseline_review = build_review(
             &baseline_view,
             self.descriptor,
@@ -256,7 +261,7 @@ impl ReviewBoundWorkflow<'_> {
         let mut signature_state = SignatureState::from_review(&baseline_review)?;
 
         let slots = collect_slots(&baseline_view, self.descriptor.origin_fingerprints())?;
-        let normalized = normalize_submissions(submitted, &slots, &current)?;
+        let normalized = normalize_submissions(submitted, &slots, current.as_slice())?;
 
         let produced = self
             .inner
@@ -269,26 +274,38 @@ impl ReviewBoundWorkflow<'_> {
             return Err(SignatureInsertionError::InternalInvariant);
         }
 
-        for signature in normalized {
-            let previous = current;
-            let previous_view =
-                parse(&previous, self.source).map_err(|_| SignatureInsertionError::ParseFailed)?;
+        for signature in normalized.iter() {
+            let public_key = slots
+                .get(signature.input_index)
+                .and_then(|input| input.public_keys.get(signature.role_index))
+                .ok_or(SignatureInsertionError::InternalInvariant)?;
+            let previous = core::mem::replace(&mut current, WipingVec::take(Vec::new()));
+            let previous_view = parse(previous.as_slice(), self.source)
+                .map_err(|_| SignatureInsertionError::ParseFailed)?;
             let (next, insertion_offset, inserted_len) = insert_partial_signature(
                 &previous_view,
-                &previous,
+                previous.as_slice(),
                 self.source,
                 signature.input_index,
-                &signature.public_key,
+                public_key.as_slice(),
                 signature.der_signature,
             )?;
-            if !exact_insert_delta(&previous, &next, insertion_offset, inserted_len) {
+            let next = WipingVec::take(next);
+            if !exact_insert_delta(
+                previous.as_slice(),
+                next.as_slice(),
+                insertion_offset,
+                inserted_len,
+            ) {
                 return Err(SignatureInsertionError::ForbiddenDelta);
             }
-            let next_view =
-                parse(&next, self.source).map_err(|_| SignatureInsertionError::ParseFailed)?;
-            let canonical = canonical_serialize(&next_view)
-                .map_err(SignatureInsertionError::SerializeFailed)?;
-            if canonical != next {
+            let next_view = parse(next.as_slice(), self.source)
+                .map_err(|_| SignatureInsertionError::ParseFailed)?;
+            let canonical = WipingVec::take(
+                canonical_serialize(&next_view)
+                    .map_err(SignatureInsertionError::SerializeFailed)?,
+            );
+            if canonical.as_slice() != next.as_slice() {
                 return Err(SignatureInsertionError::NonCanonicalOutput);
             }
             let next_review = build_review(
@@ -315,14 +332,15 @@ impl ReviewBoundWorkflow<'_> {
             current = next;
         }
 
-        let final_view =
-            parse(&current, self.source).map_err(|_| SignatureInsertionError::ParseFailed)?;
+        let final_view = parse(current.as_slice(), self.source)
+            .map_err(|_| SignatureInsertionError::ParseFailed)?;
         if signature_state.aggregate != VerifiedAggregateStatus::VerifyAndExportOnly {
             return Err(SignatureInsertionError::ThresholdIncomplete);
         }
-        let final_canonical =
-            canonical_serialize(&final_view).map_err(SignatureInsertionError::SerializeFailed)?;
-        if final_canonical != current {
+        let final_canonical = WipingVec::take(
+            canonical_serialize(&final_view).map_err(SignatureInsertionError::SerializeFailed)?,
+        );
+        if final_canonical.as_slice() != current.as_slice() {
             return Err(SignatureInsertionError::NonCanonicalOutput);
         }
 
@@ -345,7 +363,7 @@ impl ReviewBoundWorkflow<'_> {
         }
         self.clean_after(&reparsed);
         Ok(ThresholdCompletePsbt {
-            bytes: current,
+            bytes: current.into_vec(),
             source: self.source,
         })
     }
@@ -354,8 +372,8 @@ impl ReviewBoundWorkflow<'_> {
 fn collect_slots(
     view: &PsbtView<'_>,
     fingerprints: [[u8; 4]; 3],
-) -> Result<Vec<InputSlots>, SignatureInsertionError> {
-    let mut slots = Vec::new();
+) -> Result<WipingValueVec<InputSlots>, SignatureInsertionError> {
+    let mut slots = WipingValueVec::new();
     slots
         .try_reserve_exact(view.input_map_count())
         .map_err(|_| SignatureInsertionError::AllocationFailed)?;
@@ -363,7 +381,7 @@ fn collect_slots(
         let records = view
             .input_records(input_index)
             .ok_or(SignatureInsertionError::InternalInvariant)?;
-        let mut public_keys: [Option<[u8; 33]>; 3] = [None, None, None];
+        let mut public_keys: [Option<WipingArray<33>>; 3] = [None, None, None];
         for record in records.clone() {
             if record.key_type != 0x06 {
                 continue;
@@ -378,10 +396,12 @@ fn collect_slots(
                 .iter()
                 .position(|candidate| *candidate == fingerprint)
                 .ok_or(SignatureInsertionError::InternalInvariant)?;
-            let public_key: [u8; 33] = record
-                .key_data
-                .try_into()
-                .map_err(|_| SignatureInsertionError::InternalInvariant)?;
+            let public_key = WipingArray::new(
+                record
+                    .key_data
+                    .try_into()
+                    .map_err(|_| SignatureInsertionError::InternalInvariant)?,
+            );
             let slot = public_keys
                 .get_mut(role_index)
                 .ok_or(SignatureInsertionError::InternalInvariant)?;
@@ -389,10 +409,11 @@ fn collect_slots(
                 return Err(SignatureInsertionError::InternalInvariant);
             }
         }
+        let [public_key_a, public_key_b, public_key_c] = public_keys;
         let public_keys = [
-            public_keys[0].ok_or(SignatureInsertionError::InternalInvariant)?,
-            public_keys[1].ok_or(SignatureInsertionError::InternalInvariant)?,
-            public_keys[2].ok_or(SignatureInsertionError::InternalInvariant)?,
+            public_key_a.ok_or(SignatureInsertionError::InternalInvariant)?,
+            public_key_b.ok_or(SignatureInsertionError::InternalInvariant)?,
+            public_key_c.ok_or(SignatureInsertionError::InternalInvariant)?,
         ];
         let mut existing: [Option<Span>; 3] = [None, None, None];
         for record in records {
@@ -401,7 +422,7 @@ fn collect_slots(
             }
             let role_index = public_keys
                 .iter()
-                .position(|candidate| candidate.as_slice() == record.key_data)
+                .position(|candidate| candidate.as_slice().as_slice() == record.key_data)
                 .ok_or(SignatureInsertionError::InternalInvariant)?;
             let slot = existing
                 .get_mut(role_index)
@@ -422,7 +443,7 @@ fn normalize_submissions<'a>(
     submitted: &'a [SubmittedSignature<'a>],
     slots: &[InputSlots],
     baseline: &[u8],
-) -> Result<Vec<NormalizedSignature<'a>>, SignatureInsertionError> {
+) -> Result<WipingValueVec<NormalizedSignature<'a>>, SignatureInsertionError> {
     if submitted.len() > MAX_INSERTIONS {
         return Err(SignatureInsertionError::TooManyInsertions);
     }
@@ -432,15 +453,15 @@ fn normalize_submissions<'a>(
     if all_complete {
         return Err(SignatureInsertionError::ThresholdAlreadyMet);
     }
-    let mut normalized: Vec<NormalizedSignature<'a>> = Vec::new();
+    let mut normalized: WipingValueVec<NormalizedSignature<'a>> = WipingValueVec::new();
     normalized
         .try_reserve_exact(submitted.len())
         .map_err(|_| SignatureInsertionError::AllocationFailed)?;
-    let mut request_counts = Vec::new();
+    let mut request_counts = WipingValueVec::new();
     request_counts
         .try_reserve_exact(slots.len())
         .map_err(|_| SignatureInsertionError::AllocationFailed)?;
-    request_counts.resize(slots.len(), 0usize);
+    request_counts.resize_with(slots.len(), || 0usize);
 
     for response in submitted {
         let input_index = usize::try_from(response.input_index)
@@ -475,7 +496,7 @@ fn normalize_submissions<'a>(
             }
             return Err(SignatureInsertionError::SignatureConflict);
         }
-        for pending in &normalized {
+        for pending in normalized.iter() {
             if pending.der_signature == response.der_signature {
                 return Err(SignatureInsertionError::DuplicateSignature);
             }
@@ -495,15 +516,11 @@ fn normalize_submissions<'a>(
         normalized.push(NormalizedSignature {
             input_index,
             role_index,
-            public_key: *input
-                .public_keys
-                .get(role_index)
-                .ok_or(SignatureInsertionError::InternalInvariant)?,
             der_signature: response.der_signature,
         });
     }
 
-    for (input, requested) in slots.iter().zip(&request_counts) {
+    for (input, requested) in slots.iter().zip(request_counts.iter()) {
         let existing = input.existing.iter().flatten().count();
         let projected = existing
             .checked_add(*requested)
@@ -517,9 +534,11 @@ fn normalize_submissions<'a>(
         }
     }
     normalized.sort_unstable_by(|left, right| {
+        let left_key = slots[left.input_index].public_keys[left.role_index].as_slice();
+        let right_key = slots[right.input_index].public_keys[right.role_index].as_slice();
         left.input_index
             .cmp(&right.input_index)
-            .then_with(|| left.public_key.cmp(&right.public_key))
+            .then_with(|| left_key.cmp(right_key))
     });
     Ok(normalized)
 }
@@ -566,9 +585,11 @@ pub(super) fn insert_partial_signature(
     if next_len > source.max_bytes() {
         return Err(SignatureInsertionError::ArtifactTooLarge);
     }
-    let mut next = Vec::new();
+    let mut next = WipingVec::take(Vec::new());
     next.try_reserve_exact(next_len)
         .map_err(|_| SignatureInsertionError::AllocationFailed)?;
+    #[cfg(test)]
+    LAST_PARTIAL_OUTPUT_CAPACITY.with(|capacity| capacity.set(next.capacity()));
     next.extend_from_slice(
         bytes
             .get(..insertion_offset)
@@ -588,7 +609,7 @@ pub(super) fn insert_partial_signature(
     if next.len() != next_len {
         return Err(SignatureInsertionError::InternalInvariant);
     }
-    Ok((next, insertion_offset, record_len))
+    Ok((next.into_vec(), insertion_offset, record_len))
 }
 
 pub(super) fn exact_insert_delta(
@@ -641,7 +662,7 @@ fn signature_state_equal(left: &Review<'_>, right: &Review<'_>) -> bool {
 
 impl SignatureState {
     fn from_review(review: &Review<'_>) -> Result<Self, SignatureInsertionError> {
-        let mut inputs = Vec::new();
+        let mut inputs = WipingValueVec::new();
         inputs
             .try_reserve_exact(review.inputs().len())
             .map_err(|_| SignatureInsertionError::AllocationFailed)?;
@@ -715,8 +736,10 @@ fn allowed_review_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction_wipe_v2::{reset_wiped_bytes, wiped_bytes};
     use crate::ReviewWorkflowEvent;
     use qk_descriptor::{parse_descriptor_pair, DescriptorPair};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     const FIXTURE: &str = include_str!("../tests/fixtures/signature_insertion.txt");
 
@@ -929,5 +952,58 @@ mod tests {
         assert_eq!(max_whole_method, (22_726, 26, 0, 148, 78));
         assert_eq!(MAX_INSERTIONS * 132 * 6, 158_400);
         assert_eq!((MAX_INSERTIONS + 2) * 132 * 6, 159_984);
+    }
+
+    #[test]
+    fn partial_output_guard_clears_its_complete_capacity_on_rejection() {
+        let block = case_block("M15-GOLDEN-SHUFFLED");
+        let s0 = decode_hex(field(block, "initial_psbt_hex: "));
+        let descriptor = descriptor(block);
+        let view = parse(&s0, InputSource::MicroSd).expect("fixture parse");
+        let slots = collect_slots(&view, descriptor.origin_fingerprints()).expect("fixture slots");
+        let public_key = slots[0].public_keys[0].as_slice();
+        let oversized_value = [0x31; 255];
+        let record_len = 1 + 34 + 1 + oversized_value.len() + 1;
+        let minimum_capacity = s0.len() + record_len;
+
+        reset_wiped_bytes();
+        assert_eq!(
+            insert_partial_signature(
+                &view,
+                &s0,
+                InputSource::MicroSd,
+                0,
+                public_key,
+                &oversized_value,
+            )
+            .err(),
+            Some(SignatureInsertionError::InternalInvariant)
+        );
+        let actual_capacity = LAST_PARTIAL_OUTPUT_CAPACITY.with(core::cell::Cell::get);
+        assert!(actual_capacity >= minimum_capacity);
+        assert_eq!(wiped_bytes(), actual_capacity);
+    }
+
+    #[test]
+    fn slot_table_clears_key_bytes_and_spare_capacity_during_unwind() {
+        let mut slots = WipingValueVec::new();
+        slots.try_reserve_exact(2).unwrap();
+        slots.push(InputSlots {
+            public_keys: [
+                WipingArray::new([0x11; 33]),
+                WipingArray::new([0x22; 33]),
+                WipingArray::new([0x33; 33]),
+            ],
+            existing: [None, Some(Span { start: 7, end: 11 }), None],
+        });
+        let table_capacity = slots.capacity() * core::mem::size_of::<InputSlots>();
+
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _slots = slots;
+            panic!("bounded insertion unwind probe");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), (3 * 33) + table_capacity);
     }
 }
