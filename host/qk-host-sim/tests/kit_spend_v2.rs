@@ -352,6 +352,24 @@ fn transaction_failure_and_completeness_failures_wipe_and_close_the_session() {
         Some(KitSpendErrorV2::HumanAssertionMismatch)
     );
 
+    let mut repeated = session(3);
+    submit_registered(&mut repeated);
+    repeated
+        .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+        .unwrap();
+    assert_eq!(
+        repeated
+            .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+            .err(),
+        Some(KitSpendErrorV2::InvalidTransition)
+    );
+    assert_eq!(
+        repeated.terminal(),
+        Some(FlowTerminalV2::FailedWiped(
+            WipingReasonV2::InvalidTransition
+        ))
+    );
+
     let mut cancelled = session(3);
     submit_registered(&mut cancelled);
     cancelled
@@ -361,6 +379,41 @@ fn transaction_failure_and_completeness_failures_wipe_and_close_the_session() {
         cancelled.execute(KeypadKey::CancelBack).err(),
         Some(KitSpendErrorV2::Cancelled)
     );
+}
+
+#[test]
+fn every_non_cancel_key_except_the_named_digit_is_a_terminal_mismatch() {
+    let keys = [
+        KeypadKey::Seven,
+        KeypadKey::EightUp,
+        KeypadKey::Nine,
+        KeypadKey::CeDelete,
+        KeypadKey::FourLeft,
+        KeypadKey::Five,
+        KeypadKey::SixRight,
+        KeypadKey::Multiply,
+        KeypadKey::Divide,
+        KeypadKey::One,
+        KeypadKey::TwoDown,
+        KeypadKey::Minus,
+        KeypadKey::Percent,
+        KeypadKey::Zero,
+        KeypadKey::Decimal,
+        KeypadKey::Plus,
+        KeypadKey::EqualsConfirmEnter,
+    ];
+    for key in keys {
+        let mut mismatch = session(3);
+        submit_registered(&mut mismatch);
+        mismatch
+            .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+            .unwrap();
+        assert_eq!(
+            mismatch.execute(key).err(),
+            Some(KitSpendErrorV2::HumanAssertionMismatch),
+            "unexpected assertion-key outcome for {key:?}"
+        );
+    }
 }
 
 #[test]

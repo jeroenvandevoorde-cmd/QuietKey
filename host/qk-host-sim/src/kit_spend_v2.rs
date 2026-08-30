@@ -472,7 +472,20 @@ impl KitSpendSessionV2 {
         if !self.active {
             return Err(KitSpendErrorV2::Finished);
         }
-        if self.stage != KitSpendStageV2::CompletenessStatement || self.proof.is_none() {
+        if self.stage != KitSpendStageV2::CompletenessStatement {
+            let error = if self.completeness.is_some() {
+                KitSpendErrorV2::InvalidTransition
+            } else {
+                KitSpendErrorV2::CompletenessStatementMissing
+            };
+            let reason = if error == KitSpendErrorV2::InvalidTransition {
+                WipingReasonV2::InvalidTransition
+            } else {
+                WipingReasonV2::OperationFailed
+            };
+            return Err(self.fail(error, reason));
+        }
+        if self.proof.is_none() {
             return Err(self.fail(
                 KitSpendErrorV2::CompletenessStatementMissing,
                 WipingReasonV2::OperationFailed,
