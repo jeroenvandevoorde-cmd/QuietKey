@@ -212,6 +212,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "qk_host_sim_v2_s10_kit_restore"
+path = "fuzz_targets/qk_host_sim_v2_s10_kit_restore.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 overflow-checks = true
 debug-assertions = true
