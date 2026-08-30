@@ -1,4 +1,4 @@
-//! V2 public-surface and migration fences through slice 10.
+//! V2 public-surface and migration fences through slice 11.
 
 use qk_host_sim::{
     ApprovalIdentityV2, CardRemainsStatementV2, CeremonyPurposeV2, DeferredBoundaryV2,
@@ -8,6 +8,8 @@ use qk_host_sim::{
     KitIntakeSessionV2, KitRestoreActionV2, KitRestoreArtifactV2, KitRestoreErrorV2,
     KitRestoreForeignOperationV2, KitRestoreInterruptionV2, KitRestoreOutcomeV2,
     KitRestoreScreenV2, KitRestoreSessionV2, KitRestoreStageV2, KitShareOrdinalV2,
+    KitSpendAssertionDigitV2, KitSpendErrorV2, KitSpendForeignOperationV2, KitSpendInterruptionV2,
+    KitSpendOutcomeV2, KitSpendScreenV2, KitSpendSessionV2, KitSpendStageV2,
     MandatoryFreshWalletMigrationV2, ManualKeypadErrorV2, ManualKeypadEventV2,
     ManualKeypadOutcomeV2, ManualKeypadScreenV2, ManualKeypadSessionV2, ScreenFlowV2, ScreenKindV2,
     ScreenV2, SpareBChoiceV2, StatePreservingRejectionV2, WipingReasonV2,
@@ -18,6 +20,7 @@ const SCREEN: &str = include_str!("../src/screen_flow_v2.rs");
 const MANUAL: &str = include_str!("../src/manual_keypad_v2.rs");
 const KIT_INTAKE: &str = include_str!("../src/kit_intake_v2.rs");
 const KIT_RESTORE: &str = include_str!("../src/kit_restore_v2.rs");
+const KIT_SPEND: &str = include_str!("../src/kit_spend_v2.rs");
 
 #[test]
 fn v2_surface_is_parallel_and_contains_no_third_role_or_v1_fixture() {
@@ -116,6 +119,8 @@ fn secret_and_approval_owners_expose_no_clone_debug_or_owned_fact_escape() {
         "derive(Debug)\npub struct KitIntakeReadyV2",
         "derive(Clone)\npub struct KitRestoreSessionV2",
         "derive(Debug)\npub struct KitRestoreSessionV2",
+        "derive(Clone)\npub struct KitSpendSessionV2",
+        "derive(Debug)\npub struct KitSpendSessionV2",
         "pub fn transcript(",
         "pub fn transcripts(",
         "pub fn secret(",
@@ -133,6 +138,10 @@ fn secret_and_approval_owners_expose_no_clone_debug_or_owned_fact_escape() {
         assert!(
             !KIT_RESTORE.contains(forbidden),
             "Kit-Restore escape: {forbidden}"
+        );
+        assert!(
+            !KIT_SPEND.contains(forbidden),
+            "Kit-Spend escape: {forbidden}"
         );
     }
     assert!(SCREEN.contains("facts: &'facts ProvisioningArtifactsV2"));
@@ -183,6 +192,14 @@ fn intended_public_types_are_available_without_new_capability_types() {
     let _: Option<KitRestoreSessionV2> = None;
     let _: Option<KitRestoreStageV2> = None;
     let _: Option<MandatoryFreshWalletMigrationV2> = None;
+    let _: Option<KitSpendAssertionDigitV2> = None;
+    let _: Option<KitSpendErrorV2> = None;
+    let _: Option<KitSpendForeignOperationV2> = None;
+    let _: Option<KitSpendInterruptionV2> = None;
+    let _: Option<KitSpendOutcomeV2> = None;
+    let _: Option<KitSpendScreenV2> = None;
+    let _: Option<KitSpendSessionV2> = None;
+    let _: Option<KitSpendStageV2> = None;
 }
 
 #[test]
@@ -238,6 +255,38 @@ fn kit_restore_accepts_only_the_opaque_ready_capability_and_stays_non_signing() 
     }
     assert!(KIT_RESTORE.contains("SigningProhibited"));
     assert!(KIT_RESTORE.contains("MandatoryFreshWalletMigrationV2::Required"));
+}
+
+#[test]
+fn kit_spend_accepts_only_ready_plus_exact_sweep_and_exposes_no_general_signer() {
+    assert!(LIB.contains("mod kit_spend_v2;"));
+    assert!(KIT_SPEND.contains("ready: KitIntakeReadyV2"));
+    assert!(KIT_SPEND.contains("ready.into_spend_parts()"));
+    assert!(KIT_SPEND.contains("parts.door != KitDoorV2::KitSpend"));
+    assert!(KIT_SPEND.contains("build_validated_kit_sweep_v3("));
+    assert!(KIT_SPEND.contains("payload.sign_validated_sweep_v3(proof)"));
+    assert!(KIT_SPEND.contains("finalize_signed_kit_sweep_v3(signed)"));
+    for forbidden in [
+        "RecoveredKitPayload",
+        "[u8; 96]",
+        "pub fn sign(",
+        "pub fn approve(",
+        "pub fn export(",
+        "pub fn regenerate(",
+        "pub fn payload(",
+        "pub fn secret(",
+        "pub fn scalar(",
+        "pub fn digest(",
+    ] {
+        assert!(
+            !KIT_SPEND.contains(forbidden),
+            "Kit-Spend capability fence: {forbidden}"
+        );
+    }
+    assert!(KIT_SPEND.contains("SigningOutsideSweep"));
+    assert!(KIT_SPEND.contains("KitRegenerationProhibited"));
+    assert!(KIT_SPEND.contains("pub enum CoordinatorCompletenessStatementV2"));
+    assert!(KIT_SPEND.contains("AllFundsIncluded"));
 }
 
 #[test]
