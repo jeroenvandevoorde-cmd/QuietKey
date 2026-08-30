@@ -86,6 +86,31 @@ const LOW_S_MAX: [u8; 32] = [
     0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
 ];
 
+fn owned_le_u16(bytes: &ByteArray<2>) -> u16 {
+    let [b0, b1] = bytes.as_array();
+    u16::from(*b0) | u16::from(*b1).wrapping_shl(8)
+}
+
+fn owned_le_u32(bytes: &ByteArray<4>) -> u32 {
+    let [b0, b1, b2, b3] = bytes.as_array();
+    u32::from(*b0)
+        | u32::from(*b1).wrapping_shl(8)
+        | u32::from(*b2).wrapping_shl(16)
+        | u32::from(*b3).wrapping_shl(24)
+}
+
+fn owned_le_u64(bytes: &ByteArray<8>) -> u64 {
+    let [b0, b1, b2, b3, b4, b5, b6, b7] = bytes.as_array();
+    u64::from(*b0)
+        | u64::from(*b1).wrapping_shl(8)
+        | u64::from(*b2).wrapping_shl(16)
+        | u64::from(*b3).wrapping_shl(24)
+        | u64::from(*b4).wrapping_shl(32)
+        | u64::from(*b5).wrapping_shl(40)
+        | u64::from(*b6).wrapping_shl(48)
+        | u64::from(*b7).wrapping_shl(56)
+}
+
 /// Scoped owner for the three transaction-level BIP143 digests while
 /// semantic verification is live.
 struct WipingPrecomputed(Bip143Precomputed);
@@ -528,8 +553,8 @@ impl<'a> Iterator for ScriptTokens<'a> {
             },
             0x4d => match self.script.get(after..after.checked_add(2)?) {
                 Some([a, b]) => {
-                    let mut declared = ByteArray::new([*a, *b]);
-                    let l = usize::from(u16::from_le_bytes(declared.take()));
+                    let declared = ByteArray::new([*a, *b]);
+                    let l = usize::from(owned_le_u16(&declared));
                     self.push(at, after.checked_add(2)?, l)
                 }
                 _ => {
@@ -539,8 +564,8 @@ impl<'a> Iterator for ScriptTokens<'a> {
             },
             0x4e => match self.script.get(after..after.checked_add(4)?) {
                 Some([a, b, c, d]) => {
-                    let mut declared = ByteArray::new([*a, *b, *c, *d]);
-                    let declared = u32::from_le_bytes(declared.take());
+                    let declared = ByteArray::new([*a, *b, *c, *d]);
+                    let declared = owned_le_u32(&declared);
                     match usize::try_from(declared) {
                         Ok(l) => self.push(at, after.checked_add(4)?, l),
                         Err(_) => {
@@ -694,13 +719,13 @@ impl<'a> TxCursor<'a> {
     }
 
     fn u32_le(&mut self) -> Option<u32> {
-        let mut bytes = ByteArray::new(self.bytes(4)?.try_into().ok()?);
-        Some(u32::from_le_bytes(bytes.take()))
+        let bytes = ByteArray::new(self.bytes(4)?.try_into().ok()?);
+        Some(owned_le_u32(&bytes))
     }
 
     fn u64_le(&mut self) -> Option<u64> {
-        let mut bytes = ByteArray::new(self.bytes(8)?.try_into().ok()?);
-        Some(u64::from_le_bytes(bytes.take()))
+        let bytes = ByteArray::new(self.bytes(8)?.try_into().ok()?);
+        Some(owned_le_u64(&bytes))
     }
 
     /// Minimal CompactSize wholly inside the span; `None` on
@@ -1337,14 +1362,14 @@ fn signature_phase(view: &PsbtView<'_>, work: &mut [InputWork<'_>]) -> Result<()
                 0x03 => {
                     // PSBT_IN_SIGHASH_TYPE: absent means SIGHASH_ALL;
                     // present must be the 4-byte little-endian value 1.
-                    let mut bytes = ByteArray::new(r.value.try_into().map_err(|_| {
+                    let bytes = ByteArray::new(r.value.try_into().map_err(|_| {
                         SemanticError::at_input(
                             SemanticCategory::InternalInvariant,
                             i,
                             r.value_span.start,
                         )
                     })?);
-                    if u32::from_le_bytes(bytes.take()) != u32::from(SIGHASH_ALL) {
+                    if owned_le_u32(&bytes) != u32::from(SIGHASH_ALL) {
                         return Err(SemanticError::at_input(
                             SemanticCategory::UnsupportedSighash,
                             i,
@@ -2129,8 +2154,8 @@ impl DescriptorClaims {
 
 fn little_endian_u32_at(value: &[u8], offset: usize) -> Option<u32> {
     let end = offset.checked_add(4)?;
-    let mut bytes = ByteArray::new(value.get(offset..end)?.try_into().ok()?);
-    Some(u32::from_le_bytes(bytes.take()))
+    let bytes = ByteArray::new(value.get(offset..end)?.try_into().ok()?);
+    Some(owned_le_u32(&bytes))
 }
 
 fn descriptor_role(fingerprints: &[[u8; 4]; 3], candidate: &[u8]) -> Option<usize> {
@@ -3073,7 +3098,7 @@ fn classify_op_return<'a>(
         );
     }
     if opcode == 0x4d {
-        let mut declared = ByteArray::new(
+        let declared = ByteArray::new(
             rest.get(1..3)
                 .and_then(|bytes| bytes.try_into().ok())
                 .ok_or_else(|| {
@@ -3083,7 +3108,7 @@ fn classify_op_return<'a>(
                     )
                 })?,
         );
-        let data_len = usize::from(u16::from_le_bytes(declared.take()));
+        let data_len = usize::from(owned_le_u16(&declared));
         let data_start = 4usize;
         complete_op_return_push(script, script_span, data_start, data_len)?;
         let category = if data_len <= usize::from(u8::MAX) {
@@ -3103,7 +3128,7 @@ fn classify_op_return<'a>(
         ));
     }
     if opcode == 0x4e {
-        let mut declared = ByteArray::new(
+        let declared = ByteArray::new(
             rest.get(1..5)
                 .and_then(|bytes| bytes.try_into().ok())
                 .ok_or_else(|| {
@@ -3113,7 +3138,7 @@ fn classify_op_return<'a>(
                     )
                 })?,
         );
-        let data_len = usize::try_from(u32::from_le_bytes(declared.take())).map_err(|_| {
+        let data_len = usize::try_from(owned_le_u32(&declared)).map_err(|_| {
             SemanticError::global(
                 SemanticCategory::MalformedScriptPush,
                 script_span.start.saturating_add(1),

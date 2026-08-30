@@ -63,6 +63,8 @@ fn hash_and_serialization_scratch_use_existing_wipe_boundaries() {
     assert!(SHA256_SOURCE.contains("pub(crate) padding: [u8; 128]"));
     assert!(SHA256_SOURCE.contains("pub(crate) length_bytes: [u8; 8]"));
     assert!(SHA256_SOURCE.contains("pub(crate) schedule: [u32; 16]"));
+    assert!(SHA256_SOURCE.contains("fn compress(state: &mut [u32; 8]"));
+    assert!(!SHA256_SOURCE.contains("self.state = compress(self.state"));
     assert!(SHA256_SOURCE.contains("pub(crate) struct DigestScratch"));
     assert!(WIPE_SOURCE.contains("impl Drop for crate::sha256::Sha256"));
     assert!(WIPE_SOURCE.contains("u32s(&mut self.state)"));
@@ -77,6 +79,11 @@ fn hash_and_serialization_scratch_use_existing_wipe_boundaries() {
     assert!(SEMANTIC_SOURCE.contains("WipingValueArray::new([qk_secp::signature_parse_der"));
     assert!(SEMANTIC_SOURCE.contains("let [signature] = signature_owner.as_slice()"));
     assert!(SEMANTIC_SOURCE.contains("let [pubkey] = pubkey_owner.as_slice()"));
+    assert!(SEMANTIC_SOURCE.contains("fn owned_le_u16(bytes: &ByteArray<2>)"));
+    assert!(SEMANTIC_SOURCE.contains("fn owned_le_u32(bytes: &ByteArray<4>)"));
+    assert!(SEMANTIC_SOURCE.contains("fn owned_le_u64(bytes: &ByteArray<8>)"));
+    assert!(!SEMANTIC_SOURCE.contains("from_le_bytes(bytes.take())"));
+    assert!(!SEMANTIC_SOURCE.contains("from_le_bytes(declared.take())"));
     assert!(SERIALIZE_SOURCE.contains("bytes: wipe::WipingByteVec"));
     assert!(SERIALIZE_SOURCE.contains("wipe::WipingValueArray::new"));
     assert!(SERIALIZE_SOURCE.contains("-> (wipe::ByteArray<9>, usize)"));
