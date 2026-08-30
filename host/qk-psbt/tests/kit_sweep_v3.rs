@@ -446,16 +446,10 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
     ));
     assert_eq!(index_error, KitSweepV3Error::DestinationIndexOutOfRange);
 
-    let maximum_destination =
-        derive_receive_script_v2(&replacement_descriptor(), 65_535).unwrap();
+    let maximum_destination = derive_receive_script_v2(&replacement_descriptor(), 65_535).unwrap();
     let maximum_index_proof = build_validated_kit_sweep_v3(
         OwnedS0::new(
-            &one_output_psbt(
-                &base,
-                900_000,
-                &maximum_destination.script_pubkey,
-                None,
-            ),
+            &one_output_psbt(&base, 900_000, &maximum_destination.script_pubkey, None),
             InputSource::MicroSd,
         )
         .unwrap(),
@@ -480,7 +474,10 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         old_descriptor(),
         receive_index(65_536),
     ));
-    assert_eq!(precedence_index, KitSweepV3Error::DestinationIndexOutOfRange);
+    assert_eq!(
+        precedence_index,
+        KitSweepV3Error::DestinationIndexOutOfRange
+    );
 
     let precedence_wallet = rejected(build_validated_kit_sweep_v3(
         OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
@@ -488,5 +485,8 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         old_descriptor(),
         receive_index(0),
     ));
-    assert_eq!(precedence_wallet, KitSweepV3Error::ReplacementWalletUnchanged);
+    assert_eq!(
+        precedence_wallet,
+        KitSweepV3Error::ReplacementWalletUnchanged
+    );
 }

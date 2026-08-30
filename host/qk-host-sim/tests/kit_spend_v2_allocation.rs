@@ -139,15 +139,14 @@ fn bounded_golden_sweep_has_a_fixed_host_allocation_ledger() {
     let mut session = session.unwrap();
 
     let mut s0 = hex(field(SPEND, "s0_hex"));
-    let (screen, validation_counts) =
-        measured(|| {
-            session.submit_sweep(
-                &mut s0,
-                InputSource::MicroSd,
-                &replacement,
-                ReplacementReceiveIndexV2::from_untrusted(0),
-            )
-        });
+    let (screen, validation_counts) = measured(|| {
+        session.submit_sweep(
+            &mut s0,
+            InputSource::MicroSd,
+            &replacement,
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
+    });
     screen.unwrap();
     assert_eq!(s0.iter().filter(|byte| **byte != 0).count(), 0);
     assert_eq!(validation_counts, [58, 6_668]);

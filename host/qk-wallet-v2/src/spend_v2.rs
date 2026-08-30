@@ -244,10 +244,7 @@ fn sign_role(
     let mut der = Secret::<DER_CAPACITY>::zeroed();
     let len = qk_secp::signature_serialize_der(&signature, der.as_mut_bytes())
         .map_err(|_| KitSweepSigningErrorV3::CryptographicSigningFailed)?;
-    Ok(KitSweepDerSignatureV3 {
-        bytes: der,
-        len,
-    })
+    Ok(KitSweepDerSignatureV3 { bytes: der, len })
 }
 
 fn map_child_error(_error: WalletV2Error) -> KitSweepSigningErrorV3 {
@@ -263,9 +260,7 @@ mod tests {
     use crate::bip39::entropy_to_seed;
     use crate::secret::{reset_wiped_bytes, wiped_bytes, Secret};
     use qk_descriptor::parse_descriptor_pair_v2;
-    use qk_psbt::{
-        build_validated_kit_sweep_v3, InputSource, OwnedS0, ReplacementReceiveIndexV2,
-    };
+    use qk_psbt::{build_validated_kit_sweep_v3, InputSource, OwnedS0, ReplacementReceiveIndexV2};
 
     const FIXTURE: &str = include_str!("../../qk-psbt/tests/fixtures/signing_finalization_v2.txt");
     const KIT_FIXTURE: &str = include_str!("../../qk-host-sim/tests/fixtures/kit_spend_v2.txt");

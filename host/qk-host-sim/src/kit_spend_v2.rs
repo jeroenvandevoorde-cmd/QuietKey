@@ -11,8 +11,8 @@ use crate::transaction_wipe_v2::wipe_bytes;
 use core::fmt;
 use qk_kit::{BoundKitSpendV2, KitSpendMathErrorV3};
 use qk_psbt::{
-    build_validated_kit_sweep_v3, InputSource, IntakeError, KitSweepV3Error, OwnedS0, ReviewV3Hash,
-    ReplacementReceiveIndexV2, ValidatedKitSweepV3,
+    build_validated_kit_sweep_v3, InputSource, IntakeError, KitSweepV3Error, OwnedS0,
+    ReplacementReceiveIndexV2, ReviewV3Hash, ValidatedKitSweepV3,
 };
 
 /// The coordinator's factual statement; HOST does not derive this fact.

@@ -1036,7 +1036,7 @@ fn own_outputs(
                         data: data.into_vec(),
                     },
                 }
-            },
+            }
             ReviewV3OutputOwnership::ProvenChange { child_index } => ReviewV3Output {
                 index: output.index,
                 amount: output.amount,
