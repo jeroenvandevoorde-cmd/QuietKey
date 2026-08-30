@@ -21,9 +21,28 @@
 
 use core::fmt;
 
+mod der;
+mod host_mock;
 mod manifest;
+mod package;
+mod sha256;
+mod staging;
+mod trust;
+mod wipe;
 
+pub use host_mock::{
+    BootVersionDisplay, CommittedInstallerState, FirstBootReport, MockPrivilegedInstaller, SlotId,
+};
 pub use manifest::{ArtifactFact, ArtifactKind, ManifestFacts, ReleaseVersion};
+#[cfg(any(test, feature = "fuzzing"))]
+#[doc(hidden)]
+pub use package::verify_staged_fixture_package;
+pub use package::{verify_staged_package, VerifiedPackage};
+pub use staging::{
+    stage_from_media, MockMediaCandidate, MockMediaFaults, MockReadOnlyMedia, StagedPackage,
+    UpdatePresence,
+};
+pub use trust::CompiledTrust;
 
 /// Canonical signed-manifest size.
 pub const MANIFEST_BYTES: usize = 328;
@@ -39,6 +58,9 @@ pub const MAX_DETACHED_ARTIFACT_BYTES: u32 = 1_073_741_824;
 pub const MAX_PACKAGE_ENVELOPE_BYTES: usize = 482;
 /// Maximum complete QKUP bytes.
 pub const MAX_PACKAGE_BYTES: usize = MAX_FIRMWARE_IMAGE_BYTES + MAX_PACKAGE_ENVELOPE_BYTES;
+/// Minimum complete package bytes with two eight-byte DER signatures and a
+/// one-byte embedded image.
+pub const MIN_PACKAGE_BYTES: usize = 4 + 1 + 2 + 328 + 1 + 2 * (1 + 1 + 8) + 1;
 /// Exact manifest magic.
 pub const MANIFEST_MAGIC: [u8; 4] = *b"QKFM";
 /// Exact manifest schema byte.
@@ -92,8 +114,8 @@ pub const REGISTERED_TEST_ANCHORS: [[u8; 33]; 3] = [
 pub const REGISTERED_TEST_FINGERPRINTS: [[u8; 32]; 3] = [
     [
         0x6a, 0x51, 0x29, 0x6f, 0xf5, 0xf0, 0x38, 0x19, 0x58, 0x00, 0x20, 0x42, 0x84, 0xd6, 0x23,
-        0xc2, 0x29, 0x7d, 0xf2, 0xdd, 0x16, 0xa3, 0x38, 0x15, 0xb5, 0xdb, 0xff, 0x59, 0xa9, 0x8b,
-        0xf1, 0x3e,
+        0xc2, 0x29, 0x7d, 0xf2, 0xdd, 0x16, 0xa3, 0xa3, 0x81, 0x5b, 0x5d, 0xbf, 0xf5, 0x9a, 0x98,
+        0xbf, 0x13,
     ],
     [
         0x15, 0xb6, 0x08, 0x9b, 0x82, 0xd3, 0xab, 0x8a, 0xff, 0xd1, 0xcb, 0x39, 0xb8, 0xd0, 0x0f,
@@ -116,6 +138,7 @@ pub const REGISTERED_TEST_KEYSET_ID: [u8; 32] = [
 const _: () = assert!(MANIFEST_BYTES == 106 + ARTIFACT_COUNT * ARTIFACT_RECORD_BYTES);
 const _: () = assert!(MAX_PACKAGE_ENVELOPE_BYTES == 4 + 1 + 2 + 328 + 1 + 2 * (1 + 1 + 71));
 const _: () = assert!(MAX_PACKAGE_BYTES == 268_435_938);
+const _: () = assert!(MIN_PACKAGE_BYTES == 357);
 
 /// Closed QK-DEC-136 rejection vocabulary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

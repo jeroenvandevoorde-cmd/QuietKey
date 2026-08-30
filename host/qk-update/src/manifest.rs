@@ -1,9 +1,9 @@
 //! Exact fixed-width QKFM v1 manifest parsing.
 
 use crate::{
-    UpdateError, ARTIFACT_COUNT, ARTIFACT_RECORD_BYTES, COMPATIBILITY_EPOCH,
-    MANIFEST_BYTES, MANIFEST_MAGIC, MANIFEST_SCHEMA, MAX_DETACHED_ARTIFACT_BYTES,
-    MAX_FIRMWARE_IMAGE_BYTES, TARGET_PLATFORM,
+    UpdateError, ARTIFACT_COUNT, ARTIFACT_RECORD_BYTES, COMPATIBILITY_EPOCH, MANIFEST_BYTES,
+    MANIFEST_MAGIC, MANIFEST_SCHEMA, MAX_DETACHED_ARTIFACT_BYTES, MAX_FIRMWARE_IMAGE_BYTES,
+    TARGET_PLATFORM,
 };
 
 const ARTIFACTS_OFFSET: usize = 106;
@@ -127,7 +127,8 @@ impl ManifestFacts {
 
     /// Embedded firmware-image fact.
     pub const fn firmware_image(&self) -> &ArtifactFact {
-        &self.artifacts[0]
+        let [firmware, ..] = &self.artifacts;
+        firmware
     }
 }
 
@@ -182,8 +183,8 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ManifestFacts, UpdateError> {
     };
     let mut artifacts = [placeholder; ARTIFACT_COUNT];
     for (position, destination) in artifacts.iter_mut().enumerate() {
-        let expected = ArtifactKind::for_position(position)
-            .ok_or(UpdateError::ArtifactKindMismatch)?;
+        let expected =
+            ArtifactKind::for_position(position).ok_or(UpdateError::ArtifactKindMismatch)?;
         let delta = position
             .checked_mul(ARTIFACT_RECORD_BYTES)
             .ok_or(UpdateError::ManifestTruncated)?;
@@ -193,7 +194,10 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ManifestFacts, UpdateError> {
         if bytes.get(start).copied() != Some(expected.code()) {
             return Err(UpdateError::ArtifactKindMismatch);
         }
-        let byte_length = u32_le(bytes, start.checked_add(1).ok_or(UpdateError::ManifestTruncated)?)?;
+        let byte_length = u32_le(
+            bytes,
+            start.checked_add(1).ok_or(UpdateError::ManifestTruncated)?,
+        )?;
         let length_valid = if expected == ArtifactKind::FirmwareImage {
             usize::try_from(byte_length)
                 .map(|length| (1..=MAX_FIRMWARE_IMAGE_BYTES).contains(&length))
@@ -224,4 +228,3 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<ManifestFacts, UpdateError> {
         artifacts,
     })
 }
-
