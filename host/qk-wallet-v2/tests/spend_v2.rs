@@ -81,7 +81,7 @@ fn validated_proof(existing_role_a: bool) -> ValidatedKitSweepV3 {
     .expect("registered exact sweep")
 }
 
-fn sign(proof: &ValidatedKitSweepV3) -> qk_wallet_v2::WalletKitSweepSignaturesV3 {
+fn sign(proof: ValidatedKitSweepV3) -> qk_wallet_v2::WalletSignedKitSweepV3 {
     sign_validated_kit_sweep_v3(
         &hex_array(field(SIGNING_FIXTURE, "role_a_transcript_sha256")),
         &hex_array(field(SIGNING_FIXTURE, "role_b_transcript_sha256")),
@@ -124,7 +124,11 @@ fn signing_errors_are_fixed_named_categories() {
 
 #[test]
 fn no_reusable_or_arbitrary_signing_owner_exists() {
-    assert!(SPEND.contains("proof: &ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
+    assert!(!SPEND.contains("proof: &ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("pub struct WalletSignedKitSweepV3 {"));
+    assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("signatures: WalletKitSweepSignaturesV3,"));
     assert!(SPEND.contains("pub struct WalletKitSweepSignaturesV3 {"));
     assert!(SPEND.contains("role_a: Option<KitSweepDerSignatureV3>,"));
     assert!(SPEND.contains("role_b: Option<KitSweepDerSignatureV3>,"));
@@ -142,6 +146,7 @@ fn no_reusable_or_arbitrary_signing_owner_exists() {
     assert!(!SPEND.contains("pub fn serialize"));
     assert!(!SPEND.contains("impl Clone for KitSweepDerSignatureV3"));
     assert!(!SPEND.contains("impl Clone for WalletKitSweepSignaturesV3"));
+    assert!(!SPEND.contains("impl Clone for WalletSignedKitSweepV3"));
 }
 
 #[test]
@@ -160,7 +165,9 @@ fn validated_sweep_produces_exact_registered_role_signatures() {
         proof.input_signing_plans()[0].existing_role_signatures(),
         [false, false]
     );
-    let signatures = sign(&proof);
+    let signed = sign(proof);
+    let (proof, signatures) = signed.into_execution_parts();
+    assert_eq!(proof.input_count(), 1);
     assert_eq!(signatures.inputs().len(), 1);
     let input = &signatures.inputs()[0];
     assert_eq!(input.input_index(), 0);
@@ -181,7 +188,9 @@ fn verified_existing_role_is_never_signed_twice() {
         proof.input_signing_plans()[0].existing_role_signatures(),
         [true, false]
     );
-    let signatures = sign(&proof);
+    let signed = sign(proof);
+    let (proof, signatures) = signed.into_execution_parts();
+    assert_eq!(proof.input_count(), 1);
     let input = &signatures.inputs()[0];
     assert!(input.role_a().is_none());
     assert_eq!(

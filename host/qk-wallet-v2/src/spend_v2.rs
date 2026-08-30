@@ -97,19 +97,46 @@ impl WalletKitSweepSignaturesV3 {
     }
 }
 
+/// One move-only wallet signing result tied to the exact consumed sweep.
+///
+/// The proof and its signatures can leave this crate only together. This
+/// prevents the same exact-sweep capability from being reused to mint a
+/// second signature set through the wallet boundary.
+pub struct WalletSignedKitSweepV3 {
+    proof: ValidatedKitSweepV3,
+    signatures: WalletKitSweepSignaturesV3,
+}
+
+impl WalletSignedKitSweepV3 {
+    #[must_use]
+    pub fn wallet_id(&self) -> [u8; 32] {
+        self.proof.wallet_id()
+    }
+
+    #[must_use]
+    pub fn input_count(&self) -> usize {
+        self.proof.input_count()
+    }
+
+    pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {
+        (self.proof, self.signatures)
+    }
+}
+
 /// Sign every A/B input plan from one qk-psbt exact-sweep capability.
 ///
-/// Both entropy values are borrowed only for this call. The expected D pair
-/// and wallet ID are rebound before any route key is derived. Each produced
-/// signature is RFC6979 deterministic, low-S, immediately self-verified by
-/// qk-secp, and retained only in a wiping fixed-capacity owner.
+/// Both entropy values are borrowed only for this call. The exact-sweep proof
+/// is consumed. The expected D pair and wallet ID are rebound before any route
+/// key is derived. Each produced signature is RFC6979 deterministic, low-S,
+/// immediately self-verified by qk-secp, and retained only in a wiping
+/// fixed-capacity owner paired with the consumed proof.
 pub fn sign_validated_kit_sweep_v3(
     seed_a: &[u8; 32],
     signer_b: &[u8; 32],
     expected_descriptors: &[[u8; 306]; 2],
     expected_wallet_id: &[u8; 32],
-    proof: &ValidatedKitSweepV3,
-) -> Result<WalletKitSweepSignaturesV3, KitSweepSigningErrorV3> {
+    proof: ValidatedKitSweepV3,
+) -> Result<WalletSignedKitSweepV3, KitSweepSigningErrorV3> {
     let rebound = rebind_wallet_v2(seed_a, signer_b, expected_descriptors, expected_wallet_id)
         .map_err(|_| KitSweepSigningErrorV3::RecoveredWalletMismatch)?;
     if rebound.wallet_id() != proof.wallet_id() || proof.wallet_id() != *expected_wallet_id {
@@ -179,9 +206,10 @@ pub fn sign_validated_kit_sweep_v3(
             role_b,
         };
     }
-    Ok(WalletKitSweepSignaturesV3 {
-        inputs,
-        len: plans.len(),
+    let len = plans.len();
+    Ok(WalletSignedKitSweepV3 {
+        proof,
+        signatures: WalletKitSweepSignaturesV3 { inputs, len },
     })
 }
 
@@ -354,14 +382,16 @@ mod tests {
                 .try_into()
                 .expect("old change descriptor width"),
         ];
-        let signatures = sign_validated_kit_sweep_v3(
+        let signed = sign_validated_kit_sweep_v3(
             &hex_array(field("role_a_transcript_sha256")),
             &hex_array(field("role_b_transcript_sha256")),
             &descriptors,
             &hex_array(kit_field("old_wallet_id_hex")),
-            &proof,
+            proof,
         )
         .expect("registered recovered authority");
+        let (proof, signatures) = signed.into_execution_parts();
+        assert_eq!(proof.input_count(), 1);
         assert!(signatures.inputs()[0].role_a().is_some());
         assert!(signatures.inputs()[0].role_b().is_some());
 

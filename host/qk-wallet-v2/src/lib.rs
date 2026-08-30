@@ -7,9 +7,9 @@
 //! v2 BIP39/BIP32/descriptor chain. Only role-ordered public account facts,
 //! exact descriptors, wallet identity, and first-route public facts leave the
 //! crate. No mnemonic, seed, scalar, chain code, xprv, arbitrary digest, or
-//! reusable signer is public. The sole signing operation accepts qk-psbt's
-//! opaque validated Kit-sweep capability and returns ordered wiping low-S DER
-//! owners.
+//! reusable signer is public. The sole signing operation consumes qk-psbt's
+//! opaque validated Kit-sweep capability and returns it inseparably paired
+//! with ordered wiping low-S DER owners.
 
 #![deny(unsafe_code)]
 
@@ -30,7 +30,7 @@ use descriptor::build_wallet_v2;
 
 pub use spend_v2::{
     sign_validated_kit_sweep_v3, KitSweepDerSignatureV3, KitSweepInputSignaturesV3,
-    KitSweepSigningErrorV3, WalletKitSweepSignaturesV3,
+    KitSweepSigningErrorV3, WalletKitSweepSignaturesV3, WalletSignedKitSweepV3,
 };
 
 /// Closed failure surface for v2 entropy-to-public-wallet derivation.

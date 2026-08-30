@@ -10,7 +10,7 @@ use core::fmt;
 use qk_psbt::ValidatedKitSweepV3;
 use qk_wallet_v2::{
     rebind_wallet_v2, sign_validated_kit_sweep_v3, KitSweepSigningErrorV3,
-    WalletKitSweepSignaturesV3, WalletPublicV2,
+    WalletKitSweepSignaturesV3, WalletPublicV2, WalletSignedKitSweepV3,
 };
 
 const PAYLOAD_BYTES: usize = 96;
@@ -95,15 +95,15 @@ impl BoundKitSpendV2 {
         }
         let seed_a = payload_part(self.payload._bytes.as_bytes(), SEED_A_OFFSET);
         let signer_b = payload_part(self.payload._bytes.as_bytes(), SIGNER_B_OFFSET);
-        let signatures = sign_validated_kit_sweep_v3(
+        let signed = sign_validated_kit_sweep_v3(
             seed_a,
             signer_b,
             &self.wallet.descriptors(),
             &self.wallet.wallet_id(),
-            &proof,
+            proof,
         )
         .map_err(map_signing_error)?;
-        Ok(SignedKitSweepV3 { proof, signatures })
+        Ok(SignedKitSweepV3 { signed })
     }
 }
 
@@ -113,23 +113,22 @@ impl BoundKitSpendV2 {
 /// validated public transaction proof plus its wiping signature owners. It
 /// contains no recovered secret and cannot sign a second transaction.
 pub struct SignedKitSweepV3 {
-    proof: ValidatedKitSweepV3,
-    signatures: WalletKitSweepSignaturesV3,
+    signed: WalletSignedKitSweepV3,
 }
 
 impl SignedKitSweepV3 {
     #[must_use]
     pub fn wallet_id(&self) -> [u8; 32] {
-        self.proof.wallet_id()
+        self.signed.wallet_id()
     }
 
     #[must_use]
     pub fn input_count(&self) -> usize {
-        self.proof.input_count()
+        self.signed.input_count()
     }
 
     pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {
-        (self.proof, self.signatures)
+        self.signed.into_execution_parts()
     }
 }
 

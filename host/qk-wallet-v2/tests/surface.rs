@@ -62,7 +62,10 @@ fn public_surface_is_only_errors_public_facts_and_purpose_bound_operations() {
         assert!(!source.contains("pub enum "), "private helper error");
     }
     assert!(SPEND.contains("pub fn sign_validated_kit_sweep_v3("));
-    assert!(SPEND.contains("proof: &ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
+    assert!(!SPEND.contains("proof: &ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("pub struct WalletSignedKitSweepV3 {"));
+    assert!(SPEND.contains("pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {"));
     for forbidden in [
         "pub fn digest",
         "pub fn scalar",
