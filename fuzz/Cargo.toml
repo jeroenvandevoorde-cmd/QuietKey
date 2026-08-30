@@ -8,7 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [features]
-default = ["qk-provisioning/fuzzing"]
+default = ["qk-provisioning/fuzzing", "qk-host-sim/fuzzing"]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }

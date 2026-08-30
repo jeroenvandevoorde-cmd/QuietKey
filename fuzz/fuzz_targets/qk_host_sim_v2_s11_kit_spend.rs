@@ -2,20 +2,21 @@
 
 use libfuzzer_sys::fuzz_target;
 use qk_host_sim::{
+    kit_spend_execution_trace_v2, reset_kit_spend_execution_trace_v2,
     CoordinatorCompletenessStatementV2, FlowApplyOutcomeV2, FlowEventV2, FlowKindV2,
-    FlowTerminalV2, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2,
-    KitIntakeSessionV2, KitSpendAssertionDigitV2, KitSpendErrorV2,
+    FlowTerminalV2, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2,
+    KitSpendAssertionDigitV2, KitSpendErrorV2, KitSpendExecutionTraceV2,
     KitSpendForeignOperationV2, KitSpendInterruptionV2, KitSpendSessionV2, KitSpendStageV2,
     ScreenFlowV2, ScreenKindV2, WipingReasonV2, KIT_FALLBACK_TABLE_V2,
 };
-use qk_psbt::InputSource;
+use qk_psbt::{InputSource, ReplacementReceiveIndexV2};
 
 #[allow(dead_code)]
 #[path = "../../host/qk-psbt/src/sha256.rs"]
 mod reference_sha256;
 
 const MAX_PRESENTED_BYTES: usize = 512;
-const SCENARIOS: u8 = 27;
+const SCENARIOS: u8 = 28;
 const FRAME_BYTES: usize = 142;
 const FALLBACK_SYMBOLS: usize = 228;
 
@@ -37,16 +38,24 @@ enum Summary {
         raw_transaction_sha256: [u8; 32],
         txid: [u8; 32],
         wtxid: [u8; 32],
-        sign_finalize_count: u8,
+    },
+    Validated {
+        review_hash: [u8; 32],
+        destination_index: u32,
     },
     Rejected {
         error: &'static str,
         terminal: Option<FlowTerminalV2>,
-        sign_finalize_count: u8,
     },
     Dropped {
         stage: KitSpendStageV2,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ObservedSummary {
+    result: Summary,
+    execution: KitSpendExecutionTraceV2,
 }
 
 fn field<'a>(fixture: &'a str, name: &str) -> &'a str {
@@ -81,6 +90,10 @@ fn reference_hash(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = reference_sha256::Sha256::new();
     hasher.update(bytes).expect("bounded public artifact");
     hasher.finalize().expect("bounded public artifact digest")
+}
+
+fn receive_index(raw: u32) -> ReplacementReceiveIndexV2 {
+    ReplacementReceiveIndexV2::from_untrusted(raw)
 }
 
 fn old_descriptors() -> [[u8; 306]; 2] {
@@ -267,8 +280,24 @@ fn record(output: &mut Vec<u8>, key: &[u8], value: &[u8]) {
     output.extend_from_slice(value);
 }
 
-fn input_map(foreign: bool, invalid_partial: bool) -> Vec<u8> {
-    let previous = hex_vec(field(FIXTURE, "previous_transaction_hex"));
+fn previous_transaction(variant: u8) -> Vec<u8> {
+    let mut previous = hex_vec(field(FIXTURE, "previous_transaction_hex"));
+    let last = previous.len() - 1;
+    previous[last] = variant;
+    previous
+}
+
+fn previous_txid_wire(variant: u8) -> [u8; 32] {
+    let first = reference_hash(&previous_transaction(variant));
+    let wire = reference_hash(&first);
+    if variant == 0 {
+        assert_eq!(wire, hex_array(field(FIXTURE, "previous_txid_wire_hex")));
+    }
+    wire
+}
+
+fn input_map(foreign: bool, invalid_partial: bool, previous_variant: u8) -> Vec<u8> {
+    let previous = previous_transaction(previous_variant);
     let old_script = hex_vec(field(FIXTURE, "old_script_pubkey_hex"));
     let pub_a = hex_array::<33>(field(FIXTURE, "old_role_a_route_public_key_hex"));
     let pub_b = hex_array::<33>(field(FIXTURE, "old_role_b_route_public_key_hex"));
@@ -312,11 +341,12 @@ fn input_map(foreign: bool, invalid_partial: bool) -> Vec<u8> {
 }
 
 fn unsigned_transaction(input_count: usize, outputs: &[(u64, Vec<u8>)]) -> Vec<u8> {
-    let outpoint = hex_array::<32>(field(FIXTURE, "previous_txid_wire_hex"));
     let mut transaction = 2u32.to_le_bytes().to_vec();
     compact_size(&mut transaction, input_count);
-    for _ in 0..input_count {
-        transaction.extend_from_slice(&outpoint);
+    for index in 0..input_count {
+        transaction.extend_from_slice(&previous_txid_wire(
+            u8::try_from(index).expect("bounded fuzz input count"),
+        ));
         transaction.extend_from_slice(&0u32.to_le_bytes());
         transaction.push(0);
         transaction.extend_from_slice(&0xffff_fffdu32.to_le_bytes());
@@ -342,7 +372,11 @@ fn constructed_s0(
     record(&mut psbt, &[0], &transaction);
     psbt.push(0);
     for index in 0..input_count {
-        psbt.extend_from_slice(&input_map(foreign_input == Some(index), invalid_partial));
+        psbt.extend_from_slice(&input_map(
+            foreign_input == Some(index),
+            invalid_partial,
+            u8::try_from(index).expect("bounded fuzz input count"),
+        ));
     }
     psbt.extend(std::iter::repeat(0).take(outputs.len()));
     psbt
@@ -354,7 +388,7 @@ fn old_change_s0() -> Vec<u8> {
     let mut psbt = b"psbt\xff".to_vec();
     record(&mut psbt, &[0], &transaction);
     psbt.push(0);
-    psbt.extend_from_slice(&input_map(false, false));
+    psbt.extend_from_slice(&input_map(false, false, 0));
     let path = [0x8000_0030u32, 0x8000_0000, 0x8000_0000, 0x8000_0002, 1, 0]
         .into_iter()
         .flat_map(u32::to_le_bytes)
@@ -383,7 +417,11 @@ fn base_s0() -> Vec<u8> {
     built
 }
 
-fn begin_session(door: KitDoorV2, variant: u8, digit: u8) -> Result<KitSpendSessionV2, KitSpendErrorV2> {
+fn begin_session(
+    door: KitDoorV2,
+    variant: u8,
+    digit: u8,
+) -> Result<KitSpendSessionV2, KitSpendErrorV2> {
     KitSpendSessionV2::begin(
         intake_ready(door, variant),
         &old_descriptors(),
@@ -394,7 +432,10 @@ fn begin_session(door: KitDoorV2, variant: u8, digit: u8) -> Result<KitSpendSess
 fn assert_initial(session: &KitSpendSessionV2, variant: u8) {
     let screen = session.screen().expect("active transaction screen");
     assert_eq!(screen.stage(), KitSpendStageV2::TransactionIntake);
-    assert_eq!(screen.old_wallet_id(), hex_array(field(FIXTURE, "old_wallet_id_hex")));
+    assert_eq!(
+        screen.old_wallet_id(),
+        hex_array(field(FIXTURE, "old_wallet_id_hex"))
+    );
     assert_eq!(screen.replacement_wallet_id(), None);
     assert_eq!(screen.destination_index(), None);
     assert_eq!(screen.review_hash(), None);
@@ -409,7 +450,11 @@ fn assert_initial(session: &KitSpendSessionV2, variant: u8) {
 }
 
 fn expected_identities(variant: u8) -> [u8; 2] {
-    if variant & 1 == 0 { [1, 2] } else { [2, 1] }
+    if variant & 1 == 0 {
+        [1, 2]
+    } else {
+        [2, 1]
+    }
 }
 
 fn complete(
@@ -423,11 +468,19 @@ fn complete(
     exact_review: bool,
 ) -> Summary {
     let validation = session
-        .submit_sweep(&mut psbt, source, replacement, destination_index)
+        .submit_sweep(
+            &mut psbt,
+            source,
+            replacement,
+            receive_index(destination_index),
+        )
         .expect("registered sweep validation");
     assert!(psbt.iter().all(|byte| *byte == 0));
     assert_eq!(validation.stage(), KitSpendStageV2::CompletenessStatement);
-    assert_eq!(validation.replacement_wallet_id(), Some(hex_array(field(FIXTURE, "replacement_wallet_id_hex"))));
+    assert_eq!(
+        validation.replacement_wallet_id(),
+        Some(hex_array(field(FIXTURE, "replacement_wallet_id_hex")))
+    );
     assert_eq!(validation.destination_index(), Some(destination_index));
     let review_hash = validation.review_hash().expect("validated review hash");
     if exact_review {
@@ -437,8 +490,13 @@ fn complete(
         .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
         .expect("completeness statement");
     assert_eq!(assertion.stage(), KitSpendStageV2::HumanAssertion);
-    assert_eq!(assertion.assertion_digit().map(|value| value.value()), Some(digit));
-    let identities = session.frame_identities().map(|identity| identity.share_index().as_u8());
+    assert_eq!(
+        assertion.assertion_digit().map(|value| value.value()),
+        Some(digit)
+    );
+    let identities = session
+        .frame_identities()
+        .map(|identity| identity.share_index().as_u8());
     assert_eq!(identities, expected_identities(variant));
     let outcome = session
         .execute(digit_key(digit))
@@ -459,7 +517,10 @@ fn complete(
         hex_vec(field(FIXTURE, "raw_transaction_hex"))
     );
     assert_eq!(finalized.txid(), hex_array(field(FIXTURE, "txid_raw_hex")));
-    assert_eq!(finalized.wtxid(), hex_array(field(FIXTURE, "wtxid_raw_hex")));
+    assert_eq!(
+        finalized.wtxid(),
+        hex_array(field(FIXTURE, "wtxid_raw_hex"))
+    );
     Summary::Success {
         mode: if variant & 2 == 0 {
             KitInputModeV2::Scanner
@@ -475,7 +536,6 @@ fn complete(
         raw_transaction_sha256: reference_hash(finalized.raw_transaction()),
         txid: finalized.txid(),
         wtxid: finalized.wtxid(),
-        sign_finalize_count: 1,
     }
 }
 
@@ -485,7 +545,6 @@ fn constructor_rejection(error: KitSpendErrorV2, expected: &'static str) -> Summ
     Summary::Rejected {
         error: error.name(),
         terminal: None,
-        sign_finalize_count: 0,
     }
 }
 
@@ -509,7 +568,6 @@ fn rejected<T>(
     Summary::Rejected {
         error: error.name(),
         terminal,
-        sign_finalize_count: 0,
     }
 }
 
@@ -517,12 +575,14 @@ fn consumed_rejection(error: KitSpendErrorV2, expected: &'static str) -> Summary
     constructor_rejection(error, expected)
 }
 
-fn prepare_to_completeness(
-    session: &mut KitSpendSessionV2,
-    psbt: &mut [u8],
-) {
+fn prepare_to_completeness(session: &mut KitSpendSessionV2, psbt: &mut [u8]) {
     let screen = session
-        .submit_sweep(psbt, InputSource::MicroSd, &replacement_descriptors(), 0)
+        .submit_sweep(
+            psbt,
+            InputSource::MicroSd,
+            &replacement_descriptors(),
+            receive_index(0),
+        )
         .expect("registered sweep");
     assert!(psbt.iter().all(|byte| *byte == 0));
     assert_eq!(screen.stage(), KitSpendStageV2::CompletenessStatement);
@@ -560,6 +620,43 @@ fn fast_rejection(data: &[u8]) -> Summary {
     constructor_rejection(error, "InvalidHumanAssertionDigit")
 }
 
+fn hostile_psbt(data: &[u8]) -> Vec<u8> {
+    let mode = data.get(3).copied().unwrap_or(0) % 4;
+    let hostile = data.get(4..).unwrap_or_default();
+    match mode {
+        0 => hostile.to_vec(),
+        1 => {
+            let mut bytes = base_s0();
+            let cut = hostile.iter().fold(0usize, |value, byte| {
+                value.wrapping_mul(257).wrapping_add(usize::from(*byte))
+            }) % bytes.len();
+            bytes.truncate(cut);
+            bytes
+        }
+        2 => {
+            let mut bytes = base_s0();
+            if hostile.is_empty() {
+                bytes[0] ^= 1;
+            } else {
+                for (offset, byte) in hostile.iter().enumerate() {
+                    let index = (offset.wrapping_mul(257) + usize::from(*byte)) % bytes.len();
+                    bytes[index] ^= *byte | 1;
+                }
+            }
+            bytes
+        }
+        _ => {
+            let mut bytes = base_s0();
+            if hostile.is_empty() {
+                bytes.push(0xff);
+            } else {
+                bytes.extend_from_slice(hostile);
+            }
+            bytes
+        }
+    }
+}
+
 fn run(data: &[u8], scenario: u8) -> Summary {
     let variant = data.get(1).copied().unwrap_or(0) % 4;
     let digit = data.get(2).copied().unwrap_or(0) % 10;
@@ -586,8 +683,16 @@ fn run(data: &[u8], scenario: u8) -> Summary {
         }
         2 => {
             let mut wrong = old_descriptors();
-            let offset = usize::from(data.get(3).copied().unwrap_or(0)) % wrong[0].len();
-            wrong[0][offset] ^= 1;
+            let branch = usize::from(data.get(4).copied().unwrap_or(0)) % wrong.len();
+            let offset = data
+                .get(3..)
+                .unwrap_or_default()
+                .iter()
+                .fold(0usize, |value, byte| {
+                    value.wrapping_mul(257).wrapping_add(usize::from(*byte))
+                })
+                % wrong[branch].len();
+            wrong[branch][offset] ^= 1;
             let error = KitSpendSessionV2::begin(
                 intake_ready(KitDoorV2::KitSpend, variant),
                 &wrong,
@@ -602,47 +707,95 @@ fn run(data: &[u8], scenario: u8) -> Summary {
             let mut replacement = replacement_descriptors();
             replacement[0][0] ^= 1;
             let mut psbt = base_s0();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement, 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement,
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "ReplacementDescriptorInvalid", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "ReplacementDescriptorInvalid",
+                WipingReasonV2::OperationFailed,
+            )
         }
         4 => {
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 65_536);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(65_536),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "DestinationIndexOutOfRange", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "DestinationIndexOutOfRange",
+                WipingReasonV2::OperationFailed,
+            )
         }
         5 => {
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &old_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &old_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "ReplacementWalletUnchanged", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "ReplacementWalletUnchanged",
+                WipingReasonV2::OperationFailed,
+            )
         }
         6 => {
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 1);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(1),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "DestinationMismatch", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "DestinationMismatch",
+                WipingReasonV2::OperationFailed,
+            )
         }
         7 | 8 => {
             let outputs = if scenario == 7 {
                 Vec::new()
             } else {
-                vec![(450_000, destination_script()), (450_000, destination_script())]
+                vec![
+                    (450_000, destination_script()),
+                    (450_000, destination_script()),
+                ]
             };
             let mut psbt = constructed_s0(1, outputs, None, false);
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            let expected = if scenario == 7 {
-                "TransactionParseFailed"
-            } else {
-                "OutputCountNotOne"
-            };
-            rejected(result, &mut session, expected, WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "OutputCountNotOne",
+                WipingReasonV2::OperationFailed,
+            )
         }
         9 | 10 => {
             let mut psbt = if scenario == 9 {
@@ -656,10 +809,24 @@ fn run(data: &[u8], scenario: u8) -> Summary {
                 old_change_s0()
             };
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            let expected = if scenario == 9 { "OldWalletDestination" } else { "ChangeOutputProhibited" };
-            rejected(result, &mut session, expected, WipingReasonV2::OperationFailed)
+            let expected = if scenario == 9 {
+                "OldWalletDestination"
+            } else {
+                "ChangeOutputProhibited"
+            };
+            rejected(
+                result,
+                &mut session,
+                expected,
+                WipingReasonV2::OperationFailed,
+            )
         }
         11 | 12 | 13 => {
             let script = match scenario {
@@ -670,38 +837,86 @@ fn run(data: &[u8], scenario: u8) -> Summary {
             let amount = if scenario == 11 { 0 } else { 900_000 };
             let mut psbt = constructed_s0(1, vec![(amount, script)], None, false);
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "DestinationTypeMismatch", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "DestinationTypeMismatch",
+                WipingReasonV2::OperationFailed,
+            )
         }
         14 => {
             let mut wrong = destination_script();
             wrong[2 + usize::from(data.get(3).copied().unwrap_or(0)) % 32] ^= 1;
             let mut psbt = constructed_s0(1, vec![(900_000, wrong)], None, false);
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "DestinationMismatch", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "DestinationMismatch",
+                WipingReasonV2::OperationFailed,
+            )
         }
         15 => {
             let mut psbt = constructed_s0(1, vec![(900_000, destination_script())], None, true);
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "ExistingSignatureVerificationFailed", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "ExistingSignatureVerificationFailed",
+                WipingReasonV2::OperationFailed,
+            )
         }
         16 => {
             let foreign = usize::from(data.get(3).copied().unwrap_or(0)) % 3;
-            let mut psbt = constructed_s0(3, vec![(2_900_000, destination_script())], Some(foreign), false);
+            let mut psbt = constructed_s0(
+                3,
+                vec![(2_900_000, destination_script())],
+                Some(foreign),
+                false,
+            );
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.submit_sweep(&mut psbt, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(psbt.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "TransactionReviewRejected", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "TransactionReviewRejected",
+                WipingReasonV2::OperationFailed,
+            )
         }
         17 => {
             let session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             consumed_rejection(
-                session.execute(digit_key(digit)).err().expect("missing statement"),
+                session
+                    .execute(digit_key(digit))
+                    .err()
+                    .expect("missing statement"),
                 "CompletenessStatementMissing",
             )
         }
@@ -709,47 +924,148 @@ fn run(data: &[u8], scenario: u8) -> Summary {
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
             prepare_to_assertion(&mut session, &mut psbt);
-            let key = if scenario == 18 { digit_key((digit + 1) % 10) } else { KeypadKey::CancelBack };
-            let expected = if scenario == 18 { "HumanAssertionMismatch" } else { "Cancelled" };
-            consumed_rejection(session.execute(key).err().expect("wrong assertion"), expected)
+            let key = if scenario == 18 {
+                digit_key((digit + 1) % 10)
+            } else {
+                KeypadKey::CancelBack
+            };
+            let expected = if scenario == 18 {
+                "HumanAssertionMismatch"
+            } else {
+                "Cancelled"
+            };
+            consumed_rejection(
+                session.execute(key).err().expect("wrong assertion"),
+                expected,
+            )
         }
         20 => {
             let stage = data.get(3).copied().unwrap_or(0) % 3;
             let selected = data.get(4).copied().unwrap_or(0) % 8;
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
-            if stage >= 1 { prepare_to_completeness(&mut session, &mut psbt); }
+            if stage >= 1 {
+                prepare_to_completeness(&mut session, &mut psbt);
+            }
             if stage == 2 {
-                session.confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded).unwrap();
+                session
+                    .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+                    .unwrap();
             }
             let (event, name, reason) = match selected {
-                0 => (KitSpendInterruptionV2::Cancelled, "Cancelled", WipingReasonV2::Cancelled),
-                1 => (KitSpendInterruptionV2::OperationFailed, "OperationFailed", WipingReasonV2::OperationFailed),
-                2 => (KitSpendInterruptionV2::MediaRemoved, "MediaRemoved", WipingReasonV2::MediaRemoved),
-                3 => (KitSpendInterruptionV2::CardRemoved, "CardRemoved", WipingReasonV2::CardRemoved),
-                4 => (KitSpendInterruptionV2::SessionTimeout, "SessionTimeout", WipingReasonV2::SessionTimeout),
-                5 => (KitSpendInterruptionV2::Shutdown, "Shutdown", WipingReasonV2::Shutdown),
-                6 => (KitSpendInterruptionV2::Restart, "Restart", WipingReasonV2::Restart),
-                _ => (KitSpendInterruptionV2::PowerLoss, "PowerLoss", WipingReasonV2::PowerLoss),
+                0 => (
+                    KitSpendInterruptionV2::Cancelled,
+                    "Cancelled",
+                    WipingReasonV2::Cancelled,
+                ),
+                1 => (
+                    KitSpendInterruptionV2::OperationFailed,
+                    "OperationFailed",
+                    WipingReasonV2::OperationFailed,
+                ),
+                2 => (
+                    KitSpendInterruptionV2::MediaRemoved,
+                    "MediaRemoved",
+                    WipingReasonV2::MediaRemoved,
+                ),
+                3 => (
+                    KitSpendInterruptionV2::CardRemoved,
+                    "CardRemoved",
+                    WipingReasonV2::CardRemoved,
+                ),
+                4 => (
+                    KitSpendInterruptionV2::SessionTimeout,
+                    "SessionTimeout",
+                    WipingReasonV2::SessionTimeout,
+                ),
+                5 => (
+                    KitSpendInterruptionV2::Shutdown,
+                    "Shutdown",
+                    WipingReasonV2::Shutdown,
+                ),
+                6 => (
+                    KitSpendInterruptionV2::Restart,
+                    "Restart",
+                    WipingReasonV2::Restart,
+                ),
+                _ => (
+                    KitSpendInterruptionV2::PowerLoss,
+                    "PowerLoss",
+                    WipingReasonV2::PowerLoss,
+                ),
             };
             let result = session.interrupt(event);
             rejected(result, &mut session, name, reason)
         }
         21 => {
             let selected = data.get(3).copied().unwrap_or(0) % 11;
+            let stage = data.get(4).copied().unwrap_or(0) % 3;
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
+            let mut psbt = base_s0();
+            if stage >= 1 {
+                prepare_to_completeness(&mut session, &mut psbt);
+            }
+            if stage == 2 {
+                session
+                    .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+                    .unwrap();
+            }
             let (operation, name, reason) = match selected {
-                0 => (KitSpendForeignOperationV2::Signing, "SigningOutsideSweep", WipingReasonV2::OperationFailed),
-                1 => (KitSpendForeignOperationV2::Transaction, "TransactionOutsideSweep", WipingReasonV2::OperationFailed),
-                2 => (KitSpendForeignOperationV2::Review, "ReviewOutsideSweep", WipingReasonV2::OperationFailed),
-                3 => (KitSpendForeignOperationV2::Approval, "ApprovalProhibited", WipingReasonV2::OperationFailed),
-                4 => (KitSpendForeignOperationV2::Export, "ExportProhibited", WipingReasonV2::OperationFailed),
-                5 => (KitSpendForeignOperationV2::Intake, "ForeignInputProhibited", WipingReasonV2::KitScannerModeMismatch),
-                6 => (KitSpendForeignOperationV2::NormalWallet, "NormalWalletOperationProhibited", WipingReasonV2::OperationFailed),
-                7 => (KitSpendForeignOperationV2::Restore, "RestoreProhibited", WipingReasonV2::OperationFailed),
-                8 => (KitSpendForeignOperationV2::KitGeneration, "KitGenerationProhibited", WipingReasonV2::OperationFailed),
-                9 => (KitSpendForeignOperationV2::KitRegeneration, "KitRegenerationProhibited", WipingReasonV2::OperationFailed),
-                _ => (KitSpendForeignOperationV2::DoorSwitch, "DoorSwitchAttempt", WipingReasonV2::DoorSwitchAttempt),
+                0 => (
+                    KitSpendForeignOperationV2::Signing,
+                    "SigningOutsideSweep",
+                    WipingReasonV2::OperationFailed,
+                ),
+                1 => (
+                    KitSpendForeignOperationV2::Transaction,
+                    "TransactionOutsideSweep",
+                    WipingReasonV2::OperationFailed,
+                ),
+                2 => (
+                    KitSpendForeignOperationV2::Review,
+                    "ReviewOutsideSweep",
+                    WipingReasonV2::OperationFailed,
+                ),
+                3 => (
+                    KitSpendForeignOperationV2::Approval,
+                    "ApprovalProhibited",
+                    WipingReasonV2::OperationFailed,
+                ),
+                4 => (
+                    KitSpendForeignOperationV2::Export,
+                    "ExportProhibited",
+                    WipingReasonV2::OperationFailed,
+                ),
+                5 => (
+                    KitSpendForeignOperationV2::Intake,
+                    "ForeignInputProhibited",
+                    WipingReasonV2::KitScannerModeMismatch,
+                ),
+                6 => (
+                    KitSpendForeignOperationV2::NormalWallet,
+                    "NormalWalletOperationProhibited",
+                    WipingReasonV2::OperationFailed,
+                ),
+                7 => (
+                    KitSpendForeignOperationV2::Restore,
+                    "RestoreProhibited",
+                    WipingReasonV2::OperationFailed,
+                ),
+                8 => (
+                    KitSpendForeignOperationV2::KitGeneration,
+                    "KitGenerationProhibited",
+                    WipingReasonV2::OperationFailed,
+                ),
+                9 => (
+                    KitSpendForeignOperationV2::KitRegeneration,
+                    "KitRegenerationProhibited",
+                    WipingReasonV2::OperationFailed,
+                ),
+                _ => (
+                    KitSpendForeignOperationV2::DoorSwitch,
+                    "DoorSwitchAttempt",
+                    WipingReasonV2::DoorSwitchAttempt,
+                ),
             };
             let result = session.reject_foreign_operation(operation);
             rejected(result, &mut session, name, reason)
@@ -759,29 +1075,55 @@ fn run(data: &[u8], scenario: u8) -> Summary {
             let mut first = base_s0();
             prepare_to_completeness(&mut session, &mut first);
             let mut second = base_s0();
-            let result = session.submit_sweep(&mut second, InputSource::MicroSd, &replacement_descriptors(), 0);
+            let result = session.submit_sweep(
+                &mut second,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
             assert!(second.iter().all(|byte| *byte == 0));
-            rejected(result, &mut session, "TransactionOutsideSweep", WipingReasonV2::OperationFailed)
+            rejected(
+                result,
+                &mut session,
+                "TransactionOutsideSweep",
+                WipingReasonV2::OperationFailed,
+            )
         }
         23 => {
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
-            let result = session.confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded);
-            rejected(result, &mut session, "CompletenessStatementMissing", WipingReasonV2::OperationFailed)
+            let result =
+                session.confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded);
+            rejected(
+                result,
+                &mut session,
+                "CompletenessStatementMissing",
+                WipingReasonV2::OperationFailed,
+            )
         }
         24 => {
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
             prepare_to_assertion(&mut session, &mut psbt);
-            let result = session.confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded);
-            rejected(result, &mut session, "CompletenessStatementMissing", WipingReasonV2::OperationFailed)
+            let result =
+                session.confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded);
+            rejected(
+                result,
+                &mut session,
+                "InvalidTransition",
+                WipingReasonV2::InvalidTransition,
+            )
         }
         25 => {
             let stage = data.get(3).copied().unwrap_or(0) % 3;
             let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
             let mut psbt = base_s0();
-            if stage >= 1 { prepare_to_completeness(&mut session, &mut psbt); }
+            if stage >= 1 {
+                prepare_to_completeness(&mut session, &mut psbt);
+            }
             if stage == 2 {
-                session.confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded).unwrap();
+                session
+                    .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+                    .unwrap();
             }
             let stage = session.screen().expect("active drop stage").stage();
             drop(session);
@@ -800,21 +1142,88 @@ fn run(data: &[u8], scenario: u8) -> Summary {
                 false,
             )
         }
+        27 => {
+            let mut session = begin_session(KitDoorV2::KitSpend, variant, digit).unwrap();
+            let mut psbt = hostile_psbt(data);
+            let result = session.submit_sweep(
+                &mut psbt,
+                InputSource::MicroSd,
+                &replacement_descriptors(),
+                receive_index(0),
+            );
+            assert!(psbt.iter().all(|byte| *byte == 0));
+            match result {
+                Ok(screen) => {
+                    assert_eq!(screen.stage(), KitSpendStageV2::CompletenessStatement);
+                    assert_eq!(session.failure(), None);
+                    assert_eq!(session.terminal(), None);
+                    Summary::Validated {
+                        review_hash: screen.review_hash().expect("validated review hash"),
+                        destination_index: screen
+                            .destination_index()
+                            .expect("validated destination index"),
+                    }
+                }
+                Err(error) => {
+                    assert_eq!(error.to_string(), error.name());
+                    assert_eq!(session.failure(), Some(error));
+                    let terminal = session.terminal();
+                    assert!(matches!(terminal, Some(FlowTerminalV2::FailedWiped(_))));
+                    assert_eq!(session.screen(), None);
+                    Summary::Rejected {
+                        error: error.name(),
+                        terminal,
+                    }
+                }
+            }
+        }
         _ => unreachable!(),
     }
+}
+
+fn observed_run(data: &[u8], scenario: Option<u8>) -> ObservedSummary {
+    reset_kit_spend_execution_trace_v2();
+    let result = scenario.map_or_else(|| fast_rejection(data), |selected| run(data, selected));
+    let execution = kit_spend_execution_trace_v2();
+    assert_eq!(execution.callback_count, 0);
+    match result {
+        Summary::Success { .. } => {
+            assert_eq!(execution.sign_count, 1);
+            assert_eq!(execution.finalize_count, 1);
+            assert_eq!(execution.terminal, Some(FlowTerminalV2::CompletedWiped));
+        }
+        Summary::Rejected { error, terminal } => {
+            assert_eq!(execution.sign_count, 0);
+            assert_eq!(execution.finalize_count, 0);
+            if let Some(expected) = terminal {
+                assert_eq!(execution.terminal, Some(expected));
+            } else if error == "InvalidHumanAssertionDigit" {
+                assert_eq!(execution.terminal, None);
+            } else {
+                assert!(matches!(
+                    execution.terminal,
+                    Some(FlowTerminalV2::FailedWiped(_))
+                ));
+            }
+        }
+        Summary::Validated { .. } | Summary::Dropped { .. } => {
+            assert_eq!(execution.sign_count, 0);
+            assert_eq!(execution.finalize_count, 0);
+            assert_eq!(
+                execution.terminal,
+                Some(FlowTerminalV2::FailedWiped(WipingReasonV2::Cancelled))
+            );
+        }
+    }
+    ObservedSummary { result, execution }
 }
 
 fuzz_target!(|data: &[u8]| {
     if data.len() > MAX_PRESENTED_BYTES {
         return;
     }
-    let Some(scenario) = selected_scenario(data) else {
-        let first = fast_rejection(data);
-        let second = fast_rejection(data);
-        assert_eq!(first, second);
-        return;
-    };
-    let first = run(data, scenario);
-    let second = run(data, scenario);
+    let scenario = selected_scenario(data);
+    let first = observed_run(data, scenario);
+    let second = observed_run(data, scenario);
     assert_eq!(first, second);
 });
