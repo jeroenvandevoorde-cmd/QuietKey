@@ -12,12 +12,14 @@
 
 #![deny(unsafe_code)]
 
+mod session;
 mod stream;
 mod wipe;
 mod wire;
 
 use core::fmt;
 
+pub use session::{CoreEvent, CoreProtocol, IoEvent, IoProtocol, OutboundFrame};
 pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};
 pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};
 
