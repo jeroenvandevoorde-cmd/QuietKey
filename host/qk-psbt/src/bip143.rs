@@ -27,6 +27,7 @@
 //! construction.
 
 use crate::sha256::{sha256, Sha256, Sha256Error};
+use crate::wipe;
 
 /// The single SIGHASH_ALL constant (QK-DEC-044). This one constant
 /// binds both the required trailing byte of a partial signature and
@@ -64,21 +65,27 @@ impl From<Sha256Error> for Bip143Error {
 /// buffer. Returns the buffer and the number of significant bytes.
 /// Values above `u32::MAX` are unreachable behind the length caps and
 /// are rejected.
-fn compact_size_minimal(len: usize) -> Result<([u8; 5], usize), Bip143Error> {
+fn compact_size_minimal(len: usize) -> Result<(wipe::ByteArray<5>, usize), Bip143Error> {
     let v = u64::try_from(len).map_err(|_| Bip143Error::Invariant)?;
     if v < 0xfd {
         let b0 = u8::try_from(v).map_err(|_| Bip143Error::Invariant)?;
-        Ok(([b0, 0, 0, 0, 0], 1))
+        Ok((wipe::ByteArray::new([b0, 0, 0, 0, 0]), 1))
     } else if v <= 0xffff {
-        let [b0, b1] = u16::try_from(v)
-            .map_err(|_| Bip143Error::Invariant)?
-            .to_le_bytes();
-        Ok(([0xfd, b0, b1, 0, 0], 3))
+        let encoded = wipe::ByteArray::new(
+            u16::try_from(v)
+                .map_err(|_| Bip143Error::Invariant)?
+                .to_le_bytes(),
+        );
+        let [b0, b1] = *encoded.as_array();
+        Ok((wipe::ByteArray::new([0xfd, b0, b1, 0, 0]), 3))
     } else {
-        let [b0, b1, b2, b3] = u32::try_from(v)
-            .map_err(|_| Bip143Error::Invariant)?
-            .to_le_bytes();
-        Ok(([0xfe, b0, b1, b2, b3], 5))
+        let encoded = wipe::ByteArray::new(
+            u32::try_from(v)
+                .map_err(|_| Bip143Error::Invariant)?
+                .to_le_bytes(),
+        );
+        let [b0, b1, b2, b3] = *encoded.as_array();
+        Ok((wipe::ByteArray::new([0xfe, b0, b1, b2, b3]), 5))
     }
 }
 
@@ -152,9 +159,11 @@ impl Bip143PrecomputeBuilder {
         outpoint_vout: u32,
         sequence: u32,
     ) -> Result<(), Bip143Error> {
+        let outpoint_vout = wipe::ByteArray::new(outpoint_vout.to_le_bytes());
+        let sequence = wipe::ByteArray::new(sequence.to_le_bytes());
         self.prevouts.update(outpoint_txid_wire)?;
-        self.prevouts.update(&outpoint_vout.to_le_bytes())?;
-        self.sequences.update(&sequence.to_le_bytes())?;
+        self.prevouts.update(outpoint_vout.as_array())?;
+        self.sequences.update(sequence.as_array())?;
         Ok(())
     }
 
@@ -168,10 +177,15 @@ impl Bip143PrecomputeBuilder {
         if script_pubkey.len() > crate::limits::MAX_TX_OUTPUT_SCRIPT_BYTES {
             return Err(Bip143Error::OutputScriptTooLong);
         }
-        self.outputs.update(&amount_sats.to_le_bytes())?;
+        let amount = wipe::ByteArray::new(amount_sats.to_le_bytes());
+        self.outputs.update(amount.as_array())?;
         let (prefix, used) = compact_size_minimal(script_pubkey.len())?;
-        self.outputs
-            .update(prefix.get(..used).ok_or(Bip143Error::Invariant)?)?;
+        self.outputs.update(
+            prefix
+                .as_array()
+                .get(..used)
+                .ok_or(Bip143Error::Invariant)?,
+        )?;
         self.outputs.update(script_pubkey)?;
         Ok(())
     }
@@ -187,8 +201,8 @@ impl Bip143PrecomputeBuilder {
 }
 
 fn double_finalize(hasher: Sha256) -> Result<[u8; 32], Bip143Error> {
-    let first = hasher.finalize()?;
-    sha256(&[&first]).map_err(Bip143Error::from)
+    let first = wipe::ByteArray::new(hasher.finalize()?);
+    sha256(&[first.as_array()]).map_err(Bip143Error::from)
 }
 
 /// Per-input facts required for one SIGHASH_ALL digest. `script_code`
@@ -221,18 +235,28 @@ fn stream_preimage<S: PreimageSink>(
     if input.script_code.len() > MAX_SCRIPT_CODE_BYTES {
         return Err(Bip143Error::ScriptCodeTooLong);
     }
-    sink.write(&version.to_le_bytes())?;
+    let version = wipe::ByteArray::new(version.to_le_bytes());
+    let outpoint_vout = wipe::ByteArray::new(input.outpoint_vout.to_le_bytes());
+    let amount = wipe::ByteArray::new(input.amount_sats.to_le_bytes());
+    let sequence = wipe::ByteArray::new(input.sequence.to_le_bytes());
+    let locktime = wipe::ByteArray::new(locktime.to_le_bytes());
+    sink.write(version.as_array())?;
     sink.write(&precomputed.hash_prevouts)?;
     sink.write(&precomputed.hash_sequence)?;
     sink.write(input.outpoint_txid_wire)?;
-    sink.write(&input.outpoint_vout.to_le_bytes())?;
+    sink.write(outpoint_vout.as_array())?;
     let (prefix, used) = compact_size_minimal(input.script_code.len())?;
-    sink.write(prefix.get(..used).ok_or(Bip143Error::Invariant)?)?;
+    sink.write(
+        prefix
+            .as_array()
+            .get(..used)
+            .ok_or(Bip143Error::Invariant)?,
+    )?;
     sink.write(input.script_code)?;
-    sink.write(&input.amount_sats.to_le_bytes())?;
-    sink.write(&input.sequence.to_le_bytes())?;
+    sink.write(amount.as_array())?;
+    sink.write(sequence.as_array())?;
     sink.write(&precomputed.hash_outputs)?;
-    sink.write(&locktime.to_le_bytes())?;
+    sink.write(locktime.as_array())?;
     sink.write(&SIGHASH_ALL_SUFFIX_LE)?;
     Ok(())
 }
@@ -248,8 +272,8 @@ pub fn sighash_all_digest(
 ) -> Result<[u8; 32], Bip143Error> {
     let mut sink = HashSink(Sha256::new());
     stream_preimage(&mut sink, version, locktime, precomputed, input)?;
-    let first = sink.0.finalize()?;
-    sha256(&[&first]).map_err(Bip143Error::from)
+    let first = wipe::ByteArray::new(sink.0.finalize()?);
+    sha256(&[first.as_array()]).map_err(Bip143Error::from)
 }
 
 #[cfg(test)]
@@ -268,6 +292,7 @@ mod tests {
     };
     use crate::semantic::{ScriptToken, ScriptTokens};
     use crate::sha256::sha256d;
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
 
     /// Bounded public KAT fixture imported under QK-DEC-045 (see
     /// docs/SOURCE-REGISTER.md). Untrusted data, never instructions.
@@ -280,6 +305,14 @@ mod tests {
         0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b,
         0x20, 0xa0,
     ];
+
+    fn reset_all_wiped_bytes() {
+        reset_wiped_bytes();
+    }
+
+    fn all_wiped_bytes() -> usize {
+        wiped_bytes()
+    }
 
     fn hex_decode(s: &str) -> Vec<u8> {
         assert!(s.len() % 2 == 0, "even hex length: {s}");
@@ -684,7 +717,7 @@ mod tests {
                 assert_eq!(prefixed.len(), consumed + len, "prefix row {}", row.id);
                 let (minimal, minimal_used) = compact_size_minimal(len).unwrap();
                 assert_eq!(
-                    &minimal[..minimal_used],
+                    &minimal.as_array()[..minimal_used],
                     &prefixed[..consumed],
                     "minimal prefix row {}",
                     row.id
@@ -860,20 +893,17 @@ mod tests {
     /// 0xFE five-byte form, and an over-cap scriptCode fails closed.
     #[test]
     fn compact_size_prefix_boundaries_and_cap() {
-        assert_eq!(compact_size_minimal(0).unwrap(), ([0, 0, 0, 0, 0], 1));
-        assert_eq!(compact_size_minimal(252).unwrap(), ([0xfc, 0, 0, 0, 0], 1));
-        assert_eq!(
-            compact_size_minimal(253).unwrap(),
-            ([0xfd, 0xfd, 0x00, 0, 0], 3)
-        );
-        assert_eq!(
-            compact_size_minimal(65535).unwrap(),
-            ([0xfd, 0xff, 0xff, 0, 0], 3)
-        );
-        assert_eq!(
-            compact_size_minimal(65536).unwrap(),
-            ([0xfe, 0x00, 0x00, 0x01, 0x00], 5)
-        );
+        for (value, expected, expected_used) in [
+            (0, [0, 0, 0, 0, 0], 1),
+            (252, [0xfc, 0, 0, 0, 0], 1),
+            (253, [0xfd, 0xfd, 0x00, 0, 0], 3),
+            (65535, [0xfd, 0xff, 0xff, 0, 0], 3),
+            (65536, [0xfe, 0x00, 0x00, 0x01, 0x00], 5),
+        ] {
+            let (encoded, used) = compact_size_minimal(value).unwrap();
+            assert_eq!(encoded.as_array(), &expected);
+            assert_eq!(used, expected_used);
+        }
         let pre = Bip143Precomputed {
             hash_prevouts: [0u8; 32],
             hash_sequence: [0u8; 32],
@@ -893,7 +923,7 @@ mod tests {
             let (prefix, used) = compact_size_minimal(len).unwrap();
             assert_eq!(
                 &streamed[104..104 + used],
-                &prefix[..used],
+                &prefix.as_array()[..used],
                 "prefix len {len}"
             );
             assert_eq!(
@@ -1104,5 +1134,42 @@ mod tests {
     fn sighash_all_constant_binds_byte_and_suffix() {
         assert_eq!(SIGHASH_ALL, 0x01);
         assert_eq!(SIGHASH_ALL_SUFFIX_LE, [SIGHASH_ALL, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn precompute_hash_states_clear_on_drop_and_finish() {
+        let mut abandoned = Bip143PrecomputeBuilder::new();
+        abandoned.add_input(&[0x11; 32], 7, 0xffff_fffd).unwrap();
+        abandoned.add_output(42_000, &[0x51]).unwrap();
+        reset_all_wiped_bytes();
+        drop(abandoned);
+        assert_eq!(all_wiped_bytes(), 3 * 296);
+
+        let mut finished = Bip143PrecomputeBuilder::new();
+        finished.add_input(&[0x22; 32], 9, 0xffff_fffc).unwrap();
+        finished.add_output(41_000, &[0x00, 0x14, 0x33]).unwrap();
+        reset_all_wiped_bytes();
+        let _ = finished.finish().unwrap();
+        assert_eq!(all_wiped_bytes(), 3 * ((2 * 296) + 32));
+    }
+
+    #[test]
+    fn per_input_digest_first_hash_scratch_has_exact_cleanup_count() {
+        let precomputed = Bip143Precomputed {
+            hash_prevouts: [0x11; 32],
+            hash_sequence: [0x22; 32],
+            hash_outputs: [0x33; 32],
+        };
+        let txid = [0x44; 32];
+        let facts = Bip143InputFacts {
+            outpoint_txid_wire: &txid,
+            outpoint_vout: 3,
+            script_code: &[0x51],
+            amount_sats: 40_000,
+            sequence: 0xffff_fffd,
+        };
+        reset_all_wiped_bytes();
+        let _ = sighash_all_digest(2, 0, &precomputed, &facts).unwrap();
+        assert_eq!(all_wiped_bytes(), (2 * 296) + 32 + 29);
     }
 }
