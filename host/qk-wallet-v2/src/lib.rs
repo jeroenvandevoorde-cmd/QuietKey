@@ -1,13 +1,15 @@
 //! Fixed-memory HOST reference for QuietKey v2 entropy-to-public-wallet facts.
 //!
 //! HOST REFERENCE ONLY — NOT PRODUCTION CRYPTOGRAPHY — NOT A WALLET —
-//! NO ENTROPY, SIGNING, CARD, TARGET, PERFORMANCE, OR GATE CLAIM.
+//! NO ENTROPY, GENERAL SIGNING, CARD, TARGET, PERFORMANCE, OR GATE CLAIM.
 //!
 //! The two caller-supplied entropy values are transformed through the frozen
 //! v2 BIP39/BIP32/descriptor chain. Only role-ordered public account facts,
 //! exact descriptors, wallet identity, and first-route public facts leave the
-//! crate. No mnemonic, seed, scalar, chain code, xprv, or signing operation is
-//! public.
+//! crate. No mnemonic, seed, scalar, chain code, xprv, arbitrary digest, or
+//! reusable signer is public. The sole signing operation accepts qk-psbt's
+//! opaque validated Kit-sweep capability and returns ordered wiping low-S DER
+//! owners.
 
 #![deny(unsafe_code)]
 
@@ -20,10 +22,16 @@ mod ripemd160;
 mod secret;
 mod sha256;
 mod sha512;
+mod spend_v2;
 
 use bip32_private::derive_account;
 use core::fmt;
 use descriptor::build_wallet_v2;
+
+pub use spend_v2::{
+    sign_validated_kit_sweep_v3, KitSweepDerSignatureV3, KitSweepInputSignaturesV3,
+    KitSweepSigningErrorV3, WalletKitSweepSignaturesV3,
+};
 
 /// Closed failure surface for v2 entropy-to-public-wallet derivation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

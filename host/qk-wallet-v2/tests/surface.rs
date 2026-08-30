@@ -6,10 +6,11 @@ const BIP32: &str = include_str!("../src/bip32_private.rs");
 const DESCRIPTOR: &str = include_str!("../src/descriptor.rs");
 const HMAC_SHA512: &str = include_str!("../src/hmac_sha512.rs");
 const SECRET: &str = include_str!("../src/secret.rs");
+const SPEND: &str = include_str!("../src/spend_v2.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
 #[test]
-fn public_surface_is_only_errors_public_facts_and_two_operations() {
+fn public_surface_is_only_errors_public_facts_and_purpose_bound_operations() {
     let public_lines: Vec<&str> = LIB
         .lines()
         .map(str::trim_start)
@@ -18,6 +19,7 @@ fn public_surface_is_only_errors_public_facts_and_two_operations() {
     assert_eq!(
         public_lines,
         [
+            "pub use spend_v2::{",
             "pub enum WalletV2Error {",
             "pub struct WalletPublicV2 {",
             "pub const fn account_xpubs(&self) -> [[u8; 111]; 2] {",
@@ -40,7 +42,9 @@ fn public_surface_is_only_errors_public_facts_and_two_operations() {
         "pub fn chain_code",
         "pub fn xprv",
         "pub fn secret",
-        "pub fn sign",
+        "pub fn sign_digest",
+        "pub fn sign_arbitrary",
+        "pub fn signer",
         "pub fn payload",
         "pub fn serialize",
         "pub fn format",
@@ -57,11 +61,28 @@ fn public_surface_is_only_errors_public_facts_and_two_operations() {
         assert!(!source.contains("pub struct "), "private helper type");
         assert!(!source.contains("pub enum "), "private helper error");
     }
+    assert!(SPEND.contains("pub fn sign_validated_kit_sweep_v3("));
+    assert!(SPEND.contains("proof: &ValidatedKitSweepV3,"));
+    for forbidden in [
+        "pub fn digest",
+        "pub fn scalar",
+        "pub fn secret",
+        "pub fn xprv",
+        "pub fn signer",
+        "FnOnce",
+        "FnMut",
+    ] {
+        assert!(
+            !SPEND.contains(forbidden),
+            "forbidden spend surface {forbidden}"
+        );
+    }
 }
 
 #[test]
 fn dependencies_and_fixed_profile_are_exact() {
     assert!(MANIFEST.contains("qk-descriptor = { path = \"../qk-descriptor\" }"));
+    assert!(MANIFEST.contains("qk-psbt = { path = \"../qk-psbt\" }"));
     assert!(MANIFEST.contains("qk-secp = { path = \"../qk-secp\" }"));
     for forbidden in ["qk-a1 =", "crates.io", "git =", "version = \""] {
         if forbidden == "version = \"" {

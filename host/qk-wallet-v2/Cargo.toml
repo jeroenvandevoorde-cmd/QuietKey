@@ -3,8 +3,9 @@ name = "qk-wallet-v2"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "HOST-only fixed-memory QuietKey v2 entropy-to-public-wallet derivation and exact rebind facts."
+description = "HOST-only fixed-memory QuietKey v2 wallet derivation, exact rebind facts, and purpose-bound validated Kit-sweep signing."
 
 [dependencies]
 qk-descriptor = { path = "../qk-descriptor" }
+qk-psbt = { path = "../qk-psbt" }
 qk-secp = { path = "../qk-secp" }

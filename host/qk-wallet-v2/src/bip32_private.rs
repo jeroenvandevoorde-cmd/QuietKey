@@ -19,7 +19,7 @@ pub(crate) struct AccountPublic {
     pub(crate) origin_fingerprint: [u8; 4],
 }
 
-struct PrivateNode {
+pub(crate) struct PrivateNode {
     scalar: Secret<32>,
     chain_code: Secret<32>,
     depth: u8,
@@ -141,6 +141,47 @@ fn derive_hardened(parent: PrivateNode, index: u32) -> Result<PrivateNode, Walle
     })
 }
 
+fn derive_non_hardened(parent: &PrivateNode, index: u32) -> Result<PrivateNode, WalletV2Error> {
+    if index >= HARDENED {
+        return Err(WalletV2Error::CryptographicInvariant);
+    }
+    let child_depth = parent
+        .depth
+        .checked_add(1)
+        .ok_or(WalletV2Error::CryptographicInvariant)?;
+    let parent_pubkey = map_pubkey(
+        parent.scalar.as_bytes(),
+        WalletV2Error::CryptographicBackend,
+    )?;
+    let parent_fingerprint = fingerprint(&parent_pubkey);
+    let mut data = [0u8; 37];
+    data[..33].copy_from_slice(&parent_pubkey);
+    data[33..].copy_from_slice(&index.to_be_bytes());
+    let mut material = [0u8; 64];
+    hmac_sha512_into(parent.chain_code.as_bytes(), &data, &mut material);
+    wipe(&mut data);
+    let mut tweak = [0u8; 32];
+    tweak.copy_from_slice(&material[..32]);
+    let mut child_chain = [0u8; 32];
+    child_chain.copy_from_slice(&material[32..]);
+    wipe(&mut material);
+
+    let mut child_scalar = [0u8; 32];
+    let result = add_child_scalar(parent.scalar.as_bytes(), &tweak, &mut child_scalar);
+    wipe(&mut tweak);
+    result.inspect_err(|_| {
+        wipe(&mut child_chain);
+    })?;
+    Ok(PrivateNode {
+        scalar: Secret::take(&mut child_scalar),
+        chain_code: Secret::take(&mut child_chain),
+        depth: child_depth,
+        parent_fingerprint,
+        child_number: index,
+        origin_fingerprint: parent.origin_fingerprint,
+    })
+}
+
 fn base58_encode(input: &[u8; XPUB_CHECKED_BYTES]) -> Result<[u8; XPUB_TEXT_BYTES], WalletV2Error> {
     let mut digits = [0u8; 112];
     let mut digit_count = 1usize;
@@ -188,7 +229,7 @@ fn encode_xpub(node: &PrivateNode) -> Result<[u8; XPUB_TEXT_BYTES], WalletV2Erro
     base58_encode(&checked)
 }
 
-pub(crate) fn derive_account(seed: &[u8; 64]) -> Result<AccountPublic, WalletV2Error> {
+pub(crate) fn derive_account_private(seed: &[u8; 64]) -> Result<PrivateNode, WalletV2Error> {
     let mut node = master(seed)?;
     for index in PATH {
         node = derive_hardened(node, index)?;
@@ -196,10 +237,36 @@ pub(crate) fn derive_account(seed: &[u8; 64]) -> Result<AccountPublic, WalletV2E
     if node.depth != 4 || node.child_number != HARDENED + 2 {
         return Err(WalletV2Error::CryptographicInvariant);
     }
+    Ok(node)
+}
+
+pub(crate) fn account_public(node: &PrivateNode) -> Result<AccountPublic, WalletV2Error> {
     Ok(AccountPublic {
-        xpub: encode_xpub(&node)?,
+        xpub: encode_xpub(node)?,
         origin_fingerprint: node.origin_fingerprint,
     })
+}
+
+pub(crate) fn derive_account(seed: &[u8; 64]) -> Result<AccountPublic, WalletV2Error> {
+    let node = derive_account_private(seed)?;
+    account_public(&node)
+}
+
+pub(crate) fn derive_route_scalar(
+    account: &PrivateNode,
+    branch: u32,
+    index: u32,
+) -> Result<(Secret<32>, [u8; 33]), WalletV2Error> {
+    if branch > 1 || index > 65_535 {
+        return Err(WalletV2Error::CryptographicInvariant);
+    }
+    let branch_node = derive_non_hardened(account, branch)?;
+    let child = derive_non_hardened(&branch_node, index)?;
+    if child.depth != 6 || child.child_number != index {
+        return Err(WalletV2Error::CryptographicInvariant);
+    }
+    let public_key = map_pubkey(child.scalar.as_bytes(), WalletV2Error::CryptographicBackend)?;
+    Ok((child.scalar, public_key))
 }
 
 #[cfg(test)]
