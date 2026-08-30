@@ -329,7 +329,12 @@ pub fn build_validated_kit_sweep_v3(
 
     let view = match s0.parse() {
         Ok(view) => view,
-        Err(error) if error.category == RejectCategory::UnsignedTxZeroOutputs => {
+        Err(error)
+            if matches!(
+                error.category,
+                RejectCategory::UnsignedTxZeroOutputs | RejectCategory::TooManyOutputs
+            ) =>
+        {
             return Err(KitSweepV3Error::OutputCountNotOne)
         }
         Err(error) => return Err(KitSweepV3Error::Parse(error)),

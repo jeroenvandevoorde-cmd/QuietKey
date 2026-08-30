@@ -88,7 +88,7 @@ fn one_output_psbt(base: &[u8], amount: u64, script: &[u8], output_map: Option<&
     psbt
 }
 
-fn zero_output_psbt(base: &[u8]) -> Vec<u8> {
+fn declared_output_count_psbt(base: &[u8], count: u8) -> Vec<u8> {
     let view = parse(base, InputSource::MicroSd).expect("registered base PSBT");
     assert_eq!(view.unsigned_tx().input_count, 1);
     let unsigned = view.unsigned_tx_bytes();
@@ -97,7 +97,7 @@ fn zero_output_psbt(base: &[u8]) -> Vec<u8> {
 
     let mut transaction = Vec::new();
     transaction.extend_from_slice(&unsigned[..46]);
-    transaction.push(0);
+    transaction.push(count);
     transaction.extend_from_slice(&unsigned[unsigned.len() - 4..]);
 
     let input_map = view.input_map_span(0).expect("one input map");
@@ -108,6 +108,10 @@ fn zero_output_psbt(base: &[u8]) -> Vec<u8> {
     psbt.push(0);
     psbt.extend_from_slice(input_map);
     psbt
+}
+
+fn zero_output_psbt(base: &[u8]) -> Vec<u8> {
+    declared_output_count_psbt(base, 0)
 }
 
 fn two_output_psbt(base: &[u8], first: &[u8], second: &[u8]) -> Vec<u8> {
@@ -396,6 +400,18 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         0,
     ));
     assert_eq!(zero_count_error.name(), "OutputCountNotOne");
+
+    let over_cap_count_error = rejected(build_validated_kit_sweep_v3(
+        OwnedS0::new(
+            &declared_output_count_psbt(&base, 101),
+            InputSource::MicroSd,
+        )
+        .unwrap(),
+        old_descriptor(),
+        replacement_descriptor(),
+        0,
+    ));
+    assert_eq!(over_cap_count_error.name(), "OutputCountNotOne");
 
     let replacement_receive = derive_receive_script_v2(&replacement_descriptor(), 0).unwrap();
     let mixed_count_error = rejected(build_validated_kit_sweep_v3(
