@@ -148,3 +148,4 @@ pub use semantic::{
     VerifiedInputStatus, VerifiedSemanticCandidate, MAX_DESCRIPTOR_V2_VERIFICATION_CALLS,
 };
 pub use serialize::{canonical_serialize, SerializeError};
+pub use wipe::TransactionMaterialVec;

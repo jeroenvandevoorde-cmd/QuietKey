@@ -110,18 +110,17 @@ pub(crate) enum Sha256Error {
 /// One 64-byte block compression (FIPS 180-4 section 6.2.2). The
 /// 16-word schedule window is advanced by full-array destructuring so
 /// no slice indexing is required.
-fn compress(state: [u32; 8], block: &[u8]) -> [u32; 8] {
-    let mut w = [0u32; 16];
-    for (slot, chunk) in w.iter_mut().zip(block.chunks_exact(4)) {
+fn compress(state: &mut [u32; 8], block: &[u8], schedule: &mut [u32; 16]) {
+    for (slot, chunk) in schedule.iter_mut().zip(block.chunks_exact(4)) {
         // `chunks_exact(4)` guarantees four bytes per chunk.
         *slot = match chunk {
             [b0, b1, b2, b3] => u32::from_be_bytes([*b0, *b1, *b2, *b3]),
             _ => 0,
         };
     }
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = state;
+    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
     for k in K {
-        let [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15] = w;
+        let [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15] = *schedule;
         let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
         let ch = (e & f) ^ ((!e) & g);
         let t1 = h
@@ -143,12 +142,12 @@ fn compress(state: [u32; 8], block: &[u8]) -> [u32; 8] {
         let sig0 = w1.rotate_right(7) ^ w1.rotate_right(18) ^ (w1 >> 3);
         let sig1 = w14.rotate_right(17) ^ w14.rotate_right(19) ^ (w14 >> 10);
         let w16 = w0.wrapping_add(sig0).wrapping_add(w9).wrapping_add(sig1);
-        w = [
+        *schedule = [
             w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16,
         ];
     }
-    let [x0, x1, x2, x3, x4, x5, x6, x7] = state;
-    [
+    let [x0, x1, x2, x3, x4, x5, x6, x7] = *state;
+    *state = [
         x0.wrapping_add(a),
         x1.wrapping_add(b),
         x2.wrapping_add(c),
@@ -157,13 +156,16 @@ fn compress(state: [u32; 8], block: &[u8]) -> [u32; 8] {
         x5.wrapping_add(f),
         x6.wrapping_add(g),
         x7.wrapping_add(h),
-    ]
+    ];
 }
 
 /// Streaming SHA-256 hasher with a fixed 64-byte block buffer.
 pub(crate) struct Sha256 {
-    state: [u32; 8],
-    buffer: [u8; BLOCK_LEN],
+    pub(crate) state: [u32; 8],
+    pub(crate) buffer: [u8; BLOCK_LEN],
+    pub(crate) padding: [u8; 128],
+    pub(crate) length_bytes: [u8; 8],
+    pub(crate) schedule: [u32; 16],
     buffered: usize,
     total_bytes: u64,
 }
@@ -173,6 +175,9 @@ impl Sha256 {
         Self {
             state: H0,
             buffer: [0u8; BLOCK_LEN],
+            padding: [0u8; 128],
+            length_bytes: [0u8; 8],
+            schedule: [0u32; 16],
             buffered: 0,
             total_bytes: 0,
         }
@@ -209,12 +214,12 @@ impl Sha256 {
             if self.buffered < BLOCK_LEN {
                 return Ok(());
             }
-            self.state = compress(self.state, &self.buffer);
+            compress(&mut self.state, &self.buffer, &mut self.schedule);
             self.buffered = 0;
         }
         let mut blocks = rest.chunks_exact(BLOCK_LEN);
         for block in &mut blocks {
-            self.state = compress(self.state, block);
+            compress(&mut self.state, block, &mut self.schedule);
         }
         let remainder = blocks.remainder();
         let dst = self
@@ -234,29 +239,47 @@ impl Sha256 {
             .checked_mul(8)
             .ok_or(Sha256Error::LengthOverflow)?;
         let buffered = self.buffered;
-        let mut tail = [0u8; 128];
-        let head = tail.get_mut(..buffered).ok_or(Sha256Error::Invariant)?;
+        let head = self
+            .padding
+            .get_mut(..buffered)
+            .ok_or(Sha256Error::Invariant)?;
         head.copy_from_slice(self.buffer.get(..buffered).ok_or(Sha256Error::Invariant)?);
-        let marker = tail.get_mut(buffered).ok_or(Sha256Error::Invariant)?;
+        let marker = self
+            .padding
+            .get_mut(buffered)
+            .ok_or(Sha256Error::Invariant)?;
         *marker = 0x80;
+        self.length_bytes = bit_len.to_be_bytes();
         // One padded block when the marker and length fit; otherwise two.
         let (used, length_slot) = if buffered < 56 {
-            (BLOCK_LEN, tail.get_mut(56..64))
+            (BLOCK_LEN, self.padding.get_mut(56..64))
         } else {
-            (128, tail.get_mut(120..128))
+            (128, self.padding.get_mut(120..128))
         };
         length_slot
             .ok_or(Sha256Error::Invariant)?
-            .copy_from_slice(&bit_len.to_be_bytes());
-        let padded = tail.get(..used).ok_or(Sha256Error::Invariant)?;
+            .copy_from_slice(&self.length_bytes);
+        let padded = self.padding.get(..used).ok_or(Sha256Error::Invariant)?;
         for block in padded.chunks_exact(BLOCK_LEN) {
-            self.state = compress(self.state, block);
+            compress(&mut self.state, block, &mut self.schedule);
         }
         let mut out = [0u8; 32];
-        for (chunk, word) in out.chunks_exact_mut(4).zip(self.state) {
+        for (chunk, word) in out.chunks_exact_mut(4).zip(self.state.iter().copied()) {
             chunk.copy_from_slice(&word.to_be_bytes());
         }
         Ok(out)
+    }
+}
+
+pub(crate) struct DigestScratch(pub(crate) [u8; 32]);
+
+impl DigestScratch {
+    pub(crate) fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    pub(crate) fn as_array(&self) -> &[u8; 32] {
+        &self.0
     }
 }
 
@@ -271,8 +294,8 @@ pub(crate) fn sha256(parts: &[&[u8]]) -> Result<[u8; 32], Sha256Error> {
 
 /// Double SHA-256 (Bitcoin SHA256d) over the concatenation of `parts`.
 pub(crate) fn sha256d(parts: &[&[u8]]) -> Result<[u8; 32], Sha256Error> {
-    let first = sha256(parts)?;
-    sha256(&[&first])
+    let first = DigestScratch::new(sha256(parts)?);
+    sha256(&[first.as_array()])
 }
 
 #[cfg(test)]
