@@ -288,7 +288,8 @@ if [ "$mode" = check ]; then
   for manifest in "$m21_manifest" "$m22_manifest" "$m23_manifest" "$m24_manifest" \
     "$m25_manifest" "$m26_manifest" "$m27_manifest" "$m28_manifest" \
     "$m29_manifest" "$m30_manifest" "$v2s4_manifest" "$v2s5_manifest" \
-    "$v2s6_manifest" "$v2s7_manifest" "$v2s8_manifest" "$v2s9_manifest"; do
+    "$v2s6_manifest" "$v2s7_manifest" "$v2s8_manifest" "$v2s9_manifest" \
+    "$v2s10_manifest"; do
     [ -f "$manifest" ] || fail "$manifest is missing"
     [ ! -L "$manifest" ] || fail "$manifest must not be a symlink"
     git ls-files --error-unmatch -- "$manifest" >/dev/null 2>&1 || \
