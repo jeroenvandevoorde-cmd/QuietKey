@@ -3,9 +3,14 @@
 use crate::finalization::FinalizedTransaction;
 use crate::signing_v2::verify_der_signature;
 use crate::transaction_sha256::sha256d;
+use crate::transaction_wipe_v2::{wipe_bytes, WipingVec};
 use core::fmt;
-use qk_descriptor::{derive_change_script_v2, derive_receive_script_v2, DescriptorPairV2};
-use qk_psbt::bip143::{sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL};
+use qk_descriptor::{
+    derive_change_script_v2, derive_receive_script_v2, DerivedScriptV2, DescriptorPairV2,
+};
+use qk_psbt::bip143::{
+    sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, Bip143Precomputed, SIGHASH_ALL,
+};
 use qk_psbt::{
     analyze_descriptor_ownership_v2, build_review_v3, canonical_serialize, parse, InputSource,
     PsbtView, Record, ReviewContext, ReviewNetwork, ReviewV3, SemanticError, SerializeError,
@@ -107,17 +112,27 @@ impl fmt::Display for FinalizationV2Error {
 
 impl std::error::Error for FinalizationV2Error {}
 
-#[derive(Clone, Copy)]
 struct InputShape {
     witness_script: [u8; WITNESS_SCRIPT_BYTES],
 }
 
-#[derive(Clone, Copy)]
 struct WitnessParts<'a> {
     first_signature: &'a [u8],
     second_signature: &'a [u8],
     witness_script: [u8; WITNESS_SCRIPT_BYTES],
     encoded_len: usize,
+}
+
+impl Drop for InputShape {
+    fn drop(&mut self) {
+        wipe_bytes(&mut self.witness_script);
+    }
+}
+
+impl Drop for WitnessParts<'_> {
+    fn drop(&mut self) {
+        wipe_bytes(&mut self.witness_script);
+    }
 }
 
 pub(super) fn finalize_v2(
@@ -126,9 +141,11 @@ pub(super) fn finalize_v2(
     descriptor: &DescriptorPairV2,
     bound_review: &ReviewV3,
 ) -> Result<FinalizedTransaction, FinalizationV2Error> {
-    let view = parse(&capability, source).map_err(|_| FinalizationV2Error::CapabilityParse)?;
-    let canonical = canonical_serialize(&view).map_err(map_serialize_error)?;
-    if canonical != capability {
+    let capability = WipingVec::take(capability);
+    let view =
+        parse(capability.as_slice(), source).map_err(|_| FinalizationV2Error::CapabilityParse)?;
+    let canonical = WipingVec::take(canonical_serialize(&view).map_err(map_serialize_error)?);
+    if canonical.as_slice() != capability.as_slice() {
         return Err(FinalizationV2Error::NonCanonicalInput);
     }
     let candidate_review = build_review_v3(
@@ -156,11 +173,12 @@ pub(super) fn finalize_v2(
 
     let shapes = collect_input_shapes(&view, descriptor, bound_review)?;
     let witnesses = select_witnesses(&view, &shapes)?;
-    let finalized_psbt = transform_psbt(&view, &capability, &witnesses, source)?;
-    let finalized_view =
-        parse(&finalized_psbt, source).map_err(|_| FinalizationV2Error::FinalizedPsbtReparse)?;
-    let final_canonical = canonical_serialize(&finalized_view).map_err(map_serialize_error)?;
-    if final_canonical != finalized_psbt {
+    let finalized_psbt = transform_psbt(&view, capability.as_slice(), &witnesses, source)?;
+    let finalized_view = parse(finalized_psbt.as_slice(), source)
+        .map_err(|_| FinalizationV2Error::FinalizedPsbtReparse)?;
+    let final_canonical =
+        WipingVec::take(canonical_serialize(&finalized_view).map_err(map_serialize_error)?);
+    if final_canonical.as_slice() != finalized_psbt.as_slice() {
         return Err(FinalizationV2Error::FinalizedPsbtNonCanonical);
     }
     if finalized_view.unsigned_tx_bytes() != view.unsigned_tx_bytes()
@@ -170,16 +188,20 @@ pub(super) fn finalize_v2(
     }
 
     let raw_transaction = extract_raw_transaction(view.unsigned_tx_bytes(), &witnesses)?;
-    let parsed_witnesses =
-        parse_and_rebind_raw(&raw_transaction, view.unsigned_tx_bytes(), &finalized_view)?;
+    let parsed_witnesses = parse_and_rebind_raw(
+        raw_transaction.as_slice(),
+        view.unsigned_tx_bytes(),
+        &finalized_view,
+    )?;
     verify_parsed_witnesses(&parsed_witnesses, &witnesses, bound_review, descriptor)?;
     rebind_final_witness_records(&parsed_witnesses, &finalized_view)?;
 
     let txid = sha256d(&[view.unsigned_tx_bytes()]).map_err(|_| FinalizationV2Error::HashFailed)?;
-    let wtxid = sha256d(&[&raw_transaction]).map_err(|_| FinalizationV2Error::HashFailed)?;
+    let wtxid =
+        sha256d(&[raw_transaction.as_slice()]).map_err(|_| FinalizationV2Error::HashFailed)?;
     Ok(FinalizedTransaction::from_checked_parts(
-        finalized_psbt,
-        raw_transaction,
+        finalized_psbt.into_vec(),
+        raw_transaction.into_vec(),
         txid,
         wtxid,
     ))
@@ -394,7 +416,7 @@ fn transform_psbt(
     bytes: &[u8],
     witnesses: &[WitnessParts<'_>],
     source: InputSource,
-) -> Result<Vec<u8>, FinalizationV2Error> {
+) -> Result<WipingVec, FinalizationV2Error> {
     if witnesses.len() != view.input_map_count() {
         return Err(FinalizationV2Error::InternalInvariant);
     }
@@ -461,23 +483,23 @@ fn transform_psbt(
         return Err(FinalizationV2Error::ArtifactTooLarge);
     }
 
-    let mut finalized = Vec::new();
+    let mut finalized = WipingVec::take(Vec::new());
     finalized
         .try_reserve_exact(final_len)
         .map_err(|_| FinalizationV2Error::AllocationFailed)?;
     append_slice(
-        &mut finalized,
+        finalized.as_mut_vec(),
         bytes
             .get(..PSBT_MAGIC_BYTES)
             .ok_or(FinalizationV2Error::InternalInvariant)?,
     );
-    append_span(&mut finalized, bytes, view.global_map_span())?;
+    append_span(finalized.as_mut_vec(), bytes, view.global_map_span())?;
     for (input_index, witness) in witnesses.iter().enumerate() {
-        emit_finalized_input(&mut finalized, view, bytes, input_index, witness)?;
+        emit_finalized_input(finalized.as_mut_vec(), view, bytes, input_index, witness)?;
     }
     for output_index in 0..view.output_map_count() {
         append_span(
-            &mut finalized,
+            finalized.as_mut_vec(),
             bytes,
             view.output_map_span(output_index)
                 .ok_or(FinalizationV2Error::InternalInvariant)?,
@@ -606,11 +628,11 @@ fn allowed_finalized_delta(
                 if final_seen || !record.key_data.is_empty() {
                     return Ok(false);
                 }
-                let mut expected = Vec::new();
+                let mut expected = WipingVec::take(Vec::new());
                 expected
                     .try_reserve_exact(witness.encoded_len)
                     .map_err(|_| FinalizationV2Error::AllocationFailed)?;
-                emit_witness(&mut expected, witness)?;
+                emit_witness(expected.as_mut_vec(), witness)?;
                 if record.value != expected.as_slice() {
                     return Ok(false);
                 }
@@ -638,7 +660,7 @@ fn allowed_finalized_delta(
 fn extract_raw_transaction(
     base: &[u8],
     witnesses: &[WitnessParts<'_>],
-) -> Result<Vec<u8>, FinalizationV2Error> {
+) -> Result<WipingVec, FinalizationV2Error> {
     if base.len() > MAX_UNSIGNED_TRANSACTION_BYTES || base.len() < 8 {
         return Err(FinalizationV2Error::ArtifactTooLarge);
     }
@@ -659,25 +681,25 @@ fn extract_raw_transaction(
         .len()
         .checked_sub(4)
         .ok_or(FinalizationV2Error::InternalInvariant)?;
-    let mut raw = Vec::new();
+    let mut raw = WipingVec::take(Vec::new());
     raw.try_reserve_exact(raw_len)
         .map_err(|_| FinalizationV2Error::AllocationFailed)?;
     append_slice(
-        &mut raw,
+        raw.as_mut_vec(),
         base.get(..4)
             .ok_or(FinalizationV2Error::InternalInvariant)?,
     );
     raw.extend_from_slice(&[0x00, 0x01]);
     append_slice(
-        &mut raw,
+        raw.as_mut_vec(),
         base.get(4..locktime_start)
             .ok_or(FinalizationV2Error::InternalInvariant)?,
     );
     for witness in witnesses {
-        emit_witness(&mut raw, witness)?;
+        emit_witness(raw.as_mut_vec(), witness)?;
     }
     append_slice(
-        &mut raw,
+        raw.as_mut_vec(),
         base.get(locktime_start..)
             .ok_or(FinalizationV2Error::InternalInvariant)?,
     );
@@ -694,17 +716,50 @@ struct ParsedRawWitness<'a> {
     items: [Option<&'a [u8]>; 4],
 }
 
+struct WipingDigest([u8; 32]);
+
+impl WipingDigest {
+    const fn as_array(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+struct WipingPrecomputed(Bip143Precomputed);
+
+impl Drop for WipingPrecomputed {
+    fn drop(&mut self) {
+        wipe_bytes(&mut self.0.hash_prevouts);
+        wipe_bytes(&mut self.0.hash_sequence);
+        wipe_bytes(&mut self.0.hash_outputs);
+    }
+}
+
+struct WipingDerivedScript(DerivedScriptV2);
+
+impl Drop for WipingDerivedScript {
+    fn drop(&mut self) {
+        wipe_bytes(&mut self.0.witness_script);
+        wipe_bytes(&mut self.0.script_pubkey);
+    }
+}
+
+impl Drop for WipingDigest {
+    fn drop(&mut self) {
+        wipe_bytes(&mut self.0);
+    }
+}
+
 fn parse_and_rebind_raw<'a>(
     raw: &'a [u8],
     base: &[u8],
     finalized_view: &PsbtView<'_>,
 ) -> Result<Vec<ParsedRawWitness<'a>>, FinalizationV2Error> {
     let mut cursor = RawCursor::new(raw);
-    let mut stripped = Vec::new();
+    let mut stripped = WipingVec::take(Vec::new());
     stripped
         .try_reserve_exact(base.len())
         .map_err(|_| FinalizationV2Error::AllocationFailed)?;
-    append_slice(&mut stripped, cursor.take(4)?);
+    append_slice(stripped.as_mut_vec(), cursor.take(4)?);
     if cursor.take(2)? != [0x00, 0x01].as_slice() {
         return Err(FinalizationV2Error::RawTransactionReparse);
     }
@@ -714,15 +769,15 @@ fn parse_and_rebind_raw<'a>(
     if input_count == 0 || input_count != finalized_view.input_map_count() {
         return Err(FinalizationV2Error::RawTransactionReparse);
     }
-    append_slice(&mut stripped, input_count_bytes);
+    append_slice(stripped.as_mut_vec(), input_count_bytes);
     for _ in 0..input_count {
-        append_slice(&mut stripped, cursor.take(36)?);
+        append_slice(stripped.as_mut_vec(), cursor.take(36)?);
         let (script_len, script_len_bytes) = cursor.compact_size()?;
         if script_len != 0 {
             return Err(FinalizationV2Error::RawTransactionReparse);
         }
-        append_slice(&mut stripped, script_len_bytes);
-        append_slice(&mut stripped, cursor.take(4)?);
+        append_slice(stripped.as_mut_vec(), script_len_bytes);
+        append_slice(stripped.as_mut_vec(), cursor.take(4)?);
     }
     let (output_count, output_count_bytes) = cursor.compact_size()?;
     let output_count =
@@ -730,14 +785,14 @@ fn parse_and_rebind_raw<'a>(
     if output_count == 0 || output_count != finalized_view.output_map_count() {
         return Err(FinalizationV2Error::RawTransactionReparse);
     }
-    append_slice(&mut stripped, output_count_bytes);
+    append_slice(stripped.as_mut_vec(), output_count_bytes);
     for _ in 0..output_count {
-        append_slice(&mut stripped, cursor.take(8)?);
+        append_slice(stripped.as_mut_vec(), cursor.take(8)?);
         let (script_len, script_len_bytes) = cursor.compact_size()?;
         let script_len =
             usize::try_from(script_len).map_err(|_| FinalizationV2Error::RawTransactionReparse)?;
-        append_slice(&mut stripped, script_len_bytes);
-        append_slice(&mut stripped, cursor.take(script_len)?);
+        append_slice(stripped.as_mut_vec(), script_len_bytes);
+        append_slice(stripped.as_mut_vec(), cursor.take(script_len)?);
     }
 
     let mut parsed_witnesses = Vec::new();
@@ -775,11 +830,11 @@ fn parse_and_rebind_raw<'a>(
             items,
         });
     }
-    append_slice(&mut stripped, cursor.take(4)?);
+    append_slice(stripped.as_mut_vec(), cursor.take(4)?);
     if !cursor.at_end() {
         return Err(FinalizationV2Error::RawTransactionReparse);
     }
-    if stripped != base {
+    if stripped.as_slice() != base {
         return Err(FinalizationV2Error::BaseTransactionMismatch);
     }
     Ok(parsed_witnesses)
@@ -808,7 +863,7 @@ fn rebind_final_witness_records(
 fn compute_input_digests(
     review: &ReviewV3,
     descriptor: &DescriptorPairV2,
-) -> Result<Vec<[u8; 32]>, FinalizationV2Error> {
+) -> Result<Vec<WipingDigest>, FinalizationV2Error> {
     let mut builder = Bip143PrecomputeBuilder::new();
     for input in review.inputs() {
         let txid = input.outpoint_txid_wire();
@@ -821,9 +876,11 @@ fn compute_input_digests(
             .add_output(output.amount(), output.script_pubkey())
             .map_err(|_| FinalizationV2Error::FinalSignatureVerificationFailed)?;
     }
-    let precomputed = builder
-        .finish()
-        .map_err(|_| FinalizationV2Error::FinalSignatureVerificationFailed)?;
+    let precomputed = WipingPrecomputed(
+        builder
+            .finish()
+            .map_err(|_| FinalizationV2Error::FinalSignatureVerificationFailed)?,
+    );
     let mut digests = Vec::new();
     digests
         .try_reserve_exact(review.inputs().len())
@@ -832,19 +889,23 @@ fn compute_input_digests(
         if input.effective_sighash() != u32::from(SIGHASH_ALL) {
             return Err(FinalizationV2Error::InternalInvariant);
         }
-        let script = derive_script(descriptor, input.branch(), input.child_index())?;
-        let txid = input.outpoint_txid_wire();
+        let script = WipingDerivedScript(derive_script(
+            descriptor,
+            input.branch(),
+            input.child_index(),
+        )?);
+        let txid = WipingDigest(input.outpoint_txid_wire());
         let facts = Bip143InputFacts {
-            outpoint_txid_wire: &txid,
+            outpoint_txid_wire: txid.as_array(),
             outpoint_vout: input.outpoint_vout(),
-            script_code: &script.witness_script,
+            script_code: &script.0.witness_script,
             amount_sats: input.prevout_amount(),
             sequence: input.sequence(),
         };
-        digests.push(
-            sighash_all_digest(review.version(), review.locktime(), &precomputed, &facts)
+        digests.push(WipingDigest(
+            sighash_all_digest(review.version(), review.locktime(), &precomputed.0, &facts)
                 .map_err(|_| FinalizationV2Error::FinalSignatureVerificationFailed)?,
-        );
+        ));
     }
     Ok(digests)
 }
@@ -881,8 +942,8 @@ fn verify_parsed_witnesses(
         let digest = digests
             .get(input_index)
             .ok_or(FinalizationV2Error::InternalInvariant)?;
-        verify_complete_signature(first, digest, &keys[0])?;
-        verify_complete_signature(second, digest, &keys[1])?;
+        verify_complete_signature(first, digest.as_array(), &keys[0])?;
+        verify_complete_signature(second, digest.as_array(), &keys[1])?;
     }
     Ok(())
 }

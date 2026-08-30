@@ -3,10 +3,16 @@
 use crate::finalization::FinalizedTransaction;
 use crate::finalization_v2::{finalize_v2, FinalizationV2Error};
 use crate::insertion::{exact_insert_delta, insert_partial_signature};
+use crate::transaction_wipe_v2::{wipe_vec, WipingVec};
 use crate::ReviewReadyV3Workflow;
 use core::fmt;
-use qk_descriptor::{derive_change_script_v2, derive_receive_script_v2, DescriptorPairV2};
-use qk_psbt::bip143::{sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, SIGHASH_ALL};
+use qk_descriptor::{
+    derive_change_script_v2, derive_receive_script_v2, DerivedScriptV2, DescriptorPairV2,
+};
+use qk_kit::SignedKitSweepV3;
+use qk_psbt::bip143::{
+    sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, Bip143Precomputed, SIGHASH_ALL,
+};
 use qk_psbt::{
     analyze_descriptor_ownership_v2, build_review_v3, canonical_serialize, parse, InputSource,
     OwnedS0, PsbtView, ReviewContext, ReviewNetwork, ReviewV3, ReviewV3Error, SemanticError,
@@ -108,6 +114,8 @@ pub enum SigningV2Error {
     TerminalPreInsertionVerificationFailed,
     /// A role-B mock failed syntax, low-S, key, or digest verification.
     InvalidMockSignature,
+    /// A recovered Kit signature failed its proof-bound pre-insertion check.
+    InvalidRecoveredSignature,
     /// An insertion changed bytes outside its one exact type-02 record.
     ForbiddenDelta,
     /// An intermediate PSBT was not an exact M5 fixed point.
@@ -153,6 +161,9 @@ impl fmt::Display for SigningV2Error {
                 f.write_str("terminal signature pre-insertion verification failed")
             }
             Self::InvalidMockSignature => f.write_str("invalid mock role-B signature"),
+            Self::InvalidRecoveredSignature => {
+                f.write_str("invalid proof-bound recovered signature")
+            }
             Self::ForbiddenDelta => f.write_str("v2 insertion changed a frozen fact"),
             Self::NonCanonicalOutput => f.write_str("v2 PSBT is not canonical"),
             Self::ArtifactTooLarge => f.write_str("v2 PSBT exceeds source byte cap"),
@@ -165,17 +176,63 @@ impl fmt::Display for SigningV2Error {
 
 impl std::error::Error for SigningV2Error {}
 
-#[derive(Clone, Copy)]
 struct InputSlots {
     role_keys: [[u8; 33]; ROLE_COUNT],
     existing: [Option<Span>; ROLE_COUNT],
-    digest: [u8; 32],
+    digest: WipingDigest,
+}
+
+impl Drop for InputSlots {
+    fn drop(&mut self) {
+        for key in &mut self.role_keys {
+            crate::transaction_wipe_v2::wipe_bytes(key);
+        }
+    }
+}
+
+struct WipingDigest([u8; 32]);
+
+impl WipingDigest {
+    const fn as_array(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl Drop for WipingDigest {
+    fn drop(&mut self) {
+        crate::transaction_wipe_v2::wipe_bytes(&mut self.0);
+    }
+}
+
+struct WipingPrecomputed(Bip143Precomputed);
+
+impl Drop for WipingPrecomputed {
+    fn drop(&mut self) {
+        crate::transaction_wipe_v2::wipe_bytes(&mut self.0.hash_prevouts);
+        crate::transaction_wipe_v2::wipe_bytes(&mut self.0.hash_sequence);
+        crate::transaction_wipe_v2::wipe_bytes(&mut self.0.hash_outputs);
+    }
+}
+
+struct WipingDerivedScript(DerivedScriptV2);
+
+impl Drop for WipingDerivedScript {
+    fn drop(&mut self) {
+        crate::transaction_wipe_v2::wipe_bytes(&mut self.0.witness_script);
+        crate::transaction_wipe_v2::wipe_bytes(&mut self.0.script_pubkey);
+    }
 }
 
 struct PlannedSignature {
     input_index: usize,
     public_key: [u8; 33],
     der_signature: Vec<u8>,
+}
+
+impl Drop for PlannedSignature {
+    fn drop(&mut self) {
+        wipe_vec(&mut self.der_signature);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -189,6 +246,12 @@ struct PendingAction {
 struct RequestCounts {
     terminal: usize,
     mock_card_b: usize,
+}
+
+struct PreparedSigningV2 {
+    current: WipingVec,
+    verified_counts: WipingVec,
+    source: InputSource,
 }
 
 impl ReviewReadyV3Workflow {
@@ -227,6 +290,89 @@ fn sign_and_finalize(
     terminal_keys: Vec<TerminalInputKeyV2>,
     mock_signatures: &[MockCardBSignature<'_>],
 ) -> Result<FinalizedTransaction, SigningV2Error> {
+    let prepared = prepare_bound_signing(&s0, &descriptor, &bound_review, bound_hash)?;
+    let baseline_view = parse(prepared.current.as_slice(), prepared.source)
+        .map_err(|_| SigningV2Error::ParseFailed)?;
+    let baseline_review = build_review(&baseline_view, &descriptor, prepared.source)?;
+    let slots = collect_slots(&baseline_view, &descriptor, &baseline_review)?;
+    let planned =
+        plan_and_verify_signatures(&baseline_view, &slots, &terminal_keys, mock_signatures)?;
+    drop(baseline_view);
+    execute_planned_signatures(prepared, descriptor, bound_review, planned)
+}
+
+/// Consume one proof-bound recovered-wallet signature capability through the
+/// same insertion, review-rebind, finalization, and fresh-verification path as
+/// the normal v2 continuation.
+pub(super) fn finalize_signed_kit_sweep_v3(
+    signed: SignedKitSweepV3,
+) -> Result<FinalizedTransaction, SigningV2Error> {
+    let (proof, signatures) = signed.into_execution_parts();
+    if proof.input_count() != signatures.inputs().len() {
+        return Err(SigningV2Error::ThresholdIncomplete);
+    }
+
+    let insertion_capacity = proof
+        .input_count()
+        .checked_mul(ROLE_COUNT)
+        .ok_or(SigningV2Error::TooManyInsertions)?;
+    let mut planned = Vec::new();
+    planned
+        .try_reserve_exact(insertion_capacity)
+        .map_err(|_| SigningV2Error::AllocationFailed)?;
+    for (plan, supplied) in proof.input_signing_plans().iter().zip(signatures.inputs()) {
+        if supplied.input_index() != plan.input_index() {
+            return Err(SigningV2Error::InternalInvariant);
+        }
+        let occupied = plan.existing_role_signatures();
+        let supplied_roles = [supplied.role_a(), supplied.role_b()];
+        let public_keys = plan.role_public_keys();
+        let digest = WipingDigest(plan.digest());
+        for role in 0..ROLE_COUNT {
+            match (occupied[role], supplied_roles[role]) {
+                (true, None) => {}
+                (false, Some(signature)) => {
+                    verify_der_signature(signature.der(), digest.as_array(), &public_keys[role])
+                        .map_err(|_| SigningV2Error::InvalidRecoveredSignature)?;
+                    let mut der_signature = Vec::new();
+                    der_signature
+                        .try_reserve_exact(signature.der().len())
+                        .map_err(|_| SigningV2Error::AllocationFailed)?;
+                    der_signature.extend_from_slice(signature.der());
+                    planned.push(PlannedSignature {
+                        input_index: usize::try_from(plan.input_index())
+                            .map_err(|_| SigningV2Error::InputOutOfRange)?,
+                        public_key: public_keys[role],
+                        der_signature,
+                    });
+                }
+                (true, Some(_)) => return Err(SigningV2Error::SignatureConflict),
+                (false, None) => return Err(SigningV2Error::ThresholdIncomplete),
+            }
+        }
+    }
+    if planned.len() > MAX_INSERTIONS {
+        return Err(SigningV2Error::TooManyInsertions);
+    }
+    planned.sort_unstable_by(|left, right| {
+        left.input_index
+            .cmp(&right.input_index)
+            .then_with(|| left.public_key.cmp(&right.public_key))
+    });
+
+    let parts = proof.into_parts();
+    let (s0, descriptor, bound_review, bound_hash, proof_plans) = parts.into_execution_parts();
+    drop(proof_plans);
+    let prepared = prepare_bound_signing(&s0, &descriptor, &bound_review, bound_hash.value())?;
+    execute_planned_signatures(prepared, descriptor, bound_review, planned)
+}
+
+fn prepare_bound_signing(
+    s0: &OwnedS0,
+    descriptor: &DescriptorPairV2,
+    bound_review: &ReviewV3,
+    bound_hash: [u8; 32],
+) -> Result<PreparedSigningV2, SigningV2Error> {
     if s0.sha256() != bound_review.s0_sha256() {
         return Err(SigningV2Error::RetainedS0Mismatch);
     }
@@ -239,7 +385,7 @@ fn sign_and_finalize(
         return Err(SigningV2Error::RetainedS0Mismatch);
     }
     let rebuilt = build_review(&retained_view, &descriptor, source)?;
-    if rebuilt != bound_review {
+    if &rebuilt != bound_review {
         return Err(SigningV2Error::ReviewFactsMismatch);
     }
     let rebuilt_hash = rebuilt
@@ -251,50 +397,68 @@ fn sign_and_finalize(
     analyze_descriptor_ownership_v2(&retained_view, &descriptor)
         .map_err(SigningV2Error::ExistingSignatureVerification)?;
 
-    let mut current =
-        canonical_serialize(&retained_view).map_err(SigningV2Error::SerializeFailed)?;
+    let current = WipingVec::take(
+        canonical_serialize(&retained_view).map_err(SigningV2Error::SerializeFailed)?,
+    );
     drop(retained_view);
-    let baseline_view = parse(&current, source).map_err(|_| SigningV2Error::ParseFailed)?;
+    let baseline_view =
+        parse(current.as_slice(), source).map_err(|_| SigningV2Error::ParseFailed)?;
     let baseline_review = build_review(&baseline_view, &descriptor, source)?;
     if !transition_review_facts_equal(&bound_review, &baseline_review) {
         return Err(SigningV2Error::ReviewFactsMismatch);
     }
     let verified = analyze_descriptor_ownership_v2(&baseline_view, &descriptor)
         .map_err(SigningV2Error::ExistingSignatureVerification)?;
-    let mut verified_counts = Vec::new();
+    let mut verified_counts = WipingVec::take(Vec::new());
     verified_counts
         .try_reserve_exact(verified.verified_inputs.len())
         .map_err(|_| SigningV2Error::AllocationFailed)?;
-    verified_counts.extend(
-        verified
-            .verified_inputs
-            .iter()
-            .map(|input| input.verified_signature_count),
-    );
+    for input in &verified.verified_inputs {
+        verified_counts.push(
+            u8::try_from(input.verified_signature_count)
+                .map_err(|_| SigningV2Error::InternalInvariant)?,
+        );
+    }
 
-    let slots = collect_slots(&baseline_view, &descriptor, &baseline_review)?;
-    let planned =
-        plan_and_verify_signatures(&baseline_view, &slots, &terminal_keys, mock_signatures)?;
     drop(baseline_view);
 
+    Ok(PreparedSigningV2 {
+        current,
+        verified_counts,
+        source,
+    })
+}
+
+fn execute_planned_signatures(
+    mut prepared: PreparedSigningV2,
+    descriptor: DescriptorPairV2,
+    bound_review: ReviewV3,
+    planned: Vec<PlannedSignature>,
+) -> Result<FinalizedTransaction, SigningV2Error> {
+    let source = prepared.source;
+
     for signature in planned {
-        let previous = current;
-        let previous_view = parse(&previous, source).map_err(|_| SigningV2Error::ParseFailed)?;
+        let previous = core::mem::replace(&mut prepared.current, WipingVec::take(Vec::new()));
+        let previous_view =
+            parse(previous.as_slice(), source).map_err(|_| SigningV2Error::ParseFailed)?;
         let (next, offset, inserted) = insert_partial_signature(
             &previous_view,
-            &previous,
+            previous.as_slice(),
             source,
             signature.input_index,
             &signature.public_key,
             &signature.der_signature,
         )
         .map_err(map_insertion_error)?;
-        if !exact_insert_delta(&previous, &next, offset, inserted) {
+        let next = WipingVec::take(next);
+        if !exact_insert_delta(previous.as_slice(), next.as_slice(), offset, inserted) {
             return Err(SigningV2Error::ForbiddenDelta);
         }
-        let next_view = parse(&next, source).map_err(|_| SigningV2Error::ParseFailed)?;
-        let canonical = canonical_serialize(&next_view).map_err(SigningV2Error::SerializeFailed)?;
-        if canonical != next {
+        let next_view = parse(next.as_slice(), source).map_err(|_| SigningV2Error::ParseFailed)?;
+        let canonical = WipingVec::take(
+            canonical_serialize(&next_view).map_err(SigningV2Error::SerializeFailed)?,
+        );
+        if canonical.as_slice() != next.as_slice() {
             return Err(SigningV2Error::NonCanonicalOutput);
         }
         let next_review = build_review(&next_view, &descriptor, source)?;
@@ -304,14 +468,15 @@ fn sign_and_finalize(
         let next_verified = analyze_descriptor_ownership_v2(&next_view, &descriptor)
             .map_err(SigningV2Error::ExistingSignatureVerification)?;
         advance_verified_counts(
-            &mut verified_counts,
+            prepared.verified_counts.as_mut_vec(),
             &next_verified.verified_inputs,
             signature.input_index,
         )?;
-        current = next;
+        prepared.current = next;
     }
 
-    let complete_view = parse(&current, source).map_err(|_| SigningV2Error::ParseFailed)?;
+    let complete_view =
+        parse(prepared.current.as_slice(), source).map_err(|_| SigningV2Error::ParseFailed)?;
     let complete = analyze_descriptor_ownership_v2(&complete_view, &descriptor)
         .map_err(SigningV2Error::ExistingSignatureVerification)?;
     if complete.aggregate_status != VerifiedAggregateStatus::VerifyAndExportOnly
@@ -322,13 +487,21 @@ fn sign_and_finalize(
     {
         return Err(SigningV2Error::ThresholdIncomplete);
     }
-    let canonical = canonical_serialize(&complete_view).map_err(SigningV2Error::SerializeFailed)?;
-    if canonical != current {
+    let canonical = WipingVec::take(
+        canonical_serialize(&complete_view).map_err(SigningV2Error::SerializeFailed)?,
+    );
+    if canonical.as_slice() != prepared.current.as_slice() {
         return Err(SigningV2Error::NonCanonicalOutput);
     }
     drop(complete_view);
 
-    finalize_v2(current, source, &descriptor, &bound_review).map_err(SigningV2Error::Finalization)
+    finalize_v2(
+        prepared.current.into_vec(),
+        source,
+        &descriptor,
+        &bound_review,
+    )
+    .map_err(SigningV2Error::Finalization)
 }
 
 fn build_review(
@@ -371,7 +544,7 @@ fn collect_slots(
     if view.input_map_count() != review.inputs().len() {
         return Err(SigningV2Error::InternalInvariant);
     }
-    let digests = compute_input_digests(review, descriptor)?;
+    let mut digests = compute_input_digests(review, descriptor)?.into_iter();
     let fingerprints = descriptor.origin_fingerprints();
     let mut slots = Vec::new();
     slots
@@ -428,10 +601,11 @@ fn collect_slots(
         slots.push(InputSlots {
             role_keys,
             existing,
-            digest: *digests
-                .get(input_index)
-                .ok_or(SigningV2Error::InternalInvariant)?,
+            digest: digests.next().ok_or(SigningV2Error::InternalInvariant)?,
         });
+    }
+    if digests.next().is_some() {
+        return Err(SigningV2Error::InternalInvariant);
     }
     Ok(slots)
 }
@@ -452,7 +626,7 @@ fn derive_script(
 fn compute_input_digests(
     review: &ReviewV3,
     descriptor: &DescriptorPairV2,
-) -> Result<Vec<[u8; 32]>, SigningV2Error> {
+) -> Result<Vec<WipingDigest>, SigningV2Error> {
     let mut builder = Bip143PrecomputeBuilder::new();
     for input in review.inputs() {
         let txid = input.outpoint_txid_wire();
@@ -465,7 +639,8 @@ fn compute_input_digests(
             .add_output(output.amount(), output.script_pubkey())
             .map_err(|_| SigningV2Error::DigestFailed)?;
     }
-    let precomputed = builder.finish().map_err(|_| SigningV2Error::DigestFailed)?;
+    let precomputed =
+        WipingPrecomputed(builder.finish().map_err(|_| SigningV2Error::DigestFailed)?);
     let mut digests = Vec::new();
     digests
         .try_reserve_exact(review.inputs().len())
@@ -474,19 +649,23 @@ fn compute_input_digests(
         if input.effective_sighash() != u32::from(SIGHASH_ALL) {
             return Err(SigningV2Error::InternalInvariant);
         }
-        let script = derive_script(descriptor, input.branch(), input.child_index())?;
-        let txid = input.outpoint_txid_wire();
+        let script = WipingDerivedScript(derive_script(
+            descriptor,
+            input.branch(),
+            input.child_index(),
+        )?);
+        let txid = WipingDigest(input.outpoint_txid_wire());
         let facts = Bip143InputFacts {
-            outpoint_txid_wire: &txid,
+            outpoint_txid_wire: txid.as_array(),
             outpoint_vout: input.outpoint_vout(),
-            script_code: &script.witness_script,
+            script_code: &script.0.witness_script,
             amount_sats: input.prevout_amount(),
             sequence: input.sequence(),
         };
-        digests.push(
-            sighash_all_digest(review.version(), review.locktime(), &precomputed, &facts)
+        digests.push(WipingDigest(
+            sighash_all_digest(review.version(), review.locktime(), &precomputed.0, &facts)
                 .map_err(|_| SigningV2Error::DigestFailed)?,
-        );
+        ));
     }
     Ok(digests)
 }
@@ -587,7 +766,7 @@ fn plan_and_verify_signatures(
                     .map_err(|_| SigningV2Error::InternalInvariant)?;
                 let signature = match qk_secp::ecdsa_sign_rfc6979(
                     &terminal.secret_key,
-                    &slot.digest,
+                    slot.digest.as_array(),
                     &expected,
                 ) {
                     Err(SecpError::SelfVerificationFailed) => {
@@ -598,7 +777,7 @@ fn plan_and_verify_signatures(
                 };
                 let der = serialize_and_verify_signature(
                     &signature,
-                    &slot.digest,
+                    slot.digest.as_array(),
                     &expected,
                     SigningV2Error::TerminalPreInsertionVerificationFailed,
                 )?;
@@ -634,8 +813,12 @@ fn plan_and_verify_signatures(
                 {
                     return Err(SigningV2Error::DuplicateSignature);
                 }
-                verify_der_signature(mock.der_signature, &slot.digest, &action.public_key)
-                    .map_err(|_| SigningV2Error::InvalidMockSignature)?;
+                verify_der_signature(
+                    mock.der_signature,
+                    slot.digest.as_array(),
+                    &action.public_key,
+                )
+                .map_err(|_| SigningV2Error::InvalidMockSignature)?;
                 let mut der = Vec::new();
                 der.try_reserve_exact(mock.der_signature.len())
                     .map_err(|_| SigningV2Error::AllocationFailed)?;
@@ -824,7 +1007,7 @@ fn existing_signature_matches(
 }
 
 fn advance_verified_counts(
-    previous: &mut [usize],
+    previous: &mut [u8],
     next: &[qk_psbt::VerifiedInputFacts],
     changed_input: usize,
 ) -> Result<(), SigningV2Error> {
@@ -839,10 +1022,12 @@ fn advance_verified_counts(
         } else {
             *before
         };
-        if after.verified_signature_count != expected {
+        let after_count = u8::try_from(after.verified_signature_count)
+            .map_err(|_| SigningV2Error::InternalInvariant)?;
+        if after_count != expected {
             return Err(SigningV2Error::ForbiddenDelta);
         }
-        *before = after.verified_signature_count;
+        *before = after_count;
     }
     Ok(())
 }
@@ -921,7 +1106,7 @@ mod tests {
         let slots = [InputSlots {
             role_keys: [role_a, role_b],
             existing: [None, None],
-            digest: decode_hex_32(fixture_field("bip143_digest_hex")),
+            digest: WipingDigest(decode_hex_32(fixture_field("bip143_digest_hex"))),
         }];
         let pending = ordered_pending_actions(
             &slots,
@@ -966,7 +1151,7 @@ mod tests {
                     ),
                 ],
                 existing: [None, Some(Span { start: 0, end: 0 })],
-                digest: decode_hex_32(fixture_field("bip143_digest_hex")),
+                digest: WipingDigest(decode_hex_32(fixture_field("bip143_digest_hex"))),
             },
             InputSlots {
                 role_keys: [
@@ -976,7 +1161,7 @@ mod tests {
                     later_role_b,
                 ],
                 existing: [None, None],
-                digest: decode_hex_32(fixture_field("bip143_digest_hex")),
+                digest: WipingDigest(decode_hex_32(fixture_field("bip143_digest_hex"))),
             },
         ];
         let counts = [
