@@ -342,3 +342,21 @@ fn all_zero_session_bytes_bind_and_round_trip_exactly() {
     let ready = from_outbound(io.reply().expect("ready"), &[]);
     assert_eq!(core.accept(&ready), Ok(CoreEvent::SessionReady));
 }
+
+#[test]
+fn receive_boundary_rejections_terminate_the_paired_session() {
+    for error in [IpcError::MagicMismatch, IpcError::AncillaryData] {
+        let mut core = CoreProtocol::new(SESSION);
+        core.begin().expect("opening exchange");
+        assert_eq!(core.receive_failed(error), error);
+        assert!(core.is_terminated());
+        assert_eq!(core.begin(), Err(IpcError::SessionTerminated));
+        assert_eq!(core.receive_failed(error), IpcError::SessionTerminated);
+
+        let mut io = IoProtocol::new();
+        assert_eq!(io.receive_failed(error), error);
+        assert!(io.is_terminated());
+        assert_eq!(io.reply(), Err(IpcError::SessionTerminated));
+        assert_eq!(io.receive_failed(error), IpcError::SessionTerminated);
+    }
+}

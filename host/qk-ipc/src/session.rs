@@ -210,6 +210,18 @@ impl CoreProtocol {
         }
     }
 
+    /// Latch a decoder or receive-boundary rejection into this session.
+    ///
+    /// The receive owner must call this transition whenever the paired stream
+    /// decoder rejects, before any replacement decoder can be constructed.
+    pub fn receive_failed(&mut self, error: IpcError) -> IpcError {
+        match self.state {
+            CoreState::Terminated => IpcError::SessionTerminated,
+            CoreState::Closed => IpcError::SessionClosed,
+            _ => self.terminate(error),
+        }
+    }
+
     /// Whether this endpoint completed SessionClosed.
     pub const fn is_closed(&self) -> bool {
         matches!(self.state, CoreState::Closed)
@@ -394,6 +406,18 @@ impl IoProtocol {
             IpcError::SessionClosed
         } else {
             self.terminate(IpcError::PeerLost)
+        }
+    }
+
+    /// Latch a decoder or receive-boundary rejection into this session.
+    ///
+    /// The receive owner must call this transition whenever the paired stream
+    /// decoder rejects, before any replacement decoder can be constructed.
+    pub fn receive_failed(&mut self, error: IpcError) -> IpcError {
+        match self.state {
+            IoState::Terminated => IpcError::SessionTerminated,
+            IoState::Closed => IpcError::SessionClosed,
+            _ => self.terminate(error),
         }
     }
 
