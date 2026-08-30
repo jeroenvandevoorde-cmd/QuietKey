@@ -130,6 +130,47 @@ pub enum SigningV2Error {
     InternalInvariant,
 }
 
+impl SigningV2Error {
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::WrongState => "WrongState",
+            Self::RetainedS0Mismatch => "RetainedS0Mismatch",
+            Self::ParseFailed => "ParseFailed",
+            Self::ReviewRebuild(_) => "ReviewRebuild",
+            Self::ReviewFactsMismatch => "ReviewFactsMismatch",
+            Self::ReviewHashMismatch => "ReviewHashMismatch",
+            Self::ExistingSignatureVerification(_) => "ExistingSignatureVerification",
+            Self::DigestFailed => "DigestFailed",
+            Self::SerializeFailed(_) => "SerializeFailed",
+            Self::InputOutOfRange => "InputOutOfRange",
+            Self::DuplicateTerminalKey => "DuplicateTerminalKey",
+            Self::MissingTerminalKey => "MissingTerminalKey",
+            Self::UnexpectedTerminalKey => "UnexpectedTerminalKey",
+            Self::TerminalKeyMismatch => "TerminalKeyMismatch",
+            Self::DuplicateSignature => "DuplicateSignature",
+            Self::DuplicateRole => "DuplicateRole",
+            Self::SignatureConflict => "SignatureConflict",
+            Self::ThresholdAlreadyMet => "ThresholdAlreadyMet",
+            Self::ThresholdWouldBeExceeded => "ThresholdWouldBeExceeded",
+            Self::ThresholdIncomplete => "ThresholdIncomplete",
+            Self::TooManyInsertions => "TooManyInsertions",
+            Self::TerminalSigning(_) => "TerminalSigning",
+            Self::TerminalPreInsertionVerificationFailed => {
+                "TerminalPreInsertionVerificationFailed"
+            }
+            Self::InvalidMockSignature => "InvalidMockSignature",
+            Self::InvalidRecoveredSignature => "InvalidRecoveredSignature",
+            Self::ForbiddenDelta => "ForbiddenDelta",
+            Self::NonCanonicalOutput => "NonCanonicalOutput",
+            Self::ArtifactTooLarge => "ArtifactTooLarge",
+            Self::AllocationFailed => "AllocationFailed",
+            Self::Finalization(_) => "Finalization",
+            Self::InternalInvariant => "InternalInvariant",
+        }
+    }
+}
+
 impl fmt::Display for SigningV2Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -316,7 +357,7 @@ pub(super) fn finalize_signed_kit_sweep_v3(
         .input_count()
         .checked_mul(ROLE_COUNT)
         .ok_or(SigningV2Error::TooManyInsertions)?;
-    let mut planned = Vec::new();
+    let mut planned: Vec<PlannedSignature> = Vec::new();
     planned
         .try_reserve_exact(insertion_capacity)
         .map_err(|_| SigningV2Error::AllocationFailed)?;
@@ -334,6 +375,12 @@ pub(super) fn finalize_signed_kit_sweep_v3(
                 (false, Some(signature)) => {
                     verify_der_signature(signature.der(), digest.as_array(), &public_keys[role])
                         .map_err(|_| SigningV2Error::InvalidRecoveredSignature)?;
+                    if planned
+                        .iter()
+                        .any(|prior| prior.der_signature == signature.der())
+                    {
+                        return Err(SigningV2Error::DuplicateSignature);
+                    }
                     let mut der_signature = Vec::new();
                     der_signature
                         .try_reserve_exact(signature.der().len())
@@ -938,16 +985,16 @@ fn serialize_and_verify_signature(
     failure: SigningV2Error,
 ) -> Result<Vec<u8>, SigningV2Error> {
     let mut bounded = crate::transaction_wipe_v2::WipingArray::<DER_CONTAINER_BYTES>::zeroed();
-    let len = qk_secp::signature_serialize_der(signature, bounded.as_mut_slice())
-        .map_err(|_| failure)?;
+    let len =
+        qk_secp::signature_serialize_der(signature, bounded.as_mut_slice()).map_err(|_| failure)?;
     let der = bounded
         .as_slice()
         .get(..len)
         .ok_or(SigningV2Error::InternalInvariant)?;
     let parsed = qk_secp::signature_parse_der(der).map_err(|_| failure)?;
     let mut canonical = crate::transaction_wipe_v2::WipingArray::<DER_CONTAINER_BYTES>::zeroed();
-    let canonical_len = qk_secp::signature_serialize_der(&parsed, canonical.as_mut_slice())
-        .map_err(|_| failure)?;
+    let canonical_len =
+        qk_secp::signature_serialize_der(&parsed, canonical.as_mut_slice()).map_err(|_| failure)?;
     if canonical.as_slice().get(..canonical_len) != Some(der) {
         return Err(failure);
     }
@@ -968,8 +1015,8 @@ pub(super) fn verify_der_signature(
     let key = qk_secp::pubkey_parse_compressed(public_key).map_err(|_| ())?;
     let signature = qk_secp::signature_parse_der(der).map_err(|_| ())?;
     let mut canonical = crate::transaction_wipe_v2::WipingArray::<DER_CONTAINER_BYTES>::zeroed();
-    let canonical_len = qk_secp::signature_serialize_der(&signature, canonical.as_mut_slice())
-        .map_err(|_| ())?;
+    let canonical_len =
+        qk_secp::signature_serialize_der(&signature, canonical.as_mut_slice()).map_err(|_| ())?;
     if canonical.as_slice().get(..canonical_len) != Some(der) {
         return Err(());
     }

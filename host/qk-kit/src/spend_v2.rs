@@ -26,6 +26,7 @@ pub enum KitSpendMathErrorV3 {
     ChildDerivationFailed,
     ExpectedPublicKeyMismatch,
     CryptographicSigningFailed,
+    DuplicateSignature,
 }
 
 impl KitSpendMathErrorV3 {
@@ -38,6 +39,7 @@ impl KitSpendMathErrorV3 {
             Self::ChildDerivationFailed => "ChildDerivationFailed",
             Self::ExpectedPublicKeyMismatch => "ExpectedPublicKeyMismatch",
             Self::CryptographicSigningFailed => "CryptographicSigningFailed",
+            Self::DuplicateSignature => "DuplicateSignature",
         }
     }
 }
@@ -151,6 +153,7 @@ fn map_signing_error(error: KitSweepSigningErrorV3) -> KitSpendMathErrorV3 {
         KitSweepSigningErrorV3::CryptographicSigningFailed => {
             KitSpendMathErrorV3::CryptographicSigningFailed
         }
+        KitSweepSigningErrorV3::DuplicateSignature => KitSpendMathErrorV3::DuplicateSignature,
     }
 }
 

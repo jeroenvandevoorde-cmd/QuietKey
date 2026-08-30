@@ -15,6 +15,79 @@ use qk_psbt::{
     ReplacementReceiveIndexV2, ReviewV3Hash, ValidatedKitSweepV3,
 };
 
+#[cfg(feature = "fuzzing")]
+use core::cell::Cell;
+
+/// Fuzz-only observation of calls that cross the one-sweep execution boundary.
+#[cfg(feature = "fuzzing")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KitSpendExecutionTraceV2 {
+    pub callback_count: u32,
+    pub sign_count: u32,
+    pub finalize_count: u32,
+    pub terminal: Option<FlowTerminalV2>,
+}
+
+#[cfg(feature = "fuzzing")]
+std::thread_local! {
+    static EXECUTION_TRACE: Cell<KitSpendExecutionTraceV2> =
+        const { Cell::new(KitSpendExecutionTraceV2 {
+            callback_count: 0,
+            sign_count: 0,
+            finalize_count: 0,
+            terminal: None,
+        }) };
+}
+
+/// Reset the current fuzz case's observed one-sweep execution facts.
+#[cfg(feature = "fuzzing")]
+pub fn reset_kit_spend_execution_trace_v2() {
+    EXECUTION_TRACE.with(|trace| trace.set(KitSpendExecutionTraceV2::default()));
+}
+
+/// Read the current fuzz case's observed one-sweep execution facts.
+#[cfg(feature = "fuzzing")]
+#[must_use]
+pub fn kit_spend_execution_trace_v2() -> KitSpendExecutionTraceV2 {
+    EXECUTION_TRACE.with(Cell::get)
+}
+
+#[cfg(feature = "fuzzing")]
+fn record_sign_call() {
+    EXECUTION_TRACE.with(|trace| {
+        let mut value = trace.get();
+        value.sign_count = value.sign_count.saturating_add(1);
+        trace.set(value);
+    });
+}
+
+#[cfg(not(feature = "fuzzing"))]
+const fn record_sign_call() {}
+
+#[cfg(feature = "fuzzing")]
+fn record_finalize_call() {
+    EXECUTION_TRACE.with(|trace| {
+        let mut value = trace.get();
+        value.finalize_count = value.finalize_count.saturating_add(1);
+        trace.set(value);
+    });
+}
+
+#[cfg(not(feature = "fuzzing"))]
+const fn record_finalize_call() {}
+
+#[cfg(feature = "fuzzing")]
+fn record_terminal(terminal: Option<FlowTerminalV2>) {
+    EXECUTION_TRACE.with(|trace| {
+        let mut value = trace.get();
+        value.terminal = terminal;
+        trace.set(value);
+    });
+}
+
+#[cfg(not(feature = "fuzzing"))]
+const fn record_terminal(_terminal: Option<FlowTerminalV2>) {}
+
 /// The coordinator's factual statement; HOST does not derive this fact.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoordinatorCompletenessStatementV2 {
@@ -191,7 +264,7 @@ impl KitSpendErrorV2 {
             Self::KitRegenerationProhibited => "KitRegenerationProhibited",
             Self::DoorSwitchAttempt => "DoorSwitchAttempt",
             Self::Signing(error) => error.name(),
-            Self::Finalization(_) => "SweepFinalizationFailed",
+            Self::Finalization(error) => error.name(),
             Self::Cancelled => "Cancelled",
             Self::OperationFailed => "OperationFailed",
             Self::MediaRemoved => "MediaRemoved",
@@ -298,6 +371,7 @@ impl KitSpendSessionV2 {
             parts
                 .flow
                 .terminate_kit_spend(WipingReasonV2::DoorSwitchAttempt);
+            record_terminal(parts.flow.terminal());
             return Err(KitSpendErrorV2::WrongDoor);
         }
         if parts.next_screen != ScreenKindV2::KitSpendTransaction
@@ -306,6 +380,7 @@ impl KitSpendSessionV2 {
             parts
                 .flow
                 .terminate_kit_spend(WipingReasonV2::InvalidTransition);
+            record_terminal(parts.flow.terminal());
             return Err(KitSpendErrorV2::InvalidStart);
         }
         let payload = parts
@@ -315,6 +390,7 @@ impl KitSpendSessionV2 {
                 parts
                     .flow
                     .terminate_kit_spend(WipingReasonV2::OperationFailed);
+                record_terminal(parts.flow.terminal());
                 KitSpendErrorV2::RecoveredWalletMismatch
             })?;
         Ok(Self {
@@ -540,12 +616,14 @@ impl KitSpendSessionV2 {
                 WipingReasonV2::InvalidTransition,
             )
         })?;
+        record_sign_call();
         let signed = payload.sign_validated_sweep_v3(proof).map_err(|error| {
             self.fail(
                 KitSpendErrorV2::Signing(error),
                 WipingReasonV2::OperationFailed,
             )
         })?;
+        record_finalize_call();
         let finalized = finalize_signed_kit_sweep_v3(signed).map_err(|error| {
             self.fail(
                 KitSpendErrorV2::Finalization(error),
@@ -562,6 +640,7 @@ impl KitSpendSessionV2 {
                 WipingReasonV2::InvalidTransition,
             ));
         }
+        record_terminal(self.flow.as_ref().and_then(ScreenFlowV2::terminal));
         self.active = false;
         Ok(KitSpendOutcomeV2 {
             finalized,
@@ -675,6 +754,7 @@ impl KitSpendSessionV2 {
         if let Some(flow) = self.flow.as_mut() {
             flow.terminate_kit_spend(reason);
         }
+        record_terminal(self.flow.as_ref().and_then(ScreenFlowV2::terminal));
         self.failed = Some(error);
         self.active = false;
         error
@@ -690,6 +770,7 @@ impl Drop for KitSpendSessionV2 {
             if let Some(flow) = self.flow.as_mut() {
                 flow.terminate_kit_spend(WipingReasonV2::Cancelled);
             }
+            record_terminal(self.flow.as_ref().and_then(ScreenFlowV2::terminal));
             self.active = false;
         }
     }

@@ -105,6 +105,10 @@ fn math_errors_are_fixed_named_categories() {
             KitSpendMathErrorV3::CryptographicSigningFailed,
             "CryptographicSigningFailed",
         ),
+        (
+            KitSpendMathErrorV3::DuplicateSignature,
+            "DuplicateSignature",
+        ),
     ];
     for (error, expected) in cases {
         assert_eq!(error.name(), expected);

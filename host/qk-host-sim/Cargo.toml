@@ -3,7 +3,10 @@ name = "qk-host-sim"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Library-only HOST seams through v2 slice 10 Kit restore. No renderer, display, approval authority, real media I/O, or target claim."
+description = "Library-only HOST seams through v2 slice 11 Kit spend. No renderer, display, approval authority, real media I/O, or target claim."
+
+[features]
+fuzzing = []
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }

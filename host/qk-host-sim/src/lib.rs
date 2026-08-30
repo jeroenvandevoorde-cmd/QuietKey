@@ -46,6 +46,9 @@
 //! V2 slice 10 consumes only the KitRestore form of that capability, rebinds
 //! exact public wallet facts, stages one non-signing restore branch before a
 //! screen-named assertion digit, and returns only a mandatory-migration result.
+//! V2 slice 11 consumes only the KitSpend form, rebinds recovered authority to
+//! old D, proves one exact no-change sweep to distinct D', gates execution on
+//! the completeness statement and screen-named digit, and finalizes once.
 //!
 //! No binary, server, renderer, display driver, UI layout, REPL, stdin,
 //! files, environment, network, database, service, port, preview,
@@ -117,6 +120,10 @@ pub use kit_restore_v2::{
     HumanAssertionDigitV2, KitRestoreArtifactV2, KitRestoreErrorV2, KitRestoreForeignOperationV2,
     KitRestoreInterruptionV2, KitRestoreOutcomeV2, KitRestoreScreenV2, KitRestoreSessionV2,
     KitRestoreStageV2, MandatoryFreshWalletMigrationV2,
+};
+#[cfg(feature = "fuzzing")]
+pub use kit_spend_v2::{
+    kit_spend_execution_trace_v2, reset_kit_spend_execution_trace_v2, KitSpendExecutionTraceV2,
 };
 pub use kit_spend_v2::{
     CoordinatorCompletenessStatementV2, KitSpendAssertionDigitV2, KitSpendErrorV2,

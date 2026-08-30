@@ -14,6 +14,44 @@ use qk_descriptor::{
     derive_change_script_v2, derive_receive_script_v2, DerivedScriptV2, DescriptorPairV2,
 };
 
+const DER_CAPACITY: usize = 72;
+
+struct ExistingSignatureV3 {
+    bytes: wipe::ByteArray<DER_CAPACITY>,
+    len: u8,
+}
+
+impl ExistingSignatureV3 {
+    fn from_record_value(value: &[u8]) -> Result<Self, KitSweepV3Error> {
+        let der = value
+            .get(
+                ..value
+                    .len()
+                    .checked_sub(1)
+                    .ok_or(KitSweepV3Error::InternalInvariant)?,
+            )
+            .ok_or(KitSweepV3Error::InternalInvariant)?;
+        let len = u8::try_from(der.len()).map_err(|_| KitSweepV3Error::InternalInvariant)?;
+        if der.is_empty() || der.len() > DER_CAPACITY {
+            return Err(KitSweepV3Error::InternalInvariant);
+        }
+        let mut bytes = [0u8; DER_CAPACITY];
+        bytes
+            .get_mut(..der.len())
+            .ok_or(KitSweepV3Error::InternalInvariant)?
+            .copy_from_slice(der);
+        Ok(Self {
+            bytes: wipe::ByteArray::new(bytes),
+            len,
+        })
+    }
+
+    fn matches(&self, candidate: &[u8]) -> bool {
+        usize::from(self.len) == candidate.len()
+            && self.bytes.as_array().get(..candidate.len()) == Some(candidate)
+    }
+}
+
 /// Typed untrusted candidate for the replacement wallet's receive branch.
 ///
 /// The type fixes branch zero at the API boundary. The exact child-index cap
@@ -128,6 +166,7 @@ pub struct ValidatedKitSweepV3 {
     replacement_wallet_id: wipe::ByteArray<32>,
     destination_index: u32,
     input_signing_plans: Vec<KitSweepInputSigningPlanV3>,
+    existing_signatures: Vec<ExistingSignatureV3>,
 }
 
 impl ValidatedKitSweepV3 {
@@ -187,6 +226,7 @@ impl ValidatedKitSweepV3 {
             replacement_wallet_id,
             destination_index,
             input_signing_plans,
+            existing_signatures,
         } = self;
         ValidatedKitSweepV3Parts {
             s0,
@@ -196,6 +236,7 @@ impl ValidatedKitSweepV3 {
             replacement_wallet_id,
             destination_index,
             input_signing_plans,
+            existing_signatures,
         }
     }
 }
@@ -210,6 +251,7 @@ pub struct ValidatedKitSweepV3Parts {
     replacement_wallet_id: wipe::ByteArray<32>,
     destination_index: u32,
     input_signing_plans: Vec<KitSweepInputSigningPlanV3>,
+    existing_signatures: Vec<ExistingSignatureV3>,
 }
 
 impl ValidatedKitSweepV3Parts {
@@ -258,6 +300,15 @@ impl ValidatedKitSweepV3Parts {
         &self.review_hash
     }
 
+    /// Test candidate DER bytes against every already-verified signature in
+    /// retained S0 without exposing any partial-signature record.
+    #[must_use]
+    pub fn contains_existing_signature(&self, candidate_der: &[u8]) -> bool {
+        self.existing_signatures
+            .iter()
+            .any(|signature| signature.matches(candidate_der))
+    }
+
     /// Release all proof components together to the existing insertion and
     /// finalization implementation. None has an independent constructor.
     #[must_use]
@@ -278,6 +329,7 @@ impl ValidatedKitSweepV3Parts {
             replacement_wallet_id: _,
             destination_index: _,
             input_signing_plans,
+            existing_signatures: _,
         } = self;
         (s0, old_descriptor, review, review_hash, input_signing_plans)
     }
@@ -369,6 +421,7 @@ pub fn build_validated_kit_sweep_v3(
         build_review_v3(&view, &old_descriptor, context).map_err(KitSweepV3Error::Review)?;
     let verification = analyze_descriptor_ownership_v2(&view, &old_descriptor)
         .map_err(KitSweepV3Error::ExistingSignatureVerification)?;
+    let existing_signatures = collect_existing_signatures(&view)?;
     validate_destination(
         &review,
         &old_descriptor,
@@ -401,6 +454,7 @@ pub fn build_validated_kit_sweep_v3(
         replacement_wallet_id: wipe::ByteArray::new(replacement_wallet_id),
         destination_index,
         input_signing_plans,
+        existing_signatures,
     })
 }
 
@@ -620,11 +674,29 @@ fn collect_role_public_keys(
     Ok(([key_a, key_b], existing))
 }
 
+fn collect_existing_signatures(
+    view: &crate::PsbtView<'_>,
+) -> Result<Vec<ExistingSignatureV3>, KitSweepV3Error> {
+    let mut signatures = Vec::new();
+    for input_index in 0..view.input_map_count() {
+        for record in view
+            .input_records(input_index)
+            .ok_or(KitSweepV3Error::InternalInvariant)?
+        {
+            if record.key_type == 0x02 {
+                signatures.push(ExistingSignatureV3::from_record_value(record.value)?);
+            }
+        }
+    }
+    Ok(signatures)
+}
+
 #[cfg(test)]
 #[allow(clippy::arithmetic_side_effects)]
 mod tests {
     use super::{
-        KitSweepInputSigningPlanV3, KitSweepReviewHashV3, WipingDerivedScript, WipingPrecomputed,
+        ExistingSignatureV3, KitSweepInputSigningPlanV3, KitSweepReviewHashV3, WipingDerivedScript,
+        WipingPrecomputed, DER_CAPACITY,
     };
     use crate::bip143::Bip143Precomputed;
     use crate::wipe::{reset_wiped_bytes, wiped_bytes};
@@ -643,6 +715,16 @@ mod tests {
         reset_wiped_bytes();
         drop(plan);
         assert_eq!(wiped_bytes(), 32 + (2 * 33) + 2);
+
+        let existing = ExistingSignatureV3 {
+            bytes: crate::wipe::ByteArray::new([0xd4; DER_CAPACITY]),
+            len: 71,
+        };
+        assert!(existing.matches(&[0xd4; 71]));
+        assert!(!existing.matches(&[0xd4; 70]));
+        reset_wiped_bytes();
+        drop(existing);
+        assert_eq!(wiped_bytes(), DER_CAPACITY);
 
         let hash = KitSweepReviewHashV3 { bytes: [0xd4; 32] };
         reset_wiped_bytes();

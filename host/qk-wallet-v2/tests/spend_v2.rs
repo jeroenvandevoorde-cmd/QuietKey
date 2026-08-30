@@ -118,6 +118,10 @@ fn signing_errors_are_fixed_named_categories() {
             KitSweepSigningErrorV3::CryptographicSigningFailed,
             "CryptographicSigningFailed",
         ),
+        (
+            KitSweepSigningErrorV3::DuplicateSignature,
+            "DuplicateSignature",
+        ),
     ];
     for (error, expected) in cases {
         assert_eq!(error.name(), expected);

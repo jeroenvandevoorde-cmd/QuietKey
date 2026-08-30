@@ -280,8 +280,9 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
     drop(proof);
 
     let public_key = hex_array(field(KIT_SPEND_FIXTURE, "old_role_a_route_public_key_hex"));
+    let valid_der = role_a_signature(&digest);
     let mut signed = unsigned;
-    insert_partial_signature(&mut signed, &public_key, &role_a_signature(&digest));
+    insert_partial_signature(&mut signed, &public_key, &valid_der);
     let proof = build_validated_kit_sweep_v3(
         OwnedS0::new(&signed, InputSource::MicroSd).unwrap(),
         old_descriptor(),
@@ -293,6 +294,13 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
         proof.input_signing_plans()[0].existing_role_signatures(),
         [true, false]
     );
+    let parts = proof.into_parts();
+    let exact_der = &valid_der[..valid_der.len() - 1];
+    assert!(parts.contains_existing_signature(exact_der));
+    let mut distinct_der = exact_der.to_vec();
+    distinct_der[0] ^= 1;
+    assert!(!parts.contains_existing_signature(&distinct_der));
+    drop(parts);
 
     let mut bad = role_a_signature(&digest);
     let final_der_byte = bad.len() - 2;

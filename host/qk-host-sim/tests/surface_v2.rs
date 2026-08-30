@@ -21,6 +21,7 @@ const MANUAL: &str = include_str!("../src/manual_keypad_v2.rs");
 const KIT_INTAKE: &str = include_str!("../src/kit_intake_v2.rs");
 const KIT_RESTORE: &str = include_str!("../src/kit_restore_v2.rs");
 const KIT_SPEND: &str = include_str!("../src/kit_spend_v2.rs");
+const SIGNING: &str = include_str!("../src/signing_v2.rs");
 
 #[test]
 fn v2_surface_is_parallel_and_contains_no_third_role_or_v1_fixture() {
@@ -266,6 +267,7 @@ fn kit_spend_accepts_only_ready_plus_exact_sweep_and_exposes_no_general_signer()
     assert!(KIT_SPEND.contains("build_validated_kit_sweep_v3("));
     assert!(KIT_SPEND.contains("payload.sign_validated_sweep_v3(proof)"));
     assert!(KIT_SPEND.contains("finalize_signed_kit_sweep_v3(signed)"));
+    assert!(SIGNING.contains(".any(|prior| prior.der_signature == signature.der())"));
     for forbidden in [
         "RecoveredKitPayload",
         "[u8; 96]",

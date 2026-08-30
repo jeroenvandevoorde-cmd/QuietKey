@@ -4,11 +4,29 @@ use qk_host_sim::{
     CoordinatorCompletenessStatementV2, FlowApplyOutcomeV2, FlowEventV2, FlowKindV2,
     FlowTerminalV2, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2,
     KitSpendAssertionDigitV2, KitSpendErrorV2, KitSpendForeignOperationV2, KitSpendInterruptionV2,
-    KitSpendSessionV2, KitSpendStageV2, ScreenFlowV2, ScreenKindV2, WipingReasonV2,
+    KitSpendSessionV2, KitSpendStageV2, ScreenFlowV2, ScreenKindV2, SigningV2Error, WipingReasonV2,
     KIT_FALLBACK_TABLE_V2,
 };
+
+#[test]
+fn signing_failures_retain_their_named_category_at_the_kit_boundary() {
+    for (error, expected) in [
+        (SigningV2Error::DuplicateSignature, "DuplicateSignature"),
+        (
+            SigningV2Error::InvalidRecoveredSignature,
+            "InvalidRecoveredSignature",
+        ),
+        (SigningV2Error::ThresholdIncomplete, "ThresholdIncomplete"),
+    ] {
+        assert_eq!(error.name(), expected);
+        assert_eq!(KitSpendErrorV2::Finalization(error).name(), expected);
+    }
+}
 use qk_psbt::{InputSource, ReplacementReceiveIndexV2};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+#[cfg(feature = "fuzzing")]
+use qk_host_sim::{kit_spend_execution_trace_v2, reset_kit_spend_execution_trace_v2};
 
 const KIT_SHARES: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
 const SPEND: &str = include_str!("fixtures/kit_spend_v2.txt");
@@ -221,6 +239,37 @@ fn submit_registered(session: &mut KitSpendSessionV2) {
     assert_eq!(
         screen.review_hash(),
         Some(hex_array(field(SPEND, "review_hash_hex")))
+    );
+}
+
+#[cfg(feature = "fuzzing")]
+#[test]
+fn fuzz_trace_observes_actual_sign_finalize_and_terminal_edges() {
+    reset_kit_spend_execution_trace_v2();
+    let mut success = session(0);
+    submit_registered(&mut success);
+    success
+        .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+        .unwrap();
+    success.execute(KeypadKey::Zero).unwrap();
+    let trace = kit_spend_execution_trace_v2();
+    assert_eq!(trace.callback_count, 0);
+    assert_eq!(trace.sign_count, 1);
+    assert_eq!(trace.finalize_count, 1);
+    assert_eq!(trace.terminal, Some(FlowTerminalV2::CompletedWiped));
+
+    reset_kit_spend_execution_trace_v2();
+    let mut rejected = session(0);
+    rejected
+        .interrupt(KitSpendInterruptionV2::SessionTimeout)
+        .unwrap_err();
+    let trace = kit_spend_execution_trace_v2();
+    assert_eq!(trace.callback_count, 0);
+    assert_eq!(trace.sign_count, 0);
+    assert_eq!(trace.finalize_count, 0);
+    assert_eq!(
+        trace.terminal,
+        Some(FlowTerminalV2::FailedWiped(WipingReasonV2::SessionTimeout))
     );
 }
 

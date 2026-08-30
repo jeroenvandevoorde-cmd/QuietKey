@@ -24,6 +24,7 @@ pub enum KitSweepSigningErrorV3 {
     ChildDerivationFailed,
     ExpectedPublicKeyMismatch,
     CryptographicSigningFailed,
+    DuplicateSignature,
 }
 
 impl KitSweepSigningErrorV3 {
@@ -35,6 +36,7 @@ impl KitSweepSigningErrorV3 {
             Self::ChildDerivationFailed => "ChildDerivationFailed",
             Self::ExpectedPublicKeyMismatch => "ExpectedPublicKeyMismatch",
             Self::CryptographicSigningFailed => "CryptographicSigningFailed",
+            Self::DuplicateSignature => "DuplicateSignature",
         }
     }
 }
@@ -188,6 +190,12 @@ pub fn sign_validated_kit_sweep_v3(
                 role_a_public_key.as_bytes(),
             )?)
         };
+        if role_a.as_ref().is_some_and(|signature| {
+            proof.contains_existing_signature(signature.der())
+                || generated_signature_repeats(&inputs[..position], None, signature)
+        }) {
+            return Err(KitSweepSigningErrorV3::DuplicateSignature);
+        }
         let role_b = if occupied[1] {
             None
         } else {
@@ -201,6 +209,12 @@ pub fn sign_validated_kit_sweep_v3(
                 role_b_public_key.as_bytes(),
             )?)
         };
+        if role_b.as_ref().is_some_and(|signature| {
+            proof.contains_existing_signature(signature.der())
+                || generated_signature_repeats(&inputs[..position], role_a.as_ref(), signature)
+        }) {
+            return Err(KitSweepSigningErrorV3::DuplicateSignature);
+        }
         inputs[position] = KitSweepInputSignaturesV3 {
             input_index,
             role_a,
@@ -212,6 +226,24 @@ pub fn sign_validated_kit_sweep_v3(
         proof,
         signatures: WalletKitSweepSignaturesV3 { inputs, len },
     })
+}
+
+fn generated_signature_repeats(
+    prior_inputs: &[KitSweepInputSignaturesV3],
+    same_input: Option<&KitSweepDerSignatureV3>,
+    candidate: &KitSweepDerSignatureV3,
+) -> bool {
+    let candidate = candidate.der();
+    prior_inputs.iter().any(|prior| {
+        prior
+            .role_a
+            .as_ref()
+            .is_some_and(|signature| signature.der() == candidate)
+            || prior
+                .role_b
+                .as_ref()
+                .is_some_and(|signature| signature.der() == candidate)
+    }) || same_input.is_some_and(|signature| signature.der() == candidate)
 }
 
 fn derive_signing_account(entropy: &[u8; 32]) -> Result<PrivateNode, KitSweepSigningErrorV3> {
@@ -254,7 +286,8 @@ fn map_child_error(_error: WalletV2Error) -> KitSweepSigningErrorV3 {
 #[cfg(test)]
 mod tests {
     use super::{
-        sign_role, sign_validated_kit_sweep_v3, KitSweepDerSignatureV3, KitSweepSigningErrorV3,
+        generated_signature_repeats, sign_role, sign_validated_kit_sweep_v3,
+        KitSweepDerSignatureV3, KitSweepInputSignaturesV3, KitSweepSigningErrorV3,
     };
     use crate::bip32_private::derive_account_private;
     use crate::bip39::entropy_to_seed;
@@ -349,6 +382,35 @@ mod tests {
         reset_wiped_bytes();
         drop(signature);
         assert_eq!(wiped_bytes(), 72);
+    }
+
+    #[test]
+    fn duplicate_predicate_covers_prior_and_same_input_signatures() {
+        fn signature(byte: u8) -> KitSweepDerSignatureV3 {
+            let mut bytes = [byte; 72];
+            KitSweepDerSignatureV3 {
+                bytes: Secret::take(&mut bytes),
+                len: 71,
+            }
+        }
+
+        let prior = [KitSweepInputSignaturesV3 {
+            input_index: 0,
+            role_a: Some(signature(0x31)),
+            role_b: None,
+        }];
+        let duplicate_prior = signature(0x31);
+        let distinct = signature(0x32);
+        assert!(generated_signature_repeats(&prior, None, &duplicate_prior));
+        assert!(!generated_signature_repeats(&prior, None, &distinct));
+
+        let same_input = signature(0x33);
+        let duplicate_same = signature(0x33);
+        assert!(generated_signature_repeats(
+            &[],
+            Some(&same_input),
+            &duplicate_same,
+        ));
     }
 
     #[test]
