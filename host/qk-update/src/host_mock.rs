@@ -244,7 +244,7 @@ impl MockPrivilegedInstaller {
             return Err(UpdateError::InvalidTransition);
         }
         trial.boot_attempted = true;
-        let display = BootVersionDisplay::new(trial.package.manifest().version());
+        let display = BootVersionDisplay::new(report.version);
         self.boot_attempts = self.boot_attempts.saturating_add(1);
         self.last_display = Some(display);
         if report.slot != trial.slot

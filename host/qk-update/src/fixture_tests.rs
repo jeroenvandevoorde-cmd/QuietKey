@@ -345,6 +345,37 @@ fn every_boot_report_field_is_load_bearing() {
 }
 
 #[test]
+fn failed_boot_displays_the_version_that_actually_reported() {
+    let committed = CommittedInstallerState::new(
+        SlotId::A,
+        ReleaseVersion::new(1, 41),
+        REGISTERED_TEST_KEYSET_ID,
+        [0; 32],
+    );
+    let mut installer = MockPrivilegedInstaller::new(committed);
+    installer
+        .prepare_trial(verify("package_roles_1_3_hex", 40), UpdatePresence::clear())
+        .unwrap();
+    assert!(matches!(
+        installer.attempt_first_boot(
+            FirstBootReport::new(
+                SlotId::B,
+                ReleaseVersion::new(1, 99),
+                fixed("artifact_1_sha256"),
+                REGISTERED_TEST_KEYSET_ID,
+                true,
+            ),
+            UpdatePresence::clear(),
+        ),
+        Err(UpdateError::BootReportMismatch)
+    ));
+    let display = installer.last_display().unwrap();
+    assert_eq!(display.version(), ReleaseVersion::new(1, 99));
+    assert_eq!(display.sequence_decimal(), "99");
+    assert_eq!(installer.committed(), committed);
+}
+
+#[test]
 fn staging_allocation_wipes_on_rejection_commit_and_unwind() {
     let high_s_length = hex("high_s_package_hex").len();
     reset_wiped_bytes();
