@@ -95,7 +95,7 @@ impl StreamDecoder {
             return Err(self.terminate(IpcError::AncillaryData));
         }
         if self.frame_ready {
-            return Err(IpcError::OutstandingExchange);
+            return Err(self.terminate(IpcError::OutstandingExchange));
         }
 
         let mut consumed = 0usize;
@@ -122,9 +122,6 @@ impl StreamDecoder {
                 Err(error) => return Err(self.terminate(error)),
             };
             let expected_payload = header.payload_len() as usize;
-            if let Err(error) = validate_payload_shape(header.kind(), expected_payload) {
-                return Err(self.terminate(error));
-            }
             let payload = match WipingByteVec::try_zeroed(expected_payload) {
                 Ok(payload) => payload,
                 Err(()) => return Err(self.terminate(IpcError::PayloadAllocationFailed)),
@@ -135,6 +132,9 @@ impl StreamDecoder {
             wipe::bytes(&mut self.header_bytes);
             self.header_len = 0;
             if expected_payload == 0 {
+                if let Err(error) = validate_payload_shape(header.kind(), expected_payload) {
+                    return Err(self.terminate(error));
+                }
                 self.frame_ready = true;
                 return Ok(IngestOutcome {
                     consumed,
@@ -167,6 +167,13 @@ impl StreamDecoder {
         self.payload_len += copied;
         consumed += copied;
         if self.payload_len == expected_payload {
+            let kind = match self.parsed_header.as_ref() {
+                Some(header) => header.kind(),
+                None => return Err(self.terminate(IpcError::InvalidTransition)),
+            };
+            if let Err(error) = validate_payload_shape(kind, expected_payload) {
+                return Err(self.terminate(error));
+            }
             self.frame_ready = true;
         }
 

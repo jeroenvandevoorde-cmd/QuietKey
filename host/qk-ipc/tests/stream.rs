@@ -73,10 +73,6 @@ fn coalesced_delivery_exposes_one_frame_and_exact_consumed_prefix() {
     let outcome = decoder.ingest(&coalesced, false).expect("first frame");
     assert_eq!(outcome.consumed(), first.len());
     assert!(outcome.frame_ready());
-    assert_eq!(
-        decoder.ingest(&coalesced[first.len()..], false),
-        Err(IpcError::OutstandingExchange)
-    );
     let received = decoder.take_frame().expect("take first");
     assert_eq!(received.header().kind(), MessageKind::SessionOpen);
     drop(received);
@@ -88,6 +84,45 @@ fn coalesced_delivery_exposes_one_frame_and_exact_consumed_prefix() {
     let received = decoder.take_frame().expect("take second");
     assert_eq!(received.header().kind(), MessageKind::OperationRequest);
     assert_eq!(received.payload(), &[0x77; 3]);
+}
+
+#[test]
+fn offering_bytes_before_taking_a_ready_frame_terminates() {
+    let encoded = frame(MessageKind::SessionOpen, 1, &[]);
+    let mut decoder = StreamDecoder::new();
+    assert!(decoder
+        .ingest(&encoded, false)
+        .expect("complete frame")
+        .frame_ready());
+    assert_eq!(
+        decoder.ingest(&[0x51], false),
+        Err(IpcError::OutstandingExchange)
+    );
+    assert_eq!(
+        decoder.take_frame().err(),
+        Some(IpcError::DecoderTerminated)
+    );
+    assert_eq!(decoder.ingest(&[], false), Err(IpcError::DecoderTerminated));
+}
+
+#[test]
+fn stream_payload_shape_waits_for_declared_bytes() {
+    let mut invalid = frame(MessageKind::OperationRequest, 1, &[0x55]);
+    invalid[6..8].copy_from_slice(&MessageKind::SessionOpen.wire_value().to_le_bytes());
+    let mut decoder = StreamDecoder::new();
+    let header = decoder
+        .ingest(&invalid[..HEADER_BYTES], false)
+        .expect("complete valid header with pending payload");
+    assert_eq!(header.consumed(), HEADER_BYTES);
+    assert!(!header.frame_ready());
+    assert_eq!(decoder.finish(), IpcError::ConnectionClosedMidFrame);
+
+    let mut complete = StreamDecoder::new();
+    assert_eq!(
+        complete.ingest(&invalid, false),
+        Err(IpcError::ControlPayloadNotEmpty)
+    );
+    assert_eq!(complete.ingest(&[], false), Err(IpcError::DecoderTerminated));
 }
 
 #[test]

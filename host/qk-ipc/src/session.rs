@@ -408,16 +408,16 @@ impl IoProtocol {
     }
 
     fn validate_initiating_exchange(&mut self, received: u32) -> Result<(), IpcError> {
-        let expected = match self.last_completed.checked_add(1) {
-            Some(expected) => expected,
-            None => return Err(self.terminate(IpcError::ExchangeIdExhausted)),
-        };
         if received == self.last_completed {
             return Err(self.terminate(IpcError::ExchangeIdReuse));
         }
         if received < self.last_completed {
             return Err(self.terminate(IpcError::ExchangeIdRegression));
         }
+        let expected = match self.last_completed.checked_add(1) {
+            Some(expected) => expected,
+            None => return Err(self.terminate(IpcError::ExchangeIdExhausted)),
+        };
         if received > expected {
             return Err(self.terminate(IpcError::ExchangeIdSkipped));
         }
@@ -468,14 +468,23 @@ mod tests {
         assert_eq!(core.request(), Err(IpcError::ExchangeIdExhausted));
         assert!(core.is_terminated());
 
-        let mut io = IoProtocol::new();
-        io.state = IoState::Ready;
-        io.last_completed = u32::MAX;
+        let mut reused = IoProtocol::new();
+        reused.state = IoState::Ready;
+        reused.last_completed = u32::MAX;
         assert_eq!(
-            io.validate_initiating_exchange(u32::MAX),
-            Err(IpcError::ExchangeIdExhausted)
+            reused.validate_initiating_exchange(u32::MAX),
+            Err(IpcError::ExchangeIdReuse)
         );
-        assert!(io.is_terminated());
+        assert!(reused.is_terminated());
+
+        let mut regressed = IoProtocol::new();
+        regressed.state = IoState::Ready;
+        regressed.last_completed = u32::MAX;
+        assert_eq!(
+            regressed.validate_initiating_exchange(u32::MAX - 1),
+            Err(IpcError::ExchangeIdRegression)
+        );
+        assert!(regressed.is_terminated());
     }
 
     #[test]
