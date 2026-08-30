@@ -336,6 +336,16 @@ pub(crate) struct KitIntakeRestorePartsV2 {
     pub(crate) next_screen: ScreenKindV2,
 }
 
+pub(crate) struct KitIntakeSpendPartsV2 {
+    pub(crate) flow: ScreenFlowV2,
+    pub(crate) payload: RecoveredKitPayload,
+    pub(crate) door: KitDoorV2,
+    pub(crate) mode: KitInputModeV2,
+    pub(crate) wallet_id: [u8; 32],
+    pub(crate) identities: [KitFrameIdentityV2; 2],
+    pub(crate) next_screen: ScreenKindV2,
+}
+
 impl KitIntakeReadyV2 {
     #[must_use]
     pub const fn door(&self) -> KitDoorV2 {
@@ -364,6 +374,18 @@ impl KitIntakeReadyV2 {
 
     pub(crate) fn into_restore_parts(self) -> KitIntakeRestorePartsV2 {
         KitIntakeRestorePartsV2 {
+            flow: self._flow,
+            payload: self._payload,
+            door: self.door,
+            mode: self.mode,
+            wallet_id: self.wallet_id,
+            identities: self.identities,
+            next_screen: self.next_screen,
+        }
+    }
+
+    pub(crate) fn into_spend_parts(self) -> KitIntakeSpendPartsV2 {
+        KitIntakeSpendPartsV2 {
             flow: self._flow,
             payload: self._payload,
             door: self.door,

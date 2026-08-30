@@ -1394,6 +1394,12 @@ impl ScreenFlowV2 {
         }
     }
 
+    pub(crate) fn terminate_kit_spend(&mut self, reason: WipingReasonV2) {
+        if !self.is_finished() {
+            self.wipe(FlowTerminalV2::FailedWiped(reason));
+        }
+    }
+
     pub(crate) fn accept_kit_intake_share(&mut self) -> bool {
         if self.flow != FlowKindV2::Kit {
             return false;
@@ -1421,6 +1427,50 @@ impl ScreenFlowV2 {
             Some(KitDoorV2::KitRestore) => ScreenKindV2::KitRestoreActionSelection,
             None => return false,
         });
+        true
+    }
+
+    pub(crate) fn accept_kit_spend_transaction_semantic(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitSpend)
+            || self.screen_kind() != Some(ScreenKindV2::KitSpendTransaction)
+        {
+            return false;
+        }
+        self.state = MachineStateV2::Screen(ScreenKindV2::KitSpendValidation);
+        true
+    }
+
+    pub(crate) fn accept_kit_spend_validation_semantic(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitSpend)
+            || self.screen_kind() != Some(ScreenKindV2::KitSpendValidation)
+        {
+            return false;
+        }
+        self.state = MachineStateV2::Screen(ScreenKindV2::KitSpendCompleteness);
+        true
+    }
+
+    pub(crate) fn accept_kit_spend_completeness_semantic(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitSpend)
+            || self.screen_kind() != Some(ScreenKindV2::KitSpendCompleteness)
+        {
+            return false;
+        }
+        self.state = MachineStateV2::Screen(ScreenKindV2::KitSpendDeferred);
+        true
+    }
+
+    pub(crate) fn complete_kit_spend_semantic(&mut self) -> bool {
+        if self.flow != FlowKindV2::Kit
+            || self.door != Some(KitDoorV2::KitSpend)
+            || self.screen_kind() != Some(ScreenKindV2::KitSpendDeferred)
+        {
+            return false;
+        }
+        self.wipe(FlowTerminalV2::CompletedWiped);
         true
     }
 
