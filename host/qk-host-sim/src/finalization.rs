@@ -1,6 +1,7 @@
 //! Capability-only M16 native-P2WSH finalization and extraction.
 
 use crate::insertion::ThresholdCompletePsbt;
+use crate::transaction_wipe_v2::wipe_vec;
 use crate::transaction_sha256::sha256d;
 use core::fmt;
 use qk_psbt::{
@@ -81,6 +82,31 @@ impl FinalizedTransaction {
     #[must_use]
     pub const fn wtxid(&self) -> [u8; 32] {
         self.wtxid
+    }
+}
+
+impl Drop for FinalizedTransaction {
+    fn drop(&mut self) {
+        wipe_vec(&mut self.finalized_psbt);
+        wipe_vec(&mut self.raw_transaction);
+    }
+}
+
+#[cfg(test)]
+mod transaction_owner_tests {
+    use super::FinalizedTransaction;
+    use crate::transaction_wipe_v2::{reset_wiped_bytes, wiped_bytes};
+
+    #[test]
+    fn finalized_artifact_clears_both_transaction_buffers() {
+        reset_wiped_bytes();
+        drop(FinalizedTransaction::from_checked_parts(
+            vec![0x11; 19],
+            vec![0x22; 23],
+            [0x33; 32],
+            [0x44; 32],
+        ));
+        assert_eq!(wiped_bytes(), 42);
     }
 }
 

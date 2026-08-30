@@ -86,6 +86,7 @@ mod review_ready_v3;
 pub mod screen_flow;
 pub mod screen_flow_v2;
 mod signing_v2;
+mod transaction_wipe_v2;
 mod watch_only_export;
 mod watch_only_export_v2;
 
