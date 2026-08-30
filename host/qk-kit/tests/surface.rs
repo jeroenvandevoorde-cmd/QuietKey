@@ -7,6 +7,7 @@ const FRAME: &str = include_str!("../src/frame.rs");
 const FALLBACK: &str = include_str!("../src/fallback.rs");
 const QR: &str = include_str!("../src/qr.rs");
 const RESTORE: &str = include_str!("../src/restore_v2.rs");
+const SPEND: &str = include_str!("../src/spend_v2.rs");
 const SHA256: &str = include_str!("../src/sha256.rs");
 const SECRET: &str = include_str!("../src/secret.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
@@ -28,6 +29,7 @@ fn public_surface_is_exactly_the_fixed_codec_and_opaque_owner() {
             "pub use frame::{combine_frames, encode_frame, frame_metadata};",
             "pub use qr::encode_qr;",
             "pub use restore_v2::{",
+            "pub use spend_v2::{BoundKitSpendV2, KitSpendMathErrorV3, SignedKitSweepV3};",
             "pub const FRAME_LEN: usize = 142;",
             "pub const FALLBACK_SYMBOLS: usize = 228;",
             "pub const QR_CORE_SIZE: usize = 57;",
@@ -101,6 +103,21 @@ fn public_surface_is_exactly_the_fixed_codec_and_opaque_owner() {
             "pub const fn wallet_id(&self) -> [u8; 32] {",
             "pub const fn nonce(&self) -> [u8; 12] {",
             "pub const fn capsule_sha256(&self) -> [u8; 32] {",
+        ]
+    );
+    assert_eq!(
+        public_lines(SPEND),
+        [
+            "pub enum KitSpendMathErrorV3 {",
+            "pub const fn name(self) -> &'static str {",
+            "pub struct BoundKitSpendV2 {",
+            "pub fn bind_spend_v2(",
+            "pub fn wallet_id(&self) -> [u8; 32] {",
+            "pub fn sign_validated_sweep_v3(",
+            "pub struct SignedKitSweepV3 {",
+            "pub fn wallet_id(&self) -> [u8; 32] {",
+            "pub fn input_count(&self) -> usize {",
+            "pub fn into_execution_parts(self) -> (ValidatedKitSweepV3, WalletKitSweepSignaturesV3) {",
         ]
     );
     assert!(public_lines(SHA256).is_empty());
@@ -342,8 +359,37 @@ fn restore_secret_owners_are_opaque_and_the_crate_exposes_no_signing_path() {
 }
 
 #[test]
+fn spend_owner_is_consuming_proof_bound_and_has_no_secret_surface() {
+    for owner in ["BoundKitSpendV2", "SignedKitSweepV3"] {
+        let definition = format!("pub struct {owner} {{");
+        let start = SPEND.find(&definition).expect("spend owner definition");
+        let attributes = SPEND[..start]
+            .rsplit("\n\n")
+            .next()
+            .expect("spend owner attributes");
+        assert!(!attributes.contains("#[derive"), "opaque owner {owner}");
+        for trait_name in ["Clone", "Copy", "Debug", "Display", "PartialEq", "Eq"] {
+            assert!(
+                !SPEND.contains(&format!("impl {trait_name} for {owner}")),
+                "opaque spend owner trait {owner}::{trait_name}"
+            );
+        }
+    }
+    assert!(SPEND.contains("proof: ValidatedKitSweepV3,"));
+    assert!(SPEND.contains("payload: RecoveredKitPayload,"));
+    assert!(SPEND.contains("pub fn sign_validated_sweep_v3("));
+    assert!(!SPEND.contains("pub fn payload"));
+    assert!(!SPEND.contains("pub fn seed"));
+    assert!(!SPEND.contains("pub fn scalar"));
+    assert!(!SPEND.contains("pub fn digest"));
+    assert!(!SPEND.contains("pub fn signer"));
+    assert!(!SPEND.contains("FnOnce"));
+    assert!(!SPEND.contains("FnMut"));
+}
+
+#[test]
 fn production_is_fixed_memory_and_has_no_io_logging_rng_network_or_adjacent_capability() {
-    for source in [LIB, FRAME, FALLBACK, QR, RESTORE, SHA256, SECRET] {
+    for source in [LIB, FRAME, FALLBACK, QR, RESTORE, SPEND, SHA256, SECRET] {
         for forbidden in [
             "Vec<",
             "Vec::",
@@ -389,7 +435,7 @@ fn production_is_fixed_memory_and_has_no_io_logging_rng_network_or_adjacent_capa
         }
     }
 
-    for source in [LIB, FRAME, FALLBACK, QR, RESTORE, SHA256] {
+    for source in [LIB, FRAME, FALLBACK, QR, RESTORE, SPEND, SHA256] {
         for forbidden in ["unsafe fn", "unsafe impl", "unsafe {"] {
             assert!(
                 !source.contains(forbidden),
@@ -411,6 +457,7 @@ fn production_is_fixed_memory_and_has_no_io_logging_rng_network_or_adjacent_capa
         dependencies,
         [
             "qk-a1 = { path = \"../qk-a1\" }",
+            "qk-psbt = { path = \"../qk-psbt\" }",
             "qk-wallet-v2 = { path = \"../qk-wallet-v2\" }",
         ]
     );

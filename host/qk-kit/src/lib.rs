@@ -1,5 +1,5 @@
 //! Fixed-memory HOST reference for the canonical QuietKey v2 Kit share codec
-//! and opaque consuming restore mathematics.
+//! and opaque consuming restore or exact-sweep mathematics.
 //!
 //! HOST REFERENCE ONLY -- NOT A KIT GENERATOR, SCANNER, WALLET, CARD
 //! PROVISIONER, OR NORMAL-WALLET RESUME PATH -- NO TARGET, PERFORMANCE, OR
@@ -10,9 +10,9 @@
 //! one valid opposite-index same-wallet pair only into an opaque, zeroizing
 //! owner, rebind that owner to exact public wallet facts, and prepare one
 //! non-signing replacement-B or A1-reprint mock boundary. Its own storage is
-//! fixed-size; bounded allocations inherited from qk-bip32 remain separately
-//! measured. It performs no I/O, logging, randomness, rendering, image
-//! recognition, normalization, persistence, signing, or payload release.
+//! fixed-size; bounded allocations inherited from the wallet/secp boundaries
+//! remain separately measured. It performs no I/O, logging, randomness, rendering, image
+//! recognition, normalization, persistence, general signing, or payload release.
 
 #![deny(unsafe_code)]
 
@@ -22,6 +22,7 @@ mod qr;
 mod restore_v2;
 mod secret;
 mod sha256;
+mod spend_v2;
 
 use core::fmt;
 
@@ -33,6 +34,7 @@ pub use restore_v2::{
     KitRestoreDispositionV2, KitRestoreErrorV2, PreparedA1ReprintV2, PreparedReplacementBV2,
     ReplacementBReceiptV2, ReplacementBViewV2, SurvivingBFactorV2,
 };
+pub use spend_v2::{BoundKitSpendV2, KitSpendMathErrorV3, SignedKitSweepV3};
 
 /// Exact canonical Kit share-frame length in bytes.
 pub const FRAME_LEN: usize = 142;

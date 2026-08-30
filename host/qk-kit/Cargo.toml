@@ -3,8 +3,9 @@ name = "qk-kit"
 version = "0.0.1"
 edition = "2021"
 publish = false
-description = "Fixed-memory HOST-only reference for canonical QuietKey v2 Kit shares and opaque, consuming restore operations."
+description = "Fixed-memory HOST-only reference for canonical QuietKey v2 Kit shares and opaque, consuming restore and exact-sweep operations."
 
 [dependencies]
 qk-a1 = { path = "../qk-a1" }
+qk-psbt = { path = "../qk-psbt" }
 qk-wallet-v2 = { path = "../qk-wallet-v2" }
