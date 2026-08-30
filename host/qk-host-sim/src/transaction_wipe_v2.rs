@@ -55,12 +55,20 @@ impl<const N: usize> WipingArray<N> {
         Self { bytes: [0; N] }
     }
 
+    pub(crate) const fn new(bytes: [u8; N]) -> Self {
+        Self { bytes }
+    }
+
     pub(crate) const fn as_slice(&self) -> &[u8; N] {
         &self.bytes
     }
 
     pub(crate) fn as_mut_slice(&mut self) -> &mut [u8; N] {
         &mut self.bytes
+    }
+
+    pub(crate) fn take(&mut self) -> [u8; N] {
+        core::mem::replace(&mut self.bytes, [0; N])
     }
 }
 
@@ -135,7 +143,17 @@ pub(crate) fn wiped_bytes() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{reset_wiped_bytes, wiped_bytes, WipingVec};
+    use super::{reset_wiped_bytes, wiped_bytes, WipingArray, WipingVec};
+
+    #[test]
+    fn fixed_owner_transfer_leaves_only_zeroes_for_drop() {
+        let mut owner = WipingArray::new([0xa5; 32]);
+        assert_eq!(owner.take(), [0xa5; 32]);
+        assert_eq!(owner.as_slice(), &[0; 32]);
+        reset_wiped_bytes();
+        drop(owner);
+        assert_eq!(wiped_bytes(), 32);
+    }
 
     #[test]
     fn owned_heap_bytes_are_cleared_on_drop() {

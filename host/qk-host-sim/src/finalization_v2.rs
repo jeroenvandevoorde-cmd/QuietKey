@@ -3,7 +3,7 @@
 use crate::finalization::FinalizedTransaction;
 use crate::signing_v2::verify_der_signature;
 use crate::transaction_sha256::sha256d;
-use crate::transaction_wipe_v2::{wipe_bytes, WipingVec};
+use crate::transaction_wipe_v2::{wipe_bytes, WipingArray, WipingVec};
 use core::fmt;
 use qk_descriptor::{
     derive_change_script_v2, derive_receive_script_v2, DerivedScriptV2, DescriptorPairV2,
@@ -196,14 +196,17 @@ pub(super) fn finalize_v2(
     verify_parsed_witnesses(&parsed_witnesses, &witnesses, bound_review, descriptor)?;
     rebind_final_witness_records(&parsed_witnesses, &finalized_view)?;
 
-    let txid = sha256d(&[view.unsigned_tx_bytes()]).map_err(|_| FinalizationV2Error::HashFailed)?;
-    let wtxid =
-        sha256d(&[raw_transaction.as_slice()]).map_err(|_| FinalizationV2Error::HashFailed)?;
+    let mut txid = WipingArray::new(
+        sha256d(&[view.unsigned_tx_bytes()]).map_err(|_| FinalizationV2Error::HashFailed)?,
+    );
+    let mut wtxid = WipingArray::new(
+        sha256d(&[raw_transaction.as_slice()]).map_err(|_| FinalizationV2Error::HashFailed)?,
+    );
     Ok(FinalizedTransaction::from_checked_parts(
         finalized_psbt.into_vec(),
         raw_transaction.into_vec(),
-        txid,
-        wtxid,
+        txid.take(),
+        wtxid.take(),
     ))
 }
 
