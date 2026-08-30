@@ -1,4 +1,4 @@
-# QuietKey M21/M22/M23/M24/M25/M26/M27/M28/M29/M30/v2 slices 4, 7, 8, 9, and 10 reviewed active dependency closure; tab-separated; QK-DEC-106/QK-DEC-109/QK-DEC-110/QK-DEC-111/QK-DEC-112/QK-DEC-113/QK-DEC-116/QK-DEC-118/QK-DEC-119/QK-DEC-120/QK-DEC-125/QK-DEC-129/QK-DEC-130/QK-DEC-131/QK-DEC-132.
+# QuietKey M21/M22/M23/M24/M25/M26/M27/M28/M29/M30/v2 slices 4, 7, 8, 9, 10, and 11 reviewed active dependency closure; tab-separated; QK-DEC-106/QK-DEC-109/QK-DEC-110/QK-DEC-111/QK-DEC-112/QK-DEC-113/QK-DEC-116/QK-DEC-118/QK-DEC-119/QK-DEC-120/QK-DEC-125/QK-DEC-129/QK-DEC-130/QK-DEC-131/QK-DEC-132/QK-DEC-133/QK-DEC-134.
 # kind	name	version	checksum_sha256	provenance_or_checksum_subject	license	purpose
 registry	arbitrary	1.4.2	c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1	crates.io-package	MIT OR Apache-2.0	libfuzzer-sys input bridge
 registry	cc	1.4.4	0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273	crates.io-package	MIT OR Apache-2.0	libFuzzer native build helper

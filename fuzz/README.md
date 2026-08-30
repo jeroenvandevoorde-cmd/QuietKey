@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-twenty-eight libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+twenty-nine libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -97,7 +97,18 @@ twice. Each selected scenario runs twice and requires the same
 named result, exact public receipt, sink count, mandatory-migration posture,
 or bounded drop summary. It exposes no recovered payload or signer secret and
 makes no signing, transaction, second-card, real card/APDU, physical-print,
-freshness-generation, target, production, or Gate claim. The M27
+freshness-generation, target, production, or Gate claim. The v2 slice-11
+`qk_host_sim_v2_s11_kit_spend` target consumes only a public Kit-Spend ready
+owner, rebinds it to exact old D, and admits one sweep to a distinct
+replacement-wallet destination. Its 28 closed scenarios cover both intake
+modes and frame orders, old-descriptor branches, hostile transaction shapes,
+foreign-input positions, destination classes, assertion digits,
+interruptions, foreign operations, partial-owner drops, and second-call
+attempts. Every selected scenario runs twice and locks the exact result,
+terminal state, callback/sign/finalize counts, caller-buffer clearing, and
+complete-success facts. It exposes no generic signing operation and accepts
+no restore, regeneration, second sweep, callback signer, ordinary-wallet
+continuation, export, approval, or post-terminal work. The M27
 `qk-host-sim` target drives
 the typed provisioning, signing, and recovery screen-flow transition machine
 through bounded event streams. It checks deterministic typed outcomes, the closed named
@@ -157,6 +168,7 @@ fuzz/run-bounded.sh qk_kit_v2_s7_combine 100000
 fuzz/run-bounded.sh qk_provisioning_v2_s8_kit_setup 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s9_kit_intake 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s10_kit_restore 100000
+fuzz/run-bounded.sh qk_host_sim_v2_s11_kit_spend 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -203,6 +215,7 @@ setup-generation campaign is registered separately in
 The v2 slice-9 intake corpus will be registered separately in
 `CORPUS-MANIFEST-V2-S9.tsv` and its completed run recorded in
 `CAMPAIGN-015.md`.
-The v2 slice-10 Kit-Restore corpus will be registered separately in
-`CORPUS-MANIFEST-V2-S10.tsv` only after qualification, and its completed run
-will be recorded in `CAMPAIGN-016.md`.
+The completed v2 slice-10 Kit-Restore campaign is registered in
+`CORPUS-MANIFEST-V2-S10.tsv` and recorded in `CAMPAIGN-016.md`. The completed
+v2 slice-11 Kit-Spend campaign is registered in
+`CORPUS-MANIFEST-V2-S11.tsv` and recorded in `CAMPAIGN-017.md`.
