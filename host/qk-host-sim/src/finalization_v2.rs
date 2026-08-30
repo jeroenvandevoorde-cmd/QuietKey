@@ -1101,6 +1101,7 @@ fn append_slice(output: &mut Vec<u8>, value: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction_wipe_v2::{reset_wiped_bytes, wiped_bytes};
 
     #[test]
     fn v2_cap_arithmetic_is_exact() {
@@ -1125,5 +1126,33 @@ mod tests {
                 - MAX_FINAL_WITNESS_RECORD_BYTES,
             MIN_FINALIZED_PSBT_SHRINK_PER_INPUT
         );
+    }
+
+    #[test]
+    fn final_reparse_digest_and_script_scratch_are_fully_wiped() {
+        reset_wiped_bytes();
+        drop(WipingDigest([0x11; 32]));
+        assert_eq!(wiped_bytes(), 32);
+
+        reset_wiped_bytes();
+        drop(WipingPrecomputed(Bip143Precomputed {
+            hash_prevouts: [0x11; 32],
+            hash_sequence: [0x22; 32],
+            hash_outputs: [0x33; 32],
+        }));
+        assert_eq!(wiped_bytes(), 96);
+
+        reset_wiped_bytes();
+        drop(WipingDerivedScript(DerivedScriptV2 {
+            witness_script: [0x11; 71],
+            script_pubkey: [0x22; 34],
+        }));
+        assert_eq!(wiped_bytes(), 105);
+
+        reset_wiped_bytes();
+        drop(InputShape {
+            witness_script: [0x11; 71],
+        });
+        assert_eq!(wiped_bytes(), 71);
     }
 }

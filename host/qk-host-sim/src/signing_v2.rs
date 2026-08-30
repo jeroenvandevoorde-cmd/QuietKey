@@ -1048,6 +1048,7 @@ fn map_insertion_error(error: crate::SignatureInsertionError) -> SigningV2Error 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction_wipe_v2::{reset_wiped_bytes, wiped_bytes};
 
     const SIGNING_FIXTURE: &str =
         include_str!("../../qk-psbt/tests/fixtures/signing_finalization_v2.txt");
@@ -1207,5 +1208,41 @@ mod tests {
             plan_and_verify_signatures(&view, &slots, &terminal_keys, &mocks).err(),
             Some(SigningV2Error::TerminalKeyMismatch)
         );
+    }
+
+    #[test]
+    fn digest_plan_precompute_script_and_der_scratch_are_fully_wiped() {
+        reset_wiped_bytes();
+        drop(InputSlots {
+            role_keys: [[0x11; 33], [0x22; 33]],
+            existing: [None, None],
+            digest: WipingDigest([0x33; 32]),
+        });
+        assert_eq!(wiped_bytes(), 98);
+
+        reset_wiped_bytes();
+        drop(WipingPrecomputed(Bip143Precomputed {
+            hash_prevouts: [0x11; 32],
+            hash_sequence: [0x22; 32],
+            hash_outputs: [0x33; 32],
+        }));
+        assert_eq!(wiped_bytes(), 96);
+
+        reset_wiped_bytes();
+        drop(WipingDerivedScript(DerivedScriptV2 {
+            witness_script: [0x11; 71],
+            script_pubkey: [0x22; 34],
+        }));
+        assert_eq!(wiped_bytes(), 105);
+
+        let mut der_signature = Vec::with_capacity(19);
+        der_signature.extend_from_slice(&[0x30; 3]);
+        reset_wiped_bytes();
+        drop(PlannedSignature {
+            input_index: 0,
+            public_key: [0x02; 33],
+            der_signature,
+        });
+        assert_eq!(wiped_bytes(), 19);
     }
 }
