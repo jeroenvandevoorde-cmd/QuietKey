@@ -78,6 +78,7 @@ mod finalization_v2;
 mod insertion;
 mod kit_intake_v2;
 mod kit_restore_v2;
+mod kit_spend_v2;
 mod m24_signing;
 mod manual_keypad;
 mod manual_keypad_v2;
@@ -116,6 +117,11 @@ pub use kit_restore_v2::{
     HumanAssertionDigitV2, KitRestoreArtifactV2, KitRestoreErrorV2, KitRestoreForeignOperationV2,
     KitRestoreInterruptionV2, KitRestoreOutcomeV2, KitRestoreScreenV2, KitRestoreSessionV2,
     KitRestoreStageV2, MandatoryFreshWalletMigrationV2,
+};
+pub use kit_spend_v2::{
+    CoordinatorCompletenessStatementV2, KitSpendAssertionDigitV2, KitSpendErrorV2,
+    KitSpendForeignOperationV2, KitSpendInterruptionV2, KitSpendOutcomeV2, KitSpendScreenV2,
+    KitSpendSessionV2, KitSpendStageV2,
 };
 pub use m24_signing::{M24SigningError, MockCardRole, MockCardSignature, TerminalInputKey};
 pub use manual_keypad::{
