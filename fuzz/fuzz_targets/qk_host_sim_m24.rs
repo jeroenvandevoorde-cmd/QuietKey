@@ -446,6 +446,7 @@ fn assert_signing_error_named(error: SigningV2Error) {
         | SigningV2Error::TooManyInsertions
         | SigningV2Error::TerminalPreInsertionVerificationFailed
         | SigningV2Error::InvalidMockSignature
+        | SigningV2Error::InvalidRecoveredSignature
         | SigningV2Error::ForbiddenDelta
         | SigningV2Error::NonCanonicalOutput
         | SigningV2Error::ArtifactTooLarge
