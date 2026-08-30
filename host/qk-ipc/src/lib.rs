@@ -12,10 +12,13 @@
 
 #![deny(unsafe_code)]
 
+mod stream;
+mod wipe;
 mod wire;
 
 use core::fmt;
 
+pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};
 pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};
 
 /// Exact QK-DEC-140 frame magic.

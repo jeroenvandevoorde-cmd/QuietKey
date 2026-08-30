@@ -84,7 +84,7 @@ impl MessageKind {
 pub struct FrameHeader {
     direction: Direction,
     kind: MessageKind,
-    session_id: [u8; 16],
+    pub(crate) session_id: [u8; 16],
     exchange_id: u32,
     payload_len: u32,
 }
@@ -168,7 +168,10 @@ pub(crate) fn parse_header(bytes: &[u8; HEADER_BYTES]) -> Result<FrameHeader, Ip
     })
 }
 
-fn validate_payload_shape(kind: MessageKind, payload_len: usize) -> Result<(), IpcError> {
+pub(crate) fn validate_payload_shape(
+    kind: MessageKind,
+    payload_len: usize,
+) -> Result<(), IpcError> {
     if kind.requires_payload() {
         if payload_len == 0 {
             return Err(IpcError::OperationPayloadEmpty);
