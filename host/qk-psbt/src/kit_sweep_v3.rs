@@ -5,8 +5,9 @@ use crate::limits;
 use crate::review::{ReviewContext, ReviewNetwork};
 use crate::wipe;
 use crate::{
-    analyze_descriptor_ownership_v2, build_review_v3, InputSource, OwnedS0, ParseError, ReviewV3,
-    ReviewV3Error, ReviewV3Hash, ReviewV3OutputOwnership, SemanticError, VerifiedInputFacts,
+    analyze_descriptor_ownership_v2, build_review_v3, InputSource, OwnedS0, ParseError,
+    RejectCategory, ReviewV3, ReviewV3Error, ReviewV3Hash, ReviewV3OutputOwnership, SemanticError,
+    VerifiedInputFacts,
 };
 use core::fmt;
 use qk_descriptor::{
@@ -326,7 +327,16 @@ pub fn build_validated_kit_sweep_v3(
         return Err(KitSweepV3Error::ReplacementWalletUnchanged);
     }
 
-    let view = s0.parse().map_err(KitSweepV3Error::Parse)?;
+    let view = match s0.parse() {
+        Ok(view) => view,
+        Err(error) if error.category == RejectCategory::UnsignedTxZeroOutputs => {
+            return Err(KitSweepV3Error::OutputCountNotOne)
+        }
+        Err(error) => return Err(KitSweepV3Error::Parse(error)),
+    };
+    if view.unsigned_tx().output_count != 1 {
+        return Err(KitSweepV3Error::OutputCountNotOne);
+    }
     let context = ReviewContext {
         network: ReviewNetwork::BitcoinMainnet,
         input_source: s0.source(),
@@ -405,10 +415,11 @@ fn validate_destination(
         derive_change_script_v2(old_descriptor, destination_index)
             .map_err(|_| KitSweepV3Error::InternalInvariant)?,
     );
-    if output.script_pubkey() == old_receive.0.script_pubkey
-        || output.script_pubkey() == old_change.0.script_pubkey
-    {
+    if output.script_pubkey() == old_receive.0.script_pubkey {
         return Err(KitSweepV3Error::OldWalletDestination);
+    }
+    if output.script_pubkey() == old_change.0.script_pubkey {
+        return Err(KitSweepV3Error::ChangeOutputProhibited);
     }
     if output.script_pubkey() != expected.0.script_pubkey {
         return Err(KitSweepV3Error::DestinationMismatch);

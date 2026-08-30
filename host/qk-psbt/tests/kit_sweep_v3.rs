@@ -88,6 +88,55 @@ fn one_output_psbt(base: &[u8], amount: u64, script: &[u8], output_map: Option<&
     psbt
 }
 
+fn zero_output_psbt(base: &[u8]) -> Vec<u8> {
+    let view = parse(base, InputSource::MicroSd).expect("registered base PSBT");
+    assert_eq!(view.unsigned_tx().input_count, 1);
+    let unsigned = view.unsigned_tx_bytes();
+    assert_eq!(unsigned[4], 1);
+    assert_eq!(unsigned[41], 0);
+
+    let mut transaction = Vec::new();
+    transaction.extend_from_slice(&unsigned[..46]);
+    transaction.push(0);
+    transaction.extend_from_slice(&unsigned[unsigned.len() - 4..]);
+
+    let input_map = view.input_map_span(0).expect("one input map");
+    let input_map = &base[input_map.start..input_map.end];
+    let mut psbt = b"psbt\xff\x01\x00".to_vec();
+    compact_size(&mut psbt, transaction.len());
+    psbt.extend_from_slice(&transaction);
+    psbt.push(0);
+    psbt.extend_from_slice(input_map);
+    psbt
+}
+
+fn two_output_psbt(base: &[u8], first: &[u8], second: &[u8]) -> Vec<u8> {
+    let view = parse(base, InputSource::MicroSd).expect("registered base PSBT");
+    assert_eq!(view.unsigned_tx().input_count, 1);
+    let unsigned = view.unsigned_tx_bytes();
+
+    let mut transaction = Vec::new();
+    transaction.extend_from_slice(&unsigned[..46]);
+    transaction.push(2);
+    for script in [first, second] {
+        transaction.extend_from_slice(&450_000u64.to_le_bytes());
+        compact_size(&mut transaction, script.len());
+        transaction.extend_from_slice(script);
+    }
+    transaction.extend_from_slice(&unsigned[unsigned.len() - 4..]);
+
+    let input_map = view.input_map_span(0).expect("one input map");
+    let input_map = &base[input_map.start..input_map.end];
+    let mut psbt = b"psbt\xff\x01\x00".to_vec();
+    compact_size(&mut psbt, transaction.len());
+    psbt.extend_from_slice(&transaction);
+    psbt.push(0);
+    psbt.extend_from_slice(input_map);
+    psbt.extend_from_slice(&[0, 0]);
+    parse(&psbt, InputSource::MicroSd).expect("constructed two-output PSBT");
+    psbt
+}
+
 fn unsigned_sweep() -> Vec<u8> {
     hex(field(KIT_SPEND_FIXTURE, "s0_hex"))
 }
@@ -249,6 +298,22 @@ fn existing_signature_occupancy_is_exposed_only_after_exact_verification() {
         0,
     ));
     assert_eq!(error.name(), "ExistingSignatureVerificationFailed");
+
+    let wrong_destination = derive_receive_script_v2(&replacement_descriptor(), 1).unwrap();
+    let mut invalid_and_wrong_destination = one_output_psbt(
+        &hex(field(SIGNING_FIXTURE, "s0_hex")),
+        900_000,
+        &wrong_destination.script_pubkey,
+        None,
+    );
+    insert_partial_signature(&mut invalid_and_wrong_destination, &public_key, &bad);
+    let precedence = rejected(build_validated_kit_sweep_v3(
+        OwnedS0::new(&invalid_and_wrong_destination, InputSource::MicroSd).unwrap(),
+        old_descriptor(),
+        replacement_descriptor(),
+        0,
+    ));
+    assert_eq!(precedence.name(), "ExistingSignatureVerificationFailed");
 }
 
 #[test]
@@ -259,6 +324,12 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
     let replacement_receive_1 = derive_receive_script_v2(&replacement_descriptor(), 1).unwrap();
     let mut p2wpkh = vec![0x00, 0x14];
     p2wpkh.extend_from_slice(&[0x11; 20]);
+    let mut p2pkh = vec![0x76, 0xa9, 0x14];
+    p2pkh.extend_from_slice(&[0x22; 20]);
+    p2pkh.extend_from_slice(&[0x88, 0xac]);
+    let mut p2sh = vec![0xa9, 0x14];
+    p2sh.extend_from_slice(&[0x33; 20]);
+    p2sh.push(0x87);
 
     let cases = [
         (
@@ -267,12 +338,27 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
             "OldWalletDestination",
         ),
         (
+            one_output_psbt(&base, 900_000, &old_change.script_pubkey, None),
+            0,
+            "ChangeOutputProhibited",
+        ),
+        (
             one_output_psbt(&base, 900_000, &replacement_receive_1.script_pubkey, None),
             0,
             "DestinationMismatch",
         ),
         (
             one_output_psbt(&base, 900_000, &p2wpkh, None),
+            0,
+            "DestinationTypeMismatch",
+        ),
+        (
+            one_output_psbt(&base, 900_000, &p2pkh, None),
+            0,
+            "DestinationTypeMismatch",
+        ),
+        (
+            one_output_psbt(&base, 900_000, &p2sh, None),
             0,
             "DestinationTypeMismatch",
         ),
@@ -303,6 +389,27 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
     ));
     assert_eq!(change_error.name(), "ChangeOutputProhibited");
 
+    let zero_count_error = rejected(build_validated_kit_sweep_v3(
+        OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
+        old_descriptor(),
+        replacement_descriptor(),
+        0,
+    ));
+    assert_eq!(zero_count_error.name(), "OutputCountNotOne");
+
+    let replacement_receive = derive_receive_script_v2(&replacement_descriptor(), 0).unwrap();
+    let mixed_count_error = rejected(build_validated_kit_sweep_v3(
+        OwnedS0::new(
+            &two_output_psbt(&base, &replacement_receive.script_pubkey, &[0x51]),
+            InputSource::MicroSd,
+        )
+        .unwrap(),
+        old_descriptor(),
+        replacement_descriptor(),
+        0,
+    ));
+    assert_eq!(mixed_count_error.name(), "OutputCountNotOne");
+
     let count_error = rejected(build_validated_kit_sweep_v3(
         OwnedS0::new(&base, InputSource::MicroSd).unwrap(),
         old_descriptor(),
@@ -326,4 +433,20 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
         0,
     ));
     assert_eq!(same_error, KitSweepV3Error::ReplacementWalletUnchanged);
+
+    let precedence_index = rejected(build_validated_kit_sweep_v3(
+        OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
+        old_descriptor(),
+        old_descriptor(),
+        65_536,
+    ));
+    assert_eq!(precedence_index, KitSweepV3Error::DestinationIndexOutOfRange);
+
+    let precedence_wallet = rejected(build_validated_kit_sweep_v3(
+        OwnedS0::new(&zero_output_psbt(&base), InputSource::MicroSd).unwrap(),
+        old_descriptor(),
+        old_descriptor(),
+        0,
+    ));
+    assert_eq!(precedence_wallet, KitSweepV3Error::ReplacementWalletUnchanged);
 }
