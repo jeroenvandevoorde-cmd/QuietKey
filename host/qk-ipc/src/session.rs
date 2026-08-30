@@ -452,3 +452,45 @@ impl Drop for IoProtocol {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{CoreProtocol, CoreState, IoProtocol, IoState};
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+    use crate::IpcError;
+
+    #[test]
+    fn exchange_exhaustion_terminates_without_wrapping() {
+        let mut core = CoreProtocol::new([0x11; 16]);
+        core.state = CoreState::Ready;
+        core.last_completed = u32::MAX;
+        assert_eq!(core.request(), Err(IpcError::ExchangeIdExhausted));
+        assert!(core.is_terminated());
+
+        let mut io = IoProtocol::new();
+        io.state = IoState::Ready;
+        io.last_completed = u32::MAX;
+        assert_eq!(
+            io.validate_initiating_exchange(u32::MAX),
+            Err(IpcError::ExchangeIdExhausted)
+        );
+        assert!(io.is_terminated());
+    }
+
+    #[test]
+    fn core_owner_drop_clears_the_complete_session_identity() {
+        let core = CoreProtocol::new([0xa5; 16]);
+        reset_wiped_bytes();
+        drop(core);
+        assert_eq!(wiped_bytes(), 16);
+    }
+
+    #[test]
+    fn io_owner_without_an_open_session_has_no_session_bytes_to_clear() {
+        let io = IoProtocol::new();
+        reset_wiped_bytes();
+        drop(io);
+        assert_eq!(wiped_bytes(), 0);
+    }
+}
