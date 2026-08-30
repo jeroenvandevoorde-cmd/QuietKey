@@ -416,3 +416,179 @@ fn sha256(bytes: &[u8]) -> [u8; 32] {
     hash.finish(&mut output);
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        A1ReprintDispositionV2, BoundKitRestoreV2, KitRestoreDispositionV2, SurvivingBFactorV2,
+    };
+    use crate::secret::{reset_wiped_bytes, wiped_bytes};
+    use crate::{combine_frames, RecoveredKitPayload};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    const PROVISIONING: &[u8] =
+        include_bytes!("../../qk-provisioning/tests/fixtures/provisioning_v2.txt");
+    const KIT_SHARES: &[u8] = include_bytes!("../tests/fixtures/kit_share_v2.txt");
+    const FRESH_NONCE: [u8; 12] = *b"QKV2S10NEW01";
+
+    fn fixture_text(bytes: &[u8]) -> &str {
+        core::str::from_utf8(bytes).expect("registered ASCII fixture")
+    }
+
+    fn field<'a>(fixture: &'a [u8], name: &str) -> &'a str {
+        fixture_text(fixture)
+            .lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(": "))
+            .expect("registered field")
+    }
+
+    fn hex_array<const N: usize>(value: &str) -> [u8; N] {
+        assert_eq!(value.len(), N * 2);
+        let mut output = [0u8; N];
+        for (slot, pair) in output.iter_mut().zip(value.as_bytes().chunks_exact(2)) {
+            let nibble = |byte| match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                _ => panic!("registered lowercase hex"),
+            };
+            *slot = (nibble(pair[0]) << 4) | nibble(pair[1]);
+        }
+        output
+    }
+
+    fn recovered() -> RecoveredKitPayload {
+        combine_frames(
+            &hex_array::<142>(field(KIT_SHARES, "frame_1_hex")),
+            &hex_array::<142>(field(KIT_SHARES, "frame_2_hex")),
+        )
+        .expect("registered pair")
+    }
+
+    fn descriptors() -> [[u8; 306]; 2] {
+        [
+            field(PROVISIONING, "receive_descriptor")
+                .as_bytes()
+                .try_into()
+                .expect("receive descriptor width"),
+            field(PROVISIONING, "change_descriptor")
+                .as_bytes()
+                .try_into()
+                .expect("change descriptor width"),
+        ]
+    }
+
+    fn wallet_id() -> [u8; 32] {
+        hex_array(field(PROVISIONING, "wallet_id"))
+    }
+
+    fn bound() -> BoundKitRestoreV2 {
+        recovered()
+            .bind_restore_v2(&descriptors(), &wallet_id())
+            .expect("registered wallet")
+    }
+
+    fn surviving_b() -> SurvivingBFactorV2 {
+        let mut a2 = hex_array(field(PROVISIONING, "a2_transcript_sha256"));
+        SurvivingBFactorV2::take(
+            wallet_id(),
+            field(PROVISIONING, "role_b_account_xpub")
+                .as_bytes()
+                .try_into()
+                .expect("role-B xpub width"),
+            hex_array(field(PROVISIONING, "role_b_origin_fingerprint")),
+            &mut a2,
+        )
+    }
+
+    fn capsule() -> [u8; 67] {
+        hex_array(field(PROVISIONING, "a1_capsule_hex"))
+    }
+
+    #[test]
+    fn each_partial_restore_owner_routes_all_secret_fields_through_wipe() {
+        let owner = bound();
+        reset_wiped_bytes();
+        drop(owner);
+        assert_eq!(wiped_bytes(), 96);
+
+        let prepared = bound()
+            .prepare_replacement_b(&capsule())
+            .expect("registered A1");
+        reset_wiped_bytes();
+        drop(prepared);
+        assert_eq!(wiped_bytes(), 96);
+
+        let prepared = bound()
+            .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+            .expect("registered surviving B");
+        reset_wiped_bytes();
+        drop(prepared);
+        assert_eq!(wiped_bytes(), 96 + 67);
+    }
+
+    #[test]
+    fn every_callback_exit_routes_all_owned_restore_bytes_through_wipe() {
+        let prepared = bound()
+            .prepare_replacement_b(&capsule())
+            .expect("registered A1");
+        reset_wiped_bytes();
+        assert!(prepared
+            .complete(|_| KitRestoreDispositionV2::Rejected)
+            .is_err());
+        assert_eq!(wiped_bytes(), 96);
+
+        let prepared = bound()
+            .prepare_replacement_b(&capsule())
+            .expect("registered A1");
+        reset_wiped_bytes();
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            let _ = prepared.complete(|_| panic!("test unwind"));
+        }))
+        .is_err());
+        assert_eq!(wiped_bytes(), 96);
+
+        let prepared = bound()
+            .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+            .expect("registered surviving B");
+        reset_wiped_bytes();
+        assert!(prepared
+            .complete(|_, _| A1ReprintDispositionV2::Rejected)
+            .is_err());
+        assert_eq!(wiped_bytes(), 96 + 67 + 67);
+
+        let prepared = bound()
+            .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+            .expect("registered surviving B");
+        reset_wiped_bytes();
+        assert!(prepared
+            .complete(|view, scan_back| {
+                scan_back.copy_from_slice(view.capsule());
+                scan_back[31] ^= 1;
+                A1ReprintDispositionV2::Accepted
+            })
+            .is_err());
+        assert_eq!(wiped_bytes(), 96 + 67 + 67);
+
+        let prepared = bound()
+            .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+            .expect("registered surviving B");
+        reset_wiped_bytes();
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            let _ = prepared.complete(|_, _| panic!("test unwind"));
+        }))
+        .is_err());
+        assert_eq!(wiped_bytes(), 96 + 67 + 67);
+
+        let prepared = bound()
+            .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+            .expect("registered surviving B");
+        reset_wiped_bytes();
+        assert!(prepared
+            .complete(|view, scan_back| {
+                scan_back.copy_from_slice(view.capsule());
+                A1ReprintDispositionV2::Accepted
+            })
+            .is_ok());
+        assert_eq!(wiped_bytes(), 96 + 67 + 67 + 32 + 64);
+    }
+}
