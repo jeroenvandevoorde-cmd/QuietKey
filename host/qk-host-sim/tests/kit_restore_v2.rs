@@ -189,8 +189,12 @@ fn ready(door: KitDoorV2, mode: KitInputModeV2, order: [u8; 2]) -> qk_host_sim::
 }
 
 fn session(digit: u8) -> KitRestoreSessionV2 {
+    session_for(KitInputModeV2::Scanner, [1, 2], digit)
+}
+
+fn session_for(mode: KitInputModeV2, order: [u8; 2], digit: u8) -> KitRestoreSessionV2 {
     KitRestoreSessionV2::begin(
-        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        ready(KitDoorV2::KitRestore, mode, order),
         &descriptors(),
         HumanAssertionDigitV2::new(digit).unwrap(),
     )
@@ -353,6 +357,46 @@ fn a1_reprint_preconditions_precede_digit_and_fresh_capsule_sink() {
 }
 
 #[test]
+fn both_actions_complete_through_both_modes_and_both_frame_orders() {
+    for (mode, order) in [
+        (KitInputModeV2::Scanner, [1, 2]),
+        (KitInputModeV2::Scanner, [2, 1]),
+        (KitInputModeV2::Fallback, [1, 2]),
+        (KitInputModeV2::Fallback, [2, 1]),
+    ] {
+        let mut replacement = session_for(mode, order, 4);
+        prepare_replacement(&mut replacement);
+        assert!(matches!(
+            replacement
+                .execute_replacement_b(KeypadKey::FourLeft, |_| {
+                    KitRestoreDispositionV2::Accepted
+                })
+                .unwrap()
+                .artifact(),
+            KitRestoreArtifactV2::ReplacementB(_)
+        ));
+
+        let mut reprint = session_for(mode, order, 4);
+        reprint
+            .select_action(KitRestoreActionV2::A1Reprint)
+            .unwrap();
+        reprint
+            .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+            .unwrap();
+        assert!(matches!(
+            reprint
+                .execute_a1_reprint(KeypadKey::FourLeft, |view, scan_back| {
+                    scan_back.copy_from_slice(view.capsule());
+                    A1ReprintDispositionV2::Accepted
+                })
+                .unwrap()
+                .artifact(),
+            KitRestoreArtifactV2::A1Reprint(_)
+        ));
+    }
+}
+
+#[test]
 fn every_screen_named_digit_is_exact_and_wrong_keys_never_reach_a_sink() {
     for digit in 0..=9 {
         let mut session = session(digit);
@@ -367,9 +411,38 @@ fn every_screen_named_digit_is_exact_and_wrong_keys_never_reach_a_sink() {
         assert_eq!(calls, 1);
     }
 
-    for (key, expected) in [
-        (KeypadKey::Plus, KitRestoreErrorV2::HumanAssertionMismatch),
-        (KeypadKey::CancelBack, KitRestoreErrorV2::Cancelled),
+    let mut cancelled = session(6);
+    prepare_replacement(&mut cancelled);
+    let mut called = false;
+    assert_eq!(
+        cancelled
+            .execute_replacement_b(KeypadKey::CancelBack, |_| {
+                called = true;
+                KitRestoreDispositionV2::Accepted
+            })
+            .err(),
+        Some(KitRestoreErrorV2::Cancelled)
+    );
+    assert!(!called);
+
+    for key in [
+        KeypadKey::Seven,
+        KeypadKey::EightUp,
+        KeypadKey::Nine,
+        KeypadKey::CeDelete,
+        KeypadKey::FourLeft,
+        KeypadKey::Five,
+        KeypadKey::Multiply,
+        KeypadKey::Divide,
+        KeypadKey::One,
+        KeypadKey::TwoDown,
+        KeypadKey::Three,
+        KeypadKey::Minus,
+        KeypadKey::Percent,
+        KeypadKey::Zero,
+        KeypadKey::Decimal,
+        KeypadKey::Plus,
+        KeypadKey::EqualsConfirmEnter,
     ] {
         let mut session = session(6);
         prepare_replacement(&mut session);
@@ -381,7 +454,7 @@ fn every_screen_named_digit_is_exact_and_wrong_keys_never_reach_a_sink() {
                     KitRestoreDispositionV2::Accepted
                 })
                 .err(),
-            Some(expected)
+            Some(KitRestoreErrorV2::HumanAssertionMismatch)
         );
         assert!(!called);
     }
@@ -564,7 +637,7 @@ fn every_interruption_wipes_from_every_reachable_stage() {
             WipingReasonV2::PowerLoss,
         ),
     ];
-    for stage in 0..4 {
+    for stage in 0..6 {
         for (event, expected, reason) in cases {
             let mut session = session(8);
             match stage {
@@ -579,7 +652,23 @@ fn every_interruption_wipes_from_every_reachable_stage() {
                         .select_action(KitRestoreActionV2::ReplacementB)
                         .unwrap();
                 }
-                3 => prepare_replacement(&mut session),
+                3 => {
+                    session
+                        .select_action(KitRestoreActionV2::ReplacementB)
+                        .unwrap();
+                    session
+                        .confirm_card_remains(CardRemainsStatementV2::InHand)
+                        .unwrap();
+                }
+                4 => prepare_replacement(&mut session),
+                5 => {
+                    session
+                        .select_action(KitRestoreActionV2::A1Reprint)
+                        .unwrap();
+                    session
+                        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+                        .unwrap();
+                }
                 _ => unreachable!(),
             }
             assert_eq!(session.interrupt(event).err(), Some(expected));
@@ -626,6 +715,36 @@ fn sink_rejections_and_unwinds_release_no_receipt() {
     prepare_replacement(&mut unwind);
     assert!(catch_unwind(AssertUnwindSafe(|| {
         let _ = unwind.execute_replacement_b(KeypadKey::Three, |_| panic!("test unwind"));
+    }))
+    .is_err());
+
+    let mut mismatch = session(3);
+    mismatch
+        .select_action(KitRestoreActionV2::A1Reprint)
+        .unwrap();
+    mismatch
+        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .unwrap();
+    assert_eq!(
+        mismatch
+            .execute_a1_reprint(KeypadKey::Three, |view, scan_back| {
+                scan_back.copy_from_slice(view.capsule());
+                scan_back[31] ^= 1;
+                A1ReprintDispositionV2::Accepted
+            })
+            .err(),
+        Some(KitRestoreErrorV2::A1VerificationMismatch)
+    );
+
+    let mut a1_unwind = session(3);
+    a1_unwind
+        .select_action(KitRestoreActionV2::A1Reprint)
+        .unwrap();
+    a1_unwind
+        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        let _ = a1_unwind.execute_a1_reprint(KeypadKey::Three, |_, _| panic!("test unwind"));
     }))
     .is_err());
 }

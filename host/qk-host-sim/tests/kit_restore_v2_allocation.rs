@@ -1,9 +1,10 @@
 //! Slice-10 owns no dynamic storage; only the frozen qk-bip32 route boundary allocates.
 
 use qk_host_sim::{
-    CardRemainsStatementV2, FlowApplyOutcomeV2, FlowEventV2, FlowKindV2, HumanAssertionDigitV2,
-    KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2,
-    KitRestoreActionV2, KitRestoreDispositionV2, KitRestoreSessionV2, ScreenFlowV2, ScreenKindV2,
+    A1ReprintDispositionV2, CardRemainsStatementV2, FlowApplyOutcomeV2, FlowEventV2, FlowKindV2,
+    HumanAssertionDigitV2, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2,
+    KitIntakeSessionV2, KitRestoreActionV2, KitRestoreDispositionV2, KitRestoreInterruptionV2,
+    KitRestoreSessionV2, ScreenFlowV2, ScreenKindV2, SurvivingBFactorV2,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -11,6 +12,7 @@ use std::cell::Cell;
 const PROVISIONING: &str = include_str!("../../qk-provisioning/tests/fixtures/provisioning_v2.txt");
 const KIT_SHARES: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
 const INHERITED_ALLOCATION_BYTES: usize = 165;
+const FRESH_NONCE: [u8; 12] = *b"QKV2S10NEW01";
 
 struct CountingAllocator;
 
@@ -112,6 +114,23 @@ fn descriptors() -> [[u8; 306]; 2] {
     ]
 }
 
+fn wallet_id() -> [u8; 32] {
+    hex_array(field(PROVISIONING, "wallet_id"))
+}
+
+fn surviving_b() -> SurvivingBFactorV2 {
+    let mut a2 = hex_array(field(PROVISIONING, "a2_transcript_sha256"));
+    SurvivingBFactorV2::take(
+        wallet_id(),
+        field(PROVISIONING, "role_b_account_xpub")
+            .as_bytes()
+            .try_into()
+            .unwrap(),
+        hex_array(field(PROVISIONING, "role_b_origin_fingerprint")),
+        &mut a2,
+    )
+}
+
 fn root_continue(flow: &mut ScreenFlowV2, event: FlowEventV2<'_>, expected: ScreenKindV2) {
     assert!(matches!(
         flow.apply(event).unwrap(),
@@ -188,4 +207,63 @@ fn staged_replacement_and_every_later_operation_allocate_zero() {
     });
     assert_counts(counts, 0);
     drop(outcome.unwrap());
+}
+
+#[test]
+fn staged_a1_reprint_and_named_failures_allocate_zero() {
+    let mut session = KitRestoreSessionV2::begin(
+        ready(),
+        &descriptors(),
+        HumanAssertionDigitV2::new(4).unwrap(),
+    )
+    .unwrap();
+
+    let (_, counts) = measured(|| session.select_action(KitRestoreActionV2::A1Reprint));
+    assert_counts(counts, 0);
+    let (prepared, counts) = measured(|| session.prepare_a1_reprint(surviving_b(), &FRESH_NONCE));
+    assert_counts(counts, 0);
+    prepared.unwrap();
+    let (outcome, counts) = measured(|| {
+        session.execute_a1_reprint(KeypadKey::FourLeft, |view, scan_back| {
+            scan_back.copy_from_slice(view.capsule());
+            A1ReprintDispositionV2::Accepted
+        })
+    });
+    assert_counts(counts, 0);
+    drop(outcome.unwrap());
+
+    let mut rejected = KitRestoreSessionV2::begin(
+        ready(),
+        &descriptors(),
+        HumanAssertionDigitV2::new(4).unwrap(),
+    )
+    .unwrap();
+    rejected
+        .select_action(KitRestoreActionV2::A1Reprint)
+        .unwrap();
+    rejected
+        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .unwrap();
+    let (result, counts) = measured(|| {
+        rejected.execute_a1_reprint(KeypadKey::FourLeft, |_, _| A1ReprintDispositionV2::Rejected)
+    });
+    assert_counts(counts, 0);
+    assert!(result.is_err());
+
+    let mut interrupted = KitRestoreSessionV2::begin(
+        ready(),
+        &descriptors(),
+        HumanAssertionDigitV2::new(4).unwrap(),
+    )
+    .unwrap();
+    interrupted
+        .select_action(KitRestoreActionV2::A1Reprint)
+        .unwrap();
+    interrupted
+        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .unwrap();
+    let (result, counts) =
+        measured(|| interrupted.interrupt(KitRestoreInterruptionV2::SessionTimeout));
+    assert_counts(counts, 0);
+    assert!(result.is_err());
 }
