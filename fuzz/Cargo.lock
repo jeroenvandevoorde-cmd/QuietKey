@@ -229,6 +229,7 @@ name = "qk-kit"
 version = "0.0.1"
 dependencies = [
  "qk-a1",
+ "qk-psbt",
  "qk-wallet-v2",
 ]
 
@@ -260,6 +261,7 @@ name = "qk-wallet-v2"
 version = "0.0.1"
 dependencies = [
  "qk-descriptor",
+ "qk-psbt",
  "qk-secp",
 ]
 

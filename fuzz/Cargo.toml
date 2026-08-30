@@ -219,6 +219,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "qk_host_sim_v2_s11_kit_spend"
+path = "fuzz_targets/qk_host_sim_v2_s11_kit_spend.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 overflow-checks = true
 debug-assertions = true
