@@ -144,6 +144,7 @@ impl BootVersionDisplay {
 struct TrialState {
     package: VerifiedPackage,
     slot: SlotId,
+    boot_attempted: bool,
     report_verified: bool,
 }
 
@@ -223,6 +224,7 @@ impl MockPrivilegedInstaller {
         self.trial = Some(TrialState {
             package,
             slot,
+            boot_attempted: false,
             report_verified: false,
         });
         Ok(slot)
@@ -238,6 +240,10 @@ impl MockPrivilegedInstaller {
     ) -> Result<BootVersionDisplay, UpdateError> {
         presence.enforce()?;
         let trial = self.trial.as_mut().ok_or(UpdateError::InvalidTransition)?;
+        if trial.boot_attempted {
+            return Err(UpdateError::InvalidTransition);
+        }
+        trial.boot_attempted = true;
         let display = BootVersionDisplay::new(trial.package.manifest().version());
         self.boot_attempts = self.boot_attempts.saturating_add(1);
         self.last_display = Some(display);
