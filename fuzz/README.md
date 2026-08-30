@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-thirty-one libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+thirty-three libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -130,6 +130,17 @@ material, expose no signing or private-key operation, and make no real-media,
 installer, flash, boot, target, power-cut, or Gate claim. Campaign 018 remains
 preregistered but unexecuted until the complete target scaffold is committed.
 
+The QK-DEC-140 `qk_ipc_wire` and `qk_ipc_endpoint_state` targets are the
+HOST-only process-slice-1 partition. The wire target drives raw and constructed
+frame parsing, exact re-encoding, arbitrary fragmentation and coalescing,
+ancillary-first termination, size bounds, stable named rejections, and repeat
+consistency. The endpoint target drives the complete core and I/O lifecycle,
+hostile session and exchange facts, one-outstanding work, peer loss, terminal
+stability, stable named rejections, and repeat consistency. Neither target
+opens a socket or reaches a process, wallet, card, device, target, privilege,
+performance, production, or Gate boundary. Campaign 020 is preregistered and
+its corpus manifest remains absent until both qualifying campaigns complete.
+
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
@@ -183,6 +194,8 @@ fuzz/run-bounded.sh qk_host_sim_v2_s10_kit_restore 100000
 fuzz/run-bounded.sh qk_host_sim_v2_s11_kit_spend 100000
 fuzz/run-bounded.sh qk_update_package 100000
 fuzz/run-bounded.sh qk_update_lifecycle 100000
+fuzz/run-bounded.sh qk_ipc_wire 100000
+fuzz/run-bounded.sh qk_ipc_endpoint_state 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -237,3 +250,6 @@ The two planned firmware campaigns are preregistered in `CAMPAIGN-018.md`.
 Their retained two-copy-minimized corpora will be registered together in
 `CORPUS-MANIFEST-FIRMWARE-V1.tsv` only after the target-scaffold commit becomes
 their common campaign source and both 100,000-input runs complete.
+The two process-slice-1 campaigns are preregistered in `CAMPAIGN-020.md` and
+their matching retained corpora will be registered together in
+`CORPUS-MANIFEST-PROCESS-S1.tsv` under the same source-before-execution rule.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..134/QK-DEC-136 corpus registries.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..134/QK-DEC-136/QK-DEC-140 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -213,6 +213,7 @@ v2s9_manifest='fuzz/CORPUS-MANIFEST-V2-S9.tsv'
 v2s10_manifest='fuzz/CORPUS-MANIFEST-V2-S10.tsv'
 v2s11_manifest='fuzz/CORPUS-MANIFEST-V2-S11.tsv'
 firmware_manifest='fuzz/CORPUS-MANIFEST-FIRMWARE-V1.tsv'
+process_s1_manifest='fuzz/CORPUS-MANIFEST-PROCESS-S1.tsv'
 m21_targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
 m22_targets='qk_bbqr_codec qk_bbqr_reassembly'
 m23_targets='qk_psbt_m23 qk_host_sim_m23'
@@ -232,7 +233,8 @@ v2s9_targets='qk_host_sim_v2_s9_kit_intake'
 v2s10_targets='qk_host_sim_v2_s10_kit_restore'
 v2s11_targets='qk_host_sim_v2_s11_kit_spend'
 firmware_targets='qk_update_package qk_update_lifecycle'
-all_targets="$m21_targets $m22_targets $m23_targets $m24_targets $m25_targets $m26_targets $m27_targets $m28_targets $m29_targets $m30_targets $v2s4_targets $v2s5_targets $v2s6_targets $v2s7_targets $v2s8_targets $v2s9_targets $v2s10_targets $v2s11_targets $firmware_targets"
+process_s1_targets='qk_ipc_wire qk_ipc_endpoint_state'
+all_targets="$m21_targets $m22_targets $m23_targets $m24_targets $m25_targets $m26_targets $m27_targets $m28_targets $m29_targets $m30_targets $v2s4_targets $v2s5_targets $v2s6_targets $v2s7_targets $v2s8_targets $v2s9_targets $v2s10_targets $v2s11_targets $firmware_targets $process_s1_targets"
 m21_order='qk_psbt,qk_descriptor,qk_a1,qk_a1_codec,qk_card_trace'
 m22_order='qk_bbqr_codec,qk_bbqr_reassembly'
 m23_order='qk_psbt_m23,qk_host_sim_m23'
@@ -252,6 +254,7 @@ v2s9_order='qk_host_sim_v2_s9_kit_intake'
 v2s10_order='qk_host_sim_v2_s10_kit_restore'
 v2s11_order='qk_host_sim_v2_s11_kit_spend'
 firmware_order='qk_update_package,qk_update_lifecycle'
+process_s1_order='qk_ipc_wire,qk_ipc_endpoint_state'
 
 mode=check
 render_source=''
@@ -278,9 +281,10 @@ case "$#" in
       --render-v2-s10) mode=render_v2s10 ;;
       --render-v2-s11) mode=render_v2s11 ;;
       --render-firmware-v1) mode=render_firmware_v1 ;;
+      --render-process-s1) mode=render_process_s1 ;;
       --render-qk-descriptor) mode=render_qk_descriptor ;;
       --render-qk-psbt-v3) mode=render_qk_psbt_v3 ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT]' ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT]' ;;
     esac
     render_source=$2
     if [ "$mode" = render_qk_descriptor ] || [ "$mode" = render_qk_psbt_v3 ]; then
@@ -289,10 +293,11 @@ case "$#" in
       validate_source_commit "$render_source"
     fi
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT]' ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT]' ;;
 esac
 
 firmware_registered=no
+process_s1_registered=no
 if [ "$mode" = check ]; then
   for manifest in "$m21_manifest" "$m22_manifest" "$m23_manifest" "$m24_manifest" \
     "$m25_manifest" "$m26_manifest" "$m27_manifest" "$m28_manifest" \
@@ -308,6 +313,10 @@ if [ "$mode" = check ]; then
   [ ! -L fuzz/CAMPAIGN-018.md ] || fail 'fuzz/CAMPAIGN-018.md must not be a symlink'
   git ls-files --error-unmatch -- fuzz/CAMPAIGN-018.md >/dev/null 2>&1 || \
     fail 'fuzz/CAMPAIGN-018.md is untracked'
+  [ -f fuzz/CAMPAIGN-020.md ] || fail 'fuzz/CAMPAIGN-020.md is missing'
+  [ ! -L fuzz/CAMPAIGN-020.md ] || fail 'fuzz/CAMPAIGN-020.md must not be a symlink'
+  git ls-files --error-unmatch -- fuzz/CAMPAIGN-020.md >/dev/null 2>&1 || \
+    fail 'fuzz/CAMPAIGN-020.md is untracked'
   if [ -e "$firmware_manifest" ]; then
     [ -f "$firmware_manifest" ] || fail "$firmware_manifest is not a regular file"
     [ ! -L "$firmware_manifest" ] || fail "$firmware_manifest must not be a symlink"
@@ -319,6 +328,18 @@ if [ "$mode" = check ]; then
   else
     grep -Fqx 'Status: PLANNED — NOT EXECUTED.' fuzz/CAMPAIGN-018.md || \
       fail 'firmware corpus manifest is absent without the planned campaign status'
+  fi
+  if [ -e "$process_s1_manifest" ]; then
+    [ -f "$process_s1_manifest" ] || fail "$process_s1_manifest is not a regular file"
+    [ ! -L "$process_s1_manifest" ] || fail "$process_s1_manifest must not be a symlink"
+    git ls-files --error-unmatch -- "$process_s1_manifest" >/dev/null 2>&1 || \
+      fail "$process_s1_manifest is untracked"
+    grep -Fqx 'Status: EXECUTED — QUALIFYING RUN COMPLETE.' fuzz/CAMPAIGN-020.md || \
+      fail 'registered process slice-1 corpus requires completed campaign status'
+    process_s1_registered=yes
+  else
+    grep -Fqx 'Status: PLANNED — NOT EXECUTED.' fuzz/CAMPAIGN-020.md || \
+      fail 'process slice-1 corpus manifest is absent without the planned campaign status'
   fi
 fi
 
@@ -343,6 +364,7 @@ unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
   ! -name qk_host_sim_v2_s10_kit_restore \
   ! -name qk_host_sim_v2_s11_kit_spend \
   ! -name qk_update_package ! -name qk_update_lifecycle \
+  ! -name qk_ipc_wire ! -name qk_ipc_endpoint_state \
   -print -quit) || \
   fail 'cannot inspect fuzz/corpus roots'
 [ -z "$unexpected" ] || fail "unexpected corpus root entry: $unexpected"
@@ -377,6 +399,7 @@ if [ -d fuzz/findings ]; then
     ! -name qk_host_sim_v2_s10_kit_restore \
     ! -name qk_host_sim_v2_s11_kit_spend \
     ! -name qk_update_package ! -name qk_update_lifecycle \
+    ! -name qk_ipc_wire ! -name qk_ipc_endpoint_state \
     -print -quit) || \
     fail 'cannot inspect fuzz/findings roots'
   [ -z "$unexpected" ] || fail "unexpected finding root entry: $unexpected"
@@ -409,6 +432,7 @@ v2s9_entries=$(mktemp) || fail 'mktemp failed for v2 slice-9 corpus entries'
 v2s10_entries=$(mktemp) || fail 'mktemp failed for v2 slice-10 corpus entries'
 v2s11_entries=$(mktemp) || fail 'mktemp failed for v2 slice-11 corpus entries'
 firmware_entries=$(mktemp) || fail 'mktemp failed for firmware corpus entries'
+process_s1_entries=$(mktemp) || fail 'mktemp failed for process slice-1 corpus entries'
 m21_expected=$(mktemp) || fail 'mktemp failed for M21 corpus manifest'
 m22_expected=$(mktemp) || fail 'mktemp failed for M22 corpus manifest'
 m23_expected=$(mktemp) || fail 'mktemp failed for M23 corpus manifest'
@@ -428,6 +452,7 @@ v2s9_expected=$(mktemp) || fail 'mktemp failed for v2 slice-9 corpus manifest'
 v2s10_expected=$(mktemp) || fail 'mktemp failed for v2 slice-10 corpus manifest'
 v2s11_expected=$(mktemp) || fail 'mktemp failed for v2 slice-11 corpus manifest'
 firmware_expected=$(mktemp) || fail 'mktemp failed for firmware corpus manifest'
+process_s1_expected=$(mktemp) || fail 'mktemp failed for process slice-1 corpus manifest'
 m21_paths=$(mktemp) || fail 'mktemp failed for M21 corpus paths'
 m22_paths=$(mktemp) || fail 'mktemp failed for M22 corpus paths'
 m23_paths=$(mktemp) || fail 'mktemp failed for M23 corpus paths'
@@ -447,6 +472,7 @@ v2s9_paths=$(mktemp) || fail 'mktemp failed for v2 slice-9 corpus paths'
 v2s10_paths=$(mktemp) || fail 'mktemp failed for v2 slice-10 corpus paths'
 v2s11_paths=$(mktemp) || fail 'mktemp failed for v2 slice-11 corpus paths'
 firmware_paths=$(mktemp) || fail 'mktemp failed for firmware corpus paths'
+process_s1_paths=$(mktemp) || fail 'mktemp failed for process slice-1 corpus paths'
 all_paths=$(mktemp) || fail 'mktemp failed for combined corpus paths'
 tracked_tmp=$(mktemp) || fail 'mktemp failed for tracked paths'
 target_tmp=$(mktemp) || fail 'mktemp failed for target entries'
@@ -469,6 +495,7 @@ manifest_v2s9_paths=$(mktemp) || fail 'mktemp failed for v2 slice-9 manifest pat
 manifest_v2s10_paths=$(mktemp) || fail 'mktemp failed for v2 slice-10 manifest paths'
 manifest_v2s11_paths=$(mktemp) || fail 'mktemp failed for v2 slice-11 manifest paths'
 manifest_firmware_paths=$(mktemp) || fail 'mktemp failed for firmware manifest paths'
+manifest_process_s1_paths=$(mktemp) || fail 'mktemp failed for process slice-1 manifest paths'
 trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$m23_entries" "$m23_expected" "$m24_entries" "$m24_expected" \
   "$m25_entries" "$m25_expected" "$m26_entries" "$m26_expected" \
@@ -479,10 +506,12 @@ trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$v2s8_entries" "$v2s8_expected" "$v2s9_entries" "$v2s9_expected" \
   "$v2s10_entries" "$v2s10_expected" "$v2s11_entries" "$v2s11_expected" \
   "$firmware_entries" "$firmware_expected" \
+  "$process_s1_entries" "$process_s1_expected" \
   "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
   "$m26_paths" "$m27_paths" "$m28_paths" "$m29_paths" "$m30_paths" \
   "$v2s4_paths" "$v2s5_paths" "$v2s6_paths" "$v2s7_paths" "$v2s8_paths" \
   "$v2s9_paths" "$v2s10_paths" "$v2s11_paths" "$firmware_paths" \
+  "$process_s1_paths" \
   "$all_paths" "$tracked_tmp" "$target_tmp" "$manifest_m21_paths" \
   "$manifest_m22_paths" "$manifest_m23_paths" "$manifest_m24_paths" \
   "$manifest_m25_paths" "$manifest_m26_paths" "$manifest_m27_paths" \
@@ -490,7 +519,8 @@ trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$manifest_v2s4_paths" "$manifest_v2s5_paths" \
   "$manifest_v2s6_paths" "$manifest_v2s7_paths" \
   "$manifest_v2s8_paths" "$manifest_v2s9_paths" "$manifest_v2s10_paths" \
-  "$manifest_v2s11_paths" "$manifest_firmware_paths"' EXIT HUP INT TERM
+  "$manifest_v2s11_paths" "$manifest_firmware_paths" \
+  "$manifest_process_s1_paths"' EXIT HUP INT TERM
 
 emit_partition_entries "$m21_targets" "$m21_entries"
 emit_partition_entries "$m22_targets" "$m22_entries"
@@ -511,6 +541,7 @@ emit_partition_entries "$v2s9_targets" "$v2s9_entries"
 emit_partition_entries "$v2s10_targets" "$v2s10_entries"
 emit_partition_entries "$v2s11_targets" "$v2s11_entries"
 emit_partition_entries "$firmware_targets" "$firmware_entries"
+emit_partition_entries "$process_s1_targets" "$process_s1_entries"
 cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'
 cut -f 5 "$m22_entries" | LC_ALL=C sort > "$m22_paths" || fail 'cannot list M22 corpus paths'
 cut -f 5 "$m23_entries" | LC_ALL=C sort > "$m23_paths" || fail 'cannot list M23 corpus paths'
@@ -539,10 +570,13 @@ cut -f 5 "$v2s11_entries" | LC_ALL=C sort > "$v2s11_paths" || \
   fail 'cannot list v2 slice-11 corpus paths'
 cut -f 5 "$firmware_entries" | LC_ALL=C sort > "$firmware_paths" || \
   fail 'cannot list firmware corpus paths'
+cut -f 5 "$process_s1_entries" | LC_ALL=C sort > "$process_s1_paths" || \
+  fail 'cannot list process slice-1 corpus paths'
 cat "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
   "$m26_paths" "$m27_paths" "$m28_paths" "$m29_paths" "$m30_paths" \
   "$v2s4_paths" "$v2s5_paths" "$v2s6_paths" "$v2s7_paths" "$v2s8_paths" \
-  "$v2s9_paths" "$v2s10_paths" "$v2s11_paths" "$firmware_paths" | \
+  "$v2s9_paths" "$v2s10_paths" "$v2s11_paths" "$firmware_paths" \
+  "$process_s1_paths" | \
   LC_ALL=C sort > "$all_paths" || \
   fail 'cannot combine corpus paths'
 duplicate=$(uniq -d "$all_paths" | sed -n '1p')
@@ -576,6 +610,9 @@ case "$mode" in
     v2s11_source=$(manifest_source "$v2s11_manifest")
     if [ "$firmware_registered" = yes ]; then
       firmware_source=$(manifest_source "$firmware_manifest")
+    fi
+    if [ "$process_s1_registered" = yes ]; then
+      process_s1_source=$(manifest_source "$process_s1_manifest")
     fi
     render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
       "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
@@ -619,6 +656,11 @@ case "$mode" in
       render_partition 'QK-FIRMWARE-V1-CORPUS-MANIFEST-V1' "$firmware_source" \
         "$firmware_targets" "$firmware_order" "$firmware_entries" "$firmware_expected"
     fi
+    if [ "$process_s1_registered" = yes ]; then
+      render_partition 'QK-PROCESS-S1-CORPUS-MANIFEST-V1' "$process_s1_source" \
+        "$process_s1_targets" "$process_s1_order" "$process_s1_entries" \
+        "$process_s1_expected"
+    fi
     extract_manifest_paths "$m21_manifest" "$m21_order" "$manifest_m21_paths"
     extract_manifest_paths "$m22_manifest" "$m22_order" "$manifest_m22_paths"
     extract_manifest_paths "$m23_manifest" "$m23_order" "$manifest_m23_paths"
@@ -641,13 +683,17 @@ case "$mode" in
       extract_manifest_paths "$firmware_manifest" "$firmware_order" \
         "$manifest_firmware_paths"
     fi
+    if [ "$process_s1_registered" = yes ]; then
+      extract_manifest_paths "$process_s1_manifest" "$process_s1_order" \
+        "$manifest_process_s1_paths"
+    fi
     duplicate=$(cat "$manifest_m21_paths" "$manifest_m22_paths" "$manifest_m23_paths" \
       "$manifest_m24_paths" "$manifest_m25_paths" "$manifest_m26_paths" \
       "$manifest_m27_paths" "$manifest_m28_paths" "$manifest_m29_paths" \
       "$manifest_m30_paths" "$manifest_v2s4_paths" "$manifest_v2s5_paths" \
       "$manifest_v2s6_paths" "$manifest_v2s7_paths" "$manifest_v2s8_paths" \
       "$manifest_v2s9_paths" "$manifest_v2s10_paths" "$manifest_v2s11_paths" \
-      "$manifest_firmware_paths" | \
+      "$manifest_firmware_paths" "$manifest_process_s1_paths" | \
       LC_ALL=C sort | \
       uniq -d | sed -n '1p')
     [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
@@ -690,6 +736,10 @@ case "$mode" in
     if [ "$firmware_registered" = yes ]; then
       cmp -s "$firmware_manifest" "$firmware_expected" || \
         fail "$firmware_manifest does not match the tracked firmware corpus bytes"
+    fi
+    if [ "$process_s1_registered" = yes ]; then
+      cmp -s "$process_s1_manifest" "$process_s1_expected" || \
+        fail "$process_s1_manifest does not match the tracked process slice-1 corpus bytes"
     fi
     ;;
   render_m21)
@@ -802,6 +852,12 @@ case "$mode" in
     render_partition 'QK-FIRMWARE-V1-CORPUS-MANIFEST-V1' "$render_source" \
       "$firmware_targets" "$firmware_order" "$firmware_entries" "$firmware_expected"
     sed -n 'p' "$firmware_expected"
+    ;;
+  render_process_s1)
+    render_partition 'QK-PROCESS-S1-CORPUS-MANIFEST-V1' "$render_source" \
+      "$process_s1_targets" "$process_s1_order" "$process_s1_entries" \
+      "$process_s1_expected"
+    sed -n 'p' "$process_s1_expected"
     ;;
 esac
 

@@ -19,6 +19,7 @@ qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1" }
 qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1" }
+qk-ipc = { path = "../host/qk-ipc", version = "=0.0.1", features = ["fuzzing"] }
 qk-kit = { path = "../host/qk-kit", version = "=0.0.1" }
 qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1" }
 qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
@@ -238,6 +239,20 @@ bench = false
 [[bin]]
 name = "qk_update_lifecycle"
 path = "fuzz_targets/qk_update_lifecycle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_ipc_wire"
+path = "fuzz_targets/qk_ipc_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "qk_ipc_endpoint_state"
+path = "fuzz_targets/qk_ipc_endpoint_state.rs"
 test = false
 doc = false
 bench = false

@@ -36,6 +36,8 @@ case "$target" in
   qk_host_sim_v2_s11_kit_spend) max_len=512; seed=131001 ;;
   qk_update_package) max_len=4096; seed=136001 ;;
   qk_update_lifecycle) max_len=512; seed=136002 ;;
+  qk_ipc_wire) max_len=4096; seed=140001 ;;
+  qk_ipc_endpoint_state) max_len=4096; seed=140002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac
