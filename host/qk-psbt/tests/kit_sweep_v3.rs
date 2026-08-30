@@ -2,6 +2,7 @@
 
 use qk_descriptor::{
     derive_change_script_v2, derive_receive_script_v2, parse_descriptor_pair_v2, DescriptorPairV2,
+    DescriptorParseError,
 };
 use qk_psbt::{
     build_validated_kit_sweep_v3, parse, InputSource, KitSweepV3Error, OwnedS0, RecipientType,
@@ -496,5 +497,25 @@ fn exact_sweep_rejections_are_named_and_state_closed() {
     assert_eq!(
         precedence_wallet,
         KitSweepV3Error::ReplacementWalletUnchanged
+    );
+}
+
+#[test]
+fn both_registered_descriptor_members_are_required_before_sweep_rebinding() {
+    let old_receive = field(KIT_SPEND_FIXTURE, "old_receive_descriptor").as_bytes();
+    let old_change = field(KIT_SPEND_FIXTURE, "old_change_descriptor").as_bytes();
+    let replacement_change = field(KIT_SPEND_FIXTURE, "replacement_change_descriptor").as_bytes();
+
+    assert_eq!(
+        parse_descriptor_pair_v2(old_receive, replacement_change).err(),
+        Some(DescriptorParseError::DescriptorPairMismatch)
+    );
+
+    let mut mutated_change = old_change.to_vec();
+    let checksum_byte = mutated_change.last_mut().expect("checksummed descriptor");
+    *checksum_byte = if *checksum_byte == b'q' { b'p' } else { b'q' };
+    assert_eq!(
+        parse_descriptor_pair_v2(old_receive, &mutated_change).err(),
+        Some(DescriptorParseError::ChecksumMismatch)
     );
 }

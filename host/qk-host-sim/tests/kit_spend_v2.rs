@@ -1,5 +1,6 @@
 //! V2 slice-11 one-sweep Kit-Spend behavior over the registered public lineage.
 
+use qk_descriptor::{derive_receive_script_v2, parse_descriptor_pair_v2};
 use qk_host_sim::{
     CoordinatorCompletenessStatementV2, FlowApplyOutcomeV2, FlowEventV2, FlowKindV2,
     FlowTerminalV2, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2,
@@ -22,14 +23,21 @@ fn signing_failures_retain_their_named_category_at_the_kit_boundary() {
         assert_eq!(KitSpendErrorV2::Finalization(error).name(), expected);
     }
 }
-use qk_psbt::{InputSource, ReplacementReceiveIndexV2};
+use qk_psbt::{
+    build_validated_kit_sweep_v3, parse, InputSource, OwnedS0, ReplacementReceiveIndexV2,
+};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+#[path = "../../qk-psbt/src/sha256.rs"]
+mod fixture_sha256;
 
 #[cfg(feature = "fuzzing")]
 use qk_host_sim::{kit_spend_execution_trace_v2, reset_kit_spend_execution_trace_v2};
 
 const KIT_SHARES: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
 const SPEND: &str = include_str!("fixtures/kit_spend_v2.txt");
+const DESCRIPTOR_ROUTES: &str =
+    include_str!("../../qk-descriptor/tests/fixtures/descriptor_pairs.txt");
 
 fn field<'a>(fixture: &'a str, name: &str) -> &'a str {
     fixture
@@ -83,6 +91,181 @@ fn replacement_descriptors() -> [[u8; 306]; 2] {
             .try_into()
             .unwrap(),
     ]
+}
+
+fn old_descriptor_pair() -> qk_descriptor::DescriptorPairV2 {
+    let descriptors = old_descriptors();
+    parse_descriptor_pair_v2(&descriptors[0], &descriptors[1])
+        .expect("registered old descriptor pair")
+}
+
+fn replacement_descriptor_pair() -> qk_descriptor::DescriptorPairV2 {
+    let descriptors = replacement_descriptors();
+    parse_descriptor_pair_v2(&descriptors[0], &descriptors[1])
+        .expect("registered replacement descriptor pair")
+}
+
+fn push_compact_size(output: &mut Vec<u8>, value: usize) {
+    match value {
+        0..=252 => output.push(u8::try_from(value).unwrap()),
+        253..=65_535 => {
+            output.push(0xfd);
+            output.extend_from_slice(&u16::try_from(value).unwrap().to_le_bytes());
+        }
+        _ => panic!("bounded test fixture length"),
+    }
+}
+
+fn push_record(output: &mut Vec<u8>, key_type: u8, key_data: &[u8], value: &[u8]) {
+    push_compact_size(output, key_data.len() + 1);
+    output.push(key_type);
+    output.extend_from_slice(key_data);
+    push_compact_size(output, value.len());
+    output.extend_from_slice(value);
+}
+
+fn sha256(value: &[u8]) -> [u8; 32] {
+    let mut hasher = fixture_sha256::Sha256::new();
+    hasher.update(value).expect("bounded fixture hash input");
+    hasher.finalize().expect("bounded fixture hash input")
+}
+
+fn sha256d(value: &[u8]) -> [u8; 32] {
+    sha256(&sha256(value))
+}
+
+fn receive_route_field(index: u32, name: &str) -> &'static str {
+    let marker = format!("derivation: receive-{index}\n");
+    DESCRIPTOR_ROUTES
+        .split_once(&marker)
+        .unwrap_or_else(|| panic!("registered receive route {index}"))
+        .1
+        .lines()
+        .take_while(|line| !line.starts_with("derivation: ") && !line.starts_with("case: "))
+        .find_map(|line| line.strip_prefix(name)?.strip_prefix(": "))
+        .unwrap_or_else(|| panic!("registered receive route field {name}"))
+}
+
+fn receive_route_keys(index: u32) -> [[u8; 33]; 2] {
+    [
+        hex_array(receive_route_field(index, "role_a")),
+        hex_array(receive_route_field(index, "role_b")),
+    ]
+}
+
+fn previous_transaction(script_pubkey: &[u8], salt: u8) -> Vec<u8> {
+    let mut transaction = Vec::new();
+    transaction.extend_from_slice(&1u32.to_le_bytes());
+    transaction.push(1);
+    transaction.extend_from_slice(&[salt; 32]);
+    transaction.extend_from_slice(&0u32.to_le_bytes());
+    transaction.push(0);
+    transaction.extend_from_slice(&u32::MAX.to_le_bytes());
+    transaction.push(1);
+    transaction.extend_from_slice(&1_000_000u64.to_le_bytes());
+    push_compact_size(&mut transaction, script_pubkey.len());
+    transaction.extend_from_slice(script_pubkey);
+    transaction.extend_from_slice(&u32::from(salt).to_le_bytes());
+    transaction
+}
+
+fn derivation_value(fingerprint: [u8; 4], index: u32) -> Vec<u8> {
+    let mut value = Vec::new();
+    value.extend_from_slice(&fingerprint);
+    for component in [48 | (1 << 31), 1 << 31, 1 << 31, 2 | (1 << 31), 0, index] {
+        value.extend_from_slice(&component.to_le_bytes());
+    }
+    value
+}
+
+fn two_input_sweep() -> Vec<u8> {
+    let old = old_descriptor_pair();
+    let replacement = replacement_descriptor_pair();
+    let old_scripts = [
+        derive_receive_script_v2(&old, 0).unwrap(),
+        derive_receive_script_v2(&old, 1).unwrap(),
+    ];
+    let previous = [
+        previous_transaction(&old_scripts[0].script_pubkey, 7),
+        previous_transaction(&old_scripts[1].script_pubkey, 8),
+    ];
+    let destination = derive_receive_script_v2(&replacement, 0).unwrap();
+
+    let mut unsigned = Vec::new();
+    unsigned.extend_from_slice(&2u32.to_le_bytes());
+    unsigned.push(2);
+    for transaction in &previous {
+        unsigned.extend_from_slice(&sha256d(transaction));
+        unsigned.extend_from_slice(&0u32.to_le_bytes());
+        unsigned.push(0);
+        unsigned.extend_from_slice(&0xffff_fffdu32.to_le_bytes());
+    }
+    unsigned.push(1);
+    unsigned.extend_from_slice(&1_900_000u64.to_le_bytes());
+    push_compact_size(&mut unsigned, destination.script_pubkey.len());
+    unsigned.extend_from_slice(&destination.script_pubkey);
+    unsigned.extend_from_slice(&500_000u32.to_le_bytes());
+
+    let fingerprints = [
+        hex_array(field(SPEND, "old_role_a_fingerprint_hex")),
+        hex_array(field(SPEND, "old_role_b_fingerprint_hex")),
+    ];
+    let mut psbt = b"psbt\xff".to_vec();
+    push_record(&mut psbt, 0x00, &[], &unsigned);
+    psbt.push(0);
+    for (input_index, transaction) in previous.iter().enumerate() {
+        push_record(&mut psbt, 0x00, &[], transaction);
+        let mut witness_utxo = Vec::new();
+        witness_utxo.extend_from_slice(&1_000_000u64.to_le_bytes());
+        push_compact_size(
+            &mut witness_utxo,
+            old_scripts[input_index].script_pubkey.len(),
+        );
+        witness_utxo.extend_from_slice(&old_scripts[input_index].script_pubkey);
+        push_record(&mut psbt, 0x01, &[], &witness_utxo);
+        push_record(&mut psbt, 0x03, &[], &1u32.to_le_bytes());
+
+        let route_index = u32::try_from(input_index).unwrap();
+        let keys = receive_route_keys(route_index);
+        let mut claims = [
+            (keys[0], derivation_value(fingerprints[0], route_index)),
+            (keys[1], derivation_value(fingerprints[1], route_index)),
+        ];
+        claims.sort_unstable_by_key(|(key, _)| *key);
+        for (key, value) in claims {
+            push_record(&mut psbt, 0x06, &key, &value);
+        }
+        psbt.push(0);
+    }
+    psbt.push(0);
+    parse(&psbt, InputSource::MicroSd).expect("constructed two-input sweep");
+    psbt
+}
+
+fn insert_existing_role_a(psbt: &mut Vec<u8>) {
+    let view = parse(psbt, InputSource::MicroSd).expect("registered unsigned sweep");
+    let insertion = view.input_map_span(0).expect("one input map").end - 1;
+    let public_key = hex_array::<33>(field(SPEND, "old_role_a_route_public_key_hex"));
+    let mut signature = hex(field(SPEND, "role_a_der_hex"));
+    signature.push(1);
+    let mut record = Vec::new();
+    push_record(&mut record, 0x02, &public_key, &signature);
+    psbt.splice(insertion..insertion, record);
+}
+
+fn witness_stack(value: &[u8]) -> Vec<&[u8]> {
+    let (&count, mut rest) = value.split_first().expect("witness item count");
+    let mut items = Vec::new();
+    for _ in 0..count {
+        let (&length, tail) = rest.split_first().expect("witness item length");
+        assert!(length < 253, "v2 witness items use one-byte CompactSize");
+        let length = usize::from(length);
+        let (item, tail) = tail.split_at(length);
+        items.push(item);
+        rest = tail;
+    }
+    assert!(rest.is_empty(), "exact witness value consumed");
+    items
 }
 
 fn frame(number: u8) -> [u8; 142] {
@@ -319,6 +502,119 @@ fn exact_sweep_rebinds_signs_finalizes_and_matches_every_registered_artifact() {
         outcome.finalized().wtxid(),
         hex_array(field(SPEND, "wtxid_raw_hex"))
     );
+}
+
+#[test]
+fn cryptographically_valid_existing_partial_signature_completes_end_to_end() {
+    let mut s0 = hex(field(SPEND, "s0_hex"));
+    insert_existing_role_a(&mut s0);
+    let proof = build_validated_kit_sweep_v3(
+        OwnedS0::new(&s0, InputSource::MicroSd).unwrap(),
+        old_descriptor_pair(),
+        replacement_descriptor_pair(),
+        ReplacementReceiveIndexV2::from_untrusted(0),
+    )
+    .expect("existing role-A signature is verified during sweep proof");
+    assert_eq!(
+        proof.input_signing_plans()[0].existing_role_signatures(),
+        [true, false]
+    );
+    drop(proof);
+
+    let mut session = session(5);
+    session
+        .submit_sweep(
+            &mut s0,
+            InputSource::MicroSd,
+            &replacement_descriptors(),
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
+        .expect("existing signature sweep accepted");
+    assert!(s0.iter().all(|byte| *byte == 0));
+    session
+        .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+        .unwrap();
+    let outcome = session
+        .execute(KeypadKey::Five)
+        .expect("only missing role-B signature is produced and finalized");
+    assert_eq!(
+        outcome.finalized().finalized_psbt(),
+        hex(field(SPEND, "finalized_psbt_hex"))
+    );
+    assert_eq!(
+        outcome.finalized().raw_transaction(),
+        hex(field(SPEND, "raw_transaction_hex"))
+    );
+}
+
+#[test]
+fn two_input_sweep_finalizes_with_per_input_bip67_witness_order() {
+    let mut s0 = two_input_sweep();
+    let proof = build_validated_kit_sweep_v3(
+        OwnedS0::new(&s0, InputSource::MicroSd).unwrap(),
+        old_descriptor_pair(),
+        replacement_descriptor_pair(),
+        ReplacementReceiveIndexV2::from_untrusted(0),
+    )
+    .expect("two-input exact replacement sweep");
+    assert_eq!(proof.input_count(), 2);
+    let plans: Vec<_> = proof
+        .input_signing_plans()
+        .iter()
+        .map(|plan| (plan.digest(), plan.role_public_keys()))
+        .collect();
+    assert!(plans[0].1[0] < plans[0].1[1]);
+    assert!(plans[1].1[1] < plans[1].1[0]);
+    drop(proof);
+
+    let mut session = session(6);
+    session
+        .submit_sweep(
+            &mut s0,
+            InputSource::MicroSd,
+            &replacement_descriptors(),
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
+        .expect("two-input sweep accepted");
+    assert!(s0.iter().all(|byte| *byte == 0));
+    session
+        .confirm_completeness(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+        .unwrap();
+    let outcome = session
+        .execute(KeypadKey::SixRight)
+        .expect("both inputs signed and finalized");
+
+    let finalized = parse(outcome.finalized().finalized_psbt(), InputSource::MicroSd)
+        .expect("fresh finalized PSBT parse");
+    assert_eq!(finalized.unsigned_tx().input_count, 2);
+    for (input_index, (digest, role_keys)) in plans.iter().enumerate() {
+        let final_witness = finalized
+            .input_records(input_index)
+            .expect("input records")
+            .find(|record| record.key_type == 0x08)
+            .expect("final witness");
+        let stack = witness_stack(final_witness.value);
+        assert_eq!(stack.len(), 4);
+        assert!(stack[0].is_empty());
+
+        let route_index = u32::try_from(input_index).unwrap();
+        let expected_script = derive_receive_script_v2(&old_descriptor_pair(), route_index)
+            .expect("registered route");
+        assert_eq!(stack[3], expected_script.witness_script);
+
+        let mut sorted_keys = *role_keys;
+        sorted_keys.sort_unstable();
+        for (position, public_key) in sorted_keys.iter().enumerate() {
+            let encoded = stack[position + 1];
+            assert_eq!(encoded.last(), Some(&1));
+            let signature = qk_secp::signature_parse_der(&encoded[..encoded.len() - 1])
+                .expect("strict final DER");
+            let parsed_key =
+                qk_secp::pubkey_parse_compressed(public_key).expect("descriptor route key");
+            qk_secp::ecdsa_verify(&signature, digest, &parsed_key)
+                .expect("signature follows sorted witness-script key position");
+        }
+    }
 }
 
 #[test]
