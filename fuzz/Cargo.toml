@@ -9,7 +9,7 @@ license = "Apache-2.0"
 cargo-fuzz = true
 
 [features]
-default = ["qk-provisioning/fuzzing", "qk-host-sim/fuzzing", "qk-update/fuzzing"]
+default = ["qk-provisioning/fuzzing", "qk-host-sim/fuzzing", "qk-update/fuzzing", "qk-ipc/fuzzing"]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }
@@ -19,7 +19,7 @@ qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1" }
 qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1" }
-qk-ipc = { path = "../host/qk-ipc", version = "=0.0.1", features = ["fuzzing"] }
+qk-ipc = { path = "../host/qk-ipc", version = "=0.0.1" }
 qk-kit = { path = "../host/qk-kit", version = "=0.0.1" }
 qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1" }
 qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
