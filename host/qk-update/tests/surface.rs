@@ -81,6 +81,8 @@ fn ordinary_build_cannot_select_fixture_trust() {
         .expect("production entry end")
         .0;
     assert!(production_entry.contains("TrustPolicy::Production,"));
+    assert!(production_entry.contains("COMPILED_ANCHORS,"));
+    assert!(!production_entry.contains("compiled_anchors:"));
     assert!(!production_entry.contains("TrustPolicy::Fixture,"));
     assert!(TRUST.contains("if trust.contains_registered_test_material() {"));
     assert!(TRUST.contains("return Err(UpdateError::TestAnchorInProduction);"));

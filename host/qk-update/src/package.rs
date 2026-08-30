@@ -13,6 +13,11 @@ const MANIFEST_START: usize = 7;
 const SIGNATURE_COUNT_OFFSET: usize = MANIFEST_START + MANIFEST_BYTES;
 const SIGNATURES_START: usize = SIGNATURE_COUNT_OFFSET + 1;
 const ZERO_SEPARATOR: [u8; 1] = [0];
+// These public test placeholders deliberately make an ordinary HOST build
+// refuse verification mechanically. A production release substitutes its
+// three Owner-registered anchors here as an ordinary reviewed source change;
+// callers never select trust at runtime.
+const COMPILED_ANCHORS: [[u8; 33]; 3] = crate::REGISTERED_TEST_ANCHORS;
 
 struct SignatureInput<'a> {
     role: u8,
@@ -262,13 +267,12 @@ fn verify_with_policy(
 /// Verify one staged package with production trust-anchor refusal enabled.
 pub fn verify_staged_package(
     staged: StagedPackage,
-    compiled_anchors: [[u8; 33]; 3],
     committed_floor: ReleaseVersion,
     presence: UpdatePresence,
 ) -> Result<VerifiedPackage, UpdateError> {
     verify_with_policy(
         staged,
-        compiled_anchors,
+        COMPILED_ANCHORS,
         TrustPolicy::Production,
         committed_floor,
         presence,
@@ -281,13 +285,12 @@ pub fn verify_staged_package(
 #[doc(hidden)]
 pub fn verify_staged_fixture_package(
     staged: StagedPackage,
-    compiled_anchors: [[u8; 33]; 3],
     committed_floor: ReleaseVersion,
     presence: UpdatePresence,
 ) -> Result<VerifiedPackage, UpdateError> {
     verify_with_policy(
         staged,
-        compiled_anchors,
+        crate::REGISTERED_TEST_ANCHORS,
         TrustPolicy::Fixture,
         committed_floor,
         presence,

@@ -13,7 +13,7 @@ use crate::{
     wipe::{reset_wiped_bytes, wiped_bytes},
     CommittedInstallerState, FirstBootReport, MockMediaCandidate, MockPrivilegedInstaller,
     MockReadOnlyMedia, ReleaseVersion, SlotId, UpdateError, UpdatePresence,
-    REGISTERED_TEST_ANCHORS, REGISTERED_TEST_KEYSET_ID,
+    REGISTERED_TEST_KEYSET_ID,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -56,7 +56,6 @@ fn stage(name: &str) -> crate::StagedPackage {
 fn verify(name: &str, floor: u64) -> crate::VerifiedPackage {
     verify_staged_fixture_package(
         stage(name),
-        REGISTERED_TEST_ANCHORS,
         ReleaseVersion::new(1, floor),
         UpdatePresence::clear(),
     )
@@ -99,7 +98,6 @@ fn production_refusal_and_high_s_are_distinct() {
     assert!(matches!(
         verify_staged_package(
             stage("package_roles_1_3_hex"),
-            REGISTERED_TEST_ANCHORS,
             ReleaseVersion::new(1, 41),
             UpdatePresence::clear(),
         ),
@@ -108,7 +106,6 @@ fn production_refusal_and_high_s_are_distinct() {
     assert!(matches!(
         verify_staged_fixture_package(
             stage("high_s_package_hex"),
-            REGISTERED_TEST_ANCHORS,
             ReleaseVersion::new(1, 41),
             UpdatePresence::clear(),
         ),
@@ -126,7 +123,6 @@ fn defense_floor_is_lexicographic_and_runs_after_signatures() {
         assert!(matches!(
             verify_staged_fixture_package(
                 stage("package_roles_1_3_hex"),
-                REGISTERED_TEST_ANCHORS,
                 floor,
                 UpdatePresence::clear(),
             ),
@@ -135,7 +131,6 @@ fn defense_floor_is_lexicographic_and_runs_after_signatures() {
     }
     assert!(verify_staged_fixture_package(
         stage("package_roles_1_3_hex"),
-        REGISTERED_TEST_ANCHORS,
         ReleaseVersion::new(0, u64::MAX),
         UpdatePresence::clear(),
     )
@@ -355,7 +350,6 @@ fn staging_allocation_wipes_on_rejection_commit_and_unwind() {
     reset_wiped_bytes();
     assert!(verify_staged_fixture_package(
         stage("high_s_package_hex"),
-        REGISTERED_TEST_ANCHORS,
         ReleaseVersion::new(1, 41),
         UpdatePresence::clear(),
     )

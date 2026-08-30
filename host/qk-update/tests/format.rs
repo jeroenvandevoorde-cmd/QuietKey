@@ -73,12 +73,11 @@ fn package_with_manifest(manifest: [u8; MANIFEST_BYTES]) -> Vec<u8> {
     package
 }
 
-fn verification_error(package: Vec<u8>, anchors: [[u8; 33]; 3]) -> UpdateError {
+fn verification_error(package: Vec<u8>) -> UpdateError {
     let mut media = MockReadOnlyMedia::new(vec![MockMediaCandidate::canonical(package)]);
     let staged = stage_from_media(&mut media, UpdatePresence::clear()).expect("staging succeeds");
     match verify_staged_package(
         staged,
-        anchors,
         ReleaseVersion::new(COMPATIBILITY_EPOCH, 0),
         UpdatePresence::clear(),
     ) {
@@ -141,13 +140,11 @@ fn artifact_order_and_version_order_are_exact() {
 
 #[test]
 fn package_and_manifest_parser_rejection_precedence_is_exact() {
-    let anchors = non_test_anchors();
-
     let mut package = package_with_manifest(canonical_manifest());
     package[0] = b'X';
     package[4] = 2;
     assert_eq!(
-        verification_error(package, anchors),
+        verification_error(package),
         UpdateError::PackageMagicMismatch
     );
 
@@ -155,7 +152,7 @@ fn package_and_manifest_parser_rejection_precedence_is_exact() {
     package[4] = 2;
     package[5..7].copy_from_slice(&0u16.to_le_bytes());
     assert_eq!(
-        verification_error(package, anchors),
+        verification_error(package),
         UpdateError::PackageVersionMismatch
     );
 
@@ -163,7 +160,7 @@ fn package_and_manifest_parser_rejection_precedence_is_exact() {
     package[5..7].copy_from_slice(&327u16.to_le_bytes());
     package[MANIFEST_START] = b'X';
     assert_eq!(
-        verification_error(package, anchors),
+        verification_error(package),
         UpdateError::ManifestLengthFieldMismatch
     );
 
@@ -180,7 +177,7 @@ fn package_and_manifest_parser_rejection_precedence_is_exact() {
         let mut manifest = canonical_manifest();
         manifest[manifest_offset] = replacement;
         assert_eq!(
-            verification_error(package_with_manifest(manifest), anchors),
+            verification_error(package_with_manifest(manifest)),
             expected,
             "manifest offset {manifest_offset}"
         );
@@ -189,7 +186,7 @@ fn package_and_manifest_parser_rejection_precedence_is_exact() {
     let mut manifest = canonical_manifest();
     manifest[ARTIFACTS_OFFSET + 1..ARTIFACTS_OFFSET + 5].copy_from_slice(&0u32.to_le_bytes());
     assert_eq!(
-        verification_error(package_with_manifest(manifest), anchors),
+        verification_error(package_with_manifest(manifest)),
         UpdateError::FirmwareImageLengthOutOfBounds
     );
 
@@ -197,7 +194,7 @@ fn package_and_manifest_parser_rejection_precedence_is_exact() {
     let mut manifest = canonical_manifest();
     manifest[detached + 1..detached + 5].copy_from_slice(&0u32.to_le_bytes());
     assert_eq!(
-        verification_error(package_with_manifest(manifest), anchors),
+        verification_error(package_with_manifest(manifest)),
         UpdateError::DetachedArtifactLengthOutOfBounds
     );
 }
@@ -256,17 +253,9 @@ fn trust_constructions_and_production_test_anchor_refusal_are_exact() {
 
     let valid_manifest_package = package_with_manifest(canonical_manifest());
     assert_eq!(
-        verification_error(valid_manifest_package, REGISTERED_TEST_ANCHORS),
+        verification_error(valid_manifest_package),
         UpdateError::TestAnchorInProduction,
         "production refusal precedes signature parsing"
-    );
-    assert_eq!(
-        verification_error(
-            package_with_manifest(canonical_manifest()),
-            non_test_anchors()
-        ),
-        UpdateError::SigningKeysetMismatch,
-        "key-set identity precedes signature parsing"
     );
 }
 

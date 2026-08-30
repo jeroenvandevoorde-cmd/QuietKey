@@ -32,12 +32,7 @@ fn package() -> Vec<u8> {
 fn production_result(bytes: Vec<u8>) -> Result<qk_update::VerifiedPackage, UpdateError> {
     let mut media = MockReadOnlyMedia::new(vec![MockMediaCandidate::canonical(bytes)]);
     let staged = stage_from_media(&mut media, UpdatePresence::clear()).unwrap();
-    verify_staged_package(
-        staged,
-        REGISTERED_TEST_ANCHORS,
-        ReleaseVersion::new(1, 41),
-        UpdatePresence::clear(),
-    )
+    verify_staged_package(staged, ReleaseVersion::new(1, 41), UpdatePresence::clear())
 }
 
 #[test]
