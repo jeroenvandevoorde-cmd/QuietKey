@@ -30,6 +30,9 @@ mod staging;
 mod trust;
 mod wipe;
 
+#[cfg(test)]
+mod fixture_tests;
+
 pub use host_mock::{
     BootVersionDisplay, CommittedInstallerState, FirstBootReport, MockPrivilegedInstaller, SlotId,
 };
