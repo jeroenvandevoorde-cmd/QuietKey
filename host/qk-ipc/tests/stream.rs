@@ -122,7 +122,10 @@ fn stream_payload_shape_waits_for_declared_bytes() {
         complete.ingest(&invalid, false),
         Err(IpcError::ControlPayloadNotEmpty)
     );
-    assert_eq!(complete.ingest(&[], false), Err(IpcError::DecoderTerminated));
+    assert_eq!(
+        complete.ingest(&[], false),
+        Err(IpcError::DecoderTerminated)
+    );
 }
 
 #[test]

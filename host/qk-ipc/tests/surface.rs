@@ -30,8 +30,8 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
         [
             "pub use session::{CoreEvent, CoreProtocol, IoEvent, IoProtocol, OutboundFrame};",
             "pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};",
-            "pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};",
             "pub use wipe::{reset_wiped_bytes, wiped_bytes};",
+            "pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};",
             "pub const MAGIC: [u8; 4] = *b\"QKIP\";",
             "pub const VERSION: u8 = 1;",
             "pub const HEADER_BYTES: usize = 32;",
