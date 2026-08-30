@@ -210,6 +210,7 @@ v2s6_manifest='fuzz/CORPUS-MANIFEST-V2-S6.tsv'
 v2s7_manifest='fuzz/CORPUS-MANIFEST-V2-S7.tsv'
 v2s8_manifest='fuzz/CORPUS-MANIFEST-V2-S8.tsv'
 v2s9_manifest='fuzz/CORPUS-MANIFEST-V2-S9.tsv'
+v2s10_manifest='fuzz/CORPUS-MANIFEST-V2-S10.tsv'
 m21_targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
 m22_targets='qk_bbqr_codec qk_bbqr_reassembly'
 m23_targets='qk_psbt_m23 qk_host_sim_m23'
@@ -429,6 +430,7 @@ manifest_v2s6_paths=$(mktemp) || fail 'mktemp failed for v2 slice-6 manifest pat
 manifest_v2s7_paths=$(mktemp) || fail 'mktemp failed for v2 slice-7 manifest paths'
 manifest_v2s8_paths=$(mktemp) || fail 'mktemp failed for v2 slice-8 manifest paths'
 manifest_v2s9_paths=$(mktemp) || fail 'mktemp failed for v2 slice-9 manifest paths'
+manifest_v2s10_paths=$(mktemp) || fail 'mktemp failed for v2 slice-10 manifest paths'
 trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$m23_entries" "$m23_expected" "$m24_entries" "$m24_expected" \
   "$m25_entries" "$m25_expected" "$m26_entries" "$m26_expected" \
@@ -448,7 +450,7 @@ trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$manifest_m28_paths" "$manifest_m29_paths" "$manifest_m30_paths" \
   "$manifest_v2s4_paths" "$manifest_v2s5_paths" \
   "$manifest_v2s6_paths" "$manifest_v2s7_paths" \
-  "$manifest_v2s8_paths" "$manifest_v2s9_paths"' EXIT HUP INT TERM
+  "$manifest_v2s8_paths" "$manifest_v2s9_paths" "$manifest_v2s10_paths"' EXIT HUP INT TERM
 
 emit_partition_entries "$m21_targets" "$m21_entries"
 emit_partition_entries "$m22_targets" "$m22_entries"
@@ -524,6 +526,7 @@ case "$mode" in
     v2s7_source=$(manifest_source "$v2s7_manifest")
     v2s8_source=$(manifest_source "$v2s8_manifest")
     v2s9_source=$(manifest_source "$v2s9_manifest")
+    v2s10_source=$(manifest_source "$v2s10_manifest")
     render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
       "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
       "$m21_descriptor_source"
@@ -558,6 +561,8 @@ case "$mode" in
       "$v2s8_order" "$v2s8_entries" "$v2s8_expected"
     render_partition 'QK-V2-S9-CORPUS-MANIFEST-V1' "$v2s9_source" "$v2s9_targets" \
       "$v2s9_order" "$v2s9_entries" "$v2s9_expected"
+    render_partition 'QK-V2-S10-CORPUS-MANIFEST-V1' "$v2s10_source" "$v2s10_targets" \
+      "$v2s10_order" "$v2s10_entries" "$v2s10_expected"
     extract_manifest_paths "$m21_manifest" "$m21_order" "$manifest_m21_paths"
     extract_manifest_paths "$m22_manifest" "$m22_order" "$manifest_m22_paths"
     extract_manifest_paths "$m23_manifest" "$m23_order" "$manifest_m23_paths"
@@ -574,12 +579,13 @@ case "$mode" in
     extract_manifest_paths "$v2s7_manifest" "$v2s7_order" "$manifest_v2s7_paths"
     extract_manifest_paths "$v2s8_manifest" "$v2s8_order" "$manifest_v2s8_paths"
     extract_manifest_paths "$v2s9_manifest" "$v2s9_order" "$manifest_v2s9_paths"
+    extract_manifest_paths "$v2s10_manifest" "$v2s10_order" "$manifest_v2s10_paths"
     duplicate=$(cat "$manifest_m21_paths" "$manifest_m22_paths" "$manifest_m23_paths" \
       "$manifest_m24_paths" "$manifest_m25_paths" "$manifest_m26_paths" \
       "$manifest_m27_paths" "$manifest_m28_paths" "$manifest_m29_paths" \
       "$manifest_m30_paths" "$manifest_v2s4_paths" "$manifest_v2s5_paths" \
       "$manifest_v2s6_paths" "$manifest_v2s7_paths" "$manifest_v2s8_paths" \
-      "$manifest_v2s9_paths" | \
+      "$manifest_v2s9_paths" "$manifest_v2s10_paths" | \
       LC_ALL=C sort | \
       uniq -d | sed -n '1p')
     [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
@@ -615,6 +621,8 @@ case "$mode" in
       fail "$v2s8_manifest does not match the tracked v2 slice-8 corpus bytes"
     cmp -s "$v2s9_manifest" "$v2s9_expected" || \
       fail "$v2s9_manifest does not match the tracked v2 slice-9 corpus bytes"
+    cmp -s "$v2s10_manifest" "$v2s10_expected" || \
+      fail "$v2s10_manifest does not match the tracked v2 slice-10 corpus bytes"
     ;;
   render_m21)
     m21_descriptor_source=$(manifest_target_source "$m21_manifest" qk_descriptor)
