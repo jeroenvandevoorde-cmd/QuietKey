@@ -69,6 +69,11 @@
 //! `QK-FEE-POLICY-V2`, and binds those facts under the exact schema-v3 domain.
 //! It translates no earlier review schema and carries no signature,
 //! completeness, approval, session, finalization, or export state.
+//! With the non-default `normal-v3` feature, the separate purpose-bound
+//! normal flow consumes retained S0 into descriptor-derived signing plans,
+//! revalidates only the same immutable bytes, verifies externally produced
+//! A/B signatures, and emits one freshly reparsed finalized artifact. That
+//! surface contains no signing key, approval, transport, or media operation.
 //!
 //! The unsigned transaction is parsed only as far as necessary to
 //! validate its structure and derive the input/output map counts.
@@ -104,6 +109,8 @@ pub mod error;
 mod intake;
 mod kit_sweep_v3;
 pub mod limits;
+#[cfg(feature = "normal-v3")]
+mod normal_v3;
 mod parse;
 mod raw;
 mod review;
@@ -119,6 +126,12 @@ pub use intake::{IntakeError, OwnedS0};
 pub use kit_sweep_v3::{
     build_validated_kit_sweep_v3, KitSweepInputSigningPlanV3, KitSweepReviewHashV3,
     KitSweepV3Error, ReplacementReceiveIndexV2, ValidatedKitSweepV3, ValidatedKitSweepV3Parts,
+};
+#[cfg(feature = "normal-v3")]
+pub use normal_v3::{
+    build_validated_normal_v3, finalize_validated_normal_v3, FinalizedNormalV3,
+    NormalFinalizationErrorV3, NormalInputSigningPlanV3, NormalSubmittedSignatureV3, NormalV3Error,
+    ValidatedNormalV3, ValidatedNormalV3Parts,
 };
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};
