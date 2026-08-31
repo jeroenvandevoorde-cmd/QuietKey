@@ -7,11 +7,21 @@
 
 #![deny(unsafe_code)]
 
+mod egress;
+mod ingress;
 mod inner;
+mod mock;
+mod session;
+mod wipe;
 
 use core::fmt;
 
 pub use inner::{parse_request, Artifact, Operation, Request, Sink, Source};
+pub use mock::{MockInput, MockOutputWriter, OutputFault};
+pub use session::{BrokerError, BrokerReply, BrokerSession, BrokerState, ReplyStatus};
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub use wipe::{reset_wiped_bytes, wiped_bytes};
 
 /// Exact QK-DEC-143 inner-protocol version.
 pub const INNER_VERSION: u8 = 1;
@@ -23,6 +33,8 @@ pub const MAX_TRANSFER_BYTES: usize = 2_097_152;
 pub const MAX_CHUNK_BYTES: usize = 262_144;
 /// Exact HOST-only filename ceiling.
 pub const MAX_FILENAME_BYTES: usize = 64;
+/// Largest encoded HOST mock input record.
+pub const MAX_MOCK_INPUT_BYTES: usize = MAX_TRANSFER_BYTES + MAX_FILENAME_BYTES + 5;
 /// Exact already-extracted A1 capsule candidate width.
 pub const A1_CANDIDATE_BYTES: usize = 67;
 /// Exact canonical Kit-share candidate width.
