@@ -7,9 +7,11 @@
 //! v2 BIP39/BIP32/descriptor chain. Only role-ordered public account facts,
 //! exact descriptors, wallet identity, and first-route public facts leave the
 //! crate. No mnemonic, seed, scalar, chain code, xprv, arbitrary digest, or
-//! reusable signer is public. The sole signing operation consumes qk-psbt's
-//! opaque validated Kit-sweep capability and returns it inseparably paired
-//! with ordered wiping low-S DER owners.
+//! reusable signer is public. The default signing operation consumes
+//! qk-psbt's opaque validated Kit-sweep capability. The non-default
+//! `normal-v3` feature adds only a purpose-bound role-A operation over an
+//! opaque validated normal proof. Both return the consumed proof paired with
+//! ordered wiping low-S DER owners.
 
 #![deny(unsafe_code)]
 
@@ -18,6 +20,8 @@ mod bip32_private;
 mod bip39;
 mod descriptor;
 mod hmac_sha512;
+#[cfg(feature = "normal-v3")]
+mod normal_v3;
 mod ripemd160;
 mod secret;
 mod sha256;
@@ -28,6 +32,12 @@ use bip32_private::derive_account;
 use core::fmt;
 use descriptor::build_wallet_v2;
 
+#[cfg(feature = "normal-v3")]
+pub use normal_v3::{
+    sign_validated_normal_role_a_v3, validate_normal_role_a_binding_v3, NormalRoleADerSignatureV3,
+    NormalRoleAInputSignatureV3, NormalRoleASigningErrorV3, WalletNormalRoleASignaturesV3,
+    WalletNormalV3Error, WalletSignedNormalRoleAV3,
+};
 pub use spend_v2::{
     sign_validated_kit_sweep_v3, KitSweepDerSignatureV3, KitSweepInputSignaturesV3,
     KitSweepSigningErrorV3, WalletKitSweepSignaturesV3, WalletSignedKitSweepV3,

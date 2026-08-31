@@ -4,7 +4,11 @@ version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
-description = "HOST-only fixed-memory QuietKey v2 wallet derivation, exact rebind facts, and purpose-bound validated Kit-sweep signing."
+description = "HOST-only fixed-memory QuietKey v2 derivation and purpose-bound Kit-sweep or feature-gated normal role-A signing."
+
+[features]
+default = []
+normal-v3 = ["qk-psbt/normal-v3"]
 
 [dependencies]
 qk-descriptor = { path = "../qk-descriptor" }
