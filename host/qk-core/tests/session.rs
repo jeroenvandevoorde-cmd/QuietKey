@@ -213,6 +213,39 @@ fn coalesced_frames_consume_one_then_a_stale_peer_reply_terminates() {
 }
 
 #[test]
+fn every_invalid_public_transition_is_absorbing() {
+    let (mut begin, _) = CoreSession::start(CoreMode::Setup, grants()).expect("begin session");
+    assert_eq!(
+        begin.begin_ingress(CoreSource::CameraA1Candidate).err(),
+        Some(CoreError::InvalidTransition)
+    );
+    assert_eq!(begin.state(), CoreState::Terminated);
+    assert_eq!(
+        begin.begin_ingress(CoreSource::CameraA1Candidate).err(),
+        Some(CoreError::CoreTerminated)
+    );
+
+    let (mut read, _) = CoreSession::start(CoreMode::Setup, grants()).expect("read session");
+    assert_eq!(
+        read.request_next_chunk().err(),
+        Some(CoreError::InvalidTransition)
+    );
+    assert_eq!(read.state(), CoreState::Terminated);
+    assert_eq!(
+        read.request_next_chunk().err(),
+        Some(CoreError::CoreTerminated)
+    );
+
+    let (mut close, _) = CoreSession::start(CoreMode::Setup, grants()).expect("close session");
+    assert_eq!(
+        close.begin_close().err(),
+        Some(CoreError::InvalidTransition)
+    );
+    assert_eq!(close.state(), CoreState::Terminated);
+    assert_eq!(close.begin_close().err(), Some(CoreError::CoreTerminated));
+}
+
+#[test]
 fn ancillary_data_midframe_eof_and_clean_peer_loss_are_terminal_by_name() {
     let (mut ancillary, opening) =
         CoreSession::start(CoreMode::Setup, grants()).expect("ancillary session");

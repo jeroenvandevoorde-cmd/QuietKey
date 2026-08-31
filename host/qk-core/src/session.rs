@@ -246,7 +246,7 @@ impl CoreSession {
             || self.completed.is_some()
             || self.expected.is_some()
         {
-            return Err(CoreError::InvalidTransition);
+            return Err(self.fail(CoreError::InvalidTransition));
         }
         self.show_or_terminate(CoreScreen::IngressBeginPending)?;
         let mut payload = encode_ingress_begin(source);
@@ -263,11 +263,11 @@ impl CoreSession {
     pub fn request_next_chunk(&mut self) -> Result<CoreOutbound, CoreError> {
         self.require_live()?;
         if self.state != CoreState::IngressReadReady || self.expected.is_some() {
-            return Err(CoreError::InvalidTransition);
+            return Err(self.fail(CoreError::InvalidTransition));
         }
         let (offset, total_len) = match self.transfer.as_ref() {
             Some(transfer) => (transfer.offset, transfer.total_len),
-            None => return Err(CoreError::InvalidTransition),
+            None => return Err(self.fail(CoreError::InvalidTransition)),
         };
         self.show_or_terminate(CoreScreen::IngressReadPending)?;
         let mut payload = encode_ingress_read(offset);
@@ -290,7 +290,7 @@ impl CoreSession {
             || self.transfer.is_some()
             || self.expected.is_some()
         {
-            return Err(CoreError::InvalidTransition);
+            return Err(self.fail(CoreError::InvalidTransition));
         }
         self.show_or_terminate(CoreScreen::Closing)?;
         let outbound = match self.ipc.as_mut() {
