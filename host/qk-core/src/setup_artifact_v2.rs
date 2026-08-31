@@ -45,6 +45,7 @@ impl A1PrintArtifactV2 {
         &self.bytes
     }
 
+    #[cfg(test)]
     pub(crate) fn matches(&self, candidate: &[u8]) -> bool {
         self.bytes.as_slice() == candidate
     }
