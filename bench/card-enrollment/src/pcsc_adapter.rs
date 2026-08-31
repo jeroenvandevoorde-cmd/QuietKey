@@ -60,12 +60,14 @@ impl EnrollmentBackend for PcscEnrollmentBackend {
         })) {
             Ok(Ok(())) => {}
             Ok(Err(_)) => {
-                let _ = card.disconnect(Disposition::LeaveCard);
-                return CaptureAttempt::ResetFailed;
+                return CaptureAttempt::ResetFailed {
+                    disconnected: disconnect(card),
+                };
             }
             Err(_) => {
-                let _ = card.disconnect(Disposition::LeaveCard);
-                return CaptureAttempt::BoundaryPanicked;
+                return CaptureAttempt::ResetPanicked {
+                    disconnected: disconnect(card),
+                };
             }
         }
 
@@ -77,17 +79,21 @@ impl EnrollmentBackend for PcscEnrollmentBackend {
         })) {
             Ok(Ok(observation)) => observation,
             Ok(Err(_)) => {
-                let _ = card.disconnect(Disposition::LeaveCard);
-                return CaptureAttempt::StatusFailed;
+                return CaptureAttempt::StatusFailed {
+                    disconnected: disconnect(card),
+                };
             }
             Err(_) => {
-                let _ = card.disconnect(Disposition::LeaveCard);
-                return CaptureAttempt::BoundaryPanicked;
+                return CaptureAttempt::StatusPanicked {
+                    disconnected: disconnect(card),
+                };
             }
         };
         let Some(protocol) = protocol else {
-            let _ = card.disconnect(Disposition::LeaveCard);
-            return CaptureAttempt::ProtocolUnavailable { atr };
+            return CaptureAttempt::ProtocolUnavailable {
+                atr,
+                disconnected: disconnect(card),
+            };
         };
         let protocol = match protocol {
             Protocol::T0 => NegotiatedProtocol::T0,
@@ -101,4 +107,8 @@ impl EnrollmentBackend for PcscEnrollmentBackend {
             Err((_card, _)) => CaptureAttempt::DisconnectFailed(capture),
         }
     }
+}
+
+fn disconnect(card: pcsc::Card) -> bool {
+    card.disconnect(Disposition::LeaveCard).is_ok()
 }

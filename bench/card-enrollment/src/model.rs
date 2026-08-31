@@ -277,10 +277,12 @@ pub struct CardCapture {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CaptureAttempt {
     ConnectFailed,
-    ResetFailed,
-    StatusFailed,
-    ProtocolUnavailable { atr: Vec<u8> },
-    ProtocolUnsupported { atr: Vec<u8> },
+    ResetFailed { disconnected: bool },
+    ResetPanicked { disconnected: bool },
+    StatusFailed { disconnected: bool },
+    StatusPanicked { disconnected: bool },
+    ProtocolUnavailable { atr: Vec<u8>, disconnected: bool },
+    ProtocolUnsupported { atr: Vec<u8>, disconnected: bool },
     DisconnectFailed(CardCapture),
     BoundaryPanicked,
     Success(CardCapture),
@@ -341,6 +343,10 @@ pub fn run_enrollment<B: EnrollmentBackend>(
     }
     let readers = match backend.enumerate_readers() {
         Ok(readers) => readers,
+        Err(error @ EnrollmentError::ReaderListTooLarge)
+        | Err(error @ EnrollmentError::BoundaryPanicked) => {
+            return reject(record, EnrollmentOperation::EnumerateReaders, error);
+        }
         Err(_) => {
             return reject(
                 record,
@@ -395,39 +401,56 @@ pub fn run_enrollment<B: EnrollmentBackend>(
             EnrollmentOperation::ExclusiveConnect,
             EnrollmentError::ConnectFailed,
         ),
-        CaptureAttempt::ResetFailed => {
+        CaptureAttempt::ResetFailed { disconnected } => {
             push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
-            reject(
+            reject_then_disconnect(
                 record,
                 EnrollmentOperation::Reset,
                 EnrollmentError::ResetFailed,
+                disconnected,
             )
         }
-        CaptureAttempt::StatusFailed => {
+        CaptureAttempt::ResetPanicked { disconnected } => {
+            push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
+            reject_then_disconnect(
+                record,
+                EnrollmentOperation::Reset,
+                EnrollmentError::BoundaryPanicked,
+                disconnected,
+            )
+        }
+        CaptureAttempt::StatusFailed { disconnected } => {
             push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
             push_pass(&mut record, EnrollmentOperation::Reset);
-            reject(
+            reject_then_disconnect(
                 record,
                 EnrollmentOperation::CaptureAtr,
                 EnrollmentError::StatusFailed,
+                disconnected,
             )
         }
-        CaptureAttempt::ProtocolUnavailable { atr } => {
-            push_capture_prefix(&mut record, &atr);
-            reject(
+        CaptureAttempt::StatusPanicked { disconnected } => {
+            push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
+            push_pass(&mut record, EnrollmentOperation::Reset);
+            reject_then_disconnect(
                 record,
-                EnrollmentOperation::CaptureProtocol,
-                EnrollmentError::ProtocolUnavailable,
+                EnrollmentOperation::CaptureAtr,
+                EnrollmentError::BoundaryPanicked,
+                disconnected,
             )
         }
-        CaptureAttempt::ProtocolUnsupported { atr } => {
-            push_capture_prefix(&mut record, &atr);
-            reject(
-                record,
-                EnrollmentOperation::CaptureProtocol,
-                EnrollmentError::ProtocolUnsupported,
-            )
-        }
+        CaptureAttempt::ProtocolUnavailable { atr, disconnected } => reject_protocol(
+            record,
+            &atr,
+            EnrollmentError::ProtocolUnavailable,
+            disconnected,
+        ),
+        CaptureAttempt::ProtocolUnsupported { atr, disconnected } => reject_protocol(
+            record,
+            &atr,
+            EnrollmentError::ProtocolUnsupported,
+            disconnected,
+        ),
         CaptureAttempt::DisconnectFailed(capture) => {
             if let Err(error) = validate_capture(&capture) {
                 return reject(record, EnrollmentOperation::CaptureAtr, error);
@@ -452,31 +475,42 @@ pub fn run_enrollment<B: EnrollmentBackend>(
 }
 
 fn validate_capture(capture: &CardCapture) -> Result<(), EnrollmentError> {
-    if capture.atr.is_empty() {
+    validate_atr(&capture.atr)
+}
+
+fn validate_atr(atr: &[u8]) -> Result<(), EnrollmentError> {
+    if atr.is_empty() {
         return Err(EnrollmentError::AtrEmpty);
     }
-    if capture.atr.len() > MAX_ATR_BYTES {
+    if atr.len() > MAX_ATR_BYTES {
         return Err(EnrollmentError::AtrTooLong);
     }
     Ok(())
 }
 
-fn push_capture_prefix(record: &mut EnrollmentRecord, atr: &[u8]) {
-    push_pass(record, EnrollmentOperation::ExclusiveConnect);
-    push_pass(record, EnrollmentOperation::Reset);
-    if atr.is_empty() {
-        record.events.push(EnrollmentEvent {
-            operation: EnrollmentOperation::CaptureAtr,
-            outcome: EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty),
-        });
-    } else if atr.len() > MAX_ATR_BYTES {
-        record.events.push(EnrollmentEvent {
-            operation: EnrollmentOperation::CaptureAtr,
-            outcome: EnrollmentOutcome::Reject(EnrollmentError::AtrTooLong),
-        });
-    } else {
-        push_pass(record, EnrollmentOperation::CaptureAtr);
+fn reject_protocol(
+    mut record: EnrollmentRecord,
+    atr: &[u8],
+    error: EnrollmentError,
+    disconnected: bool,
+) -> EnrollmentRecord {
+    push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
+    push_pass(&mut record, EnrollmentOperation::Reset);
+    if let Err(atr_error) = validate_atr(atr) {
+        return reject_then_disconnect(
+            record,
+            EnrollmentOperation::CaptureAtr,
+            atr_error,
+            disconnected,
+        );
     }
+    push_pass(&mut record, EnrollmentOperation::CaptureAtr);
+    reject_then_disconnect(
+        record,
+        EnrollmentOperation::CaptureProtocol,
+        error,
+        disconnected,
+    )
 }
 
 fn push_capture_success(record: &mut EnrollmentRecord, capture: CardCapture) {
@@ -507,6 +541,28 @@ fn reject(
     record
 }
 
+fn reject_then_disconnect(
+    mut record: EnrollmentRecord,
+    operation: EnrollmentOperation,
+    error: EnrollmentError,
+    disconnected: bool,
+) -> EnrollmentRecord {
+    record.events.push(EnrollmentEvent {
+        operation,
+        outcome: EnrollmentOutcome::Reject(error),
+    });
+    record.events.push(EnrollmentEvent {
+        operation: EnrollmentOperation::Disconnect,
+        outcome: if disconnected {
+            EnrollmentOutcome::Pass
+        } else {
+            EnrollmentOutcome::Reject(EnrollmentError::DisconnectFailed)
+        },
+    });
+    record.outcome = EnrollmentOutcome::Reject(error);
+    record
+}
+
 fn set_outcome(mut record: EnrollmentRecord, error: EnrollmentError) -> EnrollmentRecord {
     record.outcome = EnrollmentOutcome::Reject(error);
     record
@@ -514,7 +570,10 @@ fn set_outcome(mut record: EnrollmentRecord, error: EnrollmentError) -> Enrollme
 
 #[cfg(test)]
 mod tests {
-    use super::{EnrollmentError, EnrollmentMetadata, EnrollmentMode};
+    use super::{
+        run_enrollment, CaptureAttempt, EnrollmentBackend, EnrollmentError, EnrollmentEvent,
+        EnrollmentMetadata, EnrollmentMode, EnrollmentOperation, EnrollmentOutcome,
+    };
 
     fn metadata() -> EnrollmentMetadata {
         EnrollmentMetadata {
@@ -545,6 +604,67 @@ mod tests {
         assert_eq!(
             invalid.validate(),
             Err(EnrollmentError::SpecimenAliasInvalid)
+        );
+    }
+
+    struct RejectingBackend {
+        enumerate_error: Option<EnrollmentError>,
+        attempt: CaptureAttempt,
+    }
+
+    impl EnrollmentBackend for RejectingBackend {
+        fn enumerate_readers(&mut self) -> Result<Vec<Vec<u8>>, EnrollmentError> {
+            if let Some(error) = self.enumerate_error {
+                Err(error)
+            } else {
+                Ok(vec![b"Identiv SCR3310".to_vec()])
+            }
+        }
+
+        fn capture_card(&mut self, _reader_name: &[u8]) -> CaptureAttempt {
+            self.attempt.clone()
+        }
+    }
+
+    #[test]
+    fn capture_rejection_keeps_primary_error_and_cleanup_evidence() {
+        let mut backend = RejectingBackend {
+            enumerate_error: None,
+            attempt: CaptureAttempt::ProtocolUnavailable {
+                atr: Vec::new(),
+                disconnected: false,
+            },
+        };
+        let record = run_enrollment(metadata().validate().expect("metadata"), &mut backend);
+        assert_eq!(
+            record.outcome,
+            EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty)
+        );
+        assert_eq!(
+            &record.events[record.events.len() - 2..],
+            &[
+                EnrollmentEvent {
+                    operation: EnrollmentOperation::CaptureAtr,
+                    outcome: EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty),
+                },
+                EnrollmentEvent {
+                    operation: EnrollmentOperation::Disconnect,
+                    outcome: EnrollmentOutcome::Reject(EnrollmentError::DisconnectFailed),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn bounded_enumeration_error_is_not_collapsed() {
+        let mut backend = RejectingBackend {
+            enumerate_error: Some(EnrollmentError::ReaderListTooLarge),
+            attempt: CaptureAttempt::ConnectFailed,
+        };
+        let record = run_enrollment(metadata().validate().expect("metadata"), &mut backend);
+        assert_eq!(
+            record.outcome,
+            EnrollmentOutcome::Reject(EnrollmentError::ReaderListTooLarge)
         );
     }
 }
