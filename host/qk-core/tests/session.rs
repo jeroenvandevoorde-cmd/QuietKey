@@ -299,3 +299,14 @@ fn broker_named_rejection_is_reparsed_then_terminates_the_core_shell() {
     assert_eq!(core.state(), CoreState::Terminated);
     assert_eq!(core.terminal_reason(), Some(Interruption::OperationFailed));
 }
+
+#[test]
+fn separately_minted_normal_sessions_have_distinct_qkip_identities() {
+    let (_, first) = CoreSession::start(CoreMode::A1B, grants()).expect("first normal shell");
+    let (_, second) = CoreSession::start(CoreMode::A1B, grants()).expect("second normal shell");
+    let first = decode_one(first.frame_bytes());
+    let second = decode_one(second.frame_bytes());
+    assert_ne!(first.header().session_id(), second.header().session_id());
+    assert_eq!(first.header().exchange_id(), 1);
+    assert_eq!(second.header().exchange_id(), 1);
+}

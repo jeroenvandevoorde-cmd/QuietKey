@@ -5,6 +5,8 @@ const LIB: &str = include_str!("../src/lib.rs");
 const CAPABILITY: &str = include_str!("../src/capability.rs");
 const ERROR: &str = include_str!("../src/error.rs");
 const IO_WIRE: &str = include_str!("../src/io_wire.rs");
+const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
+const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
 const SETUP: &str = include_str!("../src/setup_v2.rs");
@@ -24,29 +26,24 @@ fn cargo_section<'a>(source: &'a str, header: &str, next: Option<&str>) -> &'a s
 fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-ipc = { path = \"../qk-ipc\" }\nqk-provisioning = { path = \"../qk-provisioning\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-psbt = { path = \"../qk-psbt\", features = [\"normal-v3\"] }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\", features = [\"normal-v3\"] }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
-        "qk-host-sim = { path = \"../qk-host-sim\" }\nqk-io = { path = \"../qk-io\" }"
+        "qk-host-sim = { path = \"../qk-host-sim\" }\nqk-io = { path = \"../qk-io\" }\nqk-secp = { path = \"../qk-secp\" }"
     );
     let product = cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]"));
     for forbidden in [
-        "qk-a1",
-        "qk-bbqr",
         "qk-bip32",
         "qk-card-trace",
         "qk-decoy",
-        "qk-descriptor",
         "qk-host-model",
         "qk-host-sim",
         "qk-io",
         "qk-kit",
-        "qk-psbt",
         "qk-secp",
         "qk-supervisor",
         "qk-update",
-        "qk-wallet-v2",
     ] {
         assert!(
             !product.contains(forbidden),
@@ -68,6 +65,8 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
             "pub use capability::{",
             "pub use error::{CoreError, Interruption, IoRejection};",
             "pub use io_wire::{Operation, Source};",
+            "pub use normal_artifact_v2::{",
+            "pub use normal_v2::{",
             "pub use session::{",
             "pub use setup_v2::{",
             "pub const INNER_VERSION: u8 = 1;",
@@ -104,6 +103,15 @@ fn every_public_method_entry_is_pinned() {
             "pub const fn wallet_id(&self) -> [u8; 32] {",
             "pub const fn account_xpub(&self) -> [u8; 111] {",
             "pub const fn name(self) -> &'static str {",
+            "pub fn try_new(",
+            "pub const fn input_index(&self) -> u32 {",
+            "pub fn der_signature(&self) -> &[u8] {",
+            "pub fn try_new(",
+            "pub const fn descriptors(&self) -> &[[u8; 306]; 2] {",
+            "pub const fn wallet_id(&self) -> [u8; 32] {",
+            "pub const fn account_xpub(&self) -> &[u8; 111] {",
+            "pub fn signatures(&self) -> &[NormalCardBSignatureV2] {",
+            "pub const fn name(self) -> &'static str {",
             "pub const fn new() -> Self {",
             "pub fn inject_failure(&mut self) {",
             "pub fn show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {",
@@ -113,6 +121,7 @@ fn every_public_method_entry_is_pinned() {
             "pub fn inject_failure(&mut self) {",
             "pub fn read(&mut self, key: KeypadKey) -> Result<KeypadKey, CoreError> {",
             "pub const fn new(presence: CardPresence) -> Self {",
+            "pub fn with_normal_data(presence: CardPresence, normal_data: NormalCardBDataV2) -> Self {",
             "pub fn inject_failure(&mut self) {",
             "pub fn observe(&mut self, presence: CardPresence) -> Result<CardPresence, CoreError> {",
             "pub const fn presence(&self) -> CardPresence {",
@@ -143,6 +152,106 @@ fn every_public_method_entry_is_pinned() {
             "pub fn encode_ingress_begin(source: Source) -> [u8; 11] {",
             "pub fn encode_ingress_read(expected_offset: u32) -> [u8; 12] {",
             "pub fn parse_response<'a>(",
+        ]
+    );
+    assert_eq!(
+        public_methods(NORMAL_ARTIFACT),
+        [
+            "pub fn parse(bytes: &[u8]) -> Result<Self, NormalArtifactErrorV2> {",
+            "pub const fn route_exposure(self) -> NormalRouteExposureV2 {",
+            "pub const fn sd_finalized_psbt(self) -> bool {",
+            "pub const fn sd_raw_transaction(self) -> bool {",
+            "pub const fn bbqr_finalized_psbt(self) -> bool {",
+            "pub const fn bbqr_raw_transaction(self) -> bool {",
+            "pub const fn kind(self) -> NormalArtifactKindV2 {",
+            "pub const fn serialized_len(self) -> u32 {",
+            "pub const fn sha256(self) -> [u8; 32] {",
+            "pub const fn artifact(self) -> NormalArtifactKindV2 {",
+            "pub const fn total_len(self) -> u32 {",
+            "pub const fn profile(&self) -> NormalProfileV2 {",
+            "pub const fn route(&self) -> NormalExportRouteV2 {",
+            "pub const fn finalized_psbt(&self) -> Option<NormalArtifactFactsV2> {",
+            "pub const fn raw_transaction(&self) -> Option<NormalArtifactFactsV2> {",
+            "pub const fn finalized_psbt_sd_receipt(&self) -> Option<NormalSdReceiptV2> {",
+            "pub const fn raw_transaction_sd_receipt(&self) -> Option<NormalSdReceiptV2> {",
+            "pub const fn txid(&self) -> [u8; 32] {",
+            "pub const fn wtxid(&self) -> [u8; 32] {",
+            "pub const fn name(self) -> &'static str {",
+            "pub fn bytes(&self) -> &[u8] {",
+            "pub fn next_request(&mut self) -> Result<NormalExportRequestV2, NormalArtifactErrorV2> {",
+            "pub fn accept_response(",
+        ]
+    );
+    assert_eq!(
+        public_methods(NORMAL),
+        [
+            "pub const fn profile(&self) -> NormalProfileV2 {",
+            "pub const fn network(&self) -> ReviewNetwork {",
+            "pub const fn wallet_id(&self) -> [u8; 32] {",
+            "pub const fn input_count(&self) -> usize {",
+            "pub const fn total_input_amount(&self) -> u64 {",
+            "pub const fn total_input_amount(&self) -> u64 {",
+            "pub const fn total_output_amount(&self) -> u64 {",
+            "pub const fn fee(&self) -> u64 {",
+            "pub const fn index(&self) -> u32 {",
+            "pub const fn amount(&self) -> u64 {",
+            "pub const fn script_pubkey(&self) -> &'a [u8] {",
+            "pub const fn recipient(&self) -> NormalRecipientFactV2<'a> {",
+            "pub const fn index(&self) -> u32 {",
+            "pub const fn amount(&self) -> u64 {",
+            "pub const fn script_pubkey(&self) -> &'a [u8] {",
+            "pub const fn child_index(&self) -> u32 {",
+            "pub const fn index(&self) -> u32 {",
+            "pub const fn amount(&self) -> u64 {",
+            "pub const fn script_pubkey(&self) -> &'a [u8] {",
+            "pub const fn payload(&self) -> &'a [u8] {",
+            "pub const fn locktime(self) -> u32 {",
+            "pub const fn input_index(&self) -> u32 {",
+            "pub const fn sequence(&self) -> u32 {",
+            "pub const fn direct_rbf(&self) -> DirectRbf {",
+            "pub const fn identifier(&self) -> &'static [u8] {",
+            "pub const fn fee(&self) -> u64 {",
+            "pub const fn estimated_vsize(&self) -> u32 {",
+            "pub const fn fee_rate_msat_per_vbyte(&self) -> u64 {",
+            "pub const fn warning(self) -> FeeWarning {",
+            "pub const fn profile(self) -> NormalProfileV2 {",
+            "pub const fn review_hash(self) -> ReviewV3Hash {",
+            "pub const fn result(self) -> &'a NormalExportResultV2 {",
+            "pub const fn cycle(self) -> u64 {",
+            "pub const fn token(self) -> NormalApprovalTokenV2 {",
+            "pub const fn profile(self) -> NormalProfileV2 {",
+            "pub const fn review_hash(self) -> ReviewV3Hash {",
+            "pub const fn cycle(self) -> u64 {",
+            "pub const fn name(self) -> &'static str {",
+            "pub const fn stage(&self) -> NormalStageV2 {",
+            "pub const fn outbound(&self) -> Option<&CoreOutbound> {",
+            "pub fn into_outbound(self) -> Option<CoreOutbound> {",
+            "pub const fn consumed(&self) -> usize {",
+            "pub const fn stage(&self) -> NormalStageV2 {",
+            "pub const fn outbound(&self) -> Option<&CoreOutbound> {",
+            "pub fn into_outbound(self) -> Option<CoreOutbound> {",
+            "pub fn start(",
+            "pub fn fuzz_start(",
+            "pub const fn profile(&self) -> NormalProfileV2 {",
+            "pub const fn stage(&self) -> NormalStageV2 {",
+            "pub const fn review_position(&self) -> Option<NormalReviewPositionV2> {",
+            "pub const fn approval_identity(&self) -> Option<NormalApprovalIdentityV2> {",
+            "pub const fn result(&self) -> Option<&NormalExportResultV2> {",
+            "pub const fn terminal_error(&self) -> Option<NormalErrorV2> {",
+            "pub fn is_terminal(&self) -> bool {",
+            "pub fn screen(&self) -> Option<NormalScreenV2<'_>> {",
+            "pub fn receive(",
+            "pub fn confirm_profile(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn begin_psbt_intake(&mut self, source: Source) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn accept_card_b(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn begin_a1_intake(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn validate(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn advance_review(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn begin_approval_hold(&mut self) -> Result<NormalApprovalTokenV2, NormalErrorV2> {",
+            "pub fn complete_approval_hold(",
+            "pub fn choose_export(",
+            "pub fn complete_result(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {",
+            "pub fn interrupt(&mut self, reason: Interruption) -> Result<(), NormalErrorV2> {",
         ]
     );
     assert_eq!(
@@ -224,12 +333,14 @@ fn every_public_method_entry_is_pinned() {
 }
 
 #[test]
-fn production_sources_have_no_signing_export_apdu_socket_or_logging_api() {
+fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
     let sources = [
         LIB,
         CAPABILITY,
         ERROR,
         IO_WIRE,
+        NORMAL_ARTIFACT,
+        NORMAL,
         SESSION,
         SESSION_ID,
         SETUP,
@@ -239,24 +350,17 @@ fn production_sources_have_no_signing_export_apdu_socket_or_logging_api() {
     ];
     for source in sources {
         for forbidden in [
-            "qk_a1",
             "qk_bip32",
             "qk_card_trace",
-            "qk_descriptor",
             "qk_host_model",
             "qk_host_sim",
             "qk_io::",
             "qk_kit",
-            "qk_psbt",
             "qk_secp",
             "qk_update",
-            "qk_wallet",
             "SecretKey",
             "PrivateKey",
             "SigningKey",
-            "ReviewV",
-            "DescriptorPair",
-            "ExportArtifact",
             "Apdu",
             "send_apdu",
             "transmit_apdu",
@@ -278,6 +382,11 @@ fn production_sources_have_no_signing_export_apdu_socket_or_logging_api() {
     }
     assert_eq!(SETUP.matches("use qk_provisioning::{").count(), 1);
     assert_eq!(SETUP_ARTIFACT.matches("use qk_provisioning::{").count(), 2);
+    assert_eq!(NORMAL.matches("use qk_descriptor::").count(), 1);
+    assert_eq!(NORMAL.matches("use qk_psbt::{").count(), 1);
+    assert_eq!(NORMAL.matches("use qk_wallet_v2::{").count(), 1);
+    assert_eq!(NORMAL.matches("qk_a1::decrypt(").count(), 1);
+    assert_eq!(NORMAL_ARTIFACT.matches("qk_bbqr::").count(), 2);
     for source in [
         LIB, CAPABILITY, ERROR, IO_WIRE, SESSION, SESSION_ID, SHA256, WIPE,
     ] {
@@ -294,6 +403,25 @@ fn production_sources_have_no_signing_export_apdu_socket_or_logging_api() {
     ] {
         assert!(!SETUP.contains(forbidden), "setup surface {forbidden}");
     }
+
+    let screen = owner_section(
+        NORMAL,
+        "pub enum NormalScreenV2<'a> {",
+        "pub struct NormalApprovalTokenV2 {",
+    );
+    assert!(!screen.contains("ReviewV3"));
+    assert!(!screen.contains("ValidatedNormalV3"));
+    assert!(screen.contains("ReviewOverview(NormalOverviewViewV2)"));
+    assert!(screen.contains("ReviewFeeFacts(NormalFeeFactsViewV2)"));
+    assert!(screen.contains("FinalApproval(NormalFinalApprovalViewV2)"));
+
+    let token = owner_section(
+        NORMAL,
+        "pub struct NormalApprovalTokenV2 {",
+        "pub struct NormalApprovalIdentityV2 {",
+    );
+    assert!(token.contains("session_identity: [u8; 16]"));
+    assert!(!token.contains("Debug"));
 }
 
 #[test]
@@ -304,6 +432,8 @@ fn unsafe_is_confined_to_the_existing_volatile_wipe_module() {
     assert!(!CAPABILITY.contains("unsafe {"));
     assert!(!ERROR.contains("unsafe {"));
     assert!(!IO_WIRE.contains("unsafe {"));
+    assert!(!NORMAL_ARTIFACT.contains("unsafe {"));
+    assert!(!NORMAL.contains("unsafe {"));
     assert!(!SESSION.contains("unsafe {"));
     assert!(!SESSION_ID.contains("unsafe {"));
     assert!(!SETUP.contains("unsafe {"));
@@ -382,6 +512,11 @@ fn byte_and_session_owners_cannot_clone_format_mutate_or_release_storage() {
             "impl SessionId",
         ),
         owner_section(SETUP, "pub struct SetupSessionV2 {", "impl SetupSessionV2"),
+        owner_section(
+            NORMAL,
+            "pub struct NormalSessionV2 {",
+            "impl NormalSessionV2",
+        ),
         owner_section(
             SETUP_ARTIFACT,
             "pub(crate) struct A1PrintArtifactV2 {",

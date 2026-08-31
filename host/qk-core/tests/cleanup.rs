@@ -2,6 +2,8 @@
 
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
+const NORMAL: &str = include_str!("../src/normal_v2.rs");
+const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
 const SETUP: &str = include_str!("../src/setup_v2.rs");
 const SETUP_ARTIFACT: &str = include_str!("../src/setup_artifact_v2.rs");
 const WIPE: &str = include_str!("../src/wipe.rs");
@@ -12,9 +14,15 @@ fn volatile_wipe_owns_the_complete_allocation_and_fences_each_clear() {
     assert!(WIPE.contains("allocation(self.0.as_mut_ptr(), capacity);"));
     assert!(WIPE.contains("ptr::write_volatile(pointer.add(offset), 0)"));
     assert!(WIPE.contains("ptr::write_volatile(byte, 0)"));
-    assert_eq!(WIPE.matches("compiler_fence(Ordering::SeqCst);").count(), 4);
+    assert_eq!(WIPE.matches("compiler_fence(Ordering::SeqCst);").count(), 5);
     assert!(WIPE.contains("allocated_owner_clears_length_and_spare_capacity"));
     assert!(WIPE.contains("allocation_owner_clears_during_caught_unwind"));
+    assert!(WIPE.contains("struct WipingValueVec<T>(Vec<T>);"));
+    assert!(WIPE.contains("self.0.clear();"));
+    assert!(WIPE.contains("value_owner_clears_live_and_spare_allocation_bytes"));
+    assert!(WIPE.contains("value_owner_clears_nested_values_before_outer_allocation"));
+    assert!(WIPE.contains("value_owner_clears_during_caught_unwind"));
+    assert!(WIPE.contains("fixed_owner_clears_plaintext_on_caught_unwind"));
 }
 
 #[test]
@@ -39,8 +47,10 @@ fn universal_termination_discards_every_session_owned_buffer_before_absorption()
         "self.expected = None;",
         "self.transfer = None;",
         "self.completed = None;",
+        "self.normal_response = None;",
         "self.decoder = None;",
         "self.ipc = None;",
+        "drop(self.session_identity.take());",
     ] {
         assert!(terminate.contains(clear), "missing cleanup {clear}");
     }
@@ -57,6 +67,40 @@ fn universal_termination_discards_every_session_owned_buffer_before_absorption()
     assert!(session_drop.contains("self.terminate(Interruption::OperationFailed);"));
     assert!(SESSION.contains("Err(error) => return Err(self.fail_ipc(error))"));
     assert!(SESSION.contains("Err(error) => Err(self.fail(error))"));
+}
+
+#[test]
+fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
+    let cleanup = NORMAL
+        .split_once("fn cleanup_owned(&mut self) {")
+        .expect("normal cleanup")
+        .1
+        .split_once("impl Drop for NormalSessionV2")
+        .expect("normal cleanup end")
+        .0;
+    for clear in [
+        "drop(self.s0.take());",
+        "drop(self.card.take());",
+        "drop(self.seed_a.take());",
+        "drop(self.proof.take());",
+        "self.pending_hold = None;",
+        "self.approval = None;",
+        "drop(self.artifacts.take());",
+        "drop(self.transfer.take());",
+        "self.result = None;",
+    ] {
+        assert!(cleanup.contains(clear), "missing normal cleanup {clear}");
+    }
+    assert_eq!(
+        NORMAL.matches("WipingValueVec::try_with_capacity(").count(),
+        2
+    );
+    assert!(NORMAL.contains("let mut seed = WipingArray::<32>::zeroed();"));
+    assert!(!NORMAL.contains("let mut seed = [0u8; 32];"));
+    assert!(NORMAL_ARTIFACT.contains("WipingArray::<MAX_FRAME_TEXT_BYTES>::zeroed()"));
+    assert!(NORMAL_ARTIFACT.contains("begin_finish_filename_and_geometry_scratch_are_raii_wiped"));
+    assert!(NORMAL.contains("impl Drop for NormalSessionV2"));
+    assert!(SESSION.contains("normal_response_and_retained_session_identity_wipe_on_interruption"));
 }
 
 #[test]

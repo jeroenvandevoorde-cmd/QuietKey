@@ -3,7 +3,7 @@
 use qk_core::{
     CardBPublicBindingV2, CardInstanceV2, CardMockErrorV2, CardPresence, CoreDeviceGrants,
     CoreError, CoreMode, CoreScreen, CoreSession, CoreState, Interruption, KeypadKey, MockCardSlot,
-    MockDisplay, MockKeypad,
+    MockDisplay, MockKeypad, NormalCardBDataV2, NormalCardBSignatureV2, NormalCardMockErrorV2,
 };
 
 const ALL_KEYS: [KeypadKey; 19] = [
@@ -169,4 +169,38 @@ fn card_mock_absence_precedes_public_binding_state() {
     let required = binding(CardInstanceV2::Required, 0x44);
     assert_eq!(card.provision_b(required), Err(CardMockErrorV2::CardAbsent));
     assert_eq!(card.verify_b(required), Err(CardMockErrorV2::CardAbsent));
+}
+
+#[test]
+fn normal_card_factor_is_bounded_move_only_and_clears_caller_secrets() {
+    let mut oversized = [0x30; 73];
+    assert!(matches!(
+        NormalCardBSignatureV2::try_new(0, &mut oversized),
+        Err(NormalCardMockErrorV2::SignatureTooLong)
+    ));
+    assert_eq!(oversized, [0; 73]);
+
+    let mut der = [0x31; 71];
+    let signature = NormalCardBSignatureV2::try_new(7, &mut der).expect("bounded DER owner");
+    assert_eq!(der, [0; 71]);
+    assert_eq!(signature.input_index(), 7);
+    assert_eq!(signature.der_signature(), &[0x31; 71]);
+
+    let descriptors = [[b'd'; 306], [b'c'; 306]];
+    let wallet_id = [0x42; 32];
+    let account_xpub = [b'x'; 111];
+    let mut a2 = [0xa2; 32];
+    let factor = NormalCardBDataV2::try_new(
+        descriptors,
+        wallet_id,
+        account_xpub,
+        &mut a2,
+        vec![signature],
+    )
+    .expect("bounded card factor");
+    assert_eq!(a2, [0; 32]);
+    assert_eq!(factor.descriptors(), &descriptors);
+    assert_eq!(factor.wallet_id(), wallet_id);
+    assert_eq!(factor.account_xpub(), &account_xpub);
+    assert_eq!(factor.signatures().len(), 1);
 }

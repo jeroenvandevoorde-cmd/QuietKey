@@ -172,3 +172,21 @@ fn print_egress_geometry_and_success_parsers_are_source_locked() {
         );
     }
 }
+
+#[test]
+fn normal_export_egress_is_exposed_only_through_exact_purpose_bound_grammars() {
+    for required in [
+        "pub(crate) fn encode_normal_egress_write(",
+        "const SD_SINK: u8 = 0x01;",
+        "const BBQR_SINK: u8 = 0x02;",
+        "const FINALIZED_PSBT_ARTIFACT: u8 = 0x01;",
+        "const RAW_TRANSACTION_ARTIFACT: u8 = 0x02;",
+        "const NORMAL_BBQR_FRAME_MAX_COUNT: u16 = 256;",
+        "validate_normal_bbqr_frames(encoded_frames, frame_count)?;",
+    ] {
+        assert!(
+            IO_WIRE.contains(required),
+            "missing normal export wire lock {required}"
+        );
+    }
+}
