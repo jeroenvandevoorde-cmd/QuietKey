@@ -1,9 +1,14 @@
 //! QKIP-bound non-signing product shell.
 
-use crate::capability::{CardPresence, CoreDeviceGrants, CoreScreen, KeypadKey};
+use crate::capability::{
+    CardBPublicBindingV2, CardMockErrorV2, CardPresence, CoreDeviceGrants, CoreScreen, KeypadKey,
+};
 use crate::error::{CoreError, Interruption};
 use crate::io_wire::{
-    encode_ingress_begin, encode_ingress_read, parse_response, ExpectedResponse, Response, Source,
+    encode_a1_print_begin, encode_a1_print_finish, encode_a1_print_write, encode_ingress_begin,
+    encode_ingress_read, encode_kit_print_begin, encode_kit_print_finish, encode_kit_print_write,
+    parse_print_response, parse_response, ExpectedPrintResponse, ExpectedResponse, PrintArtifact,
+    PrintResponse, Response, Source, A1_PRINT_BYTES, KIT_PRINT_BYTES,
 };
 #[cfg(any(test, feature = "fuzzing"))]
 use crate::session_id::DeterministicSessionIdMint;
@@ -28,6 +33,12 @@ pub enum CoreState {
     IngressReadReady,
     IngressReadPending,
     IngressComplete,
+    EgressBeginPending,
+    EgressWriteReady,
+    EgressWritePending,
+    EgressFinishReady,
+    EgressFinishPending,
+    EgressComplete,
     Closing,
     Closed,
     Terminated,
@@ -47,7 +58,27 @@ pub enum CoreReceiveEvent {
         chunk_len: u32,
         final_chunk: bool,
     },
+    A1PrintBegan,
+    KitPrintBegan,
+    A1PrintWritten {
+        accepted_total: u32,
+    },
+    KitPrintWritten {
+        accepted_total: u32,
+    },
+    A1PrintFinished {
+        total_len: u32,
+    },
+    KitPrintFinished {
+        total_len: u32,
+    },
     SessionClosed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutstandingResponse {
+    Ingress(ExpectedResponse),
+    Print(ExpectedPrintResponse),
 }
 
 /// Exact stream-consumption fact and the at-most-one resulting shell event.
@@ -179,9 +210,10 @@ pub struct CoreSession {
     terminal_reason: Option<Interruption>,
     ipc: Option<CoreProtocol>,
     decoder: Option<StreamDecoder>,
-    expected: Option<ExpectedResponse>,
+    expected: Option<OutstandingResponse>,
     transfer: Option<IngressTransfer>,
     completed: Option<HostileIngress>,
+    print_artifact: Option<PrintArtifact>,
     grants: CoreDeviceGrants,
 }
 
@@ -213,6 +245,7 @@ impl CoreSession {
             expected: None,
             transfer: None,
             completed: None,
+            print_artifact: None,
             grants,
         };
         Ok((session, frame))
@@ -245,6 +278,7 @@ impl CoreSession {
             || self.transfer.is_some()
             || self.completed.is_some()
             || self.expected.is_some()
+            || self.print_artifact.is_some()
         {
             return Err(self.fail(CoreError::InvalidTransition));
         }
@@ -252,7 +286,7 @@ impl CoreSession {
         let mut payload = encode_ingress_begin(source);
         let result = self.begin_operation(
             &payload,
-            ExpectedResponse::IngressBegin { source },
+            OutstandingResponse::Ingress(ExpectedResponse::IngressBegin { source }),
             CoreState::IngressBeginPending,
         );
         wipe::bytes(&mut payload);
@@ -273,14 +307,212 @@ impl CoreSession {
         let mut payload = encode_ingress_read(offset);
         let result = self.begin_operation(
             &payload,
-            ExpectedResponse::IngressRead {
+            OutstandingResponse::Ingress(ExpectedResponse::IngressRead {
                 expected_offset: offset,
                 total_len,
-            },
+            }),
             CoreState::IngressReadPending,
         );
         wipe::bytes(&mut payload);
         result
+    }
+
+    /// Begin the exact purpose-bound 67-byte A1 print transfer.
+    pub(crate) fn begin_a1_print(&mut self) -> Result<CoreOutbound, CoreError> {
+        let mut payload = encode_a1_print_begin();
+        let result = self.begin_print(
+            PrintArtifact::A1,
+            &payload,
+            ExpectedPrintResponse::Begin {
+                artifact: PrintArtifact::A1,
+            },
+            CoreState::EgressBeginPending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Write the sole complete A1 artifact at offset zero.
+    pub(crate) fn write_a1_print(
+        &mut self,
+        artifact: &[u8; A1_PRINT_BYTES],
+    ) -> Result<CoreOutbound, CoreError> {
+        self.require_print_phase(PrintArtifact::A1, CoreState::EgressWriteReady)?;
+        let mut payload = encode_a1_print_write(artifact);
+        let result = self.begin_operation(
+            &payload,
+            OutstandingResponse::Print(ExpectedPrintResponse::Write {
+                artifact: PrintArtifact::A1,
+            }),
+            CoreState::EgressWritePending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Finish the exact A1 print transfer.
+    pub(crate) fn finish_a1_print(&mut self) -> Result<CoreOutbound, CoreError> {
+        self.require_print_phase(PrintArtifact::A1, CoreState::EgressFinishReady)?;
+        let mut payload = encode_a1_print_finish();
+        let result = self.begin_operation(
+            &payload,
+            OutstandingResponse::Print(ExpectedPrintResponse::Finish {
+                artifact: PrintArtifact::A1,
+            }),
+            CoreState::EgressFinishPending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Begin the exact purpose-bound 829-byte Kit-page print transfer.
+    pub(crate) fn begin_kit_print(&mut self) -> Result<CoreOutbound, CoreError> {
+        let mut payload = encode_kit_print_begin();
+        let result = self.begin_print(
+            PrintArtifact::Kit,
+            &payload,
+            ExpectedPrintResponse::Begin {
+                artifact: PrintArtifact::Kit,
+            },
+            CoreState::EgressBeginPending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Write the sole complete Kit-page artifact at offset zero.
+    pub(crate) fn write_kit_print(
+        &mut self,
+        artifact: &[u8; KIT_PRINT_BYTES],
+    ) -> Result<CoreOutbound, CoreError> {
+        self.require_print_phase(PrintArtifact::Kit, CoreState::EgressWriteReady)?;
+        let mut payload = encode_kit_print_write(artifact);
+        let result = self.begin_operation(
+            &payload,
+            OutstandingResponse::Print(ExpectedPrintResponse::Write {
+                artifact: PrintArtifact::Kit,
+            }),
+            CoreState::EgressWritePending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Finish the exact Kit-page print transfer.
+    pub(crate) fn finish_kit_print(&mut self) -> Result<CoreOutbound, CoreError> {
+        self.require_print_phase(PrintArtifact::Kit, CoreState::EgressFinishReady)?;
+        let mut payload = encode_kit_print_finish();
+        let result = self.begin_operation(
+            &payload,
+            OutstandingResponse::Print(ExpectedPrintResponse::Finish {
+                artifact: PrintArtifact::Kit,
+            }),
+            CoreState::EgressFinishPending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Begin the sole allowed scan-back after an accepted A1 print receipt.
+    pub(crate) fn begin_a1_scanback(&mut self) -> Result<CoreOutbound, CoreError> {
+        self.require_live()?;
+        if self.mode != CoreMode::Setup
+            || self.state != CoreState::EgressComplete
+            || self.print_artifact != Some(PrintArtifact::A1)
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.expected.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let mut payload = encode_ingress_begin(Source::CameraA1Candidate);
+        let result = self.begin_operation(
+            &payload,
+            OutstandingResponse::Ingress(ExpectedResponse::IngressBegin {
+                source: Source::CameraA1Candidate,
+            }),
+            CoreState::IngressBeginPending,
+        );
+        wipe::bytes(&mut payload);
+        result
+    }
+
+    /// Consume the sealed A1 scan-back and compare it without exposing bytes.
+    pub(crate) fn consume_a1_scanback(
+        &mut self,
+        expected: &[u8; A1_PRINT_BYTES],
+    ) -> Result<bool, CoreError> {
+        self.require_live()?;
+        if self.mode != CoreMode::Setup
+            || self.state != CoreState::IngressComplete
+            || self.print_artifact != Some(PrintArtifact::A1)
+            || self.transfer.is_some()
+            || self.expected.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let candidate = self
+            .completed
+            .take()
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))?;
+        if candidate.source != Source::CameraA1Candidate {
+            drop(candidate);
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let matches = candidate.bytes.as_slice() == expected.as_slice();
+        drop(candidate);
+        self.print_artifact = None;
+        if matches {
+            self.state = CoreState::Ready;
+            Ok(true)
+        } else {
+            self.terminate(Interruption::OperationFailed);
+            Ok(false)
+        }
+    }
+
+    /// Select one setup screen without exposing the capability owner.
+    pub(crate) fn setup_show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {
+        self.require_setup_live()?;
+        self.show_or_terminate(screen)
+    }
+
+    /// Read one normalized setup key without applying shell navigation.
+    pub(crate) fn setup_read_key(&mut self, key: KeypadKey) -> Result<KeypadKey, CoreError> {
+        self.require_setup_live()?;
+        match self.grants.keypad_mut().read(key) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.terminate(Interruption::CapabilityFailed);
+                Err(error)
+            }
+        }
+    }
+
+    /// Apply one public-only role-B setup binding to the card mock.
+    pub(crate) fn setup_provision_b(
+        &mut self,
+        binding: CardBPublicBindingV2,
+    ) -> Result<(), CardMockErrorV2> {
+        self.grants.card_slot_mut().provision_b(binding)
+    }
+
+    /// Check one public-only role-B setup binding against the card mock.
+    pub(crate) fn setup_verify_b(
+        &mut self,
+        binding: CardBPublicBindingV2,
+    ) -> Result<(), CardMockErrorV2> {
+        self.grants.card_slot_mut().verify_b(binding)
+    }
+
+    /// Force a local setup failure through the universal wiping terminal path.
+    pub(crate) fn setup_fail(&mut self) {
+        self.terminate(Interruption::OperationFailed);
+    }
+
+    /// Route one setup interruption through the universal terminal path.
+    pub(crate) fn terminate_setup(&mut self, reason: Interruption) {
+        self.terminate(reason);
     }
 
     /// Begin graceful QKIP close when no transfer is active.
@@ -289,6 +521,7 @@ impl CoreSession {
         if !matches!(self.state, CoreState::Ready | CoreState::IngressComplete)
             || self.transfer.is_some()
             || self.expected.is_some()
+            || self.print_artifact.is_some()
         {
             return Err(self.fail(CoreError::InvalidTransition));
         }
@@ -428,7 +661,7 @@ impl CoreSession {
     fn begin_operation(
         &mut self,
         payload: &[u8],
-        expected: ExpectedResponse,
+        expected: OutstandingResponse,
         pending_state: CoreState,
     ) -> Result<CoreOutbound, CoreError> {
         let outbound = match self.ipc.as_mut() {
@@ -459,6 +692,17 @@ impl CoreSession {
 
     fn accept_operation(&mut self, payload: &[u8]) -> Result<CoreReceiveEvent, CoreError> {
         let expected = self.expected.take().ok_or(CoreError::InvalidTransition)?;
+        match expected {
+            OutstandingResponse::Ingress(expected) => self.accept_ingress(payload, expected),
+            OutstandingResponse::Print(expected) => self.accept_print(payload, expected),
+        }
+    }
+
+    fn accept_ingress(
+        &mut self,
+        payload: &[u8],
+        expected: ExpectedResponse,
+    ) -> Result<CoreReceiveEvent, CoreError> {
         let parsed = parse_response(payload, expected)?;
         match parsed {
             Response::IngressBegin { source, total_len } => {
@@ -467,7 +711,9 @@ impl CoreSession {
                 }
                 self.transfer = Some(IngressTransfer::try_new(source, total_len)?);
                 self.state = CoreState::IngressReadReady;
-                self.show_or_terminate(CoreScreen::IngressReadReady)?;
+                if self.print_artifact != Some(PrintArtifact::A1) {
+                    self.show_or_terminate(CoreScreen::IngressReadReady)?;
+                }
                 Ok(CoreReceiveEvent::IngressBegan { source, total_len })
             }
             Response::IngressRead {
@@ -491,10 +737,14 @@ impl CoreSession {
                     let transfer = self.transfer.take().ok_or(CoreError::InvalidTransition)?;
                     self.completed = Some(transfer.complete()?);
                     self.state = CoreState::IngressComplete;
-                    self.show_or_terminate(CoreScreen::IngressComplete)?;
+                    if self.print_artifact != Some(PrintArtifact::A1) {
+                        self.show_or_terminate(CoreScreen::IngressComplete)?;
+                    }
                 } else {
                     self.state = CoreState::IngressReadReady;
-                    self.show_or_terminate(CoreScreen::IngressReadReady)?;
+                    if self.print_artifact != Some(PrintArtifact::A1) {
+                        self.show_or_terminate(CoreScreen::IngressReadReady)?;
+                    }
                 }
                 Ok(CoreReceiveEvent::IngressChunk {
                     offset,
@@ -502,6 +752,91 @@ impl CoreSession {
                     final_chunk,
                 })
             }
+        }
+    }
+
+    fn accept_print(
+        &mut self,
+        payload: &[u8],
+        expected: ExpectedPrintResponse,
+    ) -> Result<CoreReceiveEvent, CoreError> {
+        let parsed = parse_print_response(payload, expected)?;
+        match parsed {
+            PrintResponse::Begin { artifact } => {
+                self.require_print_phase(artifact, CoreState::EgressBeginPending)?;
+                self.state = CoreState::EgressWriteReady;
+                Ok(match artifact {
+                    PrintArtifact::A1 => CoreReceiveEvent::A1PrintBegan,
+                    PrintArtifact::Kit => CoreReceiveEvent::KitPrintBegan,
+                })
+            }
+            PrintResponse::Write {
+                artifact,
+                accepted_total,
+            } => {
+                self.require_print_phase(artifact, CoreState::EgressWritePending)?;
+                self.state = CoreState::EgressFinishReady;
+                Ok(match artifact {
+                    PrintArtifact::A1 => CoreReceiveEvent::A1PrintWritten { accepted_total },
+                    PrintArtifact::Kit => CoreReceiveEvent::KitPrintWritten { accepted_total },
+                })
+            }
+            PrintResponse::Finish {
+                artifact,
+                total_len,
+            } => {
+                self.require_print_phase(artifact, CoreState::EgressFinishPending)?;
+                match artifact {
+                    PrintArtifact::A1 => {
+                        self.state = CoreState::EgressComplete;
+                        Ok(CoreReceiveEvent::A1PrintFinished { total_len })
+                    }
+                    PrintArtifact::Kit => {
+                        self.print_artifact = None;
+                        self.state = CoreState::Ready;
+                        Ok(CoreReceiveEvent::KitPrintFinished { total_len })
+                    }
+                }
+            }
+        }
+    }
+
+    fn begin_print(
+        &mut self,
+        artifact: PrintArtifact,
+        payload: &[u8],
+        expected: ExpectedPrintResponse,
+        pending_state: CoreState,
+    ) -> Result<CoreOutbound, CoreError> {
+        self.require_live()?;
+        if self.mode != CoreMode::Setup
+            || self.state != CoreState::Ready
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.expected.is_some()
+            || self.print_artifact.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.print_artifact = Some(artifact);
+        self.begin_operation(payload, OutstandingResponse::Print(expected), pending_state)
+    }
+
+    fn require_print_phase(
+        &mut self,
+        artifact: PrintArtifact,
+        state: CoreState,
+    ) -> Result<(), CoreError> {
+        self.require_live()?;
+        if self.mode != CoreMode::Setup
+            || self.state != state
+            || self.print_artifact != Some(artifact)
+            || self.transfer.is_some()
+            || self.completed.is_some()
+        {
+            Err(self.fail(CoreError::InvalidTransition))
+        } else {
+            Ok(())
         }
     }
 
@@ -515,6 +850,7 @@ impl CoreSession {
         self.expected = None;
         self.transfer = None;
         self.completed = None;
+        self.print_artifact = None;
         self.show_or_terminate(CoreScreen::Closed)?;
         Ok(CoreReceiveEvent::SessionClosed)
     }
@@ -551,6 +887,7 @@ impl CoreSession {
         self.expected = None;
         self.transfer = None;
         self.completed = None;
+        self.print_artifact = None;
         self.decoder = None;
         self.ipc = None;
         let _ = self.grants.display_mut().show(CoreScreen::Terminated);
@@ -561,6 +898,15 @@ impl CoreSession {
             Err(CoreError::CoreTerminated)
         } else {
             Ok(())
+        }
+    }
+
+    fn require_setup_live(&mut self) -> Result<(), CoreError> {
+        self.require_live()?;
+        if self.mode == CoreMode::Setup {
+            Ok(())
+        } else {
+            Err(self.fail(CoreError::InvalidTransition))
         }
     }
 }
@@ -614,7 +960,8 @@ pub fn fuzz_start_session(
 mod tests {
     use super::*;
     use crate::capability::{MockCardSlot, MockDisplay, MockKeypad};
-    use qk_ipc::{encode_frame, Direction, MessageKind, HEADER_BYTES};
+    use crate::INNER_VERSION;
+    use qk_ipc::{encode_frame, parse_frame, Direction, MessageKind, HEADER_BYTES};
 
     fn grants() -> CoreDeviceGrants {
         CoreDeviceGrants::validate(
@@ -650,6 +997,103 @@ mod tests {
         let mut id = [0u8; 16];
         id.copy_from_slice(&outbound.frame_bytes()[8..24]);
         id
+    }
+
+    fn inner_success(opcode: u8, body: &[u8]) -> Vec<u8> {
+        let mut payload = vec![INNER_VERSION, opcode, 0, 0];
+        payload.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        payload.extend_from_slice(body);
+        payload
+    }
+
+    fn ready_setup(namespace: [u8; 12]) -> (CoreSession, [u8; 16]) {
+        let (mut session, open) =
+            fuzz_start_session(namespace, 0, CoreMode::Setup, grants()).unwrap();
+        let id = session_id(&open);
+        let ready = response(id, 1, MessageKind::SessionReady, &[]);
+        assert_eq!(
+            session.receive(&ready, false).unwrap().event(),
+            CoreReceiveEvent::SessionReady
+        );
+        (session, id)
+    }
+
+    fn accept_operation(
+        session: &mut CoreSession,
+        id: [u8; 16],
+        exchange: u32,
+        opcode: u8,
+        body: &[u8],
+    ) -> CoreReceiveEvent {
+        let payload = inner_success(opcode, body);
+        let frame = response(id, exchange, MessageKind::OperationResponse, &payload);
+        session.receive(&frame, false).unwrap().event()
+    }
+
+    fn finish_a1_scanback(
+        session: &mut CoreSession,
+        id: [u8; 16],
+        expected: &[u8; A1_PRINT_BYTES],
+        candidate: &[u8; A1_PRINT_BYTES],
+    ) -> bool {
+        let begin = session.begin_a1_scanback().unwrap();
+        assert_eq!(
+            parse_frame(begin.frame_bytes()).unwrap().payload(),
+            [1, 1, 0, 0, 3, 0, 0, 0, 1, 0, 0]
+        );
+        assert_eq!(
+            accept_operation(session, id, 5, 1, &[1, 67, 0, 0, 0]),
+            CoreReceiveEvent::IngressBegan {
+                source: Source::CameraA1Candidate,
+                total_len: 67,
+            }
+        );
+        let read = session.request_next_chunk().unwrap();
+        assert_eq!(
+            parse_frame(read.frame_bytes()).unwrap().payload(),
+            [1, 2, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]
+        );
+        let mut body = vec![0, 0, 0, 0, 67, 0, 0, 0, 1];
+        body.extend_from_slice(candidate);
+        assert_eq!(
+            accept_operation(session, id, 6, 2, &body),
+            CoreReceiveEvent::IngressChunk {
+                offset: 0,
+                chunk_len: 67,
+                final_chunk: true,
+            }
+        );
+        session.consume_a1_scanback(expected).unwrap()
+    }
+
+    fn finish_a1_print(session: &mut CoreSession, id: [u8; 16], artifact: &[u8; A1_PRINT_BYTES]) {
+        let begin = session.begin_a1_print().unwrap();
+        assert_eq!(
+            parse_frame(begin.frame_bytes()).unwrap().payload(),
+            [1, 3, 0, 0, 8, 0, 0, 0, 3, 4, 67, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            accept_operation(session, id, 2, 3, &[]),
+            CoreReceiveEvent::A1PrintBegan
+        );
+        let write = session.write_a1_print(artifact).unwrap();
+        let write = parse_frame(write.frame_bytes()).unwrap();
+        assert_eq!(write.payload().len(), 83);
+        assert_eq!(write.payload().get(16..), Some(artifact.as_slice()));
+        assert_eq!(
+            accept_operation(session, id, 3, 4, &[67, 0, 0, 0]),
+            CoreReceiveEvent::A1PrintWritten { accepted_total: 67 }
+        );
+        let finish = session.finish_a1_print().unwrap();
+        assert_eq!(
+            parse_frame(finish.frame_bytes()).unwrap().payload(),
+            [1, 5, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            accept_operation(session, id, 4, 5, &[3, 4, 67, 0, 0, 0]),
+            CoreReceiveEvent::A1PrintFinished { total_len: 67 }
+        );
+        assert_eq!(session.state(), CoreState::EgressComplete);
     }
 
     #[test]
@@ -689,5 +1133,132 @@ mod tests {
         );
         assert_eq!(session.state(), CoreState::Terminated);
         assert_eq!(session.terminal_reason(), Some(Interruption::CardRemoved));
+    }
+
+    #[test]
+    fn a1_print_receipt_is_the_only_path_to_exact_consuming_scanback() {
+        let artifact = [0xa1; A1_PRINT_BYTES];
+        let (mut matched, matched_id) = ready_setup([0x41; 12]);
+        matched.setup_show(CoreScreen::ScanBackA1).unwrap();
+        finish_a1_print(&mut matched, matched_id, &artifact);
+        assert!(finish_a1_scanback(
+            &mut matched,
+            matched_id,
+            &artifact,
+            &artifact
+        ));
+        assert_eq!(matched.state(), CoreState::Ready);
+        assert!(matched.completed_ingress().is_none());
+
+        let (mut mismatch, mismatch_id) = ready_setup([0x42; 12]);
+        finish_a1_print(&mut mismatch, mismatch_id, &artifact);
+        assert!(!finish_a1_scanback(
+            &mut mismatch,
+            mismatch_id,
+            &artifact,
+            &[0xa2; A1_PRINT_BYTES]
+        ));
+        assert_eq!(mismatch.state(), CoreState::Terminated);
+        assert_eq!(
+            mismatch.terminal_reason(),
+            Some(Interruption::OperationFailed)
+        );
+        assert!(mismatch.completed_ingress().is_none());
+    }
+
+    #[test]
+    fn kit_print_is_exactly_one_begin_write_finish_and_returns_ready() {
+        let artifact = [0x4b; KIT_PRINT_BYTES];
+        let (mut session, id) = ready_setup([0x43; 12]);
+        let begin = session.begin_kit_print().unwrap();
+        assert_eq!(
+            parse_frame(begin.frame_bytes()).unwrap().payload(),
+            [1, 3, 0, 0, 8, 0, 0, 0, 3, 5, 0x3d, 0x03, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            accept_operation(&mut session, id, 2, 3, &[]),
+            CoreReceiveEvent::KitPrintBegan
+        );
+        let write = session.write_kit_print(&artifact).unwrap();
+        let write = parse_frame(write.frame_bytes()).unwrap();
+        assert_eq!(write.payload().len(), 845);
+        assert_eq!(write.payload().get(16..), Some(artifact.as_slice()));
+        assert_eq!(
+            accept_operation(&mut session, id, 3, 4, &[0x3d, 0x03, 0, 0]),
+            CoreReceiveEvent::KitPrintWritten {
+                accepted_total: 829
+            }
+        );
+        let finish = session.finish_kit_print().unwrap();
+        assert_eq!(
+            parse_frame(finish.frame_bytes()).unwrap().payload(),
+            [1, 5, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            accept_operation(&mut session, id, 4, 5, &[3, 5, 0x3d, 0x03, 0, 0]),
+            CoreReceiveEvent::KitPrintFinished { total_len: 829 }
+        );
+        assert_eq!(session.state(), CoreState::Ready);
+    }
+
+    #[test]
+    fn print_artifact_and_phase_mismatch_are_absorbing() {
+        let (mut session, id) = ready_setup([0x44; 12]);
+        let _begin = session.begin_a1_print().unwrap();
+        assert_eq!(
+            accept_operation(&mut session, id, 2, 3, &[]),
+            CoreReceiveEvent::A1PrintBegan
+        );
+        assert_eq!(
+            session.write_kit_print(&[0x4b; KIT_PRINT_BYTES]).err(),
+            Some(CoreError::InvalidTransition)
+        );
+        assert_eq!(session.state(), CoreState::Terminated);
+        assert_eq!(
+            session.begin_a1_scanback().err(),
+            Some(CoreError::CoreTerminated)
+        );
+    }
+
+    #[test]
+    fn setup_capability_helpers_are_mode_locked_and_typed() {
+        let (mut setup, _) = ready_setup([0x45; 12]);
+        assert_eq!(
+            setup.setup_read_key(KeypadKey::SixRight).unwrap(),
+            KeypadKey::SixRight
+        );
+        setup.setup_show(CoreScreen::ProvisionB).unwrap();
+        assert_eq!(setup.current_screen(), Some(CoreScreen::ProvisionB));
+        let binding = CardBPublicBindingV2::new(
+            crate::capability::CardInstanceV2::Required,
+            [0x11; 32],
+            [0x22; 111],
+        );
+        assert_eq!(setup.setup_provision_b(binding), Ok(()));
+        assert_eq!(setup.setup_verify_b(binding), Ok(()));
+
+        let (mut wrong_mode, _) =
+            fuzz_start_session([0x46; 12], 0, CoreMode::A1B, grants()).unwrap();
+        assert_eq!(
+            wrong_mode.setup_show(CoreScreen::SetupStart),
+            Err(CoreError::InvalidTransition)
+        );
+        assert_eq!(wrong_mode.state(), CoreState::Terminated);
+
+        let (mut failed, _) = ready_setup([0x47; 12]);
+        failed.setup_fail();
+        assert_eq!(failed.state(), CoreState::Terminated);
+        assert_eq!(
+            failed.terminal_reason(),
+            Some(Interruption::OperationFailed)
+        );
+
+        let (mut interrupted, _) = ready_setup([0x48; 12]);
+        interrupted.terminate_setup(Interruption::SessionTimeout);
+        assert_eq!(interrupted.state(), CoreState::Terminated);
+        assert_eq!(
+            interrupted.terminal_reason(),
+            Some(Interruption::SessionTimeout)
+        );
     }
 }

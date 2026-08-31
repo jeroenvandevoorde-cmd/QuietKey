@@ -60,7 +60,7 @@ impl PrintArtifact {
         }
     }
 
-    const fn total_len(self) -> u32 {
+    pub(crate) const fn total_len(self) -> u32 {
         match self {
             Self::A1 => A1_PRINT_BYTES_U32,
             Self::Kit => KIT_PRINT_BYTES_U32,
