@@ -29,6 +29,13 @@ legacy = [
 ipc = ["dep:qk-ipc", "qk-ipc/fuzzing"]
 process-s2-decoy = ["dep:qk-decoy", "qk-decoy/fuzzing"]
 process-s2-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]
+process-s3-io = [
+    "dep:qk-bbqr",
+    "dep:qk-io",
+    "dep:qk-ipc",
+    "qk-io/fuzzing",
+    "qk-ipc/fuzzing",
+]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }
@@ -39,6 +46,7 @@ qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1", optional =
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1", optional = true }
 qk-decoy = { path = "../host/qk-decoy", version = "=0.0.1", optional = true }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1", optional = true }
+qk-io = { path = "../host/qk-io", version = "=0.0.1", optional = true }
 qk-ipc = { path = "../host/qk-ipc", version = "=0.0.1", optional = true }
 qk-kit = { path = "../host/qk-kit", version = "=0.0.1", optional = true }
 qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1", optional = true }
@@ -295,6 +303,30 @@ test = false
 doc = false
 bench = false
 required-features = ["process-s2-decoy"]
+
+[[bin]]
+name = "qk_io_ingress"
+path = "fuzz_targets/qk_io_ingress.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s3-io"]
+
+[[bin]]
+name = "qk_io_egress"
+path = "fuzz_targets/qk_io_egress.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s3-io"]
+
+[[bin]]
+name = "qk_io_session"
+path = "fuzz_targets/qk_io_session.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s3-io"]
 
 [profile.release]
 overflow-checks = true

@@ -40,6 +40,9 @@ case "$target" in
   qk_ipc_endpoint_state) max_len=4096; seed=140002 ;;
   qk_supervisor_lifecycle) max_len=4096; seed=142001 ;;
   qk_decoy_calculator) max_len=2048; seed=142002 ;;
+  qk_io_ingress) max_len=16384; seed=143001 ;;
+  qk_io_egress) max_len=16384; seed=143002 ;;
+  qk_io_session) max_len=4096; seed=143003 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -f "$test_case" ] || { printf 'missing test case: %s\n' "$test_case" >&2; exit 2; }
@@ -66,6 +69,9 @@ case "$target" in
     ;;
   qk_decoy_calculator)
     set -- --no-default-features --features process-s2-decoy "$target" "$test_case"
+    ;;
+  qk_io_ingress|qk_io_egress|qk_io_session)
+    set -- --no-default-features --features process-s3-io "$target" "$test_case"
     ;;
   *) set -- "$target" "$test_case" ;;
 esac

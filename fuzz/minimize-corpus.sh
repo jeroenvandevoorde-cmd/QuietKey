@@ -40,6 +40,9 @@ case "$target" in
   qk_ipc_endpoint_state) max_len=4096 ;;
   qk_supervisor_lifecycle) max_len=4096 ;;
   qk_decoy_calculator) max_len=2048 ;;
+  qk_io_ingress) max_len=16384 ;;
+  qk_io_egress) max_len=16384 ;;
+  qk_io_session) max_len=4096 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -d "$corpus" ] || { printf 'missing corpus directory: %s\n' "$corpus" >&2; exit 2; }
@@ -66,6 +69,9 @@ case "$target" in
     ;;
   qk_decoy_calculator)
     set -- --no-default-features --features process-s2-decoy "$target" "$corpus"
+    ;;
+  qk_io_ingress|qk_io_egress|qk_io_session)
+    set -- --no-default-features --features process-s3-io "$target" "$corpus"
     ;;
   *) set -- "$target" "$corpus" ;;
 esac

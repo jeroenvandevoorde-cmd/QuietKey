@@ -40,6 +40,9 @@ case "$target" in
   qk_ipc_endpoint_state) max_len=4096; seed=140002 ;;
   qk_supervisor_lifecycle) max_len=4096; seed=142001 ;;
   qk_decoy_calculator) max_len=2048; seed=142002 ;;
+  qk_io_ingress) max_len=16384; seed=143001 ;;
+  qk_io_egress) max_len=16384; seed=143002 ;;
+  qk_io_session) max_len=4096; seed=143003 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac
@@ -74,6 +77,9 @@ case "$target" in
     ;;
   qk_decoy_calculator)
     set -- --no-default-features --features process-s2-decoy "$target" "fuzz/corpus/$target"
+    ;;
+  qk_io_ingress|qk_io_egress|qk_io_session)
+    set -- --no-default-features --features process-s3-io "$target" "fuzz/corpus/$target"
     ;;
   *) set -- "$target" "fuzz/corpus/$target" ;;
 esac
