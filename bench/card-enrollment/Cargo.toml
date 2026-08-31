@@ -1,0 +1,12 @@
+[package]
+name = "qk-card-enrollment"
+version = "0.0.1"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+pcsc = { version = "=2.9.0" }
+
+[workspace]
+resolver = "2"
