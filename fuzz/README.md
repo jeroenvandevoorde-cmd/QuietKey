@@ -151,7 +151,7 @@ entry, pending-operation, result, overflow, and divide-by-zero states while
 requiring deterministic display bytes, fixed twelve-digit bounds, immediate
 left-to-right arithmetic, and a total key/state oracle. Neither target reaches
 a wallet, card, real device, target privilege, production, performance, or Gate
-boundary. Campaign 021 remains planned until both target scaffolds are frozen.
+boundary. Campaign 021 is complete and its retained corpora are hash-registered.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
@@ -272,7 +272,6 @@ their common campaign source and both 100,000-input runs complete.
 The two completed process-slice-1 campaigns are recorded in `CAMPAIGN-020.md`;
 their matching retained corpora are registered together in
 `CORPUS-MANIFEST-PROCESS-S1.tsv` under the source-before-execution rule.
-The two planned process-slice-2 campaigns are preregistered in
-`CAMPAIGN-021.md`; after both 100,000-input runs and matching two-copy
-minimizations, their retained corpora are registered together in
-`CORPUS-MANIFEST-PROCESS-S2.tsv`.
+The two completed process-slice-2 campaigns are recorded in `CAMPAIGN-021.md`;
+their matching two-copy-minimized corpora are registered together in
+`CORPUS-MANIFEST-PROCESS-S2.tsv` under the source-before-execution rule.
