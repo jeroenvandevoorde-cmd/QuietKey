@@ -163,8 +163,8 @@ deterministic session-id facts, terminal absorption and exact wipe accounting.
 Both require stable named outcomes and repeat consistency. Neither target
 creates a wallet fact, signs, derives from live entropy, approves, exports,
 opens a process or socket, or reaches a real display, keypad, card, target,
-production, performance or Gate boundary. Campaign 023 is preregistered but
-unexecuted until the complete target and registration scaffold is committed.
+production, performance or Gate boundary. Campaign 023 is complete and its
+retained two-copy-minimized corpora are hash-registered.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
@@ -301,8 +301,7 @@ The three completed process-slice-3 campaigns are recorded in
 `CAMPAIGN-022.md`; their matching two-copy-minimized corpora are registered
 together in `CORPUS-MANIFEST-PROCESS-S3.tsv` under the source-before-execution
 rule.
-The two planned process-slice-4 campaigns are preregistered in
-`CAMPAIGN-023.md`. Their retained two-copy-minimized corpora will be registered
-together in `CORPUS-MANIFEST-PROCESS-S4.tsv` only after the
-campaign-registration commit becomes their common campaign source and both
-runs complete.
+The two completed process-slice-4 campaigns are recorded in
+`CAMPAIGN-023.md`; their matching two-copy-minimized corpora are registered
+together in `CORPUS-MANIFEST-PROCESS-S4.tsv` under the source-before-execution
+rule.
