@@ -102,11 +102,17 @@ impl StreamDecoder {
         if self.parsed_header.is_none() {
             let required = HEADER_BYTES - self.header_len;
             let copied = required.min(input.len());
-            let source = input.get(..copied).ok_or(IpcError::InvalidTransition)?;
-            let destination = self
+            let source = match input.get(..copied) {
+                Some(source) => source,
+                None => return Err(self.terminate(IpcError::InvalidTransition)),
+            };
+            let destination = match self
                 .header_bytes
                 .get_mut(self.header_len..self.header_len + copied)
-                .ok_or(IpcError::InvalidTransition)?;
+            {
+                Some(destination) => destination,
+                None => return Err(self.terminate(IpcError::InvalidTransition)),
+            };
             destination.copy_from_slice(source);
             self.header_len += copied;
             consumed += copied;
@@ -312,7 +318,10 @@ mod tests {
         let mut decoder = StreamDecoder::new();
         assert_eq!(decoder.ingest(&frame[..11], false).unwrap().consumed(), 11);
         reset_wiped_bytes();
-        assert_eq!(decoder.take_frame().err(), Some(IpcError::InvalidTransition));
+        assert_eq!(
+            decoder.take_frame().err(),
+            Some(IpcError::InvalidTransition)
+        );
         assert_eq!(wiped_bytes(), 32);
         assert_eq!(
             decoder.take_frame().err(),

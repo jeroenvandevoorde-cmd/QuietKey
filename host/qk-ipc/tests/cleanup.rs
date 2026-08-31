@@ -35,6 +35,7 @@ fn received_and_decoder_drop_paths_retain_cleanup_ownership() {
 
 #[test]
 fn every_decoder_rejection_routes_through_the_terminating_clear() {
+    assert!(!STREAM.contains("ok_or(IpcError::InvalidTransition)"));
     assert!(STREAM.contains("return Err(self.terminate(IpcError::AncillaryData));"));
     assert!(STREAM.contains("Err(error) => return Err(self.terminate(error))"));
     assert!(STREAM.contains("return Err(self.terminate(IpcError::PayloadAllocationFailed))"));
