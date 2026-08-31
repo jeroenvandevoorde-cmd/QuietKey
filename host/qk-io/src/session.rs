@@ -50,10 +50,9 @@ impl fmt::Display for BrokerError {
 
 impl std::error::Error for BrokerError {}
 
-/// One QKIP reply with a wipe-owned operation payload.
+/// One already-formed QKIP reply in a wipe-owned frame.
 pub struct BrokerReply {
-    outbound: OutboundFrame,
-    payload: Option<WipingVec>,
+    frame: WipingVec,
     status: ReplyStatus,
 }
 
@@ -63,12 +62,19 @@ impl BrokerReply {
         self.status
     }
 
-    /// Encode once into the caller's QKIP frame buffer and consume this owner.
-    pub fn encode(self, output: &mut [u8]) -> Result<usize, BrokerError> {
-        let payload = self.payload.as_ref().map_or(&[][..], WipingVec::as_slice);
-        self.outbound
-            .encode(payload, output)
-            .map_err(BrokerError::Ipc)
+    /// Exact already-formed QKIP frame bytes, valid while this owner lives.
+    pub fn frame_bytes(&self) -> &[u8] {
+        self.frame.as_slice()
+    }
+
+    /// Exact complete QKIP frame length.
+    pub fn len(&self) -> usize {
+        self.frame.len()
+    }
+
+    /// A valid reply is always one nonempty complete QKIP frame.
+    pub fn is_empty(&self) -> bool {
+        self.frame.len() == 0
     }
 }
 
@@ -287,12 +293,20 @@ impl BrokerSession {
     }
 
     fn control_reply(&mut self) -> Result<BrokerReply, BrokerError> {
-        let outbound = self.ipc.reply().map_err(BrokerError::Ipc)?;
-        Ok(BrokerReply {
-            outbound,
-            payload: None,
-            status: ReplyStatus::Control,
-        })
+        let outbound = match self.ipc.reply() {
+            Ok(value) => value,
+            Err(error) => {
+                self.terminate();
+                return Err(BrokerError::Ipc(error));
+            }
+        };
+        match encode_reply(outbound, &[], ReplyStatus::Control) {
+            Ok(reply) => Ok(reply),
+            Err(error) => {
+                self.terminate();
+                Err(error)
+            }
+        }
     }
 
     fn success_reply(
@@ -309,11 +323,17 @@ impl BrokerSession {
                 return Err(BrokerError::Ipc(error));
             }
         };
-        Ok(BrokerReply {
+        match encode_reply(
             outbound,
-            payload: Some(payload),
-            status: ReplyStatus::Success(operation),
-        })
+            payload.as_slice(),
+            ReplyStatus::Success(operation),
+        ) {
+            Ok(reply) => Ok(reply),
+            Err(error) => {
+                self.terminate();
+                Err(error)
+            }
+        }
     }
 
     fn rejection_reply(
@@ -321,8 +341,13 @@ impl BrokerSession {
         opcode: u8,
         error: InnerError,
     ) -> Result<BrokerReply, BrokerError> {
-        let payload =
-            wrap_response(opcode, error.status_code(), &[]).map_err(BrokerError::Inner)?;
+        let payload = match wrap_response(opcode, error.status_code(), &[]) {
+            Ok(value) => value,
+            Err(inner_error) => {
+                self.terminate();
+                return Err(BrokerError::Inner(inner_error));
+            }
+        };
         let outbound = match self.ipc.reply() {
             Ok(value) => value,
             Err(ipc_error) => {
@@ -331,11 +356,17 @@ impl BrokerSession {
             }
         };
         self.state = State::ErrorReplyPending;
-        Ok(BrokerReply {
+        match encode_reply(
             outbound,
-            payload: Some(payload),
-            status: ReplyStatus::Rejected { opcode, error },
-        })
+            payload.as_slice(),
+            ReplyStatus::Rejected { opcode, error },
+        ) {
+            Ok(reply) => Ok(reply),
+            Err(reply_error) => {
+                self.terminate();
+                Err(reply_error)
+            }
+        }
     }
 
     fn terminate(&mut self) {
@@ -367,6 +398,24 @@ fn wrap_response(opcode: u8, status: u16, body: &[u8]) -> Result<WipingVec, Inne
     payload.as_mut_slice()[4..8].copy_from_slice(&(body.len() as u32).to_le_bytes());
     payload.as_mut_slice()[8..].copy_from_slice(body);
     Ok(payload)
+}
+
+fn encode_reply(
+    outbound: OutboundFrame,
+    payload: &[u8],
+    status: ReplyStatus,
+) -> Result<BrokerReply, BrokerError> {
+    let frame_len = qk_ipc::HEADER_BYTES
+        .checked_add(payload.len())
+        .filter(|length| *length <= qk_ipc::MAX_FRAME_BYTES)
+        .ok_or(BrokerError::Inner(InnerError::BodyLengthExceeded))?;
+    let mut frame = WipingVec::try_zeroed(frame_len)
+        .map_err(|_| BrokerError::Inner(InnerError::AllocationFailed))?;
+    let written = outbound
+        .encode(payload, frame.as_mut_slice())
+        .map_err(BrokerError::Ipc)?;
+    debug_assert_eq!(written, frame_len);
+    Ok(BrokerReply { frame, status })
 }
 
 fn discard_boundaries(
