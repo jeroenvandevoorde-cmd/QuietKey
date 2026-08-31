@@ -1,51 +1,67 @@
-# F8-G0 J3R180 Specimen Register
+# F8 J3R180 Specimen Register
 
-EXPERIMENTAL - EMPTY INTAKE LEDGER - NO CARD COMMAND AUTHORIZED
+EXPERIMENTAL - SUPPLIED INTAKE FACTS REGISTERED - NO CARD CONTACT RECORDED
 
-## Current inventory
+## Batch record
 
-NONE - no physical specimen is enrolled in this repository. No supplier,
-order, packaging, marking, quantity, batch, serial, custody or assignment
-fact has been supplied for entry. The arriving-card statement in QK-DEC-105
-does not populate any of those fields.
+- Supplier: Cardomatic.
+- Order reference: `09957`.
+- Ordered: 2026-08-25.
+- Received: 2026-08-31.
+- Quantity: three cards.
+- Packaging condition: perfect.
+- Printed markings: none.
+- Appearance before labeling: all three were physically indistinguishable,
+  fully white on front and back.
+- Labels: `01`, `02` and `03`, assigned arbitrarily because all three shared an
+  identical history at labeling time.
+- Recorder: Owner.
+- Custody: locked storage at the Owner's premises.
+- Photographs: labeled cards and packaging photographed at labeling time on
+  the Owner's iPhone; stored on that iPhone and in the Owner's iCloud account.
+  Exact filenames, UTC timestamps, byte counts and SHA-256 values are pending
+  registration in the private custody bundle.
 
-## Required enrollment record
+The claimed `J3R180` catalog path is an Owner-supplied procurement fact, not a
+card capability result. No ATR, protocol, serial, CPLC value, APDU response or
+physical-card identity has yet been observed through this lane.
 
-Each delivered card receives one privacy-safe public alias and one record
-with every field below before any card command. A batch-level fact may be
-referenced by individual cards, but it never replaces their assignments.
+## Assignment and contact order
 
-| Field | Required content |
-|---|---|
-| Public specimen alias | Stable ASCII identifier used in every committed record and artifact name. |
-| Claimed catalog path | `J3R180` plus supplier listing/order reference exactly as supplied; not a verified identity. |
-| Supplier and order | Supplier, order reference, order date, received date and quantity. |
-| Packaging | Observed packaging text, labels, seals and condition; unknown fields remain `NOT OBSERVED`. |
-| Card markings | Exact visible front/back/contact markings without interpretation. |
-| Visible lot or serial | Privacy-safe committed value or private-map reference under the Owner-approved publication treatment. |
-| Photographs | Outside-Git location, deterministic names, byte counts and SHA-256 values for all intake images. |
-| Custody | Custodian, custody location or privacy-safe location alias, and transfer log reference. |
-| Assignment | Exactly `NON-SACRIFICIAL`, `SACRIFICIAL-APPLET`, `SACRIFICIAL-POWER`, `SACRIFICIAL-ENDURANCE`, or another later Owner-ratified assignment. |
-| Mutable permission | Exactly `NONE` for F8-G0; later authority must name the permitted mutation and specimen. |
-| Contactless condition | `PRESENT - UNCHARACTERIZED` for a delivered dual-interface J3R180 unless physical identity proves otherwise; no bearer operation is authorized. |
-| Source commit | Full commit that first records the completed enrollment. |
-| Recorder and timestamp | Owner-supplied or observed recorder identity and UTC timestamp. |
+`J3R180-01` is the non-sacrificial reference, `J3R180-02` is the power-cut
+specimen, and `J3R180-03` is the endurance specimen. These assignments authorize
+no mutation. Contact order is exact:
 
-The private exact serial/custody mapping and raw photographs remain outside
-Git. The committed aliases and hashes must still permit the Owner-held map to
-bind every later observation to one physical specimen.
+1. `J3R180-02` alone.
+2. `J3R180-03` only after specimen 02's complete transcript is registered and
+   reviewed.
+3. Protected reference `J3R180-01` only after the procedure has succeeded
+   twice.
 
-## Stop conditions
+No specimen contact is permitted until the labeling/package photograph bundle
+has complete timestamps, byte counts and SHA-256 values in the private-bundle
+manifest. Any unexpected response stops the procedure for Owner disposition;
+it is not explored ad hoc.
 
-A quantity mismatch, unrecorded substitute, conflicting marking, opened or
-unexpected package state, unreadable required identity, duplicate alias,
-missing photograph/hash, missing custody declaration, or missing assignment
-stops intake. It is recorded as observed; it is never repaired by assuming
-the paper shortlist identity. No J3R180 observation transfers to J2R180.
+## Publication and custody boundary
+
+Verbatim photographs and specimen serials, plus any future CPLC bytes and raw
+capture bundles, remain in durable private Owner custody and must be hash-bound
+when their manifests are completed. The repository records aliases, exact byte
+counts, SHA-256 values, timestamps, tool and source commits, and privacy-safe
+custody paths. Each specimen ATR is published verbatim in
+`ENROLLMENT-MANIFEST.md` after enrollment. Every future APDU byte remains
+verbatim inside its registered private bundle.
 
 ## Ledger
 
-| Alias | Claimed path | Quantity link | Packaging/marking record | Photo manifest | Custody | Assignment | Contactless condition | Source commit | Status |
+| Alias | Claimed path | Batch link | Packaging/marking record | Photo manifest | Custody | Assignment | Mutable permission | Source commit | Status |
 |---|---|---|---|---|---|---|---|---|---|
+| `J3R180-01` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `01` | `PENDING` | Locked Owner-premises storage | NON-SACRIFICIAL REFERENCE; contacted last | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH/TIMESTAMP PENDING; NO CONTACT |
+| `J3R180-02` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `02` | `PENDING` | Locked Owner-premises storage | POWER-CUT SPECIMEN; contacted first | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH/TIMESTAMP PENDING; NO CONTACT |
+| `J3R180-03` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `03` | `PENDING` | Locked Owner-premises storage | ENDURANCE SPECIMEN; contacted second | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH/TIMESTAMP PENDING; NO CONTACT |
 
-NONE - NO SPECIMENS ENROLLED.
+Contactless condition remains uncharacterized and no contactless bearer
+operation is authorized. Quantity mismatch, substitute, conflicting marking,
+custody ambiguity, incomplete photograph manifest or assignment ambiguity stops
+intake rather than being repaired by assumption.

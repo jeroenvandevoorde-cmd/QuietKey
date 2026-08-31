@@ -1,33 +1,54 @@
-# F8-G0 Card-Bench Apparatus Register
+# F8 Card-Bench Apparatus Register
 
-EXPERIMENTAL - EMPTY APPARATUS LEDGER - NO PHYSICAL RUN AUTHORIZED
+EXPERIMENTAL - SUPPLIED FACTS REGISTERED - EVIDENCE HASHES PENDING
 
 ## Current apparatus
 
-NONE - no CCID reader, host, PC/SC stack, capture tool or power-cut
-apparatus is enrolled for F8-G0. Catalog expectations and prior paper
-references do not populate physical identity.
+The first registered apparatus is the Owner's current macOS bench. Empty-reader
+USB identification is permitted; no card contact or enrollment run is recorded.
+The operating-system PC/SC layer is an OS-provided component outside the pinned
+Rust dependency closure.
+
+- Host alias `iMac`: 3.7 GHz 6-core Intel Core i5, Radeon Pro 580X 8 GB,
+  40 GB DDR4, macOS 15.7.7 build 24G720, built-in PC/SC framework.
+- Reader alias `SCR3310-01`: Identiv SCR3310 v2.0 contact CCID reader with
+  USB-C connector, USB vendor `0x04E6`, USB product `0x5116`, firmware `6.02`,
+  bus-powered at 76 mA.
+- Hub alias `OWC-HUB-01`: OWC Thunderbolt hub, USB vendor `0x1E91`, USB
+  product `0xDE41`, firmware `17.46`.
+- Topology: `SCR3310-01` connects through `OWC-HUB-01` to `iMac`.
+
+Reader and hub serial numbers are retained in the private custody bundle and
+are not published. Their later private-bundle byte counts and SHA-256 values
+bind those raw identifiers to the public aliases. A direct-port connection is
+planned for later timing-sensitive work and, if used, is a distinct apparatus
+change requiring its own registration.
 
 ## Required apparatus fields
 
 | Class | Required record before use |
 |---|---|
-| CCID reader | Public alias; manufacturer/model/part; hardware revision; firmware where observable; visible serial or private-map reference; contact interface; cable/hub path; photographs, byte counts and SHA-256 values; custody. |
-| Host | Public alias; exact hardware model; operating-system build; architecture; time source; custody. |
-| PC/SC stack | Implementation, package/build versions, reader driver/CCID bundle, configuration and enumeration output hash. |
-| Capture tool | Exact executable/package version, source/package provenance already permitted by the repository, invocation, configuration and binary/script hash. |
-| Timing path | Clock API, resolution observation, capture point and overhead-calibration procedure. |
-| Power-cut apparatus | Public aliases and exact supply, switch, trigger, measurement and restart paths; calibration identity; switching characterization; residual-power treatment; sacrificial-only assignment. |
-| Raw custody | Outside-Git directory or storage alias, custodian, write policy, backup, deterministic naming rule and manifest procedure. |
-| Publication treatment | Fields retained privately, fields committed by alias/hash, and Owner authority for that split. |
+| CCID reader | Public alias; manufacturer/model; hardware and firmware facts where observable; private serial-map reference; contact path; identification evidence byte count and SHA-256; custody. |
+| Host | Public alias; supplied hardware facts; operating-system build; architecture; time source; custody. |
+| PC/SC stack | OS-provided implementation/build, reader path, configuration, and bounded enumeration-output hash. |
+| Capture tool | Exact locked tool version, source commit, invocation, dependency closure, configuration and executable/script hash. |
+| Timing path | Clock API, resolution observation, capture point and overhead-calibration procedure for a later timing run. |
+| Power-cut apparatus | Exact aliases and supply, switch, trigger, measurement and restart paths; calibration; residual-power treatment; sacrificial-only assignment for a later run. |
+| Raw custody | Private Owner storage alias, custodian, write policy, backup, deterministic naming and manifest procedure. |
+| Publication treatment | Raw serials and bundles private; public aliases, counts, hashes, timestamps, tool/source commits, custody paths and ATRs as ratified. |
 
-Every run binds its exact apparatus aliases and versions. Swapping a reader,
-host, driver, tool, cable path or power apparatus creates a distinct
-environment and requires a new run binding; results are not silently pooled.
+Every run binds exact apparatus aliases and versions. Swapping a reader, host,
+PC/SC layer, tool, cable path or power apparatus creates a distinct environment;
+results are not silently pooled.
 
 ## Ledger
 
-| Alias | Class | Exact identity | Version/revision | Photo/config manifest | Custody | Approved run use | Source commit | Status |
+| Alias | Class | Exact identity | Version/revision | Photo/config manifest | Custody | Approved use | Source commit | Status |
 |---|---|---|---|---|---|---|---|---|
+| `iMac` | Host and OS PC/SC layer | 3.7 GHz 6-core Intel Core i5; Radeon Pro 580X 8 GB; 40 GB DDR4; built-in PC/SC framework | macOS 15.7.7 (`24G720`) | `PENDING` | Owner premises | Empty-reader USB identification; later registered enrollment | `PENDING - this register's commit` | FACTS REGISTERED; HASH/TIME-SOURCE FIELDS PENDING |
+| `SCR3310-01` | Contact CCID reader | Identiv SCR3310 v2.0; USB-C connector; VID `0x04E6`; PID `0x5116`; bus-powered 76 mA | firmware `6.02` | Private serial/config bundle: `PENDING` | Owner premises | Empty-reader USB identification; later exact-reader exclusive enrollment connection | `PENDING - this register's commit` | FACTS REGISTERED; PRIVATE SERIAL HASH PENDING |
+| `OWC-HUB-01` | USB topology | OWC Thunderbolt hub; VID `0x1E91`; PID `0xDE41` | firmware `17.46` | Private serial/topology bundle: `PENDING` | Owner premises | Current reader-to-host path only | `PENDING - this register's commit` | FACTS REGISTERED; PRIVATE SERIAL HASH PENDING |
 
-NONE - NO APPARATUS ENROLLED.
+No card was connected, reset or queried by creating this register. Tool binary,
+source-commit, invocation, enumeration-output, timestamps and private-bundle
+hash facts remain pending until the later enrollment evidence is produced.
