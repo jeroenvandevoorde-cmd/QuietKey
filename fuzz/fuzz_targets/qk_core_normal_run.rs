@@ -537,7 +537,7 @@ fn run_valid(data: &[u8], scenario: u8, source: Source) -> ValidRunFact {
         _ => unreachable!("modulo six is exhaustive"),
     };
     let namespace = cursor.array::<12>();
-    let last_counter = u32::from_le_bytes(cursor.array::<4>());
+    let last_counter = u32::from_le_bytes(cursor.array::<4>()).min(u32::MAX - 1);
     let caller_nonce = cursor.array::<16>();
     let part_len = 10u16 + u16::from(cursor.byte() % 9) * 5;
     let (mut session, opening) = NormalSessionV2::fuzz_start(
@@ -743,7 +743,7 @@ fn reach_factor_b_with(
 ) -> NormalSessionV2 {
     let mut cursor = Cursor::new(data);
     let namespace = cursor.array::<12>();
-    let last_counter = u32::from_le_bytes(cursor.array::<4>());
+    let last_counter = u32::from_le_bytes(cursor.array::<4>()).min(u32::MAX - 1);
     let (mut session, opening) =
         NormalSessionV2::fuzz_start(namespace, last_counter, &[profile_byte], grants(mutation))
             .expect("registered normal start");
