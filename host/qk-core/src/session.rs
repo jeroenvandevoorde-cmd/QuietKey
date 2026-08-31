@@ -295,6 +295,19 @@ impl CoreSession {
 
     /// Emit the next exact-offset ingress-read operation.
     pub fn request_next_chunk(&mut self) -> Result<CoreOutbound, CoreError> {
+        self.request_chunk(true)
+    }
+
+    /// Emit the next exact-offset A1 scan-back read without replacing the
+    /// purpose screen with the generic ingress lifecycle screen.
+    pub(crate) fn request_a1_scanback_chunk(&mut self) -> Result<CoreOutbound, CoreError> {
+        if self.mode != CoreMode::Setup || self.print_artifact != Some(PrintArtifact::A1) {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.request_chunk(false)
+    }
+
+    fn request_chunk(&mut self, show_lifecycle: bool) -> Result<CoreOutbound, CoreError> {
         self.require_live()?;
         if self.state != CoreState::IngressReadReady || self.expected.is_some() {
             return Err(self.fail(CoreError::InvalidTransition));
@@ -303,7 +316,9 @@ impl CoreSession {
             Some(transfer) => (transfer.offset, transfer.total_len),
             None => return Err(self.fail(CoreError::InvalidTransition)),
         };
-        self.show_or_terminate(CoreScreen::IngressReadPending)?;
+        if show_lifecycle {
+            self.show_or_terminate(CoreScreen::IngressReadPending)?;
+        }
         let mut payload = encode_ingress_read(offset);
         let result = self.begin_operation(
             &payload,
