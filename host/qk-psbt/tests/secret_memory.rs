@@ -12,6 +12,7 @@ const SHA256_SOURCE: &str = include_str!("../src/sha256.rs");
 const BIP143_SOURCE: &str = include_str!("../src/bip143.rs");
 const SEMANTIC_SOURCE: &str = include_str!("../src/semantic.rs");
 const SERIALIZE_SOURCE: &str = include_str!("../src/serialize.rs");
+const NORMAL_V3_SOURCE: &str = include_str!("../src/normal_v3.rs");
 
 #[test]
 fn transaction_material_owner_is_read_only_and_publicly_reachable() {
@@ -36,6 +37,22 @@ fn transaction_material_owner_is_read_only_and_publicly_reachable() {
     assert!(!WIPE_SOURCE.contains("impl<T> DerefMut for TransactionMaterialVec<T>"));
     assert!(!WIPE_SOURCE.contains("pub fn into_transaction_material"));
     assert!(!WIPE_SOURCE.contains("pub fn from_vec"));
+}
+
+#[test]
+fn normal_v3_artifacts_and_scratch_use_the_established_wipe_boundary() {
+    assert!(NORMAL_V3_SOURCE.contains("pub struct FinalizedNormalV3 {"));
+    assert!(NORMAL_V3_SOURCE.contains("finalized_psbt: crate::TransactionMaterialVec<u8>"));
+    assert!(NORMAL_V3_SOURCE.contains("raw_transaction: crate::TransactionMaterialVec<u8>"));
+    assert!(NORMAL_V3_SOURCE.contains("review_hash: wipe::ByteArray<32>"));
+    assert!(NORMAL_V3_SOURCE.contains("plans: wipe::WipingValueVec<NormalInputSigningPlanV3>"));
+    assert!(NORMAL_V3_SOURCE.contains("wipe::byte_vec(&mut self.0)"));
+    assert!(NORMAL_V3_SOURCE.contains("wipe::bytes(&mut self.digest)"));
+    assert!(NORMAL_V3_SOURCE.contains("pub const fn digest(&self) -> &[u8; 32]"));
+    assert!(NORMAL_V3_SOURCE.contains("pub const fn role_public_keys(&self) -> &[[u8; 33]"));
+    assert!(NORMAL_V3_SOURCE.contains(".try_reserve_exact(plans.len())"));
+    assert!(!NORMAL_V3_SOURCE.contains("vec![[None, None]; plans.len()]"));
+    assert!(!NORMAL_V3_SOURCE.contains("unsafe {"));
 }
 
 #[test]
