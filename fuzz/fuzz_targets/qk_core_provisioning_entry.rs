@@ -20,10 +20,10 @@ const PURPOSES: [CeremonyPurposeV2; 4] = [
     CeremonyPurposeV2::KitR,
     CeremonyPurposeV2::A2,
 ];
-const ACTIVE_ENTRY_DROP_BYTES: usize = 812;
-const ACTIVE_COMMITMENT_DROP_BYTES: usize = 844;
+const ACTIVE_ENTRY_DROP_BYTES: usize = 828;
+const ACTIVE_COMMITMENT_DROP_BYTES: usize = 860;
 const TERMINAL_DROP_BYTES: usize = 800;
-const TERMINATION_CLEANUP_BYTES: usize = 412;
+const TERMINATION_CLEANUP_BYTES: usize = 428;
 const COMMITMENT_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1148,7 +1148,7 @@ fn exercise_reuse_pair(
             assert_eq!(setup_error_name(error), "TranscriptReuse");
             assert_eq!(
                 wiped_bytes().saturating_sub(before_wipe),
-                COMMITMENT_BYTES + 2 * 4 * MANUAL_TRANSCRIPT_BYTES_V2 + 12
+                COMMITMENT_BYTES + 2 * 4 * MANUAL_TRANSCRIPT_BYTES_V2 + 12 + 16
             );
             assert_terminal_absorption(&mut session);
         } else {
