@@ -2,7 +2,7 @@
 
 Status: EXECUTED — QUALIFYING RUN COMPLETE.
 
-The common product-and-fuzz source commit was
+The initial common product-and-fuzz source commit was
 `0e505e213e280ac0510d023146ed6864b8bcf4a6`. The byte-frozen
 `qk_core_io_peer` and `qk_core_session` target sources remained at
 `e416080d8867fc381bdcc6aa1a26382f4767b6b8`, but both requalified against the
@@ -156,6 +156,121 @@ The other 40 registered corpora loaded 6,265 files/421,863 bytes and executed
 files, and exited zero. Across all 42 retained corpora, 6,684 files/440,712
 bytes executed 6,735 replay units.
 
+## Post-format requalification
+
+The first full `tools/check.sh` run after the initial evidence registration
+rejected two formatter-only line wraps in `host/qk-core/src/capability.rs`.
+Commit `c32eeba2be9dd6294dd98569f7cddef0b4d3d496` applied only those `rustfmt`
+changes (two insertions and eight deletions); it changed no type, signature,
+branch, value or comment. Because the file is fuzz-relevant, all four Campaign
+024 targets were restarted from zero against that source with the same
+commands, seeds, bounds, toolchain and AddressSanitizer settings recorded
+above.
+
+`qk_core_io_peer` started from the promoted 35-file/240-byte set, executed
+exactly 100,000 inputs in 7 seconds at 14,285 executions per second, finished
+at coverage/features 681/820 with a live engine statistic of 35 units/232
+bytes, added 8 engine units, had a zero-second slowest unit, peaked at 438 MiB
+RSS, and created zero artifact files. Its post-run filesystem corpus contained
+43 files/286 bytes; the canonical 2,887-byte sorted listing had SHA-256
+`9108bad1ed7bbb5aacafd41c2c2126e254d8ffd6a00b9afed4ef27ac2c788b42`.
+
+`qk_core_session` started from the promoted 107-file/8,515-byte set, executed
+exactly 100,000 inputs in 9 seconds at 11,111 executions per second, finished
+at coverage/features 845/2,392 with a live engine statistic of 116 units/9,833
+bytes, added 42 engine units, had a zero-second slowest unit, peaked at 505 MiB
+RSS, and created zero artifact files. Its post-run filesystem corpus contained
+140 files/15,256 bytes; the canonical 9,519-byte sorted listing had SHA-256
+`92907628451ec802ea9796017aa29161d29bcfc3e7495b9e698b5c91e45c8d3d`.
+
+`qk_core_provisioning_entry` started from the promoted 249-file/11,011-byte
+filesystem set; libFuzzer initialized 247 live units/10,953 bytes. It executed
+exactly 100,000 inputs in 1,827 seconds at 54 executions per second, finished
+at coverage/features 2,256/3,505 with a live engine statistic of 251
+units/11,346 bytes, added 40 engine units, had a zero-second slowest unit,
+peaked at 474 MiB RSS, and created zero artifact files. Its post-run filesystem
+corpus contained 286 files/13,763 bytes; the canonical 19,468-byte sorted
+listing had SHA-256
+`9415e15a58fe8beb6b8a12fadd64e5d27ce3a9ababb73ec9af88258cd5194e0f`.
+
+`qk_core_provisioning_run` started from the promoted 170-file/7,838-byte
+filesystem set; libFuzzer initialized 169 live units/7,837 bytes. It executed
+exactly 100,000 inputs in 757 seconds at 132 executions per second, finished
+at coverage/features 2,829/4,719 with a live engine statistic of 192
+units/9,765 bytes, added 29 engine units, had a zero-second slowest unit,
+peaked at 381 MiB RSS, and created zero artifact files. Its post-run filesystem
+corpus contained 194 files/9,825 bytes; the canonical 13,200-byte sorted
+listing had SHA-256
+`a740807576204a0e2b9e3adb51514643e22fb625f984ea65539d5dfd0409a7ca`.
+
+Two fresh copies of every post-format filesystem corpus were minimized
+serially. The two copies followed identical progressions for each target and
+their final listings and directories agreed byte for byte:
+
+- `qk_core_io_peer`: 43 files/286 bytes, 2,887-byte listing SHA-256
+  `9108bad1ed7bbb5aacafd41c2c2126e254d8ffd6a00b9afed4ef27ac2c788b42`;
+  36 files/230 bytes, 2,416-byte listing SHA-256
+  `efcffe301a74e507fe00c4df7e1749c59255b12705d4c12d0b7d972351eb1045`;
+  35 files/228 bytes, 2,349-byte listing SHA-256
+  `19c3fa67416335e7507390275fe1af246b1f47ff51f3e74f16ff8da45317cb8f`;
+  and one further unchanged pass.
+- `qk_core_session`: 140 files/15,256 bytes, 9,519-byte listing SHA-256
+  `92907628451ec802ea9796017aa29161d29bcfc3e7495b9e698b5c91e45c8d3d`;
+  114 files/9,217 bytes, 7,739-byte listing SHA-256
+  `5b30428c4e864d0954befb0dd57fd15af5774352ff10cbc85267257953c9cc3c`;
+  and one further unchanged pass.
+- `qk_core_provisioning_entry`: 286 files/13,763 bytes, 19,468-byte listing
+  SHA-256
+  `9415e15a58fe8beb6b8a12fadd64e5d27ce3a9ababb73ec9af88258cd5194e0f`;
+  247 files/11,155 bytes, 16,808-byte listing SHA-256
+  `b05340b75f6b1d375207c592ffa0ab8caf62340ad1c745720879084d50b849d8`;
+  and one further unchanged pass.
+- `qk_core_provisioning_run`: 194 files/9,825 bytes, 13,200-byte listing
+  SHA-256
+  `a740807576204a0e2b9e3adb51514643e22fb625f984ea65539d5dfd0409a7ca`;
+  190 files/9,520 bytes, 12,927-byte listing SHA-256
+  `365af43ce85ab222ee94e5b888ddb8f5bfd203c9dc5d1671a669534f75d2e119`;
+  and one further unchanged pass.
+
+Before this second promotion, the target entry-block hashes were
+`9404c28e278846f7bc6fa3d6e7d87d29aac642652e66bb3eec014ae9505f448c`,
+`b8f208afeed6941173cc575cdb98f7714db7746237df9a3a9acf96c75cc4b2d0`,
+`17d8e2065acc3048ac14f5cb140d76780fac2309056326be03e08914661e4edc`
+and `2039ce682cc3a074027a14f0b1a807c4d2ef396d727dd8d193247897050f29fb`
+in target order. The predecessor PROCESS-S4 aggregate entry-block hash was
+`735d937398c928bac2e45e692d9075e1f366263f34d2e8d28c78b23d8f973c42`;
+its 23,209-byte/150-LF manifest had SHA-256
+`0c2fbd5def18d29ce844f616e3c9b7fae68280cbfb6dc780840931b79c793845`.
+The predecessor PROCESS-S5 aggregate entry-block hash was
+`e4a43417fc6daaaa8f4751f2c56f790caab16f055754a987842f8fd9debc7070`;
+its 76,169-byte/427-LF manifest had SHA-256
+`88a01a5fe6e0cad774aa139446e224f8792395a6f8fd7e31c6737707ce26d976`.
+
+The replacement PROCESS-S4 target entry-block hashes are
+`322481cfab35c36da25d81bbf0a98272bf51bf8735c786aec6d8eb006eba9434`
+and `706bab5fbe927cdf66f5439ab27ff701578d5369f5d7c53cb1ad99cf7c49166f`.
+Its aggregate is 149 files/9,445 bytes with entry-block SHA-256
+`8cc5887300434b9f42250bfbe7b32d4f8caf9e3dbcb6a6b9e00ad690cac4b6e0`;
+the 24,333-byte/157-LF manifest has SHA-256
+`e24047c32e582c3631e4ff3e249787096b5b8ac266ebb985185de5e36389d96f`.
+The replacement PROCESS-S5 target entry-block hashes are
+`9182722863e5b8cd9c68cc4f5b6f24af4ff2e77708c62ec7d896726db2dd2081`
+and `0e89c276922177a5ccb4c7351acd5d2779492707afa6ebfc467a5a1a22650bfc`.
+Its aggregate is 437 files/20,675 bytes with entry-block SHA-256
+`5c5c2823fcca36bc7508c2183c496be0a3ee71b7b6f7d82df2fe69a6795afd94`;
+the 79,374-byte/445-LF manifest has SHA-256
+`36953ec4112ae9bf01f8aba6b47d389757de9ef1d37443ed327b3c4ffc8fe6c8`.
+Both manifests bind campaign source
+`c32eeba2be9dd6294dd98569f7cddef0b4d3d496`.
+
+Final-tree replay loaded all 42 registered corpora: 6,709 files/443,228
+bytes executed 6,760 units, added zero units, created zero artifact files and
+exited zero. The four requalified targets respectively loaded 35/228,
+114/9,217, 247/11,155 and 190/9,520 files/bytes and executed 36, 115, 248 and
+191 units; their final coverage/features were 681/820, 845/2,392,
+2,256/3,505 and 2,829/4,719. The other 38 corpora loaded 6,123 files/413,108
+bytes and executed 6,170 units, with zero additions and zero artifact files.
+
 The entry oracle covered every entry key, count and stage, exact echo,
 commitment and order, all six reuse pairs, every interruption, terminal
 absorption, repeat consistency and wipe accounting. The run oracle covered
@@ -165,4 +280,5 @@ repeat consistency and wipe accounting. Across qualification, minimization,
 registration and every retained-corpus replay, the observed panic, timeout,
 sanitizer-report, wrong-acceptance, unnamed-rejection, repeat-mismatch,
 wipe-mismatch and artifact-file counts were zero. No product source or target
-oracle changed after qualification began.
+oracle changed after the post-format qualification began at
+`c32eeba2be9dd6294dd98569f7cddef0b4d3d496`.
