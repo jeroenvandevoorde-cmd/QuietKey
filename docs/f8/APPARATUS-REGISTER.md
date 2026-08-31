@@ -1,13 +1,13 @@
 # F8 Card-Bench Apparatus Register
 
-EXPERIMENTAL - SUPPLIED FACTS REGISTERED - EVIDENCE HASHES PENDING
+EXPERIMENTAL - SUPPLIED FACTS AND FIRST ENROLLMENT EVIDENCE REGISTERED
 
 ## Current apparatus
 
-The first registered apparatus is the Owner's current macOS bench. Empty-reader
-USB identification is permitted; no card contact or enrollment run is recorded.
-The operating-system PC/SC layer is an OS-provided component outside the pinned
-Rust dependency closure.
+The first registered apparatus is the Owner's current macOS bench. One saved
+empty-reader enumeration and one zero-APDU enrollment of `J3R180-02` are
+registered in `ENROLLMENT-MANIFEST.md`. The operating-system PC/SC layer is an
+OS-provided component outside the pinned Rust dependency closure.
 
 - Host alias `iMac`: 3.7 GHz 6-core Intel Core i5, Radeon Pro 580X 8 GB,
   40 GB DDR4, macOS 15.7.7 build 24G720, built-in PC/SC framework.
@@ -45,10 +45,11 @@ results are not silently pooled.
 
 | Alias | Class | Exact identity | Version/revision | Photo/config manifest | Custody | Approved use | Source commit | Status |
 |---|---|---|---|---|---|---|---|---|
-| `iMac` | Host and OS PC/SC layer | 3.7 GHz 6-core Intel Core i5; Radeon Pro 580X 8 GB; 40 GB DDR4; built-in PC/SC framework | macOS 15.7.7 (`24G720`) | `PENDING` | Owner premises | Empty-reader USB identification; later registered enrollment | `PENDING - this register's commit` | FACTS REGISTERED; HASH/TIME-SOURCE FIELDS PENDING |
-| `SCR3310-01` | Contact CCID reader | Identiv SCR3310 v2.0; USB-C connector; VID `0x04E6`; PID `0x5116`; bus-powered 76 mA | firmware `6.02` | Private serial/config bundle: `PENDING` | Owner premises | Empty-reader USB identification; later exact-reader exclusive enrollment connection | `PENDING - this register's commit` | FACTS REGISTERED; PRIVATE SERIAL HASH PENDING |
+| `iMac` | Host and OS PC/SC layer | 3.7 GHz 6-core Intel Core i5; Radeon Pro 580X 8 GB; 40 GB DDR4; built-in PC/SC framework | macOS 15.7.7 (`24G720`) | Saved enumeration and enrollment transcripts registered in `ENROLLMENT-MANIFEST.md` | Owner premises | Empty-reader USB identification and registered zero-APDU enrollment | tool source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | FACTS AND FIRST ENROLLMENT EVIDENCE REGISTERED |
+| `SCR3310-01` | Contact CCID reader | Identiv SCR3310 v2.0; USB-C connector; VID `0x04E6`; PID `0x5116`; bus-powered 76 mA | firmware `6.02` | Enumeration 487 bytes, SHA-256 `ccbc9bd1073c7348161a624ca86c9c01ac008f7971383a479e9f5b27ff2616fe`; private serial bundle remains unregistered | Owner premises | Empty-reader USB identification and exact-reader exclusive zero-APDU enrollment | tool source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | ENUMERATION AND FIRST CONTACT EVIDENCE REGISTERED; PRIVATE SERIAL HASH PENDING |
 | `OWC-HUB-01` | USB topology | OWC Thunderbolt hub; VID `0x1E91`; PID `0xDE41` | firmware `17.46` | Private serial/topology bundle: `PENDING` | Owner premises | Current reader-to-host path only | `PENDING - this register's commit` | FACTS REGISTERED; PRIVATE SERIAL HASH PENDING |
 
-No card was connected, reset or queried by creating this register. Tool binary,
-source-commit, invocation, enumeration-output, timestamps and private-bundle
-hash facts remain pending until the later enrollment evidence is produced.
+The registered tool source is commit
+`4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c`; its executable hash is not
+registered. Exact invocation timestamps, enumeration and enrollment transcript
+byte counts and SHA-256 values are recorded in `ENROLLMENT-MANIFEST.md`.

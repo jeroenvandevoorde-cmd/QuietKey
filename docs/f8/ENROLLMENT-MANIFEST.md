@@ -1,14 +1,14 @@
 # F8 Enrollment Evidence Manifest
 
-EXPERIMENTAL - SCHEMA AND PENDING RECORDS ONLY - NO CARD CONTACT RECORDED
+EXPERIMENTAL - FIRST ZERO-APDU ENROLLMENT EVIDENCE REGISTERED
 
 ## Current state
 
-No enrollment transcript, ATR, protocol capture, reset result, disconnect
-result, tool binary, reader enumeration or specimen-contact evidence is
-registered. The photograph set exists in Owner custody, but its exact filenames,
-UTC timestamps, byte counts and SHA-256 values remain pending. Nothing in this
-file claims that enrollment has run or succeeded.
+One saved reader-enumeration transcript and one complete zero-APDU enrollment
+transcript are registered below. The enrollment records the sole tool-driven
+contact session for `J3R180-02`; specimens `J3R180-01` and `J3R180-03` remain
+uncontacted. The photograph set exists in Owner custody but remains unhashed and
+optional under QK-DEC-148.
 
 ## Evidence boundary
 
@@ -54,7 +54,7 @@ unhashed indefinitely; no enrollment or later step waits on this table.
 
 | Host alias | Reader alias | Hub/path alias | Private serial-map manifest | USB/enumeration artifact count and hash | Tool version/source commit/hash | UTC timestamp | Status |
 |---|---|---|---|---|---|---|---|
-| `iMac` | `SCR3310-01` | `OWC-HUB-01` / reader through hub to host | `PENDING` | `PENDING` | `PENDING` | `PENDING` | FACTS REGISTERED; EVIDENCE PENDING; NO CARD CONTACT |
+| `iMac` | `SCR3310-01` | `OWC-HUB-01` / reader through hub to host | Reader/hub serial map remains private and unregistered | `enumerate-scr3310-01.txt`; 487 bytes; SHA-256 `ccbc9bd1073c7348161a624ca86c9c01ac008f7971383a479e9f5b27ff2616fe`; one reader; name hex `4964656e7469766520534352333378782076322e302055534220534320526561646572` (`Identive SCR33xx v2.0 USB SC Reader`) | `qk-card-enrollment 0.0.1`; source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c`; executable hash not registered | `2026-08-31T18:08:17Z` | ENUMERATE PASS; PRIVATE ARTIFACT HASH-BOUND |
 
 Empty-reader USB identification is permitted while evidence fields are
 completed. A later direct-port path is a distinct apparatus registration and
@@ -64,9 +64,20 @@ must not reuse this row.
 
 | Required order | Specimen alias | Public ATR bytes | Negotiated protocol | Private transcript artifact | Exact transcript bytes | Transcript SHA-256 | Tool/source commit | UTC timestamp | Private custody path | Result |
 |---:|---|---|---|---|---:|---|---|---|---|---|
-| 1 | `J3R180-02` | `PENDING - NOT CAPTURED` | `PENDING - NOT CAPTURED` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | NOT RUN |
-| 2 | `J3R180-03` | `PENDING - NOT CAPTURED` | `PENDING - NOT CAPTURED` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | BLOCKED ON SPECIMEN 02 REGISTRATION AND REVIEW |
+| 1 | `J3R180-02` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `enroll-J3R180-02.txt` | 705 | `b775efa248b010f8862cc24670319fe6f76373c2c6032a804bda01e3e54d468d` | `qk-card-enrollment 0.0.1`; source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | `2026-08-31T18:08:17Z` | Private F8 bundle in locked storage at Owner premises | PASS; operations `EnumerateReaders`, `ExclusiveConnect`, `Reset`, `CaptureAtr`, `CaptureProtocol`, `Disconnect` all PASS; APDU tx/rx `0/0` |
+| 2 | `J3R180-03` | `PENDING - NOT CAPTURED` | `PENDING - NOT CAPTURED` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | BLOCKED ON SPECIMEN 02 REVIEW |
 | 3 | `J3R180-01` | `PENDING - NOT CAPTURED` | `PENDING - NOT CAPTURED` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | BLOCKED UNTIL PROCEDURE SUCCEEDS TWICE |
+
+## Invocation accounting
+
+- At `2026-08-31T17:34:15Z`, one earlier ENUMERATE invocation printed to the
+  terminal but was not saved because its output directory did not exist. It is
+  not registered evidence and contacted no card.
+- One earlier ENROLL invocation was refused during argument parsing, printed
+  the usage message, and never reached the PC/SC layer.
+- The registered ENROLL invocation above is therefore the only tool-driven
+  contact session for `J3R180-02`. Specimens `J3R180-01` and `J3R180-03`
+  remain uncontacted.
 
 Any unexpected identity, state, response, result or evidence mismatch stops the
 procedure for Owner disposition. It is never explored ad hoc. APDU request and
