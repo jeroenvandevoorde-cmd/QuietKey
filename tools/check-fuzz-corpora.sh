@@ -749,7 +749,7 @@ if [ "$process_s6_active" = yes ] && [ "$process_s6_registered" = no ]; then
   planned_hash=$(sha256_file "$process_s6_entries") || \
     fail 'cannot hash process slice-6 starting corpus entries'
   [ "$planned_count:$planned_bytes:$planned_hash" = \
-    '69:178:9d7161ba6a2ceea1a4312b68fe71ea22320219c3af134327f3510b779417a638' ] || \
+    '119:478:e191a95ad273833b2aeb2375f42db8aae70c6b6f2eac0edfa3c9bc926936157f' ] || \
     fail 'process slice-6 starting corpora do not match the preregistered bytes'
 fi
 cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'

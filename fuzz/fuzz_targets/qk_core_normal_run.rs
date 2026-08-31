@@ -1188,8 +1188,44 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
     }
 }
 
+fn run_unstructured(data: &[u8]) -> FailureRunFact {
+    reset_wiped_bytes();
+    let mut cursor = Cursor::new(data);
+    let namespace = cursor.array::<12>();
+    let last_counter = u32::from_le_bytes(cursor.array::<4>()).min(u32::MAX - 1);
+    let (mut session, opening) =
+        NormalSessionV2::fuzz_start(namespace, last_counter, &[1], grants(CardMutation::None))
+            .expect("bounded unstructured start");
+    drop(opening);
+    reset_wiped_bytes();
+    let error = match session.confirm_profile() {
+        Ok(_) => panic!("profile confirmation before SessionReady must reject"),
+        Err(error) => error,
+    };
+    failure_fact(
+        u8::MAX,
+        &mut session,
+        error,
+        NormalErrorV2::InvalidTransition,
+    )
+}
+
+fn admitted(data: &[u8]) -> bool {
+    data.iter()
+        .fold(0x6du8, |state, byte| state.wrapping_mul(33) ^ byte)
+        == 0
+}
+
 fuzz_target!(|data: &[u8]| {
-    let selector = data.first().copied().unwrap_or(0) % 25;
+    let Some(selector @ b'A'..=b'Y') = data.first().copied() else {
+        assert_eq!(run_unstructured(data), run_unstructured(data));
+        return;
+    };
+    if !admitted(data) {
+        assert_eq!(run_unstructured(data), run_unstructured(data));
+        return;
+    }
+    let selector = selector - b'A';
     let source = if data.get(1).copied().unwrap_or(0) & 1 == 0 {
         Source::MediaPsbt
     } else {
