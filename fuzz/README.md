@@ -138,20 +138,24 @@ consistency. The endpoint target drives the complete core and I/O lifecycle,
 hostile session and exchange facts, one-outstanding work, peer loss, terminal
 stability, stable named rejections, and repeat consistency. Neither target
 opens a socket or reaches a process, wallet, card, device, target, privilege,
-performance, production, or Gate boundary. Campaign 020 is preregistered and
-its corpus manifest remains absent until both qualifying campaigns complete.
+performance, production, or Gate boundary. Campaign 020 is complete and its
+two-copy-minimized corpora are registered in
+`CORPUS-MANIFEST-PROCESS-S1.tsv`.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
-`DEPENDENCY-ALLOWLIST.tsv` records every package in the active normal/build
-closure with an exact version, checksum, provenance, license, and purpose.
-`Cargo.lock` also contains Cargo's inactive cross-target resolutions; the
-checker derives the actual build-target closure offline and rejects any active
-package outside the allowlist or any inactive allowlist row. `tools/check.sh`
-exempts only `fuzz/**/Cargo.toml` from the general dependency ban and fails
-closed on non-top-level dependency tables, patches, replacements, or any
-manifest/allowlist/closure mismatch.
+`DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default
+normal/build closure and the `ipc`-feature closure with an exact version,
+checksum, provenance, license, and purpose. `qk-ipc` is optional and absent
+from the default closure; only `qk_ipc_wire` and `qk_ipc_endpoint_state`
+require the non-default `ipc` feature. `Cargo.lock` also contains Cargo's
+inactive cross-target resolutions. The dependency guard proves that `qk-ipc`
+is absent from the default closure, present in the `ipc` closure, and that the
+union validates against the allowlist. `tools/check.sh` exempts only
+`fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
+non-top-level dependency tables, patches, replacements, closure isolation, or
+any manifest/allowlist mismatch.
 A fresh clone must run `cargo fetch --manifest-path fuzz/Cargo.toml --locked`
 once with network access before `tools/check.sh` can pass offline.
 
@@ -250,6 +254,6 @@ The two planned firmware campaigns are preregistered in `CAMPAIGN-018.md`.
 Their retained two-copy-minimized corpora will be registered together in
 `CORPUS-MANIFEST-FIRMWARE-V1.tsv` only after the target-scaffold commit becomes
 their common campaign source and both 100,000-input runs complete.
-The two process-slice-1 campaigns are preregistered in `CAMPAIGN-020.md` and
-their matching retained corpora will be registered together in
-`CORPUS-MANIFEST-PROCESS-S1.tsv` under the same source-before-execution rule.
+The two completed process-slice-1 campaigns are recorded in `CAMPAIGN-020.md`;
+their matching retained corpora are registered together in
+`CORPUS-MANIFEST-PROCESS-S1.tsv` under the source-before-execution rule.
