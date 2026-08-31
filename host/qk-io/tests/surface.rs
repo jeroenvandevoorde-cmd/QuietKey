@@ -119,6 +119,7 @@ fn every_public_method_entry_is_pinned() {
             "pub const fn state(&self) -> BrokerState {",
             "pub fn accept(",
             "pub fn peer_lost(&mut self) -> BrokerError {",
+            "pub fn receive_failed(&mut self, error: IpcError) -> BrokerError {",
         ]
     );
     assert!(public_methods(INGRESS).is_empty());

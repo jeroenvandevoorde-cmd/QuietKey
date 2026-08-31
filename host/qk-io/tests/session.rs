@@ -287,3 +287,20 @@ fn peer_loss_and_active_close_are_replyless_terminal_paths() {
     assert_eq!(egress.peer_lost(), BrokerError::Ipc(IpcError::PeerLost));
     assert_eq!(egress.state(), BrokerState::Terminated);
 }
+
+#[test]
+fn receive_decoder_failure_is_a_replyless_terminal_path() {
+    let mut core = CoreProtocol::new([0x71; 16]);
+    let mut broker = BrokerSession::new();
+    open(&mut core, &mut broker);
+
+    assert_eq!(
+        broker.receive_failed(IpcError::AncillaryData),
+        BrokerError::Ipc(IpcError::AncillaryData)
+    );
+    assert_eq!(broker.state(), BrokerState::Terminated);
+    assert_eq!(
+        broker.receive_failed(IpcError::ConnectionClosedMidFrame),
+        BrokerError::BrokerTerminated
+    );
+}

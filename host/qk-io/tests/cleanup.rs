@@ -1,11 +1,13 @@
 #![cfg(feature = "fuzzing")]
 
 use qk_io::{
-    reset_wiped_bytes, wiped_bytes, Artifact, BrokerSession, BrokerState, MockInput,
+    reset_wiped_bytes, wiped_bytes, Artifact, BrokerError, BrokerSession, BrokerState, MockInput,
     MockOutputWriter, Operation, Sink, Source, A1_CANDIDATE_BYTES, INNER_HEADER_BYTES,
     INNER_VERSION, MAX_FILENAME_BYTES,
 };
-use qk_ipc::{CoreEvent, CoreProtocol, OutboundFrame, ReceivedFrame, StreamDecoder, HEADER_BYTES};
+use qk_ipc::{
+    CoreEvent, CoreProtocol, IpcError, OutboundFrame, ReceivedFrame, StreamDecoder, HEADER_BYTES,
+};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const SESSION_ID: [u8; 16] = *b"qk-io-cleanup-v1";
@@ -119,6 +121,47 @@ fn peer_loss_wipes_the_exact_active_egress_owner_and_filename_scratch() {
 
     reset_wiped_bytes();
     assert_eq!(harness.broker.peer_lost().to_string(), "PeerLost");
+    assert_eq!(harness.broker.state(), BrokerState::Terminated);
+    assert_eq!(wiped_bytes(), PAYLOAD_BYTES + MAX_FILENAME_BYTES);
+}
+
+#[test]
+fn decoder_failure_wipes_the_exact_active_ingress_allocation() {
+    let mut harness = Harness::open();
+    let candidate = [0x72; A1_CANDIDATE_BYTES];
+    let mut input = MockInput::try_new(Source::CameraA1Candidate, &candidate).expect("input");
+    drop(harness.request(
+        &ingress_begin(Source::CameraA1Candidate),
+        Some(&mut input),
+        None,
+    ));
+
+    reset_wiped_bytes();
+    assert_eq!(
+        harness.broker.receive_failed(IpcError::AncillaryData),
+        BrokerError::Ipc(IpcError::AncillaryData)
+    );
+    assert_eq!(harness.broker.state(), BrokerState::Terminated);
+    assert_eq!(wiped_bytes(), A1_CANDIDATE_BYTES);
+}
+
+#[test]
+fn decoder_failure_wipes_the_exact_active_egress_owner_and_filename_scratch() {
+    const PAYLOAD_BYTES: usize = 43;
+    let mut harness = Harness::open();
+    drop(harness.request(
+        &egress_begin(Sink::Print, Artifact::KitPrintArtifact, PAYLOAD_BYTES, &[]),
+        None,
+        None,
+    ));
+
+    reset_wiped_bytes();
+    assert_eq!(
+        harness
+            .broker
+            .receive_failed(IpcError::ConnectionClosedMidFrame),
+        BrokerError::Ipc(IpcError::ConnectionClosedMidFrame)
+    );
     assert_eq!(harness.broker.state(), BrokerState::Terminated);
     assert_eq!(wiped_bytes(), PAYLOAD_BYTES + MAX_FILENAME_BYTES);
 }

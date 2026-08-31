@@ -195,6 +195,19 @@ impl BrokerSession {
         BrokerError::Ipc(error)
     }
 
+    /// Latch one receive-decoder rejection into terminal cleanup.
+    pub fn receive_failed(&mut self, error: IpcError) -> BrokerError {
+        if matches!(
+            self.state,
+            State::ErrorReplyPending | State::Closed | State::Terminated
+        ) {
+            return BrokerError::BrokerTerminated;
+        }
+        let error = self.ipc.receive_failed(error);
+        self.terminate();
+        BrokerError::Ipc(error)
+    }
+
     fn dispatch(
         &mut self,
         request: Request<'_>,
