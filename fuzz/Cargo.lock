@@ -204,8 +204,13 @@ version = "0.0.1"
 name = "qk-core"
 version = "0.0.1"
 dependencies = [
+ "qk-a1",
+ "qk-bbqr",
+ "qk-descriptor",
  "qk-ipc",
  "qk-provisioning",
+ "qk-psbt",
+ "qk-wallet-v2",
 ]
 
 [[package]]
