@@ -1,0 +1,13 @@
+[package]
+name = "qk-supervisor"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "HOST-only QuietKey child-lifecycle, mock-grant, and Unix receive-boundary reference."
+
+[features]
+fuzzing = []
+
+[dependencies]
+qk-ipc = { path = "../qk-ipc" }
