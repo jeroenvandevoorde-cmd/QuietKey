@@ -12,7 +12,7 @@ path	qk-a1-codec	0.0.1	4a0926146ada5d50fb36739b2dde447fb0f3b6d838761f68929b611ec
 path	qk-bbqr	0.0.1	6071e3a64b66493b20d7826a012cdbab35111e1077c873a00dc61bb2c315dcf2	host/qk-bbqr/Cargo.toml	Apache-2.0	M22 BBQr codec/reassembly, M25 finalized-PSBT framing, and M30 transaction framing targets
 path	qk-bip32	0.0.1	f865a5b202692a4045024bcae60eb7bbb31b189f99efd8e83684a7a60c221654	host/qk-bip32/Cargo.toml	Apache-2.0	descriptor parser transitive boundary
 path	qk-card-trace	0.0.1	cad9da03ce93d981bbdc40f8a4a13243116e5848b6dc01bd799c405d0de0545c	host/qk-card-trace/Cargo.toml	Apache-2.0	card-trace parser target
-path	qk-core	0.0.1	1be9e1a6c8c475d22e15587439edc98a149cb98d2fcf0a8c9799a0de7880dd8f	host/qk-core/Cargo.toml	Apache-2.0	QK-DEC-144 trusted-process hostile-peer and non-signing session-shell targets
+path	qk-core	0.0.1	1a92ddeac9d70ff727eacbb9e8d9526f811c9bed995afb9d09ca51e9de35af64	host/qk-core/Cargo.toml	Apache-2.0	QK-DEC-144 and QK-DEC-145 trusted-process session-shell and provisioning-orchestration targets
 path	qk-decoy	0.0.1	f40e16defa420509325a7e3ab065765618e073852b91d3cdb9dea3885ba380b9	host/qk-decoy/Cargo.toml	Apache-2.0	QK-DEC-142 dependency-free bounded calculator target
 path	qk-descriptor	0.0.1	994224903fcd41eb8eabbc301fec72b02663a3a310669861497bcec8473e3adf	host/qk-descriptor/Cargo.toml	Apache-2.0	descriptor-pair parser, M23-M25/M30 workflow fixture boundary, and v2 slice-10 wallet rebind
 path	qk-host-model	0.0.1	54808cf312f17743a2b22f1fa5dc47c75f241659cc1488a8df2625d9b8abcf94	host/qk-host-model/Cargo.toml	Apache-2.0	M23 workflow state-machine transitive boundary
