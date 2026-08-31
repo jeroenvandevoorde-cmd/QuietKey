@@ -9,23 +9,43 @@ license = "Apache-2.0"
 cargo-fuzz = true
 
 [features]
-default = ["qk-provisioning/fuzzing", "qk-host-sim/fuzzing", "qk-update/fuzzing"]
+default = ["legacy"]
+legacy = [
+    "dep:qk-a1",
+    "dep:qk-a1-codec",
+    "dep:qk-bbqr",
+    "dep:qk-card-trace",
+    "dep:qk-descriptor",
+    "dep:qk-host-sim",
+    "dep:qk-kit",
+    "dep:qk-provisioning",
+    "dep:qk-psbt",
+    "dep:qk-secp",
+    "dep:qk-update",
+    "qk-provisioning/fuzzing",
+    "qk-host-sim/fuzzing",
+    "qk-update/fuzzing",
+]
 ipc = ["dep:qk-ipc", "qk-ipc/fuzzing"]
+process-s2-decoy = ["dep:qk-decoy", "qk-decoy/fuzzing"]
+process-s2-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }
-qk-a1 = { path = "../host/qk-a1", version = "=0.0.1" }
-qk-a1-codec = { path = "../host/qk-a1-codec", version = "=0.0.1" }
-qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1" }
-qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1" }
-qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1" }
-qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1" }
+qk-a1 = { path = "../host/qk-a1", version = "=0.0.1", optional = true }
+qk-a1-codec = { path = "../host/qk-a1-codec", version = "=0.0.1", optional = true }
+qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1", optional = true }
+qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1", optional = true }
+qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1", optional = true }
+qk-decoy = { path = "../host/qk-decoy", version = "=0.0.1", optional = true }
+qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1", optional = true }
 qk-ipc = { path = "../host/qk-ipc", version = "=0.0.1", optional = true }
-qk-kit = { path = "../host/qk-kit", version = "=0.0.1" }
-qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1" }
-qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1" }
-qk-secp = { path = "../host/qk-secp", version = "=0.0.1" }
-qk-update = { path = "../host/qk-update", version = "=0.0.1" }
+qk-kit = { path = "../host/qk-kit", version = "=0.0.1", optional = true }
+qk-provisioning = { path = "../host/qk-provisioning", version = "=0.0.1", optional = true }
+qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1", optional = true }
+qk-secp = { path = "../host/qk-secp", version = "=0.0.1", optional = true }
+qk-supervisor = { path = "../host/qk-supervisor", version = "=0.0.1", optional = true }
+qk-update = { path = "../host/qk-update", version = "=0.0.1", optional = true }
 
 [[bin]]
 name = "qk_psbt"
@@ -259,6 +279,22 @@ test = false
 doc = false
 bench = false
 required-features = ["ipc"]
+
+[[bin]]
+name = "qk_supervisor_lifecycle"
+path = "fuzz_targets/qk_supervisor_lifecycle.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s2-supervisor"]
+
+[[bin]]
+name = "qk_decoy_calculator"
+path = "fuzz_targets/qk_decoy_calculator.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s2-decoy"]
 
 [profile.release]
 overflow-checks = true

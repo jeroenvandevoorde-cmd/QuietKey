@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-thirty-three libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+thirty-five libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -142,17 +142,30 @@ performance, production, or Gate boundary. Campaign 020 is complete and its
 two-copy-minimized corpora are registered in
 `CORPUS-MANIFEST-PROCESS-S1.tsv`.
 
+The QK-DEC-142 `qk_supervisor_lifecycle` and `qk_decoy_calculator` targets are
+the HOST-only process-slice-2 partition. The supervisor target drives the
+closed child, grant, connection-loss, termination, and no-restart transitions
+while requiring stable named outcomes and repeat consistency. The calculator
+target drives every P0.1 key through the complete
+entry, pending-operation, result, overflow, and divide-by-zero states while
+requiring deterministic display bytes, fixed twelve-digit bounds, immediate
+left-to-right arithmetic, and a total key/state oracle. Neither target reaches
+a wallet, card, real device, target privilege, production, performance, or Gate
+boundary. Campaign 021 remains planned until both target scaffolds are frozen.
+
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
-`DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default
-normal/build closure and the `ipc`-feature closure with an exact version,
-checksum, provenance, license, and purpose. `qk-ipc` is optional and absent
-from the default closure; only `qk_ipc_wire` and `qk_ipc_endpoint_state`
-require the non-default `ipc` feature. `Cargo.lock` also contains Cargo's
-inactive cross-target resolutions. The dependency guard proves that `qk-ipc`
-is absent from the default closure, present in the `ipc` closure, and that the
-union validates against the allowlist. `tools/check.sh` exempts only
+`DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
+`ipc`, `process-s2-decoy`, and `process-s2-supervisor` normal/build closures
+with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
+`qk-decoy`, and `qk-supervisor` are optional and absent from the default
+closure; each target selects only its named non-default feature. `Cargo.lock`
+also contains Cargo's inactive cross-target resolutions. The dependency guard
+proves the four feature closures remain isolated, qk-decoy's host closure is
+dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
+qk-ipc, and the normalized union validates against the allowlist.
+`tools/check.sh` exempts only
 `fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
 non-top-level dependency tables, patches, replacements, closure isolation, or
 any manifest/allowlist mismatch.
@@ -200,6 +213,8 @@ fuzz/run-bounded.sh qk_update_package 100000
 fuzz/run-bounded.sh qk_update_lifecycle 100000
 fuzz/run-bounded.sh qk_ipc_wire 100000
 fuzz/run-bounded.sh qk_ipc_endpoint_state 100000
+fuzz/run-bounded.sh qk_supervisor_lifecycle 100000
+fuzz/run-bounded.sh qk_decoy_calculator 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -257,3 +272,7 @@ their common campaign source and both 100,000-input runs complete.
 The two completed process-slice-1 campaigns are recorded in `CAMPAIGN-020.md`;
 their matching retained corpora are registered together in
 `CORPUS-MANIFEST-PROCESS-S1.tsv` under the source-before-execution rule.
+The two planned process-slice-2 campaigns are preregistered in
+`CAMPAIGN-021.md`; after both 100,000-input runs and matching two-copy
+minimizations, their retained corpora are registered together in
+`CORPUS-MANIFEST-PROCESS-S2.tsv`.

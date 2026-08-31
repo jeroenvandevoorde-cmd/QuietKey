@@ -37,6 +37,8 @@ case "$target" in
   qk_update_lifecycle) max_len=512; seed=136002 ;;
   qk_ipc_wire) max_len=4096; seed=140001 ;;
   qk_ipc_endpoint_state) max_len=4096; seed=140002 ;;
+  qk_supervisor_lifecycle) max_len=4096; seed=142001 ;;
+  qk_decoy_calculator) max_len=2048; seed=142002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 
@@ -62,6 +64,12 @@ export CARGO_NET_OFFLINE=true
 case "$target" in
   qk_ipc_wire|qk_ipc_endpoint_state)
     set -- --features ipc "$target" "fuzz/corpus/$target"
+    ;;
+  qk_supervisor_lifecycle)
+    set -- --no-default-features --features process-s2-supervisor "$target" "fuzz/corpus/$target"
+    ;;
+  qk_decoy_calculator)
+    set -- --no-default-features --features process-s2-decoy "$target" "fuzz/corpus/$target"
     ;;
   *) set -- "$target" "fuzz/corpus/$target" ;;
 esac
