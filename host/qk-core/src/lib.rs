@@ -21,6 +21,7 @@ mod io_wire;
 mod session;
 mod session_id;
 mod setup_artifact_v2;
+mod setup_v2;
 mod sha256;
 #[allow(unsafe_code)]
 mod wipe;
@@ -34,6 +35,11 @@ pub use io_wire::{Operation, Source};
 pub use session::{
     CoreMode, CoreOutbound, CoreReceiveEvent, CoreReceiveOutcome, CoreSession, CoreState,
     HostileIngress,
+};
+pub use setup_v2::{
+    CeremonyPurposeV2, EntropyInputModeV2, SetupErrorV2, SetupOutcomeV2, SetupProgressV2,
+    SetupPublicFactsV2, SetupReceiveOutcomeV2, SetupScreenV2, SetupSessionV2, SetupStageV2,
+    SpareBChoiceV2, MANUAL_TRANSCRIPT_BYTES_V2,
 };
 
 /// Exact QK-DEC-144 inner peer version.
