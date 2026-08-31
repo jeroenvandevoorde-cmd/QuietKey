@@ -1,0 +1,14 @@
+[package]
+name = "qk-io"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "HOST-only QuietKey no-secret transport-broker reference."
+
+[features]
+fuzzing = ["qk-ipc/fuzzing"]
+
+[dependencies]
+qk-bbqr = { path = "../qk-bbqr" }
+qk-ipc = { path = "../qk-ipc" }
