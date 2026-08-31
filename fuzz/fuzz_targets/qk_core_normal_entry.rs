@@ -331,6 +331,7 @@ fn drive(data: &[u8]) -> EntryFact {
 }
 
 fn assert_drop_wipes(namespace: [u8; 12], last_counter: u32) {
+    let last_counter = last_counter.min(u32::MAX - 1);
     let (session, opening) = NormalSessionV2::fuzz_start(namespace, last_counter, &[1], grants())
         .expect("fixed drop-path session");
     reset_wiped_bytes();
