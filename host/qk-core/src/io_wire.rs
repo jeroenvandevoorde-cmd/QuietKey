@@ -1,4 +1,4 @@
-//! Independent ingress-only QK-DEC-144 peer grammar.
+//! Independent purpose-bound QK-DEC-144/145 peer grammar.
 
 use crate::error::{CoreError, IoRejection};
 use crate::{INNER_HEADER_BYTES, INNER_VERSION, MAX_CHUNK_BYTES, MAX_INGRESS_BYTES};
@@ -7,14 +7,29 @@ const INGRESS_BEGIN_BODY_BYTES: usize = 3;
 const INGRESS_READ_BODY_BYTES: usize = 4;
 const INGRESS_BEGIN_RESPONSE_BYTES: usize = 5;
 const INGRESS_READ_PREFIX_BYTES: usize = 9;
+const EGRESS_BEGIN_BODY_BYTES: usize = 8;
+const EGRESS_WRITE_PREFIX_BYTES: usize = 8;
+const EGRESS_WRITE_RESPONSE_BYTES: usize = 4;
+const EGRESS_FINISH_RESPONSE_BYTES: usize = 6;
 const MAX_INNER_BODY_BYTES: usize = 2_097_144;
 const MAX_INGRESS_BYTES_U32: u32 = 2_097_152;
+
+pub(crate) const A1_PRINT_BYTES: usize = 67;
+pub(crate) const KIT_PRINT_BYTES: usize = 829;
+const A1_PRINT_BYTES_U32: u32 = 67;
+const KIT_PRINT_BYTES_U32: u32 = 829;
+const PRINT_SINK: u8 = 0x03;
+const A1_PRINT_ARTIFACT: u8 = 0x04;
+const KIT_PRINT_ARTIFACT: u8 = 0x05;
 
 /// Exact ingress operation byte.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Operation {
     IngressBegin,
     IngressRead,
+    EgressBegin,
+    EgressWrite,
+    EgressFinish,
 }
 
 impl Operation {
@@ -23,6 +38,32 @@ impl Operation {
         match self {
             Self::IngressBegin => 0x01,
             Self::IngressRead => 0x02,
+            Self::EgressBegin => 0x03,
+            Self::EgressWrite => 0x04,
+            Self::EgressFinish => 0x05,
+        }
+    }
+}
+
+/// Exact print artifact selected before any request bytes are formed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PrintArtifact {
+    A1,
+    Kit,
+}
+
+impl PrintArtifact {
+    const fn wire_value(self) -> u8 {
+        match self {
+            Self::A1 => A1_PRINT_ARTIFACT,
+            Self::Kit => KIT_PRINT_ARTIFACT,
+        }
+    }
+
+    const fn total_len(self) -> u32 {
+        match self {
+            Self::A1 => A1_PRINT_BYTES_U32,
+            Self::Kit => KIT_PRINT_BYTES_U32,
         }
     }
 }
@@ -103,6 +144,40 @@ pub enum Response<'a> {
     },
 }
 
+/// Exact expected success shape for one purpose-bound print operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExpectedPrintResponse {
+    Begin { artifact: PrintArtifact },
+    Write { artifact: PrintArtifact },
+    Finish { artifact: PrintArtifact },
+}
+
+impl ExpectedPrintResponse {
+    const fn operation(self) -> Operation {
+        match self {
+            Self::Begin { .. } => Operation::EgressBegin,
+            Self::Write { .. } => Operation::EgressWrite,
+            Self::Finish { .. } => Operation::EgressFinish,
+        }
+    }
+}
+
+/// One completely parsed successful purpose-bound print response.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PrintResponse {
+    Begin {
+        artifact: PrintArtifact,
+    },
+    Write {
+        artifact: PrintArtifact,
+        accepted_total: u32,
+    },
+    Finish {
+        artifact: PrintArtifact,
+        total_len: u32,
+    },
+}
+
 /// Form the sole canonical IngressBegin request in a caller-owned fixed buffer.
 pub fn encode_ingress_begin(source: Source) -> [u8; 11] {
     [
@@ -136,6 +211,125 @@ pub fn encode_ingress_read(expected_offset: u32) -> [u8; 12] {
         offset_1,
         offset_2,
         offset_3,
+    ]
+}
+
+/// Form the sole canonical A1 print EgressBegin request.
+pub(crate) fn encode_a1_print_begin() -> [u8; 16] {
+    encode_print_begin(PrintArtifact::A1)
+}
+
+/// Form the sole canonical Kit-page print EgressBegin request.
+pub(crate) fn encode_kit_print_begin() -> [u8; 16] {
+    encode_print_begin(PrintArtifact::Kit)
+}
+
+fn encode_print_begin(artifact: PrintArtifact) -> [u8; 16] {
+    let [total_0, total_1, total_2, total_3] = artifact.total_len().to_le_bytes();
+    [
+        INNER_VERSION,
+        Operation::EgressBegin.wire_value(),
+        0,
+        0,
+        EGRESS_BEGIN_BODY_BYTES as u8,
+        0,
+        0,
+        0,
+        PRINT_SINK,
+        artifact.wire_value(),
+        total_0,
+        total_1,
+        total_2,
+        total_3,
+        0,
+        0,
+    ]
+}
+
+/// Form the sole canonical one-chunk A1 print EgressWrite request.
+pub(crate) fn encode_a1_print_write(
+    artifact: &[u8; A1_PRINT_BYTES],
+) -> [u8; EGRESS_WRITE_PREFIX_BYTES + INNER_HEADER_BYTES + A1_PRINT_BYTES] {
+    let mut output = [0u8; EGRESS_WRITE_PREFIX_BYTES + INNER_HEADER_BYTES + A1_PRINT_BYTES];
+    let header = [
+        INNER_VERSION,
+        Operation::EgressWrite.wire_value(),
+        0,
+        0,
+        75,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        67,
+        0,
+        0,
+        0,
+    ];
+    if let Some(target) = output.get_mut(..16) {
+        target.copy_from_slice(&header);
+    }
+    if let Some(target) = output.get_mut(16..) {
+        target.copy_from_slice(artifact);
+    }
+    output
+}
+
+/// Form the sole canonical one-chunk Kit-page print EgressWrite request.
+pub(crate) fn encode_kit_print_write(
+    artifact: &[u8; KIT_PRINT_BYTES],
+) -> [u8; EGRESS_WRITE_PREFIX_BYTES + INNER_HEADER_BYTES + KIT_PRINT_BYTES] {
+    let mut output = [0u8; EGRESS_WRITE_PREFIX_BYTES + INNER_HEADER_BYTES + KIT_PRINT_BYTES];
+    let header = [
+        INNER_VERSION,
+        Operation::EgressWrite.wire_value(),
+        0,
+        0,
+        0x45,
+        0x03,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0x3d,
+        0x03,
+        0,
+        0,
+    ];
+    if let Some(target) = output.get_mut(..16) {
+        target.copy_from_slice(&header);
+    }
+    if let Some(target) = output.get_mut(16..) {
+        target.copy_from_slice(artifact);
+    }
+    output
+}
+
+/// Form the purpose-bound A1 print EgressFinish request.
+pub(crate) const fn encode_a1_print_finish() -> [u8; 8] {
+    encode_print_finish()
+}
+
+/// Form the purpose-bound Kit-page print EgressFinish request.
+pub(crate) const fn encode_kit_print_finish() -> [u8; 8] {
+    encode_print_finish()
+}
+
+const fn encode_print_finish() -> [u8; 8] {
+    [
+        INNER_VERSION,
+        Operation::EgressFinish.wire_value(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
     ]
 }
 
@@ -189,6 +383,97 @@ pub fn parse_response<'a>(
             total_len,
         } => parse_read_success(body, expected_offset, total_len),
     }
+}
+
+/// Parse one exact hostile response for a purpose-bound print operation.
+pub(crate) fn parse_print_response(
+    bytes: &[u8],
+    expected: ExpectedPrintResponse,
+) -> Result<PrintResponse, CoreError> {
+    if bytes.len() < INNER_HEADER_BYTES {
+        return Err(CoreError::ResponseHeaderTruncated);
+    }
+    if byte_at(bytes, 0)? != INNER_VERSION {
+        return Err(CoreError::ResponseVersionMismatch);
+    }
+    if byte_at(bytes, 1)? != expected.operation().wire_value() {
+        return Err(CoreError::ResponseOpcodeMismatch);
+    }
+
+    let status = read_u16(bytes, 2)?;
+    let body_len =
+        usize::try_from(read_u32(bytes, 4)?).map_err(|_| CoreError::ResponseBodyLengthExceeded)?;
+    if body_len > MAX_INNER_BODY_BYTES {
+        return Err(CoreError::ResponseBodyLengthExceeded);
+    }
+    let complete_len = INNER_HEADER_BYTES
+        .checked_add(body_len)
+        .ok_or(CoreError::ResponseBodyLengthExceeded)?;
+    if bytes.len() < complete_len {
+        return Err(CoreError::ResponseBodyTruncated);
+    }
+    if bytes.len() > complete_len {
+        return Err(CoreError::ResponseTrailingByte);
+    }
+    let body = bytes
+        .get(INNER_HEADER_BYTES..complete_len)
+        .ok_or(CoreError::ResponseBodyTruncated)?;
+
+    if status != 0 {
+        let rejection =
+            IoRejection::from_status(status).ok_or(CoreError::ResponseStatusOutOfRange)?;
+        if !body.is_empty() {
+            return Err(CoreError::ResponseErrorBodyNonEmpty);
+        }
+        return Err(CoreError::IoRejected(rejection));
+    }
+
+    match expected {
+        ExpectedPrintResponse::Begin { artifact } => parse_egress_begin_success(body, artifact),
+        ExpectedPrintResponse::Write { artifact } => parse_egress_write_success(body, artifact),
+        ExpectedPrintResponse::Finish { artifact } => parse_egress_finish_success(body, artifact),
+    }
+}
+
+fn parse_egress_begin_success(
+    body: &[u8],
+    artifact: PrintArtifact,
+) -> Result<PrintResponse, CoreError> {
+    require_exact(body, 0)?;
+    Ok(PrintResponse::Begin { artifact })
+}
+
+fn parse_egress_write_success(
+    body: &[u8],
+    artifact: PrintArtifact,
+) -> Result<PrintResponse, CoreError> {
+    require_exact(body, EGRESS_WRITE_RESPONSE_BYTES)?;
+    let accepted_total = read_u32(body, 0)?;
+    if accepted_total != artifact.total_len() {
+        return Err(CoreError::ResponseTotalLengthMismatch);
+    }
+    Ok(PrintResponse::Write {
+        artifact,
+        accepted_total,
+    })
+}
+
+fn parse_egress_finish_success(
+    body: &[u8],
+    artifact: PrintArtifact,
+) -> Result<PrintResponse, CoreError> {
+    require_exact(body, EGRESS_FINISH_RESPONSE_BYTES)?;
+    if byte_at(body, 0)? != PRINT_SINK || byte_at(body, 1)? != artifact.wire_value() {
+        return Err(CoreError::ResponseSourceMismatch);
+    }
+    let total_len = read_u32(body, 2)?;
+    if total_len != artifact.total_len() {
+        return Err(CoreError::ResponseTotalLengthMismatch);
+    }
+    Ok(PrintResponse::Finish {
+        artifact,
+        total_len,
+    })
 }
 
 fn parse_begin_success(body: &[u8], expected_source: Source) -> Result<Response<'_>, CoreError> {
@@ -302,6 +587,10 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, CoreError> {
 
 const _: () = assert!(INGRESS_BEGIN_BODY_BYTES == 3);
 const _: () = assert!(INGRESS_READ_BODY_BYTES == 4);
+const _: () = assert!(EGRESS_BEGIN_BODY_BYTES == 8);
+const _: () = assert!(EGRESS_WRITE_PREFIX_BYTES == 8);
+const _: () = assert!(A1_PRINT_BYTES < MAX_CHUNK_BYTES);
+const _: () = assert!(KIT_PRINT_BYTES < MAX_CHUNK_BYTES);
 const _: () = assert!(MAX_INNER_BODY_BYTES == 2_097_144);
 const _: () = assert!(MAX_INGRESS_BYTES == 2_097_152);
 
@@ -325,6 +614,134 @@ mod tests {
         assert_eq!(
             encode_ingress_read(0x4433_2211),
             [1, 2, 0, 0, 4, 0, 0, 0, 0x11, 0x22, 0x33, 0x44]
+        );
+    }
+
+    #[test]
+    fn purpose_bound_print_requests_are_byte_exact() {
+        assert_eq!(
+            encode_a1_print_begin(),
+            [1, 3, 0, 0, 8, 0, 0, 0, 3, 4, 67, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            encode_kit_print_begin(),
+            [1, 3, 0, 0, 8, 0, 0, 0, 3, 5, 0x3d, 0x03, 0, 0, 0, 0]
+        );
+        assert_eq!(encode_a1_print_finish(), [1, 5, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(encode_kit_print_finish(), [1, 5, 0, 0, 0, 0, 0, 0]);
+
+        let a1 = [0xa1; A1_PRINT_BYTES];
+        let a1_write = encode_a1_print_write(&a1);
+        assert_eq!(
+            a1_write.get(..16),
+            Some([1, 4, 0, 0, 75, 0, 0, 0, 0, 0, 0, 0, 67, 0, 0, 0].as_slice())
+        );
+        assert_eq!(a1_write.get(16..), Some(a1.as_slice()));
+
+        let kit = [0x4b; KIT_PRINT_BYTES];
+        let kit_write = encode_kit_print_write(&kit);
+        assert_eq!(
+            kit_write.get(..16),
+            Some([1, 4, 0, 0, 0x45, 0x03, 0, 0, 0, 0, 0, 0, 0x3d, 0x03, 0, 0].as_slice())
+        );
+        assert_eq!(kit_write.get(16..), Some(kit.as_slice()));
+    }
+
+    #[test]
+    fn purpose_bound_print_successes_require_exact_bodies() {
+        for artifact in [PrintArtifact::A1, PrintArtifact::Kit] {
+            let begin = success(Operation::EgressBegin.wire_value(), &[]);
+            assert_eq!(
+                parse_print_response(&begin, ExpectedPrintResponse::Begin { artifact }),
+                Ok(PrintResponse::Begin { artifact })
+            );
+
+            let write = success(
+                Operation::EgressWrite.wire_value(),
+                &artifact.total_len().to_le_bytes(),
+            );
+            assert_eq!(
+                parse_print_response(&write, ExpectedPrintResponse::Write { artifact }),
+                Ok(PrintResponse::Write {
+                    artifact,
+                    accepted_total: artifact.total_len(),
+                })
+            );
+
+            let receipt = match artifact {
+                PrintArtifact::A1 => [PRINT_SINK, A1_PRINT_ARTIFACT, 67, 0, 0, 0],
+                PrintArtifact::Kit => [PRINT_SINK, KIT_PRINT_ARTIFACT, 0x3d, 0x03, 0, 0],
+            };
+            let finish = success(Operation::EgressFinish.wire_value(), &receipt);
+            assert_eq!(
+                parse_print_response(&finish, ExpectedPrintResponse::Finish { artifact }),
+                Ok(PrintResponse::Finish {
+                    artifact,
+                    total_len: artifact.total_len(),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn print_success_mutations_keep_existing_exact_response_categories() {
+        let begin_body = success(Operation::EgressBegin.wire_value(), &[0]);
+        assert_eq!(
+            parse_print_response(
+                &begin_body,
+                ExpectedPrintResponse::Begin {
+                    artifact: PrintArtifact::A1,
+                }
+            ),
+            Err(CoreError::ResponseTrailingByte)
+        );
+
+        let short_write = success(Operation::EgressWrite.wire_value(), &[67, 0, 0]);
+        assert_eq!(
+            parse_print_response(
+                &short_write,
+                ExpectedPrintResponse::Write {
+                    artifact: PrintArtifact::A1,
+                }
+            ),
+            Err(CoreError::ResponseBodyTruncated)
+        );
+        let wrong_write = success(Operation::EgressWrite.wire_value(), &66u32.to_le_bytes());
+        assert_eq!(
+            parse_print_response(
+                &wrong_write,
+                ExpectedPrintResponse::Write {
+                    artifact: PrintArtifact::A1,
+                }
+            ),
+            Err(CoreError::ResponseTotalLengthMismatch)
+        );
+
+        let wrong_artifact = success(
+            Operation::EgressFinish.wire_value(),
+            &[PRINT_SINK, KIT_PRINT_ARTIFACT, 67, 0, 0, 0],
+        );
+        assert_eq!(
+            parse_print_response(
+                &wrong_artifact,
+                ExpectedPrintResponse::Finish {
+                    artifact: PrintArtifact::A1,
+                }
+            ),
+            Err(CoreError::ResponseSourceMismatch)
+        );
+        let wrong_total = success(
+            Operation::EgressFinish.wire_value(),
+            &[PRINT_SINK, A1_PRINT_ARTIFACT, 66, 0, 0, 0],
+        );
+        assert_eq!(
+            parse_print_response(
+                &wrong_total,
+                ExpectedPrintResponse::Finish {
+                    artifact: PrintArtifact::A1,
+                }
+            ),
+            Err(CoreError::ResponseTotalLengthMismatch)
         );
     }
 

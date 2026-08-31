@@ -6,6 +6,8 @@ use qk_core::{
 };
 use qk_ipc::{encode_frame, parse_frame, Direction, MessageKind, HEADER_BYTES};
 
+const IO_WIRE: &str = include_str!("../src/io_wire.rs");
+
 fn grants() -> CoreDeviceGrants {
     CoreDeviceGrants::validate(
         Some(MockDisplay::new()),
@@ -108,4 +110,65 @@ fn ingress_read_request_carries_only_the_exact_little_endian_offset() {
     assert_eq!(frame.header().session_id(), &session_id);
     assert_eq!(frame.header().exchange_id(), 3);
     assert_eq!(frame.payload(), &[1, 2, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
+}
+
+#[test]
+fn print_egress_is_exposed_only_through_two_purpose_bound_grammars() {
+    for required in [
+        "pub(crate) fn encode_a1_print_begin() -> [u8; 16]",
+        "pub(crate) fn encode_kit_print_begin() -> [u8; 16]",
+        "pub(crate) fn encode_a1_print_write(",
+        "pub(crate) fn encode_kit_print_write(",
+        "pub(crate) const fn encode_a1_print_finish() -> [u8; 8]",
+        "pub(crate) const fn encode_kit_print_finish() -> [u8; 8]",
+        "const A1_PRINT_ARTIFACT: u8 = 0x04;",
+        "const KIT_PRINT_ARTIFACT: u8 = 0x05;",
+        "pub(crate) const A1_PRINT_BYTES: usize = 67;",
+        "pub(crate) const KIT_PRINT_BYTES: usize = 829;",
+    ] {
+        assert!(
+            IO_WIRE.contains(required),
+            "missing purpose-bound lock {required}"
+        );
+    }
+    for forbidden in [
+        "pub fn encode_egress_begin",
+        "pub(crate) fn encode_egress_begin",
+        "pub fn encode_egress_write",
+        "pub(crate) fn encode_egress_write",
+        "pub fn encode_egress_finish",
+        "pub(crate) fn encode_egress_finish",
+        "pub enum Sink",
+        "pub enum Artifact",
+    ] {
+        assert!(
+            !IO_WIRE.contains(forbidden),
+            "generic transport surface {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn print_egress_geometry_and_success_parsers_are_source_locked() {
+    for required in [
+        "Self::EgressBegin => 0x03,",
+        "Self::EgressWrite => 0x04,",
+        "Self::EgressFinish => 0x05,",
+        "const PRINT_SINK: u8 = 0x03;",
+        "const EGRESS_BEGIN_BODY_BYTES: usize = 8;",
+        "const EGRESS_WRITE_PREFIX_BYTES: usize = 8;",
+        "const EGRESS_WRITE_RESPONSE_BYTES: usize = 4;",
+        "const EGRESS_FINISH_RESPONSE_BYTES: usize = 6;",
+        "ExpectedPrintResponse::Begin { artifact } => parse_egress_begin_success(body, artifact)",
+        "ExpectedPrintResponse::Write { artifact } => parse_egress_write_success(body, artifact)",
+        "ExpectedPrintResponse::Finish { artifact } => parse_egress_finish_success(body, artifact)",
+        "if accepted_total != artifact.total_len()",
+        "if byte_at(body, 0)? != PRINT_SINK || byte_at(body, 1)? != artifact.wire_value()",
+        "if total_len != artifact.total_len()",
+    ] {
+        assert!(
+            IO_WIRE.contains(required),
+            "missing exact egress lock {required}"
+        );
+    }
 }
