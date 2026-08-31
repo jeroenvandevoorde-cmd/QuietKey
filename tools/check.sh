@@ -28,6 +28,10 @@ else
         info "$m is governed by the reviewed fuzz dependency allowlist"
         continue
         ;;
+      bench/card-enrollment/Cargo.toml)
+        info "$m is governed by the reviewed bench dependency allowlist"
+        continue
+        ;;
     esac
     n=$(awk '
       /^[[:space:]]*\[/ { insec = ($0 ~ /dependencies/) ? 1 : 0; next }
@@ -56,6 +60,13 @@ elif tools/check-fuzz-dependencies.sh --require-ipc-isolation; then
   ok 'fuzz manifests match the reviewed pinned dependency allowlist'
 else
   fail 'fuzz dependency allowlist check failed'
+fi
+
+# --- 3b. Ring-fenced bench dependency policy -----------------------------
+if tools/check-bench-dependencies.sh; then
+  ok 'bench manifest matches the reviewed pinned dependency allowlist and remains isolated'
+else
+  fail 'bench dependency allowlist or isolation check failed'
 fi
 
 # --- 4. Persistent fuzz corpus registry ---------------------------------
