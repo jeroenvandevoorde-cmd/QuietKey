@@ -189,12 +189,12 @@ impl StreamDecoder {
             return Err(IpcError::DecoderTerminated);
         }
         if !self.frame_ready {
-            return Err(IpcError::InvalidTransition);
+            return Err(self.terminate(IpcError::InvalidTransition));
         }
-        let header = self
-            .parsed_header
-            .take()
-            .ok_or(IpcError::InvalidTransition)?;
+        let header = match self.parsed_header.take() {
+            Some(header) => header,
+            None => return Err(self.terminate(IpcError::InvalidTransition)),
+        };
         let payload = core::mem::take(&mut self.payload);
         self.payload_len = 0;
         self.frame_ready = false;
@@ -304,6 +304,20 @@ mod tests {
         assert_eq!(wiped_bytes(), 32);
         drop(decoder);
         assert_eq!(wiped_bytes(), 64);
+    }
+
+    #[test]
+    fn premature_take_clears_partial_state_and_latches_terminal() {
+        let frame = operation(19);
+        let mut decoder = StreamDecoder::new();
+        assert_eq!(decoder.ingest(&frame[..11], false).unwrap().consumed(), 11);
+        reset_wiped_bytes();
+        assert_eq!(decoder.take_frame().err(), Some(IpcError::InvalidTransition));
+        assert_eq!(wiped_bytes(), 32);
+        assert_eq!(
+            decoder.take_frame().err(),
+            Some(IpcError::DecoderTerminated)
+        );
     }
 
     #[test]
