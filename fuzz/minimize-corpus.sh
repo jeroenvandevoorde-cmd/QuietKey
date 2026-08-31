@@ -55,6 +55,12 @@ cd "$root"
 }
 
 export CARGO_NET_OFFLINE=true
-exec cargo +nightly-2026-08-25 fuzz cmin "$target" "$corpus" \
+case "$target" in
+  qk_ipc_wire|qk_ipc_endpoint_state)
+    set -- --features ipc "$target" "$corpus"
+    ;;
+  *) set -- "$target" "$corpus" ;;
+esac
+exec cargo +nightly-2026-08-25 fuzz cmin "$@" \
   --fuzz-dir fuzz --sanitizer address -- \
   "-max_len=$max_len" -timeout=2 -reload=0

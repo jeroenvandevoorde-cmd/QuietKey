@@ -59,7 +59,13 @@ if find "fuzz/artifacts/$target" -type f -print -quit | grep -q .; then
 fi
 
 export CARGO_NET_OFFLINE=true
-exec cargo +nightly-2026-08-25 fuzz run "$target" "fuzz/corpus/$target" \
+case "$target" in
+  qk_ipc_wire|qk_ipc_endpoint_state)
+    set -- --features ipc "$target" "fuzz/corpus/$target"
+    ;;
+  *) set -- "$target" "fuzz/corpus/$target" ;;
+esac
+exec cargo +nightly-2026-08-25 fuzz run "$@" \
   --fuzz-dir fuzz --sanitizer address -- \
   -runs=0 "-seed=$seed" "-max_len=$max_len" -reload=0 -timeout=2 \
   -rss_limit_mb=2048 -print_final_stats=1 \

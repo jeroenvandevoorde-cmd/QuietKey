@@ -63,7 +63,13 @@ fi
 export CARGO_NET_OFFLINE=true
 printf 'source=%s target=%s runs=%s seed=%s max_len=%s sanitizer=address\n' \
   "$(git rev-parse HEAD)" "$target" "$runs" "$seed" "$max_len"
-exec cargo +nightly-2026-08-25 fuzz run "$target" "fuzz/corpus/$target" \
+case "$target" in
+  qk_ipc_wire|qk_ipc_endpoint_state)
+    set -- --features ipc "$target" "fuzz/corpus/$target"
+    ;;
+  *) set -- "$target" "fuzz/corpus/$target" ;;
+esac
+exec cargo +nightly-2026-08-25 fuzz run "$@" \
   --fuzz-dir fuzz --sanitizer address -- \
   "-runs=$runs" "-seed=$seed" "-max_len=$max_len" -reload=0 \
   -timeout=2 -rss_limit_mb=2048 -print_final_stats=1 \
