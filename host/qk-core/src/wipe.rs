@@ -77,6 +77,17 @@ impl WipingVec {
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
+
+    #[cfg(test)]
+    pub(crate) fn allocation_bytes(&self) -> usize {
+        self.0.capacity()
+    }
+
+    pub(crate) fn try_copy(value: &[u8]) -> Result<Self, ()> {
+        let mut owner = Self::try_zeroed(value.len())?;
+        owner.as_mut_slice().copy_from_slice(value);
+        Ok(owner)
+    }
 }
 
 impl Drop for WipingVec {
@@ -87,6 +98,90 @@ impl Drop for WipingVec {
         } else {
             allocation(self.0.as_mut_ptr(), capacity);
         }
+    }
+}
+
+/// Fallibly allocated value owner that drops every live element and then
+/// clears the complete backing allocation, including spare capacity.
+///
+/// This remains crate-private: it exists only to extend the established wipe
+/// boundary to bookkeeping vectors whose values can point at secret bytes.
+pub(crate) struct WipingValueVec<T>(Vec<T>);
+
+impl<T> WipingValueVec<T> {
+    pub(crate) fn try_with_capacity(capacity: usize) -> Result<Self, ()> {
+        let mut value = Vec::new();
+        value.try_reserve_exact(capacity).map_err(|_| ())?;
+        Ok(Self(value))
+    }
+
+    pub(crate) fn from_vec(value: Vec<T>) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn try_push(&mut self, value: T) -> Result<(), T> {
+        if self.0.len() == self.0.capacity() {
+            return Err(value);
+        }
+        self.0.push(value);
+        Ok(())
+    }
+
+    pub(crate) fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn allocation_bytes(&self) -> usize {
+        self.0.capacity().saturating_mul(core::mem::size_of::<T>())
+    }
+}
+
+impl<T> Drop for WipingValueVec<T> {
+    fn drop(&mut self) {
+        let byte_count = self.0.capacity().saturating_mul(core::mem::size_of::<T>());
+        self.0.clear();
+        if byte_count == 0 {
+            compiler_fence(Ordering::SeqCst);
+        } else {
+            allocation(self.0.as_mut_ptr().cast::<u8>(), byte_count);
+        }
+    }
+}
+
+/// Fixed-size secret owner whose constructor clears the caller's source.
+///
+/// This type stays crate-private so no product surface can become a generic
+/// secret-byte container or accessor.
+pub(crate) struct WipingArray<const N: usize>([u8; N]);
+
+impl<const N: usize> WipingArray<N> {
+    pub(crate) const fn zeroed() -> Self {
+        Self([0; N])
+    }
+
+    pub(crate) fn take(source: &mut [u8; N]) -> Self {
+        let value = *source;
+        bytes(source);
+        Self(value)
+    }
+
+    pub(crate) const fn as_array(&self) -> &[u8; N] {
+        &self.0
+    }
+
+    pub(crate) fn as_mut_array(&mut self) -> &mut [u8; N] {
+        &mut self.0
+    }
+}
+
+impl<const N: usize> Drop for WipingArray<N> {
+    fn drop(&mut self) {
+        bytes(&mut self.0);
     }
 }
 
@@ -108,7 +203,9 @@ pub fn wiped_bytes() -> usize {
     clippy::unwrap_used
 )]
 mod tests {
-    use super::{bytes, reset_wiped_bytes, wiped_bytes, words32, WipingVec};
+    use super::{
+        bytes, reset_wiped_bytes, wiped_bytes, words32, WipingArray, WipingValueVec, WipingVec,
+    };
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
@@ -127,6 +224,18 @@ mod tests {
         words32(&mut value);
         assert_eq!(value, [0; 7]);
         assert_eq!(wiped_bytes(), 28);
+    }
+
+    #[test]
+    fn fixed_owner_clears_plaintext_on_caught_unwind() {
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let mut owner = WipingArray::<32>::zeroed();
+            owner.as_mut_array().fill(0xa5);
+            panic!("caught fixed-owner unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), 32);
     }
 
     #[test]
@@ -169,5 +278,46 @@ mod tests {
         }));
         assert!(result.is_err());
         assert_eq!(wiped_bytes(), capacity);
+    }
+
+    #[test]
+    fn value_owner_clears_live_and_spare_allocation_bytes() {
+        let mut owner = WipingValueVec::<u64>::try_with_capacity(19).unwrap();
+        owner.try_push(7).unwrap();
+        owner.try_push(11).unwrap();
+        let allocation_bytes = owner.allocation_bytes();
+        assert!(allocation_bytes > 2 * core::mem::size_of::<u64>());
+
+        reset_wiped_bytes();
+        drop(owner);
+        assert_eq!(wiped_bytes(), allocation_bytes);
+    }
+
+    #[test]
+    fn value_owner_clears_nested_values_before_outer_allocation() {
+        let mut nested = Vec::with_capacity(41);
+        nested.extend_from_slice(b"DER");
+        let nested_capacity = nested.capacity();
+        let mut owner = WipingValueVec::try_with_capacity(5).unwrap();
+        assert!(owner.try_push(WipingVec(nested)).is_ok());
+        let outer_bytes = owner.allocation_bytes();
+
+        reset_wiped_bytes();
+        drop(owner);
+        assert_eq!(wiped_bytes(), nested_capacity + outer_bytes);
+    }
+
+    #[test]
+    fn value_owner_clears_during_caught_unwind() {
+        let mut owner = WipingValueVec::<u32>::try_with_capacity(23).unwrap();
+        owner.try_push(0xa5a5_5a5a).unwrap();
+        let allocation_bytes = owner.allocation_bytes();
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _owner = owner;
+            panic!("test-only caught unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), allocation_bytes);
     }
 }

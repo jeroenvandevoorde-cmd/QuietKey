@@ -21,6 +21,15 @@ const KIT_PRINT_BYTES_U32: u32 = 829;
 const PRINT_SINK: u8 = 0x03;
 const A1_PRINT_ARTIFACT: u8 = 0x04;
 const KIT_PRINT_ARTIFACT: u8 = 0x05;
+const SD_SINK: u8 = 0x01;
+const BBQR_SINK: u8 = 0x02;
+const FINALIZED_PSBT_ARTIFACT: u8 = 0x01;
+const RAW_TRANSACTION_ARTIFACT: u8 = 0x02;
+const NORMAL_SD_RECEIPT_BYTES: usize = 6;
+const NORMAL_BBQR_RECEIPT_PREFIX_BYTES: usize = 8;
+const NORMAL_BBQR_FRAME_MIN_BYTES: usize = 9;
+const NORMAL_BBQR_FRAME_MAX_BYTES: usize = 4_296;
+const NORMAL_BBQR_FRAME_MAX_COUNT: u16 = 256;
 
 /// Exact ingress operation byte.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,6 +184,81 @@ pub(crate) enum PrintResponse {
     Finish {
         artifact: PrintArtifact,
         total_len: u32,
+    },
+}
+
+/// Exact purpose-bound normal-wallet export sink.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NormalEgressSinkV2 {
+    Sd,
+    Bbqr,
+}
+
+impl NormalEgressSinkV2 {
+    pub(crate) const fn wire_value(self) -> u8 {
+        match self {
+            Self::Sd => SD_SINK,
+            Self::Bbqr => BBQR_SINK,
+        }
+    }
+}
+
+/// Exact purpose-bound normal-wallet export artifact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NormalEgressArtifactV2 {
+    FinalizedPsbt,
+    RawTransaction,
+}
+
+impl NormalEgressArtifactV2 {
+    pub(crate) const fn wire_value(self) -> u8 {
+        match self {
+            Self::FinalizedPsbt => FINALIZED_PSBT_ARTIFACT,
+            Self::RawTransaction => RAW_TRANSACTION_ARTIFACT,
+        }
+    }
+}
+
+/// Exact expected success shape for one normal-wallet export operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExpectedNormalEgressResponseV2 {
+    Begin {
+        sink: NormalEgressSinkV2,
+        artifact: NormalEgressArtifactV2,
+    },
+    Write {
+        sink: NormalEgressSinkV2,
+        artifact: NormalEgressArtifactV2,
+        accepted_total: u32,
+    },
+    Finish {
+        sink: NormalEgressSinkV2,
+        artifact: NormalEgressArtifactV2,
+        total_len: u32,
+    },
+}
+
+impl ExpectedNormalEgressResponseV2 {
+    const fn operation(self) -> Operation {
+        match self {
+            Self::Begin { .. } => Operation::EgressBegin,
+            Self::Write { .. } => Operation::EgressWrite,
+            Self::Finish { .. } => Operation::EgressFinish,
+        }
+    }
+}
+
+/// One completely parsed successful normal-wallet export response.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NormalEgressResponseV2<'a> {
+    Begin,
+    Write {
+        accepted_total: u32,
+    },
+    SdFinish,
+    BbqrFinish {
+        frame_count: u16,
+        encoded_frames: &'a [u8],
     },
 }
 
@@ -333,6 +417,41 @@ const fn encode_print_finish() -> [u8; 8] {
     ]
 }
 
+/// Form one contiguous bounded normal-wallet EgressWrite request.
+pub(crate) fn encode_normal_egress_write(
+    offset: u32,
+    chunk: &[u8],
+    output: &mut [u8],
+) -> Option<usize> {
+    if chunk.is_empty() || chunk.len() > MAX_CHUNK_BYTES {
+        return None;
+    }
+    let body_len = EGRESS_WRITE_PREFIX_BYTES.checked_add(chunk.len())?;
+    let complete_len = INNER_HEADER_BYTES.checked_add(body_len)?;
+    if output.len() < complete_len {
+        return None;
+    }
+    output.get_mut(..complete_len)?.fill(0);
+    let [body_0, body_1, body_2, body_3] = u32::try_from(body_len).ok()?.to_le_bytes();
+    let chunk_len_bytes = u32::try_from(chunk.len()).ok()?.to_le_bytes();
+    output.get_mut(..8)?.copy_from_slice(&[
+        INNER_VERSION,
+        Operation::EgressWrite.wire_value(),
+        0,
+        0,
+        body_0,
+        body_1,
+        body_2,
+        body_3,
+    ]);
+    output
+        .get_mut(8..12)?
+        .copy_from_slice(&offset.to_le_bytes());
+    output.get_mut(12..16)?.copy_from_slice(&chunk_len_bytes);
+    output.get_mut(16..complete_len)?.copy_from_slice(chunk);
+    Some(complete_len)
+}
+
 /// Parse exactly one complete hostile peer response for the outstanding request.
 pub fn parse_response<'a>(
     bytes: &'a [u8],
@@ -433,6 +552,132 @@ pub(crate) fn parse_print_response(
         ExpectedPrintResponse::Write { artifact } => parse_egress_write_success(body, artifact),
         ExpectedPrintResponse::Finish { artifact } => parse_egress_finish_success(body, artifact),
     }
+}
+
+/// Parse one exact hostile response for a purpose-bound normal export.
+pub(crate) fn parse_normal_egress_response<'a>(
+    bytes: &'a [u8],
+    expected: ExpectedNormalEgressResponseV2,
+) -> Result<NormalEgressResponseV2<'a>, CoreError> {
+    if bytes.len() < INNER_HEADER_BYTES {
+        return Err(CoreError::ResponseHeaderTruncated);
+    }
+    if byte_at(bytes, 0)? != INNER_VERSION {
+        return Err(CoreError::ResponseVersionMismatch);
+    }
+    if byte_at(bytes, 1)? != expected.operation().wire_value() {
+        return Err(CoreError::ResponseOpcodeMismatch);
+    }
+    let status = read_u16(bytes, 2)?;
+    let body_len =
+        usize::try_from(read_u32(bytes, 4)?).map_err(|_| CoreError::ResponseBodyLengthExceeded)?;
+    if body_len > MAX_INNER_BODY_BYTES {
+        return Err(CoreError::ResponseBodyLengthExceeded);
+    }
+    let complete_len = INNER_HEADER_BYTES
+        .checked_add(body_len)
+        .ok_or(CoreError::ResponseBodyLengthExceeded)?;
+    if bytes.len() < complete_len {
+        return Err(CoreError::ResponseBodyTruncated);
+    }
+    if bytes.len() > complete_len {
+        return Err(CoreError::ResponseTrailingByte);
+    }
+    let body = bytes
+        .get(INNER_HEADER_BYTES..complete_len)
+        .ok_or(CoreError::ResponseBodyTruncated)?;
+    if status != 0 {
+        let rejection =
+            IoRejection::from_status(status).ok_or(CoreError::ResponseStatusOutOfRange)?;
+        if !body.is_empty() {
+            return Err(CoreError::ResponseErrorBodyNonEmpty);
+        }
+        return Err(CoreError::IoRejected(rejection));
+    }
+
+    match expected {
+        ExpectedNormalEgressResponseV2::Begin { .. } => {
+            require_exact(body, 0)?;
+            Ok(NormalEgressResponseV2::Begin)
+        }
+        ExpectedNormalEgressResponseV2::Write { accepted_total, .. } => {
+            require_exact(body, EGRESS_WRITE_RESPONSE_BYTES)?;
+            let actual = read_u32(body, 0)?;
+            if actual != accepted_total {
+                return Err(CoreError::ResponseOffsetMismatch);
+            }
+            Ok(NormalEgressResponseV2::Write {
+                accepted_total: actual,
+            })
+        }
+        ExpectedNormalEgressResponseV2::Finish {
+            sink,
+            artifact,
+            total_len,
+        } => match sink {
+            NormalEgressSinkV2::Sd => {
+                require_exact(body, NORMAL_SD_RECEIPT_BYTES)?;
+                if byte_at(body, 0)? != sink.wire_value()
+                    || byte_at(body, 1)? != artifact.wire_value()
+                {
+                    return Err(CoreError::ResponseSourceMismatch);
+                }
+                if read_u32(body, 2)? != total_len {
+                    return Err(CoreError::ResponseTotalLengthMismatch);
+                }
+                Ok(NormalEgressResponseV2::SdFinish)
+            }
+            NormalEgressSinkV2::Bbqr => {
+                if body.len() < NORMAL_BBQR_RECEIPT_PREFIX_BYTES {
+                    return Err(CoreError::ResponseBodyTruncated);
+                }
+                if byte_at(body, 0)? != sink.wire_value()
+                    || byte_at(body, 1)? != artifact.wire_value()
+                {
+                    return Err(CoreError::ResponseSourceMismatch);
+                }
+                if read_u32(body, 2)? != total_len {
+                    return Err(CoreError::ResponseTotalLengthMismatch);
+                }
+                let frame_count = read_u16(body, 6)?;
+                if frame_count == 0 || frame_count > NORMAL_BBQR_FRAME_MAX_COUNT {
+                    return Err(CoreError::ResponseBodyLengthExceeded);
+                }
+                let encoded_frames = body
+                    .get(NORMAL_BBQR_RECEIPT_PREFIX_BYTES..)
+                    .ok_or(CoreError::ResponseBodyTruncated)?;
+                validate_normal_bbqr_frames(encoded_frames, frame_count)?;
+                Ok(NormalEgressResponseV2::BbqrFinish {
+                    frame_count,
+                    encoded_frames,
+                })
+            }
+        },
+    }
+}
+
+fn validate_normal_bbqr_frames(bytes: &[u8], frame_count: u16) -> Result<(), CoreError> {
+    let mut cursor = 0usize;
+    for _ in 0..frame_count {
+        let frame_len = usize::from(read_u16(bytes, cursor)?);
+        if !(NORMAL_BBQR_FRAME_MIN_BYTES..=NORMAL_BBQR_FRAME_MAX_BYTES).contains(&frame_len) {
+            return Err(CoreError::ResponseChunkLengthExceeded);
+        }
+        cursor = cursor
+            .checked_add(2)
+            .ok_or(CoreError::ResponseBodyLengthExceeded)?;
+        let end = cursor
+            .checked_add(frame_len)
+            .ok_or(CoreError::ResponseBodyLengthExceeded)?;
+        if bytes.get(cursor..end).is_none() {
+            return Err(CoreError::ResponseBodyTruncated);
+        }
+        cursor = end;
+    }
+    if cursor < bytes.len() {
+        return Err(CoreError::ResponseTrailingByte);
+    }
+    Ok(())
 }
 
 fn parse_egress_begin_success(
@@ -595,6 +840,7 @@ const _: () = assert!(MAX_INNER_BODY_BYTES == 2_097_144);
 const _: () = assert!(MAX_INGRESS_BYTES == 2_097_152);
 
 #[cfg(test)]
+#[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 mod tests {
     use super::*;
 
@@ -746,13 +992,83 @@ mod tests {
     }
 
     #[test]
+    fn normal_export_write_request_is_byte_exact() {
+        let mut write = [0xa5; 19];
+        assert_eq!(
+            encode_normal_egress_write(0x4433_2211, &[0xaa, 0xbb, 0xcc], &mut write),
+            Some(19)
+        );
+        assert_eq!(
+            write,
+            [1, 4, 0, 0, 11, 0, 0, 0, 0x11, 0x22, 0x33, 0x44, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc]
+        );
+    }
+
+    #[test]
+    fn normal_export_success_bodies_are_exact() {
+        let begin = success(Operation::EgressBegin.wire_value(), &[]);
+        assert_eq!(
+            parse_normal_egress_response(
+                &begin,
+                ExpectedNormalEgressResponseV2::Begin {
+                    sink: NormalEgressSinkV2::Sd,
+                    artifact: NormalEgressArtifactV2::FinalizedPsbt,
+                }
+            ),
+            Ok(NormalEgressResponseV2::Begin)
+        );
+        let write = success(Operation::EgressWrite.wire_value(), &37u32.to_le_bytes());
+        assert_eq!(
+            parse_normal_egress_response(
+                &write,
+                ExpectedNormalEgressResponseV2::Write {
+                    sink: NormalEgressSinkV2::Sd,
+                    artifact: NormalEgressArtifactV2::FinalizedPsbt,
+                    accepted_total: 37,
+                }
+            ),
+            Ok(NormalEgressResponseV2::Write { accepted_total: 37 })
+        );
+        let sd = success(Operation::EgressFinish.wire_value(), &[1, 1, 37, 0, 0, 0]);
+        assert_eq!(
+            parse_normal_egress_response(
+                &sd,
+                ExpectedNormalEgressResponseV2::Finish {
+                    sink: NormalEgressSinkV2::Sd,
+                    artifact: NormalEgressArtifactV2::FinalizedPsbt,
+                    total_len: 37,
+                }
+            ),
+            Ok(NormalEgressResponseV2::SdFinish)
+        );
+
+        let mut bbqr_body = vec![2, 2, 1, 0, 0, 0, 1, 0, 9, 0];
+        bbqr_body.extend_from_slice(b"B$2T0100A");
+        let bbqr = success(Operation::EgressFinish.wire_value(), &bbqr_body);
+        assert_eq!(
+            parse_normal_egress_response(
+                &bbqr,
+                ExpectedNormalEgressResponseV2::Finish {
+                    sink: NormalEgressSinkV2::Bbqr,
+                    artifact: NormalEgressArtifactV2::RawTransaction,
+                    total_len: 1,
+                }
+            ),
+            Ok(NormalEgressResponseV2::BbqrFinish {
+                frame_count: 1,
+                encoded_frames: &bbqr_body[8..],
+            })
+        );
+    }
+
+    #[test]
     fn all_seventy_one_rejections_round_trip() {
         let mut count = 0usize;
         for status in 1u16..=0x011e {
             let Some(rejection) = IoRejection::from_status(status) else {
                 continue;
             };
-            count = count.checked_add(1).unwrap_or(usize::MAX);
+            count = count.saturating_add(1);
             assert_eq!(rejection.status_code(), status);
             let [status_0, status_1] = status.to_le_bytes();
             let response = [1, 1, status_0, status_1, 0, 0, 0, 0];

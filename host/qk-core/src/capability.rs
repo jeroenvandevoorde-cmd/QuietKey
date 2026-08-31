@@ -7,6 +7,10 @@
 #![forbid(unsafe_code)]
 
 use crate::error::CoreError;
+use crate::wipe::{self, WipingArray, WipingValueVec, WipingVec};
+
+const MAX_NORMAL_INPUTS: usize = 100;
+const MAX_DER_SIGNATURE_BYTES: usize = 72;
 
 /// Exact nineteen-key logical P0.1 keypad vocabulary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,6 +72,32 @@ pub enum CoreScreen {
     VerifyTwoKits,
     Rehearsal,
     SetupReady,
+    NormalStart,
+    ProfileBinding,
+    NormalTransport,
+    PsbtIntake,
+    FactorB,
+    A1Intake,
+    FactorA1,
+    NormalValidation,
+    ReviewOverview,
+    ReviewArithmetic,
+    ReviewRecipient,
+    ReviewChange,
+    ReviewOpReturn,
+    ReviewLocktime,
+    ReviewSequence,
+    ReviewFeePolicy,
+    ReviewFeeFacts,
+    ReviewWarning,
+    FinalApproval,
+    ApprovalHeld,
+    Revalidation,
+    TerminalASigning,
+    CardBSigning,
+    Finalization,
+    AwaitingExportAction,
+    TransactionResult,
     CompletedWiped,
 }
 
@@ -142,6 +172,119 @@ pub enum CardMockErrorV2 {
     CardAbsent,
     CardInstanceAlreadyProvisioned,
     CardBindingMismatch,
+}
+
+/// Closed construction and access failures for the normal-flow card mock.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NormalCardMockErrorV2 {
+    SignatureTooLong,
+    TooManySignatures,
+    CardAbsent,
+    CardAccessFailed,
+    CardDataUnavailable,
+}
+
+impl NormalCardMockErrorV2 {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::SignatureTooLong => "SignatureTooLong",
+            Self::TooManySignatures => "TooManySignatures",
+            Self::CardAbsent => "CardAbsent",
+            Self::CardAccessFailed => "CardAccessFailed",
+            Self::CardDataUnavailable => "CardDataUnavailable",
+        }
+    }
+}
+
+/// One DER-only mock role-B response bound to one input index.
+///
+/// Construction consumes and clears the caller's mutable scratch bytes. The
+/// retained allocation, including spare capacity, is cleared on drop.
+pub struct NormalCardBSignatureV2 {
+    input_index: u32,
+    der: WipingVec,
+}
+
+impl NormalCardBSignatureV2 {
+    pub fn try_new(
+        input_index: u32,
+        der_signature: &mut [u8],
+    ) -> Result<Self, NormalCardMockErrorV2> {
+        if der_signature.len() > MAX_DER_SIGNATURE_BYTES {
+            wipe::bytes(der_signature);
+            return Err(NormalCardMockErrorV2::SignatureTooLong);
+        }
+        let copied = WipingVec::try_copy(der_signature);
+        wipe::bytes(der_signature);
+        let der = copied.map_err(|_| NormalCardMockErrorV2::CardDataUnavailable)?;
+        Ok(Self { input_index, der })
+    }
+
+    pub const fn input_index(&self) -> u32 {
+        self.input_index
+    }
+
+    pub fn der_signature(&self) -> &[u8] {
+        self.der.as_slice()
+    }
+}
+
+/// One authenticated HOST mock card-B factor for a normal A1+B session.
+///
+/// Descriptor bytes, wallet identity and account xpub are public facts. A2 is
+/// a fixed secret owner with no public accessor. The value carries only
+/// preloaded DER responses; it exposes no signing operation or B secret.
+pub struct NormalCardBDataV2 {
+    descriptors: [[u8; 306]; 2],
+    wallet_id: [u8; 32],
+    account_xpub: [u8; 111],
+    a2: WipingArray<32>,
+    signatures: WipingValueVec<NormalCardBSignatureV2>,
+}
+
+impl NormalCardBDataV2 {
+    pub fn try_new(
+        descriptors: [[u8; 306]; 2],
+        wallet_id: [u8; 32],
+        account_xpub: [u8; 111],
+        a2: &mut [u8; 32],
+        signatures: Vec<NormalCardBSignatureV2>,
+    ) -> Result<Self, NormalCardMockErrorV2> {
+        let a2 = WipingArray::take(a2);
+        let signatures = WipingValueVec::from_vec(signatures);
+        if signatures.len() > MAX_NORMAL_INPUTS {
+            drop(a2);
+            drop(signatures);
+            return Err(NormalCardMockErrorV2::TooManySignatures);
+        }
+        Ok(Self {
+            descriptors,
+            wallet_id,
+            account_xpub,
+            a2,
+            signatures,
+        })
+    }
+
+    pub const fn descriptors(&self) -> &[[u8; 306]; 2] {
+        &self.descriptors
+    }
+
+    pub const fn wallet_id(&self) -> [u8; 32] {
+        self.wallet_id
+    }
+
+    pub const fn account_xpub(&self) -> &[u8; 111] {
+        &self.account_xpub
+    }
+
+    pub fn signatures(&self) -> &[NormalCardBSignatureV2] {
+        self.signatures.as_slice()
+    }
+
+    pub(crate) const fn a2(&self) -> &[u8; 32] {
+        self.a2.as_array()
+    }
 }
 
 impl CardMockErrorV2 {
@@ -251,6 +394,7 @@ pub struct MockCardSlot {
     fail_next: bool,
     required_binding: Option<CardBPublicBindingV2>,
     spare_binding: Option<CardBPublicBindingV2>,
+    normal_data: Option<NormalCardBDataV2>,
 }
 
 impl MockCardSlot {
@@ -260,6 +404,19 @@ impl MockCardSlot {
             fail_next: false,
             required_binding: None,
             spare_binding: None,
+            normal_data: None,
+        }
+    }
+
+    /// Construct a slot preloaded with one move-only authenticated mock
+    /// factor. The factor can be consumed by exactly one normal session.
+    pub fn with_normal_data(presence: CardPresence, normal_data: NormalCardBDataV2) -> Self {
+        Self {
+            presence,
+            fail_next: false,
+            required_binding: None,
+            spare_binding: None,
+            normal_data: Some(normal_data),
         }
     }
 
@@ -312,6 +469,18 @@ impl MockCardSlot {
         } else {
             Err(CardMockErrorV2::CardBindingMismatch)
         }
+    }
+
+    pub(crate) fn take_normal_data(&mut self) -> Result<NormalCardBDataV2, NormalCardMockErrorV2> {
+        if self.take_failure() {
+            return Err(NormalCardMockErrorV2::CardAccessFailed);
+        }
+        if self.presence != CardPresence::Present {
+            return Err(NormalCardMockErrorV2::CardAbsent);
+        }
+        self.normal_data
+            .take()
+            .ok_or(NormalCardMockErrorV2::CardDataUnavailable)
     }
 
     fn take_failure(&mut self) -> bool {

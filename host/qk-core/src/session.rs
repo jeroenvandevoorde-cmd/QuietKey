@@ -1,7 +1,8 @@
-//! QKIP-bound non-signing product shell.
+//! QKIP-bound HOST product shell for provisioning and purpose-bound normal sessions.
 
 use crate::capability::{
     CardBPublicBindingV2, CardMockErrorV2, CardPresence, CoreDeviceGrants, CoreScreen, KeypadKey,
+    NormalCardBDataV2, NormalCardMockErrorV2,
 };
 use crate::error::{CoreError, Interruption};
 use crate::io_wire::{
@@ -13,7 +14,7 @@ use crate::io_wire::{
 #[cfg(any(test, feature = "fuzzing"))]
 use crate::session_id::DeterministicSessionIdMint;
 use crate::session_id::{mint_session_id, SessionId, SessionIdError};
-use crate::wipe::{self, WipingVec};
+use crate::wipe::{self, WipingArray, WipingVec};
 use qk_ipc::{CoreEvent, CoreProtocol, IpcError, OutboundFrame, StreamDecoder};
 
 /// Product-flow family selected by the supervisor for this HOST shell.
@@ -79,6 +80,7 @@ pub enum CoreReceiveEvent {
 enum OutstandingResponse {
     Ingress(ExpectedResponse),
     Print(ExpectedPrintResponse),
+    NormalEgress,
 }
 
 /// Exact stream-consumption fact and the at-most-one resulting shell event.
@@ -86,6 +88,12 @@ enum OutstandingResponse {
 pub struct CoreReceiveOutcome {
     consumed: usize,
     event: CoreReceiveEvent,
+}
+
+/// Crate-private stream fact for the purpose-bound normal egress path.
+pub(crate) struct NormalCoreReceiveOutcome {
+    pub(crate) consumed: usize,
+    pub(crate) response_ready: bool,
 }
 
 impl CoreReceiveOutcome {
@@ -139,6 +147,10 @@ impl HostileIngress {
 
     pub fn is_empty(&self) -> bool {
         self.bytes.len() == 0
+    }
+
+    pub(crate) fn into_normal_parts(self) -> (Source, WipingVec) {
+        (self.source, self.bytes)
     }
 
     #[cfg(feature = "fuzzing")]
@@ -208,11 +220,13 @@ pub struct CoreSession {
     mode: CoreMode,
     state: CoreState,
     terminal_reason: Option<Interruption>,
+    session_identity: Option<WipingArray<16>>,
     ipc: Option<CoreProtocol>,
     decoder: Option<StreamDecoder>,
     expected: Option<OutstandingResponse>,
     transfer: Option<IngressTransfer>,
     completed: Option<HostileIngress>,
+    normal_response: Option<WipingVec>,
     print_artifact: Option<PrintArtifact>,
     grants: CoreDeviceGrants,
 }
@@ -233,18 +247,21 @@ impl CoreSession {
         grants: CoreDeviceGrants,
         session_id: SessionId,
     ) -> Result<(Self, CoreOutbound), CoreError> {
-        let mut ipc = CoreProtocol::new(*session_id.as_bytes());
+        let mut identity = *session_id.as_bytes();
+        let mut ipc = CoreProtocol::new(identity);
         let outbound = ipc.begin().map_err(CoreError::Ipc)?;
         let frame = encode_outer(outbound, &[])?;
         let session = Self {
             mode,
             state: CoreState::Opening,
             terminal_reason: None,
+            session_identity: Some(WipingArray::take(&mut identity)),
             ipc: Some(ipc),
             decoder: Some(StreamDecoder::new()),
             expected: None,
             transfer: None,
             completed: None,
+            normal_response: None,
             print_artifact: None,
             grants,
         };
@@ -271,12 +288,26 @@ impl CoreSession {
         self.completed.as_ref()
     }
 
+    /// Borrow the exact QKIP identity solely for purpose-bound approval-token
+    /// provenance. No public shell surface exposes this retained copy.
+    pub(crate) fn normal_session_identity(&mut self) -> Result<&[u8; 16], CoreError> {
+        self.require_normal_live()?;
+        if self.session_identity.is_none() {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        match self.session_identity.as_ref() {
+            Some(identity) => Ok(identity.as_array()),
+            None => Err(CoreError::InvalidTransition),
+        }
+    }
+
     /// Emit the sole typed ingress-begin operation.
     pub fn begin_ingress(&mut self, source: Source) -> Result<CoreOutbound, CoreError> {
         self.require_live()?;
         if self.state != CoreState::Ready
             || self.transfer.is_some()
             || self.completed.is_some()
+            || self.normal_response.is_some()
             || self.expected.is_some()
             || self.print_artifact.is_some()
         {
@@ -520,6 +551,143 @@ impl CoreSession {
         self.grants.card_slot_mut().verify_b(binding)
     }
 
+    /// Consume one complete normal-flow ingress without exposing it through
+    /// the public shell surface. The purpose owner performs the only semantic
+    /// or authentication operation over the returned wiping allocation.
+    pub(crate) fn take_normal_ingress(&mut self) -> Result<HostileIngress, CoreError> {
+        self.require_normal_live()?;
+        if self.state != CoreState::IngressComplete
+            || self.transfer.is_some()
+            || self.expected.is_some()
+            || self.normal_response.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let ingress = self
+            .completed
+            .take()
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))?;
+        self.state = CoreState::Ready;
+        Ok(ingress)
+    }
+
+    /// Select one normal-flow typed screen without exposing the capability.
+    pub(crate) fn normal_show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {
+        self.require_normal_live()?;
+        self.show_or_terminate(screen)
+    }
+
+    /// Read one normalized normal-flow key.
+    pub(crate) fn normal_read_key(&mut self, key: KeypadKey) -> Result<KeypadKey, CoreError> {
+        self.require_normal_live()?;
+        match self.grants.keypad_mut().read(key) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.terminate(Interruption::CapabilityFailed);
+                Err(error)
+            }
+        }
+    }
+
+    /// Consume the sole preloaded authenticated mock card-B factor.
+    pub(crate) fn take_normal_card_data(
+        &mut self,
+    ) -> Result<NormalCardBDataV2, NormalCardMockErrorV2> {
+        self.grants.card_slot_mut().take_normal_data()
+    }
+
+    /// Wrap one exact purpose-bound normal egress request in QKIP.
+    pub(crate) fn begin_normal_egress(
+        &mut self,
+        payload: &[u8],
+    ) -> Result<CoreOutbound, CoreError> {
+        self.require_normal_live()?;
+        if self.state != CoreState::Ready
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.normal_response.is_some()
+            || self.expected.is_some()
+            || self.print_artifact.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.begin_operation(
+            payload,
+            OutstandingResponse::NormalEgress,
+            CoreState::EgressWritePending,
+        )
+    }
+
+    /// Consume the complete hostile inner response retained by QKIP.
+    pub(crate) fn take_normal_egress_response(&mut self) -> Result<WipingVec, CoreError> {
+        self.require_normal_live()?;
+        if self.state != CoreState::Ready || self.expected.is_some() {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.normal_response
+            .take()
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))
+    }
+
+    /// Consume at most one QKIP frame while an exact normal egress response is
+    /// outstanding. This separate path avoids widening the legacy public
+    /// shell-event vocabulary consumed by the byte-frozen setup owner.
+    pub(crate) fn receive_normal_egress(
+        &mut self,
+        input: &[u8],
+        ancillary_present: bool,
+    ) -> Result<NormalCoreReceiveOutcome, CoreError> {
+        self.require_normal_live()?;
+        if self.expected != Some(OutstandingResponse::NormalEgress)
+            || self.state != CoreState::EgressWritePending
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let outcome = match self.decoder.as_mut() {
+            Some(decoder) => decoder.ingest(input, ancillary_present),
+            None => return Err(CoreError::CoreTerminated),
+        };
+        let outcome = match outcome {
+            Ok(value) => value,
+            Err(error) => return Err(self.fail_ipc(error)),
+        };
+        if !outcome.frame_ready() {
+            return Ok(NormalCoreReceiveOutcome {
+                consumed: outcome.consumed(),
+                response_ready: false,
+            });
+        }
+        let frame = match self.decoder.as_mut() {
+            Some(decoder) => decoder.take_frame(),
+            None => return Err(CoreError::CoreTerminated),
+        };
+        let frame = match frame {
+            Ok(value) => value,
+            Err(error) => return Err(self.fail_ipc(error)),
+        };
+        let event = match self.ipc.as_mut() {
+            Some(ipc) => ipc.accept(&frame),
+            None => return Err(CoreError::CoreTerminated),
+        };
+        let event = match event {
+            Ok(value) => value,
+            Err(error) => return Err(self.fail_ipc(error)),
+        };
+        if event != CoreEvent::OperationResponse {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.accept_normal_egress(frame.payload())?;
+        Ok(NormalCoreReceiveOutcome {
+            consumed: outcome.consumed(),
+            response_ready: true,
+        })
+    }
+
+    /// Route one normal-flow interruption through the universal terminal path.
+    pub(crate) fn terminate_normal(&mut self, reason: Interruption) {
+        self.terminate(reason);
+    }
+
     /// Force a local setup failure through the universal wiping terminal path.
     pub(crate) fn setup_fail(&mut self) {
         self.terminate(Interruption::OperationFailed);
@@ -710,7 +878,22 @@ impl CoreSession {
         match expected {
             OutstandingResponse::Ingress(expected) => self.accept_ingress(payload, expected),
             OutstandingResponse::Print(expected) => self.accept_print(payload, expected),
+            OutstandingResponse::NormalEgress => Err(CoreError::InvalidTransition),
         }
+    }
+
+    fn accept_normal_egress(&mut self, payload: &[u8]) -> Result<(), CoreError> {
+        if self.expected.take() != Some(OutstandingResponse::NormalEgress)
+            || self.mode != CoreMode::A1B
+            || self.state != CoreState::EgressWritePending
+            || self.normal_response.is_some()
+        {
+            return Err(CoreError::InvalidTransition);
+        }
+        self.normal_response =
+            Some(WipingVec::try_copy(payload).map_err(|_| CoreError::AllocationFailed)?);
+        self.state = CoreState::Ready;
+        Ok(())
     }
 
     fn accept_ingress(
@@ -865,7 +1048,9 @@ impl CoreSession {
         self.expected = None;
         self.transfer = None;
         self.completed = None;
+        self.normal_response = None;
         self.print_artifact = None;
+        drop(self.session_identity.take());
         self.show_or_terminate(CoreScreen::Closed)?;
         Ok(CoreReceiveEvent::SessionClosed)
     }
@@ -902,9 +1087,11 @@ impl CoreSession {
         self.expected = None;
         self.transfer = None;
         self.completed = None;
+        self.normal_response = None;
         self.print_artifact = None;
         self.decoder = None;
         self.ipc = None;
+        drop(self.session_identity.take());
         let _ = self.grants.display_mut().show(CoreScreen::Terminated);
     }
 
@@ -919,6 +1106,15 @@ impl CoreSession {
     fn require_setup_live(&mut self) -> Result<(), CoreError> {
         self.require_live()?;
         if self.mode == CoreMode::Setup {
+            Ok(())
+        } else {
+            Err(self.fail(CoreError::InvalidTransition))
+        }
+    }
+
+    fn require_normal_live(&mut self) -> Result<(), CoreError> {
+        self.require_live()?;
+        if self.mode == CoreMode::A1B {
             Ok(())
         } else {
             Err(self.fail(CoreError::InvalidTransition))
@@ -975,6 +1171,7 @@ pub fn fuzz_start_session(
 mod tests {
     use super::*;
     use crate::capability::{MockCardSlot, MockDisplay, MockKeypad};
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
     use crate::INNER_VERSION;
     use qk_ipc::{encode_frame, parse_frame, Direction, MessageKind, HEADER_BYTES};
 
@@ -994,7 +1191,8 @@ mod tests {
         kind: MessageKind,
         payload: &[u8],
     ) -> Vec<u8> {
-        let mut output = vec![0; HEADER_BYTES + payload.len()];
+        let output_len = HEADER_BYTES.checked_add(payload.len()).unwrap();
+        let mut output = vec![0; output_len];
         let length = encode_frame(
             Direction::IoToCore,
             kind,
@@ -1010,7 +1208,7 @@ mod tests {
 
     fn session_id(outbound: &CoreOutbound) -> [u8; 16] {
         let mut id = [0u8; 16];
-        id.copy_from_slice(&outbound.frame_bytes()[8..24]);
+        id.copy_from_slice(outbound.frame_bytes().get(8..24).unwrap());
         id
     }
 
@@ -1273,6 +1471,33 @@ mod tests {
         assert_eq!(interrupted.state(), CoreState::Terminated);
         assert_eq!(
             interrupted.terminal_reason(),
+            Some(Interruption::SessionTimeout)
+        );
+    }
+
+    #[test]
+    fn normal_response_and_retained_session_identity_wipe_on_interruption() {
+        let (mut session, open) =
+            fuzz_start_session([0x49; 12], 0, CoreMode::A1B, grants()).unwrap();
+        let id = session_id(&open);
+        let ready = response(id, 1, MessageKind::SessionReady, &[]);
+        assert_eq!(
+            session.receive(&ready, false).unwrap().event(),
+            CoreReceiveEvent::SessionReady
+        );
+        let request = session.begin_normal_egress(&[0xa5; 9]).unwrap();
+        drop(request);
+        let reply = response(id, 2, MessageKind::OperationResponse, &[0x5a; 37]);
+        let outcome = session.receive_normal_egress(&reply, false).unwrap();
+        assert_eq!(outcome.consumed, reply.len());
+        assert!(outcome.response_ready);
+
+        reset_wiped_bytes();
+        session.terminate_normal(Interruption::SessionTimeout);
+        assert_eq!(wiped_bytes(), 37 + 16);
+        assert_eq!(session.state(), CoreState::Terminated);
+        assert_eq!(
+            session.terminal_reason(),
             Some(Interruption::SessionTimeout)
         );
     }

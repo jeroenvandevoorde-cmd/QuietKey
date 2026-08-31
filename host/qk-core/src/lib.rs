@@ -1,10 +1,11 @@
-//! HOST-only QuietKey trusted-process foundation and non-signing shell.
+//! HOST-only QuietKey trusted-process shell.
 //!
-//! This slice owns one QKIP core endpoint, independently parses the exact
-//! qk-io peer grammar, and exposes only typed mock Display, Keypad, and
-//! CardSlot capabilities. Transported artifact bytes remain sealed as hostile
-//! input. No wallet semantic, approval, signing, export, APDU, real-device,
-//! process, socket, persistence, target, production, or Gate claim exists.
+//! This crate owns one QKIP core endpoint, parses the exact qk-io peer grammar,
+//! and exposes only typed mock Display, Keypad, and CardSlot capabilities. It
+//! orchestrates the ratified v2 provisioning flow and one purpose-bound normal
+//! A1+B review, approval, signing, finalization, and export flow through the
+//! approved leaf crates. Transported bytes remain hostile input. No APDU,
+//! real-device, process-containment, target, production, or Gate claim exists.
 
 #![deny(unsafe_code)]
 #![deny(
@@ -18,6 +19,8 @@
 mod capability;
 mod error;
 mod io_wire;
+mod normal_artifact_v2;
+mod normal_v2;
 mod session;
 mod session_id;
 mod setup_artifact_v2;
@@ -28,10 +31,24 @@ mod wipe;
 
 pub use capability::{
     CardBPublicBindingV2, CardInstanceV2, CardMockErrorV2, CardPresence, CoreDeviceGrants,
-    CoreScreen, KeypadKey, MockCardSlot, MockDisplay, MockKeypad,
+    CoreScreen, KeypadKey, MockCardSlot, MockDisplay, MockKeypad, NormalCardBDataV2,
+    NormalCardBSignatureV2, NormalCardMockErrorV2,
 };
 pub use error::{CoreError, Interruption, IoRejection};
 pub use io_wire::{Operation, Source};
+pub use normal_artifact_v2::{
+    NormalArtifactErrorV2, NormalArtifactFactsV2, NormalArtifactKindV2, NormalExportActionV2,
+    NormalExportProgressV2, NormalExportRequestV2, NormalExportResultV2, NormalExportRouteV2,
+    NormalProfileV2, NormalRouteExposureV2, NormalSdReceiptV2,
+};
+pub use normal_v2::{
+    NormalApprovalIdentityV2, NormalApprovalTokenV2, NormalArithmeticViewV2, NormalChangeViewV2,
+    NormalErrorV2, NormalFeeFactsViewV2, NormalFeePolicyViewV2, NormalFinalApprovalViewV2,
+    NormalLocktimeViewV2, NormalOpReturnViewV2, NormalOverviewViewV2, NormalProgressV2,
+    NormalReceiveOutcomeV2, NormalRecipientFactV2, NormalRecipientViewV2, NormalReviewPositionV2,
+    NormalScreenV2, NormalSequenceViewV2, NormalSessionV2, NormalStageV2,
+    NormalTransactionResultViewV2, NormalWarningViewV2,
+};
 pub use session::{
     CoreMode, CoreOutbound, CoreReceiveEvent, CoreReceiveOutcome, CoreSession, CoreState,
     HostileIngress,
