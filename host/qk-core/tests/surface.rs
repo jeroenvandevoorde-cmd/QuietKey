@@ -25,8 +25,12 @@ fn cargo_section<'a>(source: &'a str, header: &str, next: Option<&str>) -> &'a s
 #[test]
 fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(
+        cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
+        "default = [\"normal-v3\"]\nfuzzing = [\"normal-v3\", \"qk-ipc/fuzzing\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]"
+    );
+    assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-psbt = { path = \"../qk-psbt\", features = [\"normal-v3\"] }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\", features = [\"normal-v3\"] }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
