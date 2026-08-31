@@ -1,0 +1,17 @@
+[package]
+name = "qk-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "HOST-only QuietKey trusted-process foundation and non-signing shell. Not target or production evidence."
+
+[features]
+fuzzing = ["qk-ipc/fuzzing"]
+
+[dependencies]
+qk-ipc = { path = "../qk-ipc" }
+
+[dev-dependencies]
+qk-host-sim = { path = "../qk-host-sim" }
+qk-io = { path = "../qk-io" }
