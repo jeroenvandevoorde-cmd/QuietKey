@@ -4,6 +4,12 @@ set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 
+case "$#" in
+  0) ;;
+  1) [ "$1" = '--require-ipc-isolation' ] || fail "unknown argument: $1" ;;
+  *) fail 'usage: tools/check-fuzz-dependencies.sh [--require-ipc-isolation]' ;;
+esac
+
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -35,9 +41,13 @@ fuzz_manifests=$(git ls-files | grep -E '^fuzz/(.*/)?Cargo\.toml$') || fuzz_mani
 
 dep_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency declarations'
 tree_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency tree'
-closure_raw_tmp=$(mktemp) || fail 'mktemp failed for raw fuzz dependency closure'
-closure_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency closure'
-trap 'rm -f "$dep_tmp" "$tree_tmp" "$closure_raw_tmp" "$closure_tmp"' EXIT HUP INT TERM
+default_raw_tmp=$(mktemp) || fail 'mktemp failed for raw default fuzz dependency closure'
+default_tmp=$(mktemp) || fail 'mktemp failed for default fuzz dependency closure'
+ipc_raw_tmp=$(mktemp) || fail 'mktemp failed for raw IPC fuzz dependency closure'
+ipc_tmp=$(mktemp) || fail 'mktemp failed for IPC fuzz dependency closure'
+closure_raw_tmp=$(mktemp) || fail 'mktemp failed for raw union fuzz dependency closure'
+closure_tmp=$(mktemp) || fail 'mktemp failed for union fuzz dependency closure'
+trap 'rm -f "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" "$ipc_raw_tmp" "$ipc_tmp" "$closure_raw_tmp" "$closure_tmp"' EXIT HUP INT TERM
 
 for manifest in $fuzz_manifests; do
   [ -f "$manifest" ] || fail "tracked fuzz manifest is missing: $manifest"
@@ -72,7 +82,12 @@ for manifest in $fuzz_manifests; do
       sub(/".*$/, "", version)
       if (line ~ /path[[:space:]]*=/) {
         kind = "path"
-        if (line !~ /^[A-Za-z0-9_-]+[[:space:]]*=[[:space:]]*\{[[:space:]]*path[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*,[[:space:]]*version[[:space:]]*=[[:space:]]*"=[0-9A-Za-z.+-]+"[[:space:]]*\}[[:space:]]*$/) {
+        if (name == "qk-ipc") {
+          if (line !~ /^qk-ipc[[:space:]]*=[[:space:]]*\{[[:space:]]*path[[:space:]]*=[[:space:]]*"\.\.\/host\/qk-ipc"[[:space:]]*,[[:space:]]*version[[:space:]]*=[[:space:]]*"=0\.0\.1"[[:space:]]*,[[:space:]]*optional[[:space:]]*=[[:space:]]*true[[:space:]]*\}[[:space:]]*$/) {
+            print "ERROR|" manifest "|" NR "|qk-ipc optional dependency is not canonical"
+            next
+          }
+        } else if (line !~ /^[A-Za-z0-9_-]+[[:space:]]*=[[:space:]]*\{[[:space:]]*path[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*,[[:space:]]*version[[:space:]]*=[[:space:]]*"=[0-9A-Za-z.+-]+"[[:space:]]*\}[[:space:]]*$/) {
           print "ERROR|" manifest "|" NR "|path dependency is not canonical"
           next
         }
@@ -122,7 +137,7 @@ host_target=$(rustc -vV | sed -n 's/^host: //p')
 [ -n "$host_target" ] || fail 'cannot identify the fuzz build target'
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --target "$host_target" --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked active fuzz dependency closure offline'
+  fail 'cannot resolve the locked default fuzz dependency closure offline'
 fi
 if ! awk '
   {
@@ -137,17 +152,53 @@ if ! awk '
     if (name == "" || version == "") exit 1
     print kind "|" name "|" version
   }
-' "$tree_tmp" > "$closure_raw_tmp"; then
-  fail 'cannot parse active fuzz dependency closure'
+  ' "$tree_tmp" > "$default_raw_tmp"; then
+  fail 'cannot parse default fuzz dependency closure'
 fi
-sort -u "$closure_raw_tmp" > "$closure_tmp" || fail 'cannot normalize active fuzz dependency closure'
-[ -s "$closure_tmp" ] || fail 'active fuzz dependency closure is empty'
+sort -u "$default_raw_tmp" > "$default_tmp" || fail 'cannot normalize default fuzz dependency closure'
+[ -s "$default_tmp" ] || fail 'default fuzz dependency closure is empty'
+if awk -F '|' '$1 == "path" && $2 == "qk-ipc" { found = 1 } END { exit found ? 0 : 1 }' \
+    "$default_tmp"; then
+  fail 'qk-ipc is reachable from the default fuzz dependency closure'
+fi
+
+if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+    --features ipc --target "$host_target" --edges normal,build --prefix none --format '{p}' \
+    > "$tree_tmp"; then
+  fail 'cannot resolve the locked IPC-feature fuzz dependency closure offline'
+fi
+if ! awk '
+  {
+    line = $0
+    sub(/[[:space:]]+\(\*\)$/, "", line)
+    split(line, fields, " ")
+    name = fields[1]
+    version = fields[2]
+    sub(/^v/, "", version)
+    if (name == "quietkey-fuzz") next
+    kind = (name ~ /^qk-/) ? "path" : "registry"
+    if (name == "" || version == "") exit 1
+    print kind "|" name "|" version
+  }
+' "$tree_tmp" > "$ipc_raw_tmp"; then
+  fail 'cannot parse IPC-feature fuzz dependency closure'
+fi
+sort -u "$ipc_raw_tmp" > "$ipc_tmp" || fail 'cannot normalize IPC-feature fuzz dependency closure'
+[ -s "$ipc_tmp" ] || fail 'IPC-feature fuzz dependency closure is empty'
+ipc_matches=$(awk -F '|' \
+  '$1 == "path" && $2 == "qk-ipc" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
+  "$ipc_tmp") || fail 'cannot inspect IPC-feature fuzz dependency closure'
+[ "$ipc_matches" = 1 ] || fail 'qk-ipc 0.0.1 is not present exactly once in the IPC-feature fuzz dependency closure'
+
+cat "$default_tmp" "$ipc_tmp" > "$closure_raw_tmp" || fail 'cannot combine fuzz dependency closures'
+sort -u "$closure_raw_tmp" > "$closure_tmp" || fail 'cannot normalize union fuzz dependency closure'
+[ -s "$closure_tmp" ] || fail 'union fuzz dependency closure is empty'
 
 while IFS='|' read -r kind name version; do
   matches=$(awk -F '\t' -v k="$kind" -v n="$name" -v v="$version" \
     '!/^#/ && $1 == k && $2 == n && $3 == v { count++ } END { print count + 0 }' \
-    "$allowlist") || fail 'active-closure allowlist lookup failed'
-  [ "$matches" = 1 ] || fail "active dependency $kind $name $version is not uniquely allowed"
+    "$allowlist") || fail 'union-closure allowlist lookup failed'
+  [ "$matches" = 1 ] || fail "union dependency $kind $name $version is not uniquely allowed"
 done < "$closure_tmp"
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --workspace --locked \

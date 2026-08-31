@@ -52,7 +52,7 @@ elif ! command -v cargo >/dev/null 2>&1; then
 elif ! cargo generate-lockfile --manifest-path host/Cargo.toml \
     --offline >/dev/null 2>&1; then
   fail 'host Cargo.lock generation failed offline'
-elif tools/check-fuzz-dependencies.sh; then
+elif tools/check-fuzz-dependencies.sh --require-ipc-isolation; then
   ok 'fuzz manifests match the reviewed pinned dependency allowlist'
 else
   fail 'fuzz dependency allowlist check failed'
