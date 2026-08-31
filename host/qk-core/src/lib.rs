@@ -19,7 +19,9 @@
 mod capability;
 mod error;
 mod io_wire;
+#[cfg(feature = "normal-v3")]
 mod normal_artifact_v2;
+#[cfg(feature = "normal-v3")]
 mod normal_v2;
 mod session;
 mod session_id;
@@ -36,11 +38,13 @@ pub use capability::{
 };
 pub use error::{CoreError, Interruption, IoRejection};
 pub use io_wire::{Operation, Source};
+#[cfg(feature = "normal-v3")]
 pub use normal_artifact_v2::{
     NormalArtifactErrorV2, NormalArtifactFactsV2, NormalArtifactKindV2, NormalExportActionV2,
     NormalExportProgressV2, NormalExportRequestV2, NormalExportResultV2, NormalExportRouteV2,
     NormalProfileV2, NormalRouteExposureV2, NormalSdReceiptV2,
 };
+#[cfg(feature = "normal-v3")]
 pub use normal_v2::{
     NormalApprovalIdentityV2, NormalApprovalTokenV2, NormalArithmeticViewV2, NormalChangeViewV2,
     NormalErrorV2, NormalFeeFactsViewV2, NormalFeePolicyViewV2, NormalFinalApprovalViewV2,

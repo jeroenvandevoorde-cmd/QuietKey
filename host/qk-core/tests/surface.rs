@@ -57,6 +57,22 @@ fn direct_product_and_dev_dependencies_are_exact() {
 }
 
 #[test]
+fn normal_modules_and_exports_are_feature_locked() {
+    for item in [
+        "mod normal_artifact_v2;",
+        "mod normal_v2;",
+        "pub use normal_artifact_v2::{",
+        "pub use normal_v2::{",
+    ] {
+        assert!(
+            LIB.contains(&format!("#[cfg(feature = \"normal-v3\")]\n{item}")),
+            "normal surface is not feature locked: {item}"
+        );
+    }
+    assert_eq!(LIB.matches("#[cfg(feature = \"normal-v3\")]").count(), 4);
+}
+
+#[test]
 fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
     let public_lines: Vec<&str> = LIB
         .lines()
