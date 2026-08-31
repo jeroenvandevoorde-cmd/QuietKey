@@ -20,6 +20,8 @@ mod error;
 mod io_wire;
 mod session;
 mod session_id;
+mod setup_artifact_v2;
+mod sha256;
 #[allow(unsafe_code)]
 mod wipe;
 

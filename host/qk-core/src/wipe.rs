@@ -26,6 +26,21 @@ pub(crate) fn bytes(value: &mut [u8]) {
     WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
+/// Clear live 32-bit words with observable writes.
+#[allow(unsafe_code)]
+#[inline(never)]
+pub(crate) fn words32(value: &mut [u32]) {
+    #[cfg(any(test, feature = "fuzzing"))]
+    let byte_count = value.len().saturating_mul(core::mem::size_of::<u32>());
+    for word in value {
+        // SAFETY: every word is live and uniquely borrowed for this write.
+        unsafe { ptr::write_volatile(word, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+    #[cfg(any(test, feature = "fuzzing"))]
+    WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
+}
+
 /// Clear a complete live byte allocation, including spare capacity.
 #[allow(unsafe_code)]
 #[inline(never)]
@@ -93,7 +108,7 @@ pub fn wiped_bytes() -> usize {
     clippy::unwrap_used
 )]
 mod tests {
-    use super::{bytes, reset_wiped_bytes, wiped_bytes, WipingVec};
+    use super::{bytes, reset_wiped_bytes, wiped_bytes, words32, WipingVec};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
@@ -103,6 +118,15 @@ mod tests {
         bytes(&mut value);
         assert_eq!(value, [0; 37]);
         assert_eq!(wiped_bytes(), 37);
+    }
+
+    #[test]
+    fn fixed_word_slice_is_cleared_with_byte_accounting() {
+        let mut value = [0xa5a5_5a5a; 7];
+        reset_wiped_bytes();
+        words32(&mut value);
+        assert_eq!(value, [0; 7]);
+        assert_eq!(wiped_bytes(), 28);
     }
 
     #[test]

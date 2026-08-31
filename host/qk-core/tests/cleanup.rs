@@ -10,7 +10,7 @@ fn volatile_wipe_owns_the_complete_allocation_and_fences_each_clear() {
     assert!(WIPE.contains("allocation(self.0.as_mut_ptr(), capacity);"));
     assert!(WIPE.contains("ptr::write_volatile(pointer.add(offset), 0)"));
     assert!(WIPE.contains("ptr::write_volatile(byte, 0)"));
-    assert_eq!(WIPE.matches("compiler_fence(Ordering::SeqCst);").count(), 3);
+    assert_eq!(WIPE.matches("compiler_fence(Ordering::SeqCst);").count(), 4);
     assert!(WIPE.contains("allocated_owner_clears_length_and_spare_capacity"));
     assert!(WIPE.contains("allocation_owner_clears_during_caught_unwind"));
 }
