@@ -62,6 +62,7 @@ fn every_public_method_entry_is_pinned() {
             "pub const fn exchange_id(&self) -> u32 {",
             "pub fn encode(&self, payload: &[u8], output: &mut [u8]) -> Result<usize, IpcError> {",
             "pub const fn new(session_id: [u8; 16]) -> Self {",
+            "pub fn fuzz_exchange_exhaustion_probe(session_id: [u8; 16]) -> IpcError {",
             "pub fn begin(&mut self) -> Result<OutboundFrame, IpcError> {",
             "pub fn request(&mut self) -> Result<OutboundFrame, IpcError> {",
             "pub fn close(&mut self) -> Result<OutboundFrame, IpcError> {",

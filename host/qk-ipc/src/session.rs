@@ -119,6 +119,22 @@ impl CoreProtocol {
         }
     }
 
+    /// Exercise the otherwise impractical exchange-exhaustion boundary.
+    ///
+    /// This seam exists only in ring-fenced fuzz builds, constructs its own
+    /// endpoint, and cannot alter a caller-owned live session.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn fuzz_exchange_exhaustion_probe(session_id: [u8; 16]) -> IpcError {
+        let mut endpoint = Self::new(session_id);
+        endpoint.state = CoreState::Ready;
+        endpoint.last_completed = u32::MAX;
+        match endpoint.request() {
+            Err(error) => error,
+            Ok(_) => endpoint.terminate(IpcError::InvalidTransition),
+        }
+    }
+
     /// Start the exact exchange-one opening handshake.
     pub fn begin(&mut self) -> Result<OutboundFrame, IpcError> {
         self.require_not_terminal()?;
