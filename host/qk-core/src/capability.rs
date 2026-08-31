@@ -283,10 +283,7 @@ impl MockCardSlot {
     }
 
     /// Record one exact public-only role-B setup binding.
-    pub fn provision_b(
-        &mut self,
-        binding: CardBPublicBindingV2,
-    ) -> Result<(), CardMockErrorV2> {
+    pub fn provision_b(&mut self, binding: CardBPublicBindingV2) -> Result<(), CardMockErrorV2> {
         if self.presence != CardPresence::Present {
             return Err(CardMockErrorV2::CardAbsent);
         }
@@ -302,10 +299,7 @@ impl MockCardSlot {
     }
 
     /// Require byte equality with the previously recorded public binding.
-    pub fn verify_b(
-        &mut self,
-        binding: CardBPublicBindingV2,
-    ) -> Result<(), CardMockErrorV2> {
+    pub fn verify_b(&mut self, binding: CardBPublicBindingV2) -> Result<(), CardMockErrorV2> {
         if self.presence != CardPresence::Present {
             return Err(CardMockErrorV2::CardAbsent);
         }
