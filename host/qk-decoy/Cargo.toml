@@ -1,0 +1,12 @@
+[package]
+name = "qk-decoy"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Dependency-free bounded QuietKey calculator decoy reference. HOST only."
+
+[features]
+fuzzing = []
+
+[dependencies]
