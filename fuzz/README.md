@@ -157,14 +157,16 @@ The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
-`ipc`, `process-s2-decoy`, and `process-s2-supervisor` normal/build closures
+`ipc`, `process-s2-decoy`, `process-s2-supervisor`, and `process-s3-io`
+normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
-`qk-decoy`, and `qk-supervisor` are optional and absent from the default
+`qk-decoy`, `qk-supervisor`, and `qk-io` are optional and absent from the default
 closure; each target selects only its named non-default feature. `Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the four feature closures remain isolated, qk-decoy's host closure is
+proves the five closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
-qk-ipc, and the normalized union validates against the allowlist.
+qk-ipc, qk-io's host and fuzz closures are exactly qk-io plus qk-ipc and
+qk-bbqr, and the normalized union validates against the allowlist.
 `tools/check.sh` exempts only
 `fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
 non-top-level dependency tables, patches, replacements, closure isolation, or
@@ -215,6 +217,9 @@ fuzz/run-bounded.sh qk_ipc_wire 100000
 fuzz/run-bounded.sh qk_ipc_endpoint_state 100000
 fuzz/run-bounded.sh qk_supervisor_lifecycle 100000
 fuzz/run-bounded.sh qk_decoy_calculator 100000
+fuzz/run-bounded.sh qk_io_ingress 100000
+fuzz/run-bounded.sh qk_io_egress 100000
+fuzz/run-bounded.sh qk_io_session 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -275,3 +280,7 @@ their matching retained corpora are registered together in
 The two completed process-slice-2 campaigns are recorded in `CAMPAIGN-021.md`;
 their matching two-copy-minimized corpora are registered together in
 `CORPUS-MANIFEST-PROCESS-S2.tsv` under the source-before-execution rule.
+The three planned process-slice-3 campaigns are preregistered in
+`CAMPAIGN-022.md`. Their retained two-copy-minimized corpora will be registered
+together in `CORPUS-MANIFEST-PROCESS-S3.tsv` only after the campaign-registration
+commit becomes their common campaign source and all three runs complete.
