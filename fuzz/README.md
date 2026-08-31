@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-forty libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+forty-four libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -180,24 +180,41 @@ path. Campaign 024 is complete; its two new two-copy-minimized corpora are
 registered in `CORPUS-MANIFEST-PROCESS-S5.tsv`, and its two requalified
 PROCESS-S4 corpora were promoted under QK-DEC-146.
 
+The QK-DEC-149 `qk_core_normal_entry` and `qk_core_normal_run` targets are
+the HOST-only process-slice-6 partition. The entry target drives the three
+explicit recovery-profile bytes, both hostile PSBT ingress sources, framing,
+state ordering and all terminating interruptions. The run target drives a
+valid public NEVER-FUND flow through purpose-bound A1 and mock-card-B facts,
+exact descriptor and wallet rebinding, schema-v3 review identity, every review
+position, hold approval, reparse, purpose-bound A signing, checked mock-B
+insertion, two-key finalization and exactly one explicit profile-permitted SD
+or BBQr route. It locks exact finalized bytes, raw bytes, txid, wtxid, SD
+filenames and receipts, BBQr geometry and reassembly, route delivery order,
+partial two-artifact completion, deterministic repetition, named terminal
+outcomes and cleanup accounting. Neither target reaches a real card, media
+device, camera, display, keypad, process containment, target, performance,
+production or Gate boundary. Campaign 025 is reserved for their qualifying
+runs, two-copy minimization and PROCESS-S6 corpus registration.
+
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
 `ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s3-io`,
-`process-s4-core`, and `process-s5-core`
+`process-s4-core`, `process-s5-core`, and `process-s6-core`
 normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
 `qk-decoy`, `qk-supervisor`, `qk-io`, and `qk-core` are optional and absent from the default
 closure; each target selects only its named non-default feature. `Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the seven closures remain isolated, qk-decoy's host closure is
+proves the eight closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
 qk-ipc, qk-io's host and fuzz closures are exactly qk-io plus qk-ipc and
-qk-bbqr, and qk-core's host, process-s4 and process-s5 closures are exactly
-qk-a1, qk-bip32, qk-core, qk-descriptor, qk-ipc, qk-kit, qk-provisioning,
-qk-psbt, qk-secp and qk-wallet-v2; qk-host-sim and qk-io are absent from those
-core closures, and the normalized union validates against the allowlist.
+qk-bbqr, and qk-core's host, process-s4, process-s5 and process-s6 closures are
+exactly qk-a1, qk-bbqr, qk-bip32, qk-core, qk-descriptor, qk-ipc, qk-kit,
+qk-provisioning, qk-psbt, qk-secp and qk-wallet-v2; qk-host-sim and qk-io are
+absent from those core closures, and the normalized union validates against
+the allowlist.
 `tools/check.sh` exempts only
 `fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
 non-top-level dependency tables, patches, replacements, closure isolation, or
@@ -255,6 +272,8 @@ fuzz/run-bounded.sh qk_core_io_peer 100000
 fuzz/run-bounded.sh qk_core_session 100000
 fuzz/run-bounded.sh qk_core_provisioning_entry 100000
 fuzz/run-bounded.sh qk_core_provisioning_run 100000
+fuzz/run-bounded.sh qk_core_normal_entry 100000
+fuzz/run-bounded.sh qk_core_normal_run 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a

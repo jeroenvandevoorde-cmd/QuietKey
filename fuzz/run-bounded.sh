@@ -47,6 +47,8 @@ case "$target" in
   qk_core_session) max_len=4096; seed=144002 ;;
   qk_core_provisioning_entry) max_len=1024; seed=145001 ;;
   qk_core_provisioning_run) max_len=512; seed=145002 ;;
+  qk_core_normal_entry) max_len=4096; seed=149001 ;;
+  qk_core_normal_run) max_len=4096; seed=149002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac
@@ -90,6 +92,9 @@ case "$target" in
     ;;
   qk_core_provisioning_entry|qk_core_provisioning_run)
     set -- --no-default-features --features process-s5-core "$target" "fuzz/corpus/$target"
+    ;;
+  qk_core_normal_entry|qk_core_normal_run)
+    set -- --no-default-features --features process-s6-core "$target" "fuzz/corpus/$target"
     ;;
   *) set -- "$target" "fuzz/corpus/$target" ;;
 esac
