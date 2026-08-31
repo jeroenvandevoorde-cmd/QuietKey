@@ -57,10 +57,13 @@ process_feature_counts=$(awk '
   core_s5_start && $0 == "    \"dep:qk-ipc\"," { core_s5_ipc++ }
   core_s5_start && $0 == "    \"qk-core/fuzzing\"," { core_s5_fuzz++ }
   core_s5_start && $0 == "    \"qk-ipc/fuzzing\"," { core_s5_ipc_fuzz++ }
+  core_s5_start && $0 != "process-s5-core = [" && $0 != "]" && \
+    $0 != "    \"dep:qk-core\"," && $0 != "    \"dep:qk-ipc\"," && \
+    $0 != "    \"qk-core/fuzzing\"," && $0 != "    \"qk-ipc/fuzzing\"," { core_s5_extra++ }
   core_s5_start && $0 == "]" { core_s5_end++; core_s5_start = 0 }
-  END { print decoy + 0, supervisor + 0, io_blocks + 0, io_start + 0, io_end + 0, bbqr + 0, io_dep + 0, ipc + 0, io_fuzz + 0, ipc_fuzz + 0, core_s4_blocks + 0, core_s4_start + 0, core_s4_end + 0, core_s4_dep + 0, core_s4_ipc + 0, core_s4_fuzz + 0, core_s4_ipc_fuzz + 0, core_s5_blocks + 0, core_s5_start + 0, core_s5_end + 0, core_s5_dep + 0, core_s5_ipc + 0, core_s5_fuzz + 0, core_s5_ipc_fuzz + 0 }
+  END { print decoy + 0, supervisor + 0, io_blocks + 0, io_start + 0, io_end + 0, bbqr + 0, io_dep + 0, ipc + 0, io_fuzz + 0, ipc_fuzz + 0, core_s4_blocks + 0, core_s4_start + 0, core_s4_end + 0, core_s4_dep + 0, core_s4_ipc + 0, core_s4_fuzz + 0, core_s4_ipc_fuzz + 0, core_s5_blocks + 0, core_s5_start + 0, core_s5_end + 0, core_s5_dep + 0, core_s5_ipc + 0, core_s5_fuzz + 0, core_s5_ipc_fuzz + 0, core_s5_extra + 0 }
 ' fuzz/Cargo.toml) || fail 'cannot inspect process fuzz feature declarations'
-[ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1' ] || \
+[ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1 0' ] || \
   fail 'process fuzz features are not declared exactly once in canonical form'
 
 if ! awk '

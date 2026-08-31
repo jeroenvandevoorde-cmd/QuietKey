@@ -412,26 +412,23 @@ if [ "$mode" = check ]; then
     grep -Fqx 'Status: PLANNED — NOT EXECUTED.' fuzz/CAMPAIGN-023.md || \
       fail 'process slice-4 corpus manifest is absent without the planned campaign status'
   fi
-  if [ -e "$process_s5_campaign" ] || [ -L "$process_s5_campaign" ]; then
-    [ -f "$process_s5_campaign" ] || fail "$process_s5_campaign is not a regular file"
-    [ ! -L "$process_s5_campaign" ] || fail "$process_s5_campaign must not be a symlink"
-    git ls-files --error-unmatch -- "$process_s5_campaign" >/dev/null 2>&1 || \
-      fail "$process_s5_campaign is untracked"
+  [ -f "$process_s5_campaign" ] || fail "$process_s5_campaign is missing"
+  [ ! -L "$process_s5_campaign" ] || fail "$process_s5_campaign must not be a symlink"
+  git ls-files --error-unmatch -- "$process_s5_campaign" >/dev/null 2>&1 || \
+    fail "$process_s5_campaign is untracked"
+  if [ -e "$process_s5_manifest" ] || [ -L "$process_s5_manifest" ]; then
+    [ -f "$process_s5_manifest" ] || fail "$process_s5_manifest is not a regular file"
+    [ ! -L "$process_s5_manifest" ] || fail "$process_s5_manifest must not be a symlink"
+    git ls-files --error-unmatch -- "$process_s5_manifest" >/dev/null 2>&1 || \
+      fail "$process_s5_manifest is untracked"
+    grep -Fqx 'Status: EXECUTED — QUALIFYING RUN COMPLETE.' "$process_s5_campaign" || \
+      fail 'registered process slice-5 corpus requires completed campaign status'
     process_s5_active=yes
-    if [ -e "$process_s5_manifest" ] || [ -L "$process_s5_manifest" ]; then
-      [ -f "$process_s5_manifest" ] || fail "$process_s5_manifest is not a regular file"
-      [ ! -L "$process_s5_manifest" ] || fail "$process_s5_manifest must not be a symlink"
-      git ls-files --error-unmatch -- "$process_s5_manifest" >/dev/null 2>&1 || \
-        fail "$process_s5_manifest is untracked"
-      grep -Fqx 'Status: EXECUTED — QUALIFYING RUN COMPLETE.' "$process_s5_campaign" || \
-        fail 'registered process slice-5 corpus requires completed campaign status'
-      process_s5_registered=yes
-    else
-      grep -Fqx 'Status: PLANNED — NOT EXECUTED.' "$process_s5_campaign" || \
-        fail 'process slice-5 corpus manifest is absent without the planned campaign status'
-    fi
-  elif [ -e "$process_s5_manifest" ] || [ -L "$process_s5_manifest" ]; then
-    fail "$process_s5_manifest exists without $process_s5_campaign"
+    process_s5_registered=yes
+  else
+    grep -Fqx 'Status: PLANNED — NOT EXECUTED.' "$process_s5_campaign" || \
+      fail 'process slice-5 corpus manifest is absent without the planned campaign status'
+    process_s5_active=yes
   fi
 elif [ "$mode" = render_process_s5 ]; then
   process_s5_active=yes
@@ -685,6 +682,15 @@ if [ "$process_s5_active" = yes ]; then
   emit_partition_entries "$process_s5_targets" "$process_s5_entries"
 else
   : > "$process_s5_entries" || fail 'cannot initialize process slice-5 corpus entries'
+fi
+if [ "$process_s5_active" = yes ] && [ "$process_s5_registered" = no ]; then
+  planned_count=$(wc -l < "$process_s5_entries" | tr -d ' ')
+  planned_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$process_s5_entries")
+  planned_hash=$(sha256_file "$process_s5_entries") || \
+    fail 'cannot hash process slice-5 starting corpus entries'
+  [ "$planned_count:$planned_bytes:$planned_hash" = \
+    '247:7185:79dd9570b0f4e8f2cc1f0839852de5cc81ef2a32f2d234af7e7c9f56801172e4' ] || \
+    fail 'process slice-5 starting corpora do not match the preregistered bytes'
 fi
 cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'
 cut -f 5 "$m22_entries" | LC_ALL=C sort > "$m22_paths" || fail 'cannot list M22 corpus paths'
