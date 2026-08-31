@@ -280,7 +280,7 @@ their matching retained corpora are registered together in
 The two completed process-slice-2 campaigns are recorded in `CAMPAIGN-021.md`;
 their matching two-copy-minimized corpora are registered together in
 `CORPUS-MANIFEST-PROCESS-S2.tsv` under the source-before-execution rule.
-The three planned process-slice-3 campaigns are preregistered in
-`CAMPAIGN-022.md`. Their retained two-copy-minimized corpora will be registered
-together in `CORPUS-MANIFEST-PROCESS-S3.tsv` only after the campaign-registration
-commit becomes their common campaign source and all three runs complete.
+The three completed process-slice-3 campaigns are recorded in
+`CAMPAIGN-022.md`; their matching two-copy-minimized corpora are registered
+together in `CORPUS-MANIFEST-PROCESS-S3.tsv` under the source-before-execution
+rule.
