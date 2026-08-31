@@ -2,6 +2,8 @@
 
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
+const SETUP: &str = include_str!("../src/setup_v2.rs");
+const SETUP_ARTIFACT: &str = include_str!("../src/setup_artifact_v2.rs");
 const WIPE: &str = include_str!("../src/wipe.rs");
 
 #[test]
@@ -57,12 +59,40 @@ fn universal_termination_discards_every_session_owned_buffer_before_absorption()
     assert!(SESSION.contains("Err(error) => Err(self.fail(error))"));
 }
 
+#[test]
+fn setup_cleanup_covers_every_secret_owner_and_terminal_route() {
+    for clear in [
+        "self.clear_transcripts();",
+        "self.clear_commitment();",
+        "self.clear_nonce();",
+        "drop(self.run.take());",
+        "drop(self.a1_artifact.take());",
+        "drop(page.take());",
+    ] {
+        assert!(SETUP.contains(clear), "missing setup cleanup {clear}");
+    }
+    assert!(SETUP.contains("impl Drop for SecretTranscriptV2"));
+    assert!(SETUP.contains("impl Drop for SecretNonceV2"));
+    assert!(SETUP.contains("impl Drop for SetupSessionV2"));
+    assert!(SETUP.contains("self.core.setup_fail();"));
+    assert!(SETUP.contains("self.core.terminate_setup(reason);"));
+    assert!(SETUP_ARTIFACT.contains("impl Drop for A1PrintArtifactV2"));
+    assert!(SETUP_ARTIFACT.contains("impl Drop for KitPrintArtifactV2"));
+    assert_eq!(
+        SETUP_ARTIFACT
+            .matches("wipe::bytes(&mut self.bytes);")
+            .count(),
+        2
+    );
+}
+
 #[cfg(feature = "fuzzing")]
 mod executable {
     use qk_core::fuzz::{fuzz_start_session, reset_wiped_bytes, wiped_bytes};
     use qk_core::{
         CardPresence, CoreDeviceGrants, CoreError, CoreMode, CoreOutbound, CoreReceiveEvent,
-        CoreSession, CoreState, Interruption, MockCardSlot, MockDisplay, MockKeypad, Source,
+        CoreSession, CoreState, Interruption, KeypadKey, MockCardSlot, MockDisplay, MockKeypad,
+        SetupErrorV2, SetupOutcomeV2, SetupSessionV2, Source,
     };
     use qk_ipc::{encode_frame, parse_frame, Direction, MessageKind, HEADER_BYTES};
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -169,6 +199,22 @@ mod executable {
         session
     }
 
+    fn opened_setup() -> SetupSessionV2 {
+        let mut nonce = [0x5a; 12];
+        reset_wiped_bytes();
+        let (mut setup, opening) = SetupSessionV2::fuzz_start(NAMESPACE, 0, grants(), &mut nonce)
+            .expect("deterministic setup");
+        assert_eq!(nonce, [0; 12]);
+        assert_eq!(wiped_bytes(), 44);
+        let ready = reply(&opening, MessageKind::SessionReady, &[]);
+        drop(opening);
+        assert_eq!(
+            setup.receive(&ready, false).expect("setup ready").outcome(),
+            SetupOutcomeV2::Continue(qk_core::SetupStageV2::SetupStart)
+        );
+        setup
+    }
+
     #[test]
     fn deterministic_mint_and_outbound_owner_have_exact_cleanup_counts() {
         reset_wiped_bytes();
@@ -239,5 +285,56 @@ mod executable {
         }));
         assert!(result.is_err());
         assert_eq!(wiped_bytes(), CANDIDATE.len());
+    }
+
+    #[test]
+    fn state_preserving_entry_rejection_retains_bytes_without_cleanup() {
+        let mut setup = opened_setup();
+        setup
+            .apply_key(KeypadKey::EqualsConfirmEnter)
+            .expect("tier selection");
+        setup
+            .apply_key(KeypadKey::EqualsConfirmEnter)
+            .expect("entropy selection");
+        setup.apply_key(KeypadKey::SixRight).expect("manual mode");
+        setup
+            .apply_key(KeypadKey::EqualsConfirmEnter)
+            .expect("manual entry");
+        setup.apply_key(KeypadKey::One).expect("one face");
+        reset_wiped_bytes();
+        assert_eq!(
+            setup
+                .apply_key(KeypadKey::Seven)
+                .expect("visible rejection")
+                .outcome(),
+            SetupOutcomeV2::StatePreserving(SetupErrorV2::InvalidFaceKey)
+        );
+        assert_eq!(setup.retained_counts(), [1, 0, 0, 0]);
+        assert_eq!(wiped_bytes(), 0);
+    }
+
+    #[test]
+    fn setup_cancellation_and_unwind_clear_all_fixed_owners() {
+        let mut cancelled = opened_setup();
+        reset_wiped_bytes();
+        assert_eq!(
+            cancelled.interrupt(Interruption::Cancelled),
+            Ok(Interruption::Cancelled)
+        );
+        assert_eq!(wiped_bytes(), 412);
+        assert!(cancelled.is_terminal());
+        assert_eq!(
+            cancelled.terminal_error(),
+            Some(SetupErrorV2::Interrupted(Interruption::Cancelled))
+        );
+
+        let unwound = opened_setup();
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _setup = unwound;
+            panic!("test-only setup unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), 812);
     }
 }
