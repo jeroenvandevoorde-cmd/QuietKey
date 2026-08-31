@@ -7,6 +7,7 @@ const DESCRIPTOR: &str = include_str!("../src/descriptor.rs");
 const HMAC_SHA512: &str = include_str!("../src/hmac_sha512.rs");
 const SECRET: &str = include_str!("../src/secret.rs");
 const SPEND: &str = include_str!("../src/spend_v2.rs");
+const NORMAL: &str = include_str!("../src/normal_v3.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
 #[test]
@@ -19,6 +20,7 @@ fn public_surface_is_only_errors_public_facts_and_purpose_bound_operations() {
     assert_eq!(
         public_lines,
         [
+            "pub use normal_v3::{",
             "pub use spend_v2::{",
             "pub enum WalletV2Error {",
             "pub struct WalletPublicV2 {",
@@ -81,6 +83,30 @@ fn public_surface_is_only_errors_public_facts_and_purpose_bound_operations() {
         assert!(
             !SPEND.contains(forbidden),
             "forbidden spend surface {forbidden}"
+        );
+    }
+    assert!(NORMAL.contains("pub fn sign_validated_normal_role_a_v3("));
+    assert!(NORMAL.contains("pub fn validate_normal_role_a_binding_v3("));
+    assert!(NORMAL.contains("proof: &ValidatedNormalV3,"));
+    assert!(NORMAL.contains("proof: ValidatedNormalV3,"));
+    assert!(NORMAL.contains("pub struct WalletSignedNormalRoleAV3 {"));
+    assert!(NORMAL.contains("proof: ValidatedNormalV3Parts,"));
+    assert!(NORMAL.contains(".revalidate()"));
+    assert!(NORMAL.contains("account_matches_role_a(&account, expected_descriptors)"));
+    assert!(NORMAL.contains("let xpub = Secret::take(&mut xpub);"));
+    assert!(NORMAL.contains("let origin_fingerprint = Secret::take(&mut origin_fingerprint);"));
+    for forbidden in [
+        "pub fn digest",
+        "pub fn scalar",
+        "pub fn secret",
+        "pub fn xprv",
+        "pub fn signer",
+        "FnOnce",
+        "FnMut",
+    ] {
+        assert!(
+            !NORMAL.contains(forbidden),
+            "forbidden normal surface {forbidden}"
         );
     }
 }
@@ -149,7 +175,7 @@ fn private_owners_and_unsafe_boundary_are_locked() {
     assert_eq!(SECRET.matches("unsafe {").count(), 1);
     assert!(LIB.contains("#![deny(unsafe_code)]"));
 
-    for source in [LIB, BIP39, BIP32, DESCRIPTOR, HMAC_SHA512] {
+    for source in [LIB, BIP39, BIP32, DESCRIPTOR, HMAC_SHA512, NORMAL] {
         for forbidden in [
             "unsafe {",
             "unsafe fn",
