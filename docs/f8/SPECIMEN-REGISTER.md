@@ -38,10 +38,11 @@ no mutation. Contact order is exact:
 3. Protected reference `J3R180-01` only after the procedure has succeeded
    twice.
 
-No specimen contact is permitted until the labeling/package photograph bundle
-has complete timestamps, byte counts and SHA-256 values in the private-bundle
-manifest. Any unexpected response stops the procedure for Owner disposition;
-it is not explored ad hoc.
+The applied physical labels and the committed ledger rows are the complete
+precondition for specimen contact and are complete. The photograph set is an
+optional private-custody fact: no contact or later step waits on its hashes.
+Any unexpected response stops the procedure for Owner disposition; it is not
+explored ad hoc.
 
 ## Publication and custody boundary
 
@@ -57,11 +58,11 @@ verbatim inside its registered private bundle.
 
 | Alias | Claimed path | Batch link | Packaging/marking record | Photo manifest | Custody | Assignment | Mutable permission | Source commit | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| `J3R180-01` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `01` | `PENDING` | Locked Owner-premises storage | NON-SACRIFICIAL REFERENCE; contacted last | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH/TIMESTAMP PENDING; NO CONTACT |
-| `J3R180-02` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `02` | `PENDING` | Locked Owner-premises storage | POWER-CUT SPECIMEN; contacted first | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH/TIMESTAMP PENDING; NO CONTACT |
-| `J3R180-03` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `03` | `PENDING` | Locked Owner-premises storage | ENDURANCE SPECIMEN; contacted second | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH/TIMESTAMP PENDING; NO CONTACT |
+| `J3R180-01` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `01` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | NON-SACRIFICIAL REFERENCE; contacted last | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH OPTIONAL; NO CONTACT |
+| `J3R180-02` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `02` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | POWER-CUT SPECIMEN; contacted first | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; CONTACT AUTHORIZED; NOT YET CONTACTED |
+| `J3R180-03` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `03` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | ENDURANCE SPECIMEN; contacted second | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH OPTIONAL; NO CONTACT |
 
 Contactless condition remains uncharacterized and no contactless bearer
 operation is authorized. Quantity mismatch, substitute, conflicting marking,
-custody ambiguity, incomplete photograph manifest or assignment ambiguity stops
-intake rather than being repaired by assumption.
+custody ambiguity or assignment ambiguity stops intake rather than being
+repaired by assumption.

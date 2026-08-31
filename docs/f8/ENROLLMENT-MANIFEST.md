@@ -40,14 +40,15 @@ Each private enrollment transcript is LF-terminated ASCII identified as
 The tool writes only to its caller-supplied output stream and never persists a
 file itself. The Owner redirects the exact stream into the private bundle.
 
-## Pending intake-photo bundle
+## Optional intake-photo bundle
 
 Every photo file receives its own row; aggregate set rows are forbidden because
-they would not bind each exact original byte string.
+they would not bind each exact original byte string. The recorded set may remain
+unhashed indefinitely; no enrollment or later step waits on this table.
 
 | Artifact alias | Exact private filename | Private location | UTC timestamp | Exact byte count | SHA-256 | Status |
 |---|---|---|---|---:|---|---|
-| `PENDING - ONE ROW PER PHOTO` | `PENDING` | Owner iPhone and Owner iCloud; final privacy-safe custody path pending | `PENDING` | `PENDING` | `PENDING` | LABELED-SPECIMEN/PACKAGING SET EXISTS; PER-FILE MANIFEST INCOMPLETE; CARD CONTACT BLOCKED |
+| `OPTIONAL - ONE ROW PER PHOTO IF REGISTERED` | `UNHASHED` | Owner iPhone and Owner iCloud | `UNREGISTERED` | `UNREGISTERED` | `UNREGISTERED` | RECORDED PRIVATE-CUSTODY FACT; NOT A CONTACT PRECONDITION |
 
 ## Apparatus evidence ledger
 
