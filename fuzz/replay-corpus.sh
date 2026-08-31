@@ -42,6 +42,8 @@ case "$target" in
   qk_io_ingress) max_len=16384; seed=143001 ;;
   qk_io_egress) max_len=16384; seed=143002 ;;
   qk_io_session) max_len=4096; seed=143003 ;;
+  qk_core_io_peer) max_len=16384; seed=144001 ;;
+  qk_core_session) max_len=4096; seed=144002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 
@@ -76,6 +78,9 @@ case "$target" in
     ;;
   qk_io_ingress|qk_io_egress|qk_io_session)
     set -- --no-default-features --features process-s3-io "$target" "fuzz/corpus/$target"
+    ;;
+  qk_core_io_peer|qk_core_session)
+    set -- --no-default-features --features process-s4-core "$target" "fuzz/corpus/$target"
     ;;
   *) set -- "$target" "fuzz/corpus/$target" ;;
 esac

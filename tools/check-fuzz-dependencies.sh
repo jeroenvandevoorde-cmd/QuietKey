@@ -46,9 +46,15 @@ process_feature_counts=$(awk '
   io_start && $0 == "    \"qk-io/fuzzing\"," { io_fuzz++ }
   io_start && $0 == "    \"qk-ipc/fuzzing\"," { ipc_fuzz++ }
   io_start && $0 == "]" { io_end++; io_start = 0 }
-  END { print decoy + 0, supervisor + 0, io_blocks + 0, io_start + 0, io_end + 0, bbqr + 0, io_dep + 0, ipc + 0, io_fuzz + 0, ipc_fuzz + 0 }
+  $0 == "process-s4-core = [" { core_start = 1; core_blocks++ }
+  core_start && $0 == "    \"dep:qk-core\"," { core_dep++ }
+  core_start && $0 == "    \"dep:qk-ipc\"," { core_ipc++ }
+  core_start && $0 == "    \"qk-core/fuzzing\"," { core_fuzz++ }
+  core_start && $0 == "    \"qk-ipc/fuzzing\"," { core_ipc_fuzz++ }
+  core_start && $0 == "]" { core_end++; core_start = 0 }
+  END { print decoy + 0, supervisor + 0, io_blocks + 0, io_start + 0, io_end + 0, bbqr + 0, io_dep + 0, ipc + 0, io_fuzz + 0, ipc_fuzz + 0, core_blocks + 0, core_start + 0, core_end + 0, core_dep + 0, core_ipc + 0, core_fuzz + 0, core_ipc_fuzz + 0 }
 ' fuzz/Cargo.toml) || fail 'cannot inspect process fuzz feature declarations'
-[ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1' ] || \
+[ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1' ] || \
   fail 'process fuzz features are not declared exactly once in canonical form'
 
 if ! awk '
@@ -63,7 +69,10 @@ if ! awk '
     } else if (name == "qk_io_ingress" || name == "qk_io_egress" || name == "qk_io_session") {
       io++
       if (required != "process-s3-io") bad = 1
-    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s3-io") {
+    } else if (name == "qk_core_io_peer" || name == "qk_core_session") {
+      core++
+      if (required != "process-s4-core") bad = 1
+    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s3-io" || required == "process-s4-core") {
       bad = 1
     }
   }
@@ -92,7 +101,7 @@ if ! awk '
   }
   END {
     flush_bin()
-    exit (bad || decoy != 1 || supervisor != 1 || io != 3) ? 1 : 0
+    exit (bad || decoy != 1 || supervisor != 1 || io != 3 || core != 2) ? 1 : 0
   }
 ' fuzz/Cargo.toml; then
   fail 'process fuzz target-to-feature mapping is not exact'
@@ -113,19 +122,24 @@ supervisor_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s2-superviso
 supervisor_tmp=$(mktemp) || fail 'mktemp failed for process-s2-supervisor fuzz dependency closure'
 io_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s3-io fuzz dependency closure'
 io_tmp=$(mktemp) || fail 'mktemp failed for process-s3-io fuzz dependency closure'
+core_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s4-core fuzz dependency closure'
+core_tmp=$(mktemp) || fail 'mktemp failed for process-s4-core fuzz dependency closure'
 host_decoy_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-decoy host dependency closure'
 host_decoy_tmp=$(mktemp) || fail 'mktemp failed for qk-decoy host dependency closure'
 host_supervisor_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-supervisor host dependency closure'
 host_supervisor_tmp=$(mktemp) || fail 'mktemp failed for qk-supervisor host dependency closure'
 host_io_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-io host dependency closure'
 host_io_tmp=$(mktemp) || fail 'mktemp failed for qk-io host dependency closure'
+host_core_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-core host dependency closure'
+host_core_tmp=$(mktemp) || fail 'mktemp failed for qk-core host dependency closure'
 closure_raw_tmp=$(mktemp) || fail 'mktemp failed for raw union fuzz dependency closure'
 closure_tmp=$(mktemp) || fail 'mktemp failed for union fuzz dependency closure'
 trap 'rm -f "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
   "$ipc_raw_tmp" "$ipc_tmp" "$decoy_raw_tmp" "$decoy_tmp" \
   "$supervisor_raw_tmp" "$supervisor_tmp" "$io_raw_tmp" "$io_tmp" "$host_decoy_raw_tmp" \
+  "$core_raw_tmp" "$core_tmp" \
   "$host_decoy_tmp" "$host_supervisor_raw_tmp" "$host_supervisor_tmp" \
-  "$host_io_raw_tmp" "$host_io_tmp" \
+  "$host_io_raw_tmp" "$host_io_tmp" "$host_core_raw_tmp" "$host_core_tmp" \
   "$closure_raw_tmp" "$closure_tmp"' EXIT HUP INT TERM
 
 for manifest in $fuzz_manifests; do
@@ -238,7 +252,7 @@ if ! awk '
 fi
 sort -u "$default_raw_tmp" > "$default_tmp" || fail 'cannot normalize default fuzz dependency closure'
 [ -s "$default_tmp" ] || fail 'default fuzz dependency closure is empty'
-if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io") { found = 1 } END { exit found ? 0 : 1 }' \
+if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core") { found = 1 } END { exit found ? 0 : 1 }' \
     "$default_tmp"; then
   fail 'a ring-fenced process dependency is reachable from the default fuzz dependency closure'
 fi
@@ -270,7 +284,7 @@ ipc_matches=$(awk -F '|' \
   '$1 == "path" && $2 == "qk-ipc" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
   "$ipc_tmp") || fail 'cannot inspect IPC-feature fuzz dependency closure'
 [ "$ipc_matches" = 1 ] || fail 'qk-ipc 0.0.1 is not present exactly once in the IPC-feature fuzz dependency closure'
-if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io") { found = 1 } END { exit found ? 0 : 1 }' \
+if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core") { found = 1 } END { exit found ? 0 : 1 }' \
     "$ipc_tmp"; then
   fail 'a process dependency is reachable from the IPC-only fuzz dependency closure'
 fi
@@ -382,7 +396,38 @@ qk-ipc|0.0.1'
 [ "$io_path_set" = "$expected_io_path_set" ] || \
   fail 'process-s3-io path dependency closure is not exactly qk-bbqr, qk-io and qk-ipc 0.0.1'
 
-cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$io_tmp" > "$closure_raw_tmp" || \
+if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+    --no-default-features --features process-s4-core --target "$host_target" --edges normal,build \
+    --prefix none --format '{p}' > "$tree_tmp"; then
+  fail 'cannot resolve the locked process-s4-core fuzz dependency closure offline'
+fi
+if ! awk '
+  {
+    line = $0
+    sub(/[[:space:]]+\(\*\)$/, "", line)
+    split(line, fields, " ")
+    name = fields[1]
+    version = fields[2]
+    sub(/^v/, "", version)
+    if (name == "quietkey-fuzz") next
+    kind = (name ~ /^qk-/) ? "path" : "registry"
+    if (name == "" || version == "") exit 1
+    print kind "|" name "|" version
+  }
+' "$tree_tmp" > "$core_raw_tmp"; then
+  fail 'cannot parse process-s4-core fuzz dependency closure'
+fi
+sort -u "$core_raw_tmp" > "$core_tmp" || \
+  fail 'cannot normalize process-s4-core fuzz dependency closure'
+[ -s "$core_tmp" ] || fail 'process-s4-core fuzz dependency closure is empty'
+core_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_tmp") || \
+  fail 'cannot enumerate process-s4-core path dependencies'
+expected_core_path_set='qk-core|0.0.1
+qk-ipc|0.0.1'
+[ "$core_path_set" = "$expected_core_path_set" ] || \
+  fail 'process-s4-core path dependency closure is not exactly qk-core and qk-ipc 0.0.1'
+
+cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$io_tmp" "$core_tmp" > "$closure_raw_tmp" || \
   fail 'cannot combine fuzz dependency closures'
 sort -u "$closure_raw_tmp" > "$closure_tmp" || fail 'cannot normalize union fuzz dependency closure'
 [ -s "$closure_tmp" ] || fail 'union fuzz dependency closure is empty'
@@ -477,6 +522,31 @@ sort -u "$host_io_raw_tmp" > "$host_io_tmp" || \
 if ! printf '%s\n' 'qk-bbqr|0.0.1' 'qk-io|0.0.1' 'qk-ipc|0.0.1' | \
     cmp -s - "$host_io_tmp"; then
   fail 'qk-io host dependency closure is not exactly qk-io, qk-ipc and qk-bbqr'
+fi
+
+if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package qk-core \
+    --locked --offline --target "$host_target" --edges normal,build --prefix none \
+    --format '{p}' > "$tree_tmp"; then
+  fail 'cannot resolve the locked qk-core host dependency closure offline'
+fi
+if ! awk '
+  {
+    line = $0
+    sub(/[[:space:]]+\(\*\)$/, "", line)
+    split(line, fields, " ")
+    name = fields[1]
+    version = fields[2]
+    sub(/^v/, "", version)
+    if (name == "" || version == "") exit 1
+    print name "|" version
+  }
+' "$tree_tmp" > "$host_core_raw_tmp"; then
+  fail 'cannot parse qk-core host dependency closure'
+fi
+sort -u "$host_core_raw_tmp" > "$host_core_tmp" || \
+  fail 'cannot normalize qk-core host dependency closure'
+if ! printf '%s\n' 'qk-core|0.0.1' 'qk-ipc|0.0.1' | cmp -s - "$host_core_tmp"; then
+  fail 'qk-core host dependency closure is not exactly qk-core plus qk-ipc'
 fi
 
 while IFS="$tab" read -r kind name version checksum subject license purpose; do

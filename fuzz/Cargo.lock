@@ -201,6 +201,13 @@ name = "qk-card-trace"
 version = "0.0.1"
 
 [[package]]
+name = "qk-core"
+version = "0.0.1"
+dependencies = [
+ "qk-ipc",
+]
+
+[[package]]
 name = "qk-decoy"
 version = "0.0.1"
 
@@ -304,6 +311,7 @@ dependencies = [
  "qk-a1-codec",
  "qk-bbqr",
  "qk-card-trace",
+ "qk-core",
  "qk-decoy",
  "qk-descriptor",
  "qk-host-sim",

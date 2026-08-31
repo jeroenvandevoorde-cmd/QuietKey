@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-thirty-five libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+forty libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -153,20 +153,35 @@ left-to-right arithmetic, and a total key/state oracle. Neither target reaches
 a wallet, card, real device, target privilege, production, performance, or Gate
 boundary. Campaign 021 is complete and its retained corpora are hash-registered.
 
+The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
+process-slice-4 partition. The peer target drives qk-core's separately
+implemented inner response parser, one complete valid ingress transfer, outer
+fragmentation and coalescing, ancillary rejection, session identity and
+exchange ordering. The session target drives the typed capability seams, all
+logical keys and interruptions, the complete non-signing shell lifecycle,
+deterministic session-id facts, terminal absorption and exact wipe accounting.
+Both require stable named outcomes and repeat consistency. Neither target
+creates a wallet fact, signs, derives from live entropy, approves, exports,
+opens a process or socket, or reaches a real display, keypad, card, target,
+production, performance or Gate boundary. Campaign 023 is preregistered but
+unexecuted until the complete target and registration scaffold is committed.
+
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
-`ipc`, `process-s2-decoy`, `process-s2-supervisor`, and `process-s3-io`
+`ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s3-io`, and
+`process-s4-core`
 normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
-`qk-decoy`, `qk-supervisor`, and `qk-io` are optional and absent from the default
+`qk-decoy`, `qk-supervisor`, `qk-io`, and `qk-core` are optional and absent from the default
 closure; each target selects only its named non-default feature. `Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the five closures remain isolated, qk-decoy's host closure is
+proves the six closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
 qk-ipc, qk-io's host and fuzz closures are exactly qk-io plus qk-ipc and
-qk-bbqr, and the normalized union validates against the allowlist.
+qk-bbqr, qk-core's host and fuzz closures are exactly qk-core plus qk-ipc, and
+the normalized union validates against the allowlist.
 `tools/check.sh` exempts only
 `fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
 non-top-level dependency tables, patches, replacements, closure isolation, or
@@ -220,6 +235,8 @@ fuzz/run-bounded.sh qk_decoy_calculator 100000
 fuzz/run-bounded.sh qk_io_ingress 100000
 fuzz/run-bounded.sh qk_io_egress 100000
 fuzz/run-bounded.sh qk_io_session 100000
+fuzz/run-bounded.sh qk_core_io_peer 100000
+fuzz/run-bounded.sh qk_core_session 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -284,3 +301,8 @@ The three completed process-slice-3 campaigns are recorded in
 `CAMPAIGN-022.md`; their matching two-copy-minimized corpora are registered
 together in `CORPUS-MANIFEST-PROCESS-S3.tsv` under the source-before-execution
 rule.
+The two planned process-slice-4 campaigns are preregistered in
+`CAMPAIGN-023.md`. Their retained two-copy-minimized corpora will be registered
+together in `CORPUS-MANIFEST-PROCESS-S4.tsv` only after the
+campaign-registration commit becomes their common campaign source and both
+runs complete.
