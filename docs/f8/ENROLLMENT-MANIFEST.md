@@ -1,14 +1,17 @@
 # F8 Enrollment Evidence Manifest
 
-EXPERIMENTAL - FIRST ZERO-APDU ENROLLMENT EVIDENCE REGISTERED
+EXPERIMENTAL - ALL THREE ZERO-APDU ENROLLMENT RECORDS REGISTERED
 
 ## Current state
 
-One saved reader-enumeration transcript and one complete zero-APDU enrollment
-transcript are registered below. The enrollment records the sole tool-driven
-contact session for `J3R180-02`; specimens `J3R180-01` and `J3R180-03` remain
-uncontacted. The photograph set exists in Owner custody but remains unhashed and
-optional under QK-DEC-148.
+One saved reader-enumeration transcript and three complete zero-APDU enrollment
+transcripts are registered below. Each specimen has exactly one tool-driven
+contact session, in the required order `J3R180-02`, `J3R180-03`, then
+`J3R180-01`; specimen 03 followed the committed registration and review of
+specimen 02, and protected specimen 01 followed two successful procedures. The
+enrollment phase is complete and no further card contact is authorized. The
+photograph set exists in Owner custody but remains unhashed and optional under
+QK-DEC-148.
 
 ## Evidence boundary
 
@@ -65,8 +68,8 @@ must not reuse this row.
 | Required order | Specimen alias | Public ATR bytes | Negotiated protocol | Private transcript artifact | Exact transcript bytes | Transcript SHA-256 | Tool/source commit | UTC timestamp | Private custody path | Result |
 |---:|---|---|---|---|---:|---|---|---|---|---|
 | 1 | `J3R180-02` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `enroll-J3R180-02.txt` | 705 | `b775efa248b010f8862cc24670319fe6f76373c2c6032a804bda01e3e54d468d` | `qk-card-enrollment 0.0.1`; source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | `2026-08-31T18:08:17Z` | Private F8 bundle in locked storage at Owner premises | PASS; operations `EnumerateReaders`, `ExclusiveConnect`, `Reset`, `CaptureAtr`, `CaptureProtocol`, `Disconnect` all PASS; APDU tx/rx `0/0` |
-| 2 | `J3R180-03` | `PENDING - NOT CAPTURED` | `PENDING - NOT CAPTURED` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | BLOCKED ON SPECIMEN 02 REVIEW |
-| 3 | `J3R180-01` | `PENDING - NOT CAPTURED` | `PENDING - NOT CAPTURED` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | `PENDING` | BLOCKED UNTIL PROCEDURE SUCCEEDS TWICE |
+| 2 | `J3R180-03` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `enroll-J3R180-03.txt` | 705 | `b442a760c93e81e75f2703ec3a79c7bb179cba62deea02645f024af307872d4e` | `qk-card-enrollment 0.0.1`; source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | `2026-08-31T19:04:40Z` | Private F8 bundle in locked storage at Owner premises | PASS; operations `EnumerateReaders`, `ExclusiveConnect`, `Reset`, `CaptureAtr`, `CaptureProtocol`, `Disconnect` all PASS; APDU tx/rx `0/0` |
+| 3 | `J3R180-01` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `enroll-J3R180-01.txt` | 705 | `cd9fc46a7d1bc9356d6d422d1a9afba4ee3bd88a7b37cfb400e4551330e7cebe` | `qk-card-enrollment 0.0.1`; source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | `2026-08-31T19:06:43Z` | Private F8 bundle in locked storage at Owner premises | PASS; operations `EnumerateReaders`, `ExclusiveConnect`, `Reset`, `CaptureAtr`, `CaptureProtocol`, `Disconnect` all PASS; APDU tx/rx `0/0` |
 
 ## Invocation accounting
 
@@ -75,9 +78,9 @@ must not reuse this row.
   not registered evidence and contacted no card.
 - One earlier ENROLL invocation was refused during argument parsing, printed
   the usage message, and never reached the PC/SC layer.
-- The registered ENROLL invocation above is therefore the only tool-driven
-  contact session for `J3R180-02`. Specimens `J3R180-01` and `J3R180-03`
-  remain uncontacted.
+- The three registered ENROLL invocations above are the only tool-driven card
+  contacts: exactly one per specimen, ordered 02, 03, then 01. Enrollment is
+  complete and no further card contact is authorized.
 
 Any unexpected identity, state, response, result or evidence mismatch stops the
 procedure for Owner disposition. It is never explored ad hoc. APDU request and

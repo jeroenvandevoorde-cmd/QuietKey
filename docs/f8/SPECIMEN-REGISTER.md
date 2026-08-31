@@ -1,6 +1,6 @@
 # F8 J3R180 Specimen Register
 
-EXPERIMENTAL - SUPPLIED INTAKE FACTS AND FIRST CONTACT REGISTERED
+EXPERIMENTAL - ZERO-APDU ENROLLMENT COMPLETE
 
 ## Batch record
 
@@ -23,9 +23,9 @@ EXPERIMENTAL - SUPPLIED INTAKE FACTS AND FIRST CONTACT REGISTERED
   registration in the private custody bundle.
 
 The claimed `J3R180` catalog path is an Owner-supplied procurement fact, not a
-card capability result. The registered zero-APDU enrollment of `J3R180-02`
-observed the public ATR and protocol recorded below; no serial, CPLC value or
-APDU response has been observed through this lane.
+card capability result. The registered zero-APDU enrollments of all three
+specimens observed the public ATR and protocol recorded below; no serial, CPLC
+value or APDU response has been observed through this lane.
 
 ## Assignment and contact order
 
@@ -59,9 +59,9 @@ verbatim inside its registered private bundle.
 
 | Alias | Claimed path | Batch link | Packaging/marking record | Photo manifest | Custody | Assignment | Mutable permission | Source commit | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| `J3R180-01` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `01` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | NON-SACRIFICIAL REFERENCE; contacted last | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH OPTIONAL; NO CONTACT |
+| `J3R180-01` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `01` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | NON-SACRIFICIAL REFERENCE; contacted last | `NONE` | enrollment tool source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | ONE ZERO-APDU CONTACT REGISTERED; ATR `3bd518ff8191fe1fc38073c821100a`; T1; PASS |
 | `J3R180-02` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `02` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | POWER-CUT SPECIMEN; contacted first | `NONE` | enrollment tool source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | ONE ZERO-APDU CONTACT REGISTERED; ATR `3bd518ff8191fe1fc38073c821100a`; T1; PASS |
-| `J3R180-03` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `03` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | ENDURANCE SPECIMEN; contacted second | `NONE` | `PENDING - this register's commit` | INTAKE FACTS REGISTERED; PHOTO HASH OPTIONAL; NO CONTACT |
+| `J3R180-03` | Owner-supplied J3R180 | Cardomatic `09957`, 1 of 3 | Perfect packaging; no printed markings; fully white front/back before arbitrary label `03` | `OPTIONAL - UNHASHED` | Locked Owner-premises storage | ENDURANCE SPECIMEN; contacted second | `NONE` | enrollment tool source `4304f379e3ac7ccb0e9299cd0c87bc6c2cd8cf5c` | ONE ZERO-APDU CONTACT REGISTERED; ATR `3bd518ff8191fe1fc38073c821100a`; T1; PASS |
 
 Contactless condition remains uncharacterized and no contactless bearer
 operation is authorized. Quantity mismatch, substitute, conflicting marking,
