@@ -1,6 +1,7 @@
 //! Bounded adapter over the reviewed safe `pcsc` wrapper.
 
 use std::ffi::CString;
+use std::mem;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use pcsc::{Context, Disposition, Protocol, Protocols, Scope, ShareMode};
@@ -104,11 +105,24 @@ impl EnrollmentBackend for PcscEnrollmentBackend {
 
         match card.disconnect(Disposition::LeaveCard) {
             Ok(()) => CaptureAttempt::Success(capture),
-            Err((_card, _)) => CaptureAttempt::DisconnectFailed(capture),
+            Err((card, _)) => {
+                // The safe wrapper resets a card when a returned handle is
+                // dropped. Preserve the exact one-reset record after an
+                // explicit disconnect failure by leaving cleanup to imminent
+                // process teardown instead of issuing an unrecorded reset.
+                mem::forget(card);
+                CaptureAttempt::DisconnectFailed(capture)
+            }
         }
     }
 }
 
 fn disconnect(card: pcsc::Card) -> bool {
-    card.disconnect(Disposition::LeaveCard).is_ok()
+    match card.disconnect(Disposition::LeaveCard) {
+        Ok(()) => true,
+        Err((card, _)) => {
+            mem::forget(card);
+            false
+        }
+    }
 }

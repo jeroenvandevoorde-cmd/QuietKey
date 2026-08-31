@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::{MAX_ATR_BYTES, MAX_READERS, MAX_READER_NAME_BYTES};
+use crate::{MAX_ATR_BYTES, MAX_READERS, MAX_READER_LIST_BYTES, MAX_READER_NAME_BYTES};
 
 const MAX_ALIAS_BYTES: usize = 64;
 
@@ -319,6 +319,8 @@ pub struct EnrollmentRecord {
     pub metadata: ValidatedMetadata,
     pub readers: Vec<Vec<u8>>,
     pub events: Vec<EnrollmentEvent>,
+    pub observed_atr: Option<Vec<u8>>,
+    pub observed_protocol: Option<NegotiatedProtocol>,
     pub capture: Option<CardCapture>,
     pub outcome: EnrollmentOutcome,
 }
@@ -331,6 +333,8 @@ pub fn run_enrollment<B: EnrollmentBackend>(
         metadata,
         readers: Vec::new(),
         events: Vec::with_capacity(6),
+        observed_atr: None,
+        observed_protocol: None,
         capture: None,
         outcome: EnrollmentOutcome::Pass,
     };
@@ -362,12 +366,22 @@ pub fn run_enrollment<B: EnrollmentBackend>(
             EnrollmentError::ReaderCountExceeded,
         );
     }
-    for reader in &readers {
+    let reader_list_bytes = readers.iter().try_fold(1usize, |total, reader| {
+        total.checked_add(reader.len())?.checked_add(1)
+    });
+    if reader_list_bytes.is_none_or(|length| length > MAX_READER_LIST_BYTES) {
+        return reject(
+            record,
+            EnrollmentOperation::EnumerateReaders,
+            EnrollmentError::ReaderListTooLarge,
+        );
+    }
+    record.readers = readers;
+    for reader in &record.readers {
         if let Err(error) = validate_reader_name(reader) {
             return reject(record, EnrollmentOperation::EnumerateReaders, error);
         }
     }
-    record.readers = readers;
     push_pass(&mut record, EnrollmentOperation::EnumerateReaders);
 
     if record.metadata.inner().mode == EnrollmentMode::Enumerate {
@@ -441,36 +455,23 @@ pub fn run_enrollment<B: EnrollmentBackend>(
         }
         CaptureAttempt::ProtocolUnavailable { atr, disconnected } => reject_protocol(
             record,
-            &atr,
+            atr,
             EnrollmentError::ProtocolUnavailable,
             disconnected,
         ),
         CaptureAttempt::ProtocolUnsupported { atr, disconnected } => reject_protocol(
             record,
-            &atr,
+            atr,
             EnrollmentError::ProtocolUnsupported,
             disconnected,
         ),
-        CaptureAttempt::DisconnectFailed(capture) => {
-            if let Err(error) = validate_capture(&capture) {
-                return reject(record, EnrollmentOperation::CaptureAtr, error);
-            }
-            push_capture_success(&mut record, capture);
-            reject(
-                record,
-                EnrollmentOperation::Disconnect,
-                EnrollmentError::DisconnectFailed,
-            )
-        }
-        CaptureAttempt::BoundaryPanicked => set_outcome(record, EnrollmentError::BoundaryPanicked),
-        CaptureAttempt::Success(capture) => {
-            if let Err(error) = validate_capture(&capture) {
-                return reject(record, EnrollmentOperation::CaptureAtr, error);
-            }
-            push_capture_success(&mut record, capture);
-            push_pass(&mut record, EnrollmentOperation::Disconnect);
-            record
-        }
+        CaptureAttempt::DisconnectFailed(capture) => finish_capture(record, capture, false),
+        CaptureAttempt::BoundaryPanicked => reject(
+            record,
+            EnrollmentOperation::ExclusiveConnect,
+            EnrollmentError::BoundaryPanicked,
+        ),
+        CaptureAttempt::Success(capture) => finish_capture(record, capture, true),
     }
 }
 
@@ -490,41 +491,81 @@ fn validate_atr(atr: &[u8]) -> Result<(), EnrollmentError> {
 
 fn reject_protocol(
     mut record: EnrollmentRecord,
-    atr: &[u8],
+    atr: Vec<u8>,
     error: EnrollmentError,
     disconnected: bool,
 ) -> EnrollmentRecord {
     push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
     push_pass(&mut record, EnrollmentOperation::Reset);
-    if let Err(atr_error) = validate_atr(atr) {
-        return reject_then_disconnect(
-            record,
-            EnrollmentOperation::CaptureAtr,
-            atr_error,
-            disconnected,
-        );
-    }
-    push_pass(&mut record, EnrollmentOperation::CaptureAtr);
-    reject_then_disconnect(
-        record,
-        EnrollmentOperation::CaptureProtocol,
-        error,
-        disconnected,
-    )
+    let atr_result = validate_atr(&atr);
+    record.observed_atr = Some(atr);
+    push_result(&mut record, EnrollmentOperation::CaptureAtr, atr_result);
+    record.events.push(EnrollmentEvent {
+        operation: EnrollmentOperation::CaptureProtocol,
+        outcome: EnrollmentOutcome::Reject(error),
+    });
+    push_disconnect_result(&mut record, disconnected);
+    record.outcome = EnrollmentOutcome::Reject(atr_result.err().unwrap_or(error));
+    record
 }
 
-fn push_capture_success(record: &mut EnrollmentRecord, capture: CardCapture) {
-    push_pass(record, EnrollmentOperation::ExclusiveConnect);
-    push_pass(record, EnrollmentOperation::Reset);
-    push_pass(record, EnrollmentOperation::CaptureAtr);
-    push_pass(record, EnrollmentOperation::CaptureProtocol);
-    record.capture = Some(capture);
+fn finish_capture(
+    mut record: EnrollmentRecord,
+    capture: CardCapture,
+    disconnected: bool,
+) -> EnrollmentRecord {
+    push_pass(&mut record, EnrollmentOperation::ExclusiveConnect);
+    push_pass(&mut record, EnrollmentOperation::Reset);
+    let atr_result = validate_capture(&capture);
+    record.observed_atr = Some(capture.atr.clone());
+    record.observed_protocol = Some(capture.protocol);
+    push_result(&mut record, EnrollmentOperation::CaptureAtr, atr_result);
+    push_pass(&mut record, EnrollmentOperation::CaptureProtocol);
+    push_disconnect_result(&mut record, disconnected);
+    match atr_result {
+        Ok(()) if disconnected => {
+            record.capture = Some(capture);
+        }
+        Ok(()) => {
+            record.capture = Some(capture);
+            record.outcome = EnrollmentOutcome::Reject(EnrollmentError::DisconnectFailed);
+        }
+        Err(error) => {
+            record.outcome = EnrollmentOutcome::Reject(error);
+        }
+    }
+    record
 }
 
 fn push_pass(record: &mut EnrollmentRecord, operation: EnrollmentOperation) {
     record.events.push(EnrollmentEvent {
         operation,
         outcome: EnrollmentOutcome::Pass,
+    });
+}
+
+fn push_result(
+    record: &mut EnrollmentRecord,
+    operation: EnrollmentOperation,
+    result: Result<(), EnrollmentError>,
+) {
+    record.events.push(EnrollmentEvent {
+        operation,
+        outcome: match result {
+            Ok(()) => EnrollmentOutcome::Pass,
+            Err(error) => EnrollmentOutcome::Reject(error),
+        },
+    });
+}
+
+fn push_disconnect_result(record: &mut EnrollmentRecord, disconnected: bool) {
+    record.events.push(EnrollmentEvent {
+        operation: EnrollmentOperation::Disconnect,
+        outcome: if disconnected {
+            EnrollmentOutcome::Pass
+        } else {
+            EnrollmentOutcome::Reject(EnrollmentError::DisconnectFailed)
+        },
     });
 }
 
@@ -551,14 +592,7 @@ fn reject_then_disconnect(
         operation,
         outcome: EnrollmentOutcome::Reject(error),
     });
-    record.events.push(EnrollmentEvent {
-        operation: EnrollmentOperation::Disconnect,
-        outcome: if disconnected {
-            EnrollmentOutcome::Pass
-        } else {
-            EnrollmentOutcome::Reject(EnrollmentError::DisconnectFailed)
-        },
-    });
+    push_disconnect_result(&mut record, disconnected);
     record.outcome = EnrollmentOutcome::Reject(error);
     record
 }
@@ -641,11 +675,15 @@ mod tests {
             EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty)
         );
         assert_eq!(
-            &record.events[record.events.len() - 2..],
+            &record.events[record.events.len() - 3..],
             &[
                 EnrollmentEvent {
                     operation: EnrollmentOperation::CaptureAtr,
                     outcome: EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty),
+                },
+                EnrollmentEvent {
+                    operation: EnrollmentOperation::CaptureProtocol,
+                    outcome: EnrollmentOutcome::Reject(EnrollmentError::ProtocolUnavailable),
                 },
                 EnrollmentEvent {
                     operation: EnrollmentOperation::Disconnect,

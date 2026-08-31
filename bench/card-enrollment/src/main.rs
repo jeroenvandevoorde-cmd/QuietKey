@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use qk_card_enrollment::{
     encode_transcript, run_enrollment, EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome,
-    PcscEnrollmentBackend,
+    EnrollmentRecord, PcscEnrollmentBackend,
 };
 
 fn usage() {
@@ -102,11 +102,22 @@ fn main() -> ExitCode {
     let mut backend = match PcscEnrollmentBackend::new() {
         Ok(backend) => backend,
         Err(error) => {
-            eprintln!("result={}", error.name());
-            return ExitCode::from(1);
+            return write_record(EnrollmentRecord {
+                metadata,
+                readers: Vec::new(),
+                events: Vec::new(),
+                observed_atr: None,
+                observed_protocol: None,
+                capture: None,
+                outcome: EnrollmentOutcome::Reject(error),
+            });
         }
     };
     let record = run_enrollment(metadata, &mut backend);
+    write_record(record)
+}
+
+fn write_record(record: EnrollmentRecord) -> ExitCode {
     let transcript = match encode_transcript(&record) {
         Ok(transcript) => transcript,
         Err(error) => {

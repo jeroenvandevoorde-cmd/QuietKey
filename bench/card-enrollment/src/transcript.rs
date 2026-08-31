@@ -45,15 +45,19 @@ pub fn encode_transcript(record: &EnrollmentRecord) -> Result<Vec<u8>, Enrollmen
         )
         .expect("String writes cannot fail");
     }
-    match record.capture.as_ref() {
-        Some(capture) => {
-            writeln!(text, "protocol={}", capture.protocol.as_str())
-                .expect("String writes cannot fail");
+    match record.observed_protocol {
+        Some(protocol) => {
+            writeln!(text, "protocol={}", protocol.as_str()).expect("String writes cannot fail");
+        }
+        None => text.push_str("protocol=NONE\n"),
+    }
+    match record.observed_atr.as_deref() {
+        Some(atr) => {
             text.push_str("atr_hex=");
-            write_hex(&mut text, &capture.atr);
+            write_hex(&mut text, atr);
             text.push('\n');
         }
-        None => text.push_str("protocol=NONE\natr_hex=NONE\n"),
+        None => text.push_str("atr_hex=NONE\n"),
     }
     text.push_str("apdu_tx_count=0\napdu_rx_count=0\n");
     writeln!(text, "result={}", record.outcome.as_str()).expect("String writes cannot fail");
@@ -99,6 +103,8 @@ mod tests {
                 operation: EnrollmentOperation::EnumerateReaders,
                 outcome: EnrollmentOutcome::Pass,
             }],
+            observed_atr: Some(vec![0x3b, 0x00]),
+            observed_protocol: Some(NegotiatedProtocol::T1),
             capture: Some(CardCapture {
                 atr: vec![0x3b, 0x00],
                 protocol: NegotiatedProtocol::T1,

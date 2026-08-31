@@ -254,3 +254,109 @@ fn deterministic_replay_is_byte_for_byte_equal_at_the_typed_boundary() {
     let second = run_enrollment(metadata(EnrollmentMode::Enroll), &mut backend(attempt));
     assert_eq!(first, second);
 }
+
+#[test]
+fn protocol_rejection_retains_the_exact_observed_atr_and_operation_order() {
+    let atr = vec![0x3b, 0x80, 0x01, 0xff];
+    let mut backend = backend(CaptureAttempt::ProtocolUnavailable {
+        atr: atr.clone(),
+        disconnected: true,
+    });
+    let record = run_enrollment(metadata(EnrollmentMode::Enroll), &mut backend);
+    assert_eq!(record.observed_atr, Some(atr));
+    assert_eq!(record.observed_protocol, None);
+    assert_eq!(record.capture, None);
+    assert_eq!(
+        record.events,
+        [
+            EnrollmentEvent {
+                operation: EnrollmentOperation::EnumerateReaders,
+                outcome: EnrollmentOutcome::Pass,
+            },
+            EnrollmentEvent {
+                operation: EnrollmentOperation::ExclusiveConnect,
+                outcome: EnrollmentOutcome::Pass,
+            },
+            EnrollmentEvent {
+                operation: EnrollmentOperation::Reset,
+                outcome: EnrollmentOutcome::Pass,
+            },
+            EnrollmentEvent {
+                operation: EnrollmentOperation::CaptureAtr,
+                outcome: EnrollmentOutcome::Pass,
+            },
+            EnrollmentEvent {
+                operation: EnrollmentOperation::CaptureProtocol,
+                outcome: EnrollmentOutcome::Reject(EnrollmentError::ProtocolUnavailable),
+            },
+            EnrollmentEvent {
+                operation: EnrollmentOperation::Disconnect,
+                outcome: EnrollmentOutcome::Pass,
+            },
+        ]
+    );
+}
+
+#[test]
+fn invalid_atr_still_records_every_operation_that_occurred() {
+    let mut backend = backend(CaptureAttempt::Success(CardCapture {
+        atr: Vec::new(),
+        protocol: NegotiatedProtocol::T1,
+    }));
+    let record = run_enrollment(metadata(EnrollmentMode::Enroll), &mut backend);
+    assert_eq!(
+        record.outcome,
+        EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty)
+    );
+    assert_eq!(record.observed_atr, Some(Vec::new()));
+    assert_eq!(record.observed_protocol, Some(NegotiatedProtocol::T1));
+    assert_eq!(record.capture, None);
+    assert_eq!(record.events.len(), 6);
+    assert_eq!(
+        record.events[3],
+        EnrollmentEvent {
+            operation: EnrollmentOperation::CaptureAtr,
+            outcome: EnrollmentOutcome::Reject(EnrollmentError::AtrEmpty),
+        }
+    );
+    assert_eq!(
+        record.events[4],
+        event_pass(EnrollmentOperation::CaptureProtocol)
+    );
+    assert_eq!(
+        record.events[5],
+        event_pass(EnrollmentOperation::Disconnect)
+    );
+}
+
+#[test]
+fn aggregate_reader_list_bytes_are_bounded_in_the_typed_model() {
+    let mut backend = backend(CaptureAttempt::ConnectFailed);
+    backend.readers = Ok((0..MAX_READERS).map(|_| vec![b'R'; 128]).collect());
+    let record = run_enrollment(metadata(EnrollmentMode::Enroll), &mut backend);
+    assert_eq!(
+        record.outcome,
+        EnrollmentOutcome::Reject(EnrollmentError::ReaderListTooLarge)
+    );
+    assert_eq!(backend.captures, 0);
+}
+
+#[test]
+fn connect_boundary_panic_is_an_explicit_operation_rejection() {
+    let mut backend = backend(CaptureAttempt::BoundaryPanicked);
+    let record = run_enrollment(metadata(EnrollmentMode::Enroll), &mut backend);
+    assert_eq!(
+        record.events.last(),
+        Some(&EnrollmentEvent {
+            operation: EnrollmentOperation::ExclusiveConnect,
+            outcome: EnrollmentOutcome::Reject(EnrollmentError::BoundaryPanicked),
+        })
+    );
+}
+
+const fn event_pass(operation: EnrollmentOperation) -> EnrollmentEvent {
+    EnrollmentEvent {
+        operation,
+        outcome: EnrollmentOutcome::Pass,
+    }
+}
