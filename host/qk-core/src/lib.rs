@@ -24,7 +24,8 @@ mod session_id;
 mod wipe;
 
 pub use capability::{
-    CardPresence, CoreDeviceGrants, CoreScreen, KeypadKey, MockCardSlot, MockDisplay, MockKeypad,
+    CardBPublicBindingV2, CardInstanceV2, CardMockErrorV2, CardPresence, CoreDeviceGrants,
+    CoreScreen, KeypadKey, MockCardSlot, MockDisplay, MockKeypad,
 };
 pub use error::{CoreError, Interruption, IoRejection};
 pub use io_wire::{Operation, Source};

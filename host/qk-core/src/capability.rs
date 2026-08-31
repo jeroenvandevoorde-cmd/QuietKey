@@ -1,8 +1,8 @@
 //! Typed HOST mock capabilities owned by the trusted process shell.
 //!
-//! These mocks expose only the three QK-DEC-144 capability shapes. They do
-//! not model a renderer, scan codes, APDUs, card data, persistence, or real
-//! devices.
+//! These mocks expose only the three process-shell capability shapes. The
+//! card seam records public v2 setup bindings but models no secret transfer,
+//! renderer, scan code, APDU, persistence, or real device.
 
 #![forbid(unsafe_code)]
 
@@ -47,6 +47,28 @@ pub enum CoreScreen {
     Closing,
     Closed,
     Terminated,
+    SetupStart,
+    TierSelection,
+    EntropyModeSelection,
+    CeremonyInput,
+    CeremonyEcho,
+    CeremonyConfirm,
+    CeremonyCommitment,
+    DerivationExplanation,
+    ProvisioningResult,
+    ProvisionB,
+    VerifyB,
+    SpareBSelection,
+    ProvisionSpareB,
+    VerifySpareB,
+    CreateA1,
+    ScanBackA1,
+    CoordinatorMaterial,
+    CreateTwoKits,
+    VerifyTwoKits,
+    Rehearsal,
+    SetupReady,
+    CompletedWiped,
 }
 
 /// Presence fact exposed by the card-slot mock.
@@ -54,6 +76,82 @@ pub enum CoreScreen {
 pub enum CardPresence {
     Absent,
     Present,
+}
+
+/// Exact setup-time mock card instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CardInstanceV2 {
+    Required,
+    Spare,
+}
+
+impl CardInstanceV2 {
+    /// Exact QK-DEC-145 public instance tag.
+    pub const fn wire_value(self) -> u8 {
+        match self {
+            Self::Required => 0x01,
+            Self::Spare => 0x02,
+        }
+    }
+}
+
+/// Public-only setup binding presented to the card mock.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct CardBPublicBindingV2 {
+    instance: CardInstanceV2,
+    role: u8,
+    wallet_id: [u8; 32],
+    account_xpub: [u8; 111],
+}
+
+impl CardBPublicBindingV2 {
+    /// Bind one role-B account to one exact wallet and mock card instance.
+    pub const fn new(
+        instance: CardInstanceV2,
+        wallet_id: [u8; 32],
+        account_xpub: [u8; 111],
+    ) -> Self {
+        Self {
+            instance,
+            role: 0x02,
+            wallet_id,
+            account_xpub,
+        }
+    }
+
+    pub const fn instance(&self) -> CardInstanceV2 {
+        self.instance
+    }
+
+    pub const fn role(&self) -> u8 {
+        self.role
+    }
+
+    pub const fn wallet_id(&self) -> [u8; 32] {
+        self.wallet_id
+    }
+
+    pub const fn account_xpub(&self) -> [u8; 111] {
+        self.account_xpub
+    }
+}
+
+/// Closed public-card-mock rejection surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CardMockErrorV2 {
+    CardAbsent,
+    CardInstanceAlreadyProvisioned,
+    CardBindingMismatch,
+}
+
+impl CardMockErrorV2 {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::CardAbsent => "CardAbsent",
+            Self::CardInstanceAlreadyProvisioned => "CardInstanceAlreadyProvisioned",
+            Self::CardBindingMismatch => "CardBindingMismatch",
+        }
+    }
 }
 
 /// Typed display mock retaining only the current nonsecret screen.
@@ -147,10 +245,12 @@ impl Default for MockKeypad {
     }
 }
 
-/// Typed card-slot mock exposing only presence and removal facts.
+/// Typed card-slot mock exposing presence and public-only setup bindings.
 pub struct MockCardSlot {
     presence: CardPresence,
     fail_next: bool,
+    required_binding: Option<CardBPublicBindingV2>,
+    spare_binding: Option<CardBPublicBindingV2>,
 }
 
 impl MockCardSlot {
@@ -158,6 +258,8 @@ impl MockCardSlot {
         Self {
             presence,
             fail_next: false,
+            required_binding: None,
+            spare_binding: None,
         }
     }
 
@@ -178,6 +280,44 @@ impl MockCardSlot {
 
     pub const fn presence(&self) -> CardPresence {
         self.presence
+    }
+
+    /// Record one exact public-only role-B setup binding.
+    pub fn provision_b(
+        &mut self,
+        binding: CardBPublicBindingV2,
+    ) -> Result<(), CardMockErrorV2> {
+        if self.presence != CardPresence::Present {
+            return Err(CardMockErrorV2::CardAbsent);
+        }
+        let destination = match binding.instance() {
+            CardInstanceV2::Required => &mut self.required_binding,
+            CardInstanceV2::Spare => &mut self.spare_binding,
+        };
+        if destination.is_some() {
+            return Err(CardMockErrorV2::CardInstanceAlreadyProvisioned);
+        }
+        *destination = Some(binding);
+        Ok(())
+    }
+
+    /// Require byte equality with the previously recorded public binding.
+    pub fn verify_b(
+        &mut self,
+        binding: CardBPublicBindingV2,
+    ) -> Result<(), CardMockErrorV2> {
+        if self.presence != CardPresence::Present {
+            return Err(CardMockErrorV2::CardAbsent);
+        }
+        let recorded = match binding.instance() {
+            CardInstanceV2::Required => self.required_binding,
+            CardInstanceV2::Spare => self.spare_binding,
+        };
+        if recorded == Some(binding) {
+            Ok(())
+        } else {
+            Err(CardMockErrorV2::CardBindingMismatch)
+        }
     }
 
     fn take_failure(&mut self) -> bool {

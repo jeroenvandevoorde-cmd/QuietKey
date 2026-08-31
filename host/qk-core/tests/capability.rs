@@ -1,8 +1,9 @@
 //! Typed capability grants and deliberately empty shell behavior.
 
 use qk_core::{
-    CardPresence, CoreDeviceGrants, CoreError, CoreMode, CoreScreen, CoreSession, CoreState,
-    Interruption, KeypadKey, MockCardSlot, MockDisplay, MockKeypad,
+    CardBPublicBindingV2, CardInstanceV2, CardMockErrorV2, CardPresence, CoreDeviceGrants,
+    CoreError, CoreMode, CoreScreen, CoreSession, CoreState, Interruption, KeypadKey, MockCardSlot,
+    MockDisplay, MockKeypad,
 };
 
 const ALL_KEYS: [KeypadKey; 19] = [
@@ -130,4 +131,42 @@ fn card_presence_is_observable_but_removal_wipes_and_terminates() {
     assert_eq!(session.state(), CoreState::Terminated);
     assert_eq!(session.terminal_reason(), Some(Interruption::CardRemoved));
     assert_eq!(session.current_screen(), Some(CoreScreen::Terminated));
+}
+
+fn binding(instance: CardInstanceV2, marker: u8) -> CardBPublicBindingV2 {
+    CardBPublicBindingV2::new(instance, [marker; 32], [marker.wrapping_add(1); 111])
+}
+
+#[test]
+fn card_mock_records_exactly_one_public_binding_per_instance() {
+    let mut card = MockCardSlot::new(CardPresence::Present);
+    let required = binding(CardInstanceV2::Required, 0x11);
+    let spare = binding(CardInstanceV2::Spare, 0x22);
+
+    assert_eq!(required.instance().wire_value(), 0x01);
+    assert_eq!(spare.instance().wire_value(), 0x02);
+    assert_eq!(required.role(), 0x02);
+    assert_eq!(required.wallet_id(), [0x11; 32]);
+    assert_eq!(required.account_xpub(), [0x12; 111]);
+
+    assert_eq!(card.provision_b(required), Ok(()));
+    assert_eq!(card.verify_b(required), Ok(()));
+    assert_eq!(card.provision_b(spare), Ok(()));
+    assert_eq!(card.verify_b(spare), Ok(()));
+    assert_eq!(
+        card.provision_b(required),
+        Err(CardMockErrorV2::CardInstanceAlreadyProvisioned)
+    );
+    assert_eq!(
+        card.verify_b(binding(CardInstanceV2::Required, 0x33)),
+        Err(CardMockErrorV2::CardBindingMismatch)
+    );
+}
+
+#[test]
+fn card_mock_absence_precedes_public_binding_state() {
+    let mut card = MockCardSlot::new(CardPresence::Absent);
+    let required = binding(CardInstanceV2::Required, 0x44);
+    assert_eq!(card.provision_b(required), Err(CardMockErrorV2::CardAbsent));
+    assert_eq!(card.verify_b(required), Err(CardMockErrorV2::CardAbsent));
 }
