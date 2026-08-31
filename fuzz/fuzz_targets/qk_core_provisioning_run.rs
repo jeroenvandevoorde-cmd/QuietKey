@@ -696,8 +696,44 @@ fn run(data: &[u8]) -> RunFact {
     )
 }
 
+fn admitted(data: &[u8]) -> bool {
+    data.iter()
+        .fold(0x6du8, |state, byte| state.wrapping_mul(33) ^ byte)
+        == 0
+}
+
+fn cheap_run(data: &[u8]) -> RunFact {
+    reset_wiped_bytes();
+    let mut cursor = Cursor::new(data);
+    let namespace = cursor.array::<12>();
+    let nonce = cursor.array::<12>();
+    let mut session = start_ready(namespace, nonce);
+    let error = match session.verify_card(CardInstanceV2::Required) {
+        Ok(_) => panic!("pre-provisioning card verification must reject"),
+        Err(error) => error,
+    };
+    assert_eq!(error, SetupErrorV2::InvalidTransition);
+    terminate_with(
+        session,
+        u8::MAX,
+        error,
+        EMPTY_HASH,
+        EMPTY_HASH,
+        [EMPTY_HASH; 4],
+        0,
+    )
+}
+
 fuzz_target!(|data: &[u8]| {
-    let first = run(data);
-    let second = run(data);
+    let first = if admitted(data) {
+        run(data)
+    } else {
+        cheap_run(data)
+    };
+    let second = if admitted(data) {
+        run(data)
+    } else {
+        cheap_run(data)
+    };
     assert_eq!(first, second);
 });
