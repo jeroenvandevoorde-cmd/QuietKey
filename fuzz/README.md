@@ -176,8 +176,9 @@ Kit print exchanges, receipt ordering, terminal absorption and cleanup
 accounting. Its deterministic one-in-256 admission fold keeps the complete
 provisioning path campaign-feasible; 22 public admitted seeds cover every
 named semantic arm, while every other input drives a bounded named-rejection
-path. Target and runner scaffolding is present; Campaign 024 execution,
-two-copy minimization and corpus registration remain pending.
+path. Campaign 024 is complete; its two new two-copy-minimized corpora are
+registered in `CORPUS-MANIFEST-PROCESS-S5.tsv`, and its two requalified
+PROCESS-S4 corpora were promoted under QK-DEC-146.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
