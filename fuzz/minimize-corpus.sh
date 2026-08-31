@@ -45,6 +45,8 @@ case "$target" in
   qk_io_session) max_len=4096 ;;
   qk_core_io_peer) max_len=16384 ;;
   qk_core_session) max_len=4096 ;;
+  qk_core_provisioning_entry) max_len=1024 ;;
+  qk_core_provisioning_run) max_len=512 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -d "$corpus" ] || { printf 'missing corpus directory: %s\n' "$corpus" >&2; exit 2; }
@@ -77,6 +79,9 @@ case "$target" in
     ;;
   qk_core_io_peer|qk_core_session)
     set -- --no-default-features --features process-s4-core "$target" "$corpus"
+    ;;
+  qk_core_provisioning_entry|qk_core_provisioning_run)
+    set -- --no-default-features --features process-s5-core "$target" "$corpus"
     ;;
   *) set -- "$target" "$corpus" ;;
 esac

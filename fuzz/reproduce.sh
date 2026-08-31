@@ -45,6 +45,8 @@ case "$target" in
   qk_io_session) max_len=4096; seed=143003 ;;
   qk_core_io_peer) max_len=16384; seed=144001 ;;
   qk_core_session) max_len=4096; seed=144002 ;;
+  qk_core_provisioning_entry) max_len=1024; seed=145001 ;;
+  qk_core_provisioning_run) max_len=512; seed=145002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 [ -f "$test_case" ] || { printf 'missing test case: %s\n' "$test_case" >&2; exit 2; }
@@ -77,6 +79,9 @@ case "$target" in
     ;;
   qk_core_io_peer|qk_core_session)
     set -- --no-default-features --features process-s4-core "$target" "$test_case"
+    ;;
+  qk_core_provisioning_entry|qk_core_provisioning_run)
+    set -- --no-default-features --features process-s5-core "$target" "$test_case"
     ;;
   *) set -- "$target" "$test_case" ;;
 esac
