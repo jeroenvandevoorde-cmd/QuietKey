@@ -314,8 +314,13 @@ impl BrokerSession {
         operation: Operation,
         body: WipingVec,
     ) -> Result<BrokerReply, BrokerError> {
-        let payload = wrap_response(operation.wire_value(), 0, body.as_slice())
-            .map_err(BrokerError::Inner)?;
+        let payload = match wrap_response(operation.wire_value(), 0, body.as_slice()) {
+            Ok(value) => value,
+            Err(error) => {
+                self.terminate();
+                return Err(BrokerError::Inner(error));
+            }
+        };
         let outbound = match self.ipc.reply() {
             Ok(value) => value,
             Err(error) => {
