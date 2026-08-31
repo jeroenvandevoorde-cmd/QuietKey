@@ -2,7 +2,9 @@
 
 Status: EXECUTED — QUALIFYING RUN COMPLETE.
 
-The common product-and-fuzz source commit was
+Final-source requalification: COMPLETE.
+
+The initial product-and-fuzz source commit was
 `946791b431f36e58e8d8ae52f2395ffa237de22a`. The fixed tool identities were
 cargo-fuzz 0.13.2; `nightly-2026-08-25`; rustc
 `1.100.0-nightly (e7769602a 2026-08-24)`; AddressSanitizer; release-profile
@@ -69,7 +71,7 @@ failure scenario. Commit `946791b431f36e58e8d8ae52f2395ffa237de22a`
 threaded that source through all scenarios. Qualifying work began only at that
 final source.
 
-## Final-source runs
+## Initial qualifying runs
 
 | Target | Start files/bytes | Seconds; rate/s | Coverage/features | Live files/bytes | New units | Peak RSS MiB | Post-run files/bytes | Artifacts |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -135,7 +137,7 @@ The predecessor manifest was 79,374 bytes/445 LF with SHA-256
 The preregistered PROCESS-S6 start was 119 files/478 bytes with entry SHA-256
 `e191a95ad273833b2aeb2375f42db8aae70c6b6f2eac0edfa3c9bc926936157f`.
 
-The rendered manifests all bind campaign source
+The initially rendered manifests all bound campaign source
 `946791b431f36e58e8d8ae52f2395ffa237de22a`:
 
 | Partition | Target facts | Aggregate facts | Manifest bytes/LF/SHA-256 |
@@ -180,5 +182,75 @@ mock-B insertion, two-key finalization, exact finalized and raw bytes, txid,
 wtxid, profile-permitted SD and BBQr routes, filenames, receipts, selected
 BBQr geometry and reassembly, route delivery order, partial two-artifact
 completion, named terminal outcomes, deterministic repetition and cleanup
-accounting. No product source or target oracle changed after qualification
-began at `946791b431f36e58e8d8ae52f2395ffa237de22a`.
+accounting. No product source or target oracle changed during the initial
+qualification window at `946791b431f36e58e8d8ae52f2395ffa237de22a`.
+
+## Final-source repair and requalification
+
+At superseded source `e2aabd7eda52e7af7b84717c85e73d824e5c4c3c`, five
+targets completed 100,000 inputs; `qk_core_provisioning_entry` was interrupted
+after 78,226 inputs when the no-default qk-core compile gap was found. All six
+targets produced zero artifacts. Commit
+`d172318a0dcd00db4e7141fff60a33679872d46a` feature-gated the normal modules
+and exports in `host/qk-core/src/lib.rs` and pinned those gates in
+`host/qk-core/tests/surface.rs`. None of the superseded runs qualified the
+final source.
+
+All six campaigns then ran against
+`d172318a0dcd00db4e7141fff60a33679872d46a`:
+
+| Target | Start files/bytes | Seconds; rate/s | Coverage/features | Live files/bytes | New units | Peak RSS MiB | Post-run files/bytes | Artifacts |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `qk_core_io_peer` | 36/232 | 8; 12,500 | 757/903 | 34/225 | 0 | 438 | 36/232 | 0 |
+| `qk_core_session` | 114/9,072 | 11; 9,090 | 900/2,487 | 115/9,736 | 25 | 494 | 133/11,655 | 0 |
+| `qk_core_provisioning_entry` | 247/10,994 | 1,990; 50 | 2,298/3,570 | 248/10,893 | 19 | 475 | 266/12,589 | 0 |
+| `qk_core_provisioning_run` | 191/9,526 | 622; 160 | 2,934/4,936 | 193/9,711 | 9 | 332 | 197/9,953 | 0 |
+| `qk_core_normal_entry` | 54/781 | 4; 25,000 | 935/1,365 | 54/780 | 1 | 83 | 55/799 | 0 |
+| `qk_core_normal_run` | 142/2,295 | 340; 294 | 4,895/15,083 | 149/2,447 | 13 | 440 | 153/2,545 | 0 |
+
+Two separately produced minimizations reached matching unchanged fixed points:
+
+- `qk_core_io_peer`: 36 files/232 bytes remained unchanged; sorted listing
+  2,416 bytes, SHA-256
+  `5a6b22681a307e8e7a0478d111e314e92800dbfbc009c04b2d3403a509a3c1db`.
+- `qk_core_session`: 133/11,655 → 116/9,739 → 115/9,726 → 114/9,723
+  → unchanged; sorted listing 7,740 bytes, SHA-256
+  `b0501d29ea8ebadb6e2655afb2f1c20d023432e446e72bf7c272cb4c9cedbd0f`.
+- `qk_core_provisioning_entry`: 266/12,589 → 246/10,763 → unchanged;
+  sorted listing 16,737 bytes, SHA-256
+  `9b7712f1e9f9b9444053836a116e68780251657075504294ff961ae64055fa12`.
+- `qk_core_provisioning_run`: 197/9,953 → 193/9,714 → 192/9,650 →
+  unchanged; sorted listing 13,062 bytes, SHA-256
+  `a8c561a0ccb287ed7d76800b17a7198632b09fa168b77a9cd3cfed5ba6b2f53a`.
+- `qk_core_normal_entry`: 55/799 → 53/762 → unchanged; sorted listing
+  3,581 bytes, SHA-256
+  `58e75e005aed7d908f79cc276045587a7ea6e2d0c853eba1a1b146fcdff3e4e2`.
+- `qk_core_normal_run`: 153/2,545 → 149/2,447 → 148/2,441 → unchanged;
+  sorted listing 9,994 bytes, SHA-256
+  `9a87d7ed59073214440c24c09a531662d723198451bb5f0a4303ebdff4d26b4b`.
+
+Before promotion, the PROCESS-S4 manifest was 24,492 bytes/158 LF with
+SHA-256 `5a867a5c37f5258e8414e1f81458c867480c2433afa3e1f1953296627497bb3b`;
+its target entry hashes were `a9ce239a7d67870d797d69b92ebcba48b03d26899457e9f607f6e5af5e422d73`
+and `2d9c2a58dbc9293869b7210dec21b88d18bb2d8bf73b44d747bb458d644716e7`.
+PROCESS-S5 was 79,548 bytes/446 LF with SHA-256
+`851ee04574cfcfd9f2e7d65a52b0567cedb917ebcb55d75b8571ab5b0c1ec8a7`;
+its target entry hashes were `5a4023dbb5f10afa70d7ee8572d0a2fdb1d4e9ba351aa16fdd9dd5551b5cfe41`
+and `d02641974628c2841ca01be55d513b954c9c3e4a79f932bc8e8b9aabf7f5e775`.
+PROCESS-S6 was 33,215 bytes/204 LF with SHA-256
+`20d781ca74756620095a5c8ae62bdf39a24f149661b8fda9b1b3f965a0aa7059`;
+its target entry hashes were `d10873dedc420d2f80922e614c771b45d5493c94f253f5ccbf77a5b553916237`
+and `9be81e64366d44f6ba00b6679c34b88d93835d2b81c1e6e0711c7b271c160a93`.
+
+The promoted manifests bind campaign source
+`d172318a0dcd00db4e7141fff60a33679872d46a`:
+
+| Partition | Target facts | Aggregate facts | Manifest bytes/LF/SHA-256 |
+|---|---|---|---|
+| PROCESS-S4 | `qk_core_io_peer` 36/232/`a9ce239a7d67870d797d69b92ebcba48b03d26899457e9f607f6e5af5e422d73`; `qk_core_session` 114/9,723/`2af011337602a31698475d223376b8705049cff56679d4501afd7f9cfefa3302` | 150/9,955/`fb3d6e36d0be0eb23cac4da14762acf7bf89b14677268ca97eebe1406a5edd17` | 24,493/158/`915d78e60ee273e89070bd4d511b9b9fa07fff45e44125373025f7b49a4d7a31` |
+| PROCESS-S5 | `qk_core_provisioning_entry` 246/10,763/`4359ace5bb5040c11cea17c5d99aa069512d3ba15af3fb07a3170cc1e40ddf4b`; `qk_core_provisioning_run` 192/9,650/`fb04fc537eab667654cad919ce7237da4e146b981a9ef1b845b641fb8602f285` | 438/20,413/`5cdf1ef17d92a709c7a1bc1d767c7c51b7b786d19b367f5ae4619f72d48a97a5` | 79,544/446/`3fc750910c738dfe9a4e916b13d40d759861e59df5738e356431e17fab374eb9` |
+| PROCESS-S6 | `qk_core_normal_entry` 53/762/`f3de20565da23312914b73801e4bfbe4230a5e7644d2ea1d452fab3851bcb02c`; `qk_core_normal_run` 148/2,441/`295621c8ef6308ddcb4558731a152099552a65bdcfc541a19b84fb22beb44dde` | 201/3,203/`b98c3c8c1feda4783e5d7200d939451fd0626a3806ced9e2e502ebbc94ff649f` | 34,038/209/`385bf4b17f5f79867a38bb18c15275dbdf68065431af97aaad8ded70d9d27c2e` |
+
+The final-tree replay loaded 6,912 files/446,679 bytes across all 44 retained
+corpora and executed 6,965 units. Every target added zero units, created zero
+artifacts and exited zero.

@@ -193,10 +193,11 @@ filenames and receipts, BBQr geometry and reassembly, route delivery order,
 partial two-artifact completion, deterministic repetition, named terminal
 outcomes and cleanup accounting. Neither target reaches a real card, media
 device, camera, display, keypad, process containment, target, performance,
-production or Gate boundary. Campaign 025 is complete; both new corpora and
-the four requalified qk-core corpora reached matching two-copy fixed points,
-were promoted under QK-DEC-146 and are registered in the PROCESS-S4, S5 and
-S6 manifests.
+production or Gate boundary. Campaign 025 is complete at final source
+`d172318a0dcd00db4e7141fff60a33679872d46a`; both new corpora and the four
+requalified qk-core corpora reached matching two-copy fixed points, were
+promoted under QK-DEC-146 and are registered in the PROCESS-S4, S5 and S6
+manifests bound to that source.
 
 The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
