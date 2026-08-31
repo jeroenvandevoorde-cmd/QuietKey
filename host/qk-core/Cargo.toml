@@ -11,6 +11,7 @@ fuzzing = ["qk-ipc/fuzzing"]
 
 [dependencies]
 qk-ipc = { path = "../qk-ipc" }
+qk-provisioning = { path = "../qk-provisioning" }
 
 [dev-dependencies]
 qk-host-sim = { path = "../qk-host-sim" }
