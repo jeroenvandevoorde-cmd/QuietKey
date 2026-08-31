@@ -17,7 +17,7 @@ All runs use cargo-fuzz 0.13.2, `nightly-2026-08-25`, AddressSanitizer, overflow
 | `qk_core_normal_entry` | qualify: new hostile entry and state-order target | `fuzz/run-bounded.sh qk_core_normal_entry 100000` | 149001 | 4096 |
 | `qk_core_normal_run` | qualify: new complete normal-wallet flow and export target | `fuzz/run-bounded.sh qk_core_normal_run 100000` | 149002 | 4096 |
 
-The normal-run target reserves leading bytes `41..59` for its 25 complete
+The normal-run target reserves leading bytes `0x41..=0x59` for its 25 complete
 structured scenarios in order and admits one input only when the byte fold
 starting at `6d` and updating as `state = state * 33 XOR byte` modulo 256 ends
 at zero. Every other input takes a bounded named pre-ready rejection with

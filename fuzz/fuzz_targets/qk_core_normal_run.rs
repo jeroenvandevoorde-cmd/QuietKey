@@ -780,11 +780,12 @@ fn reach_factor_b(data: &[u8], mutation: CardMutation, source: Source) -> Normal
 fn reach_review_profile(
     data: &[u8],
     mutation: CardMutation,
+    source: Source,
     profile_byte: u8,
     corrupt_a1: bool,
 ) -> NormalSessionV2 {
     let psbt = hex_vec(field(SIGNING, "s0_hex"));
-    let mut session = reach_factor_b_with(data, mutation, Source::MediaPsbt, profile_byte, &psbt);
+    let mut session = reach_factor_b_with(data, mutation, source, profile_byte, &psbt);
     assert_eq!(
         session
             .accept_card_b()
@@ -811,8 +812,13 @@ fn reach_review_profile(
     session
 }
 
-fn reach_review(data: &[u8], mutation: CardMutation, corrupt_a1: bool) -> NormalSessionV2 {
-    reach_review_profile(data, mutation, 1, corrupt_a1)
+fn reach_review(
+    data: &[u8],
+    mutation: CardMutation,
+    source: Source,
+    corrupt_a1: bool,
+) -> NormalSessionV2 {
+    reach_review_profile(data, mutation, source, 1, corrupt_a1)
 }
 
 fn finish_review(session: &mut NormalSessionV2) {
@@ -868,10 +874,10 @@ fn failure_fact(
     }
 }
 
-fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
+fn run_failure(data: &[u8], case: u8, source: Source) -> FailureRunFact {
     match case {
         6 => {
-            let mut session = reach_factor_b(data, CardMutation::Descriptor, Source::MediaPsbt);
+            let mut session = reach_factor_b(data, CardMutation::Descriptor, source);
             reset_wiped_bytes();
             let error = match session.accept_card_b() {
                 Ok(_) => panic!("corrupt descriptor binding must reject"),
@@ -880,7 +886,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             failure_fact(case, &mut session, error, NormalErrorV2::CardDataRejected)
         }
         7 => {
-            let mut session = reach_factor_b(data, CardMutation::A2, Source::MediaPsbt);
+            let mut session = reach_factor_b(data, CardMutation::A2, source);
             session
                 .accept_card_b()
                 .expect("card binding remains public-valid");
@@ -892,7 +898,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             failure_fact(case, &mut session, error, NormalErrorV2::A1Rejected)
         }
         8 => {
-            let mut session = reach_factor_b(data, CardMutation::None, Source::MediaPsbt);
+            let mut session = reach_factor_b(data, CardMutation::None, source);
             session.accept_card_b().expect("card binding");
             let begin = session.begin_a1_intake().expect("A1 intake");
             let mut a1 = hex_vec(field(PROVISIONING, "a1_capsule_hex"));
@@ -903,7 +909,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             failure_fact(case, &mut session, error, NormalErrorV2::A1Rejected)
         }
         9 => {
-            let mut session = reach_review(data, CardMutation::InvalidSignature, false);
+            let mut session = reach_review(data, CardMutation::InvalidSignature, source, false);
             finish_review(&mut session);
             let token = session.begin_approval_hold().expect("current hold");
             reset_wiped_bytes();
@@ -919,7 +925,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         10 => {
-            let mut session = reach_review(data, CardMutation::WrongSignatureInput, false);
+            let mut session = reach_review(data, CardMutation::WrongSignatureInput, source, false);
             finish_review(&mut session);
             let token = session.begin_approval_hold().expect("current hold");
             reset_wiped_bytes();
@@ -935,8 +941,8 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         11 => {
-            let mut first = reach_review(data, CardMutation::None, false);
-            let mut second = reach_review(&[0x55; 32], CardMutation::None, false);
+            let mut first = reach_review(data, CardMutation::None, source, false);
+            let mut second = reach_review(&[0x55; 32], CardMutation::None, source, false);
             finish_review(&mut first);
             finish_review(&mut second);
             let first_token = first.begin_approval_hold().expect("first current hold");
@@ -955,17 +961,17 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         12 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             finish_approval(&mut session);
             reset_wiped_bytes();
-            let error = match session.begin_psbt_intake(Source::MediaPsbt) {
+            let error = match session.begin_psbt_intake(source) {
                 Ok(_) => panic!("no intake may yield after completed approval"),
                 Err(error) => error,
             };
             failure_fact(case, &mut session, error, NormalErrorV2::PostApprovalYield)
         }
         13 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             finish_approval(&mut session);
             let begin = session
                 .choose_export(NormalExportActionV2::Sd {
@@ -990,7 +996,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         14 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             finish_approval(&mut session);
             let begin = session
                 .choose_export(NormalExportActionV2::Bbqr {
@@ -1015,7 +1021,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         15 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             finish_approval(&mut session);
             reset_wiped_bytes();
             let error = session
@@ -1029,7 +1035,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         16 => {
-            let mut session = reach_factor_b(data, CardMutation::Absent, Source::MediaPsbt);
+            let mut session = reach_factor_b(data, CardMutation::Absent, source);
             reset_wiped_bytes();
             let error = match session.accept_card_b() {
                 Ok(_) => panic!("an absent card must reject"),
@@ -1038,7 +1044,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             failure_fact(case, &mut session, error, NormalErrorV2::CardAbsent)
         }
         17 => {
-            let mut session = reach_factor_b(data, CardMutation::WalletId, Source::MediaPsbt);
+            let mut session = reach_factor_b(data, CardMutation::WalletId, source);
             reset_wiped_bytes();
             let error = match session.accept_card_b() {
                 Ok(_) => panic!("a valid descriptor pair with another wallet id must reject"),
@@ -1053,7 +1059,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
         }
         18 => {
             let mut session =
-                reach_factor_b_with(data, CardMutation::None, Source::MediaPsbt, 1, &[0]);
+                reach_factor_b_with(data, CardMutation::None, source, 1, &[0]);
             session.accept_card_b().expect("public card binding");
             let begin = session.begin_a1_intake().expect("A1 intake");
             let a1 = hex_vec(field(PROVISIONING, "a1_capsule_hex"));
@@ -1069,7 +1075,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             failure_fact(case, &mut session, error, NormalErrorV2::ReviewRejected)
         }
         19 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             reset_wiped_bytes();
             let error = match session.begin_approval_hold() {
                 Ok(_) => panic!("approval is unavailable before the full review"),
@@ -1083,7 +1089,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         20 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             finish_review(&mut session);
             reset_wiped_bytes();
             let error = match session.advance_review() {
@@ -1093,7 +1099,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             failure_fact(case, &mut session, error, NormalErrorV2::ReviewIncomplete)
         }
         21 => {
-            let mut session = reach_review(data, CardMutation::None, false);
+            let mut session = reach_review(data, CardMutation::None, source, false);
             finish_approval(&mut session);
             reset_wiped_bytes();
             let error = match session.choose_export(NormalExportActionV2::Bbqr {
@@ -1110,7 +1116,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         22 => {
-            let mut session = reach_review_profile(data, CardMutation::None, 3, false);
+            let mut session = reach_review_profile(data, CardMutation::None, source, 3, false);
             finish_approval(&mut session);
             let begin = session
                 .choose_export(NormalExportActionV2::Sd {
@@ -1135,7 +1141,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         23 => {
-            let mut session = reach_review_profile(data, CardMutation::None, 3, false);
+            let mut session = reach_review_profile(data, CardMutation::None, source, 3, false);
             finish_approval(&mut session);
             let begin = session
                 .choose_export(NormalExportActionV2::Bbqr {
@@ -1160,7 +1166,7 @@ fn run_failure(data: &[u8], case: u8) -> FailureRunFact {
             )
         }
         24 => {
-            let mut session = reach_review_profile(data, CardMutation::None, 3, false);
+            let mut session = reach_review_profile(data, CardMutation::None, source, 3, false);
             finish_approval(&mut session);
             let begin = session
                 .choose_export(NormalExportActionV2::Bbqr {
@@ -1238,9 +1244,9 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(first, run_valid(data, selector, source));
         }
     } else {
-        let first = run_failure(data, selector);
+        let first = run_failure(data, selector, source);
         if repeat {
-            assert_eq!(first, run_failure(data, selector));
+            assert_eq!(first, run_failure(data, selector, source));
         }
     }
 });
