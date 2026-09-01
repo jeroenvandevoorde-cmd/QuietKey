@@ -7,15 +7,17 @@ publish = false
 description = "HOST-only QuietKey trusted-process provisioning and purpose-bound normal shell. Not target or production evidence."
 
 [features]
-default = ["normal-v3"]
-fuzzing = ["normal-v3", "qk-ipc/fuzzing"]
+default = ["normal-v3", "kit-v3"]
+fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
 normal-v3 = ["qk-psbt/normal-v3", "qk-wallet-v2/normal-v3"]
+kit-v3 = ["normal-v3", "qk-kit/process-v3"]
 
 [dependencies]
 qk-a1 = { path = "../qk-a1" }
 qk-bbqr = { path = "../qk-bbqr" }
 qk-descriptor = { path = "../qk-descriptor" }
 qk-ipc = { path = "../qk-ipc" }
+qk-kit = { path = "../qk-kit", optional = true }
 qk-psbt = { path = "../qk-psbt" }
 qk-provisioning = { path = "../qk-provisioning" }
 qk-wallet-v2 = { path = "../qk-wallet-v2" }

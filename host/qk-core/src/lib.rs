@@ -19,6 +19,12 @@
 mod capability;
 mod error;
 mod io_wire;
+#[cfg(feature = "kit-v3")]
+mod kit_intake_v2;
+#[cfg(feature = "kit-v3")]
+mod kit_restore_v2;
+#[cfg(feature = "kit-v3")]
+mod kit_spend_v2;
 #[cfg(feature = "normal-v3")]
 mod normal_artifact_v2;
 #[cfg(feature = "normal-v3")]
@@ -38,6 +44,25 @@ pub use capability::{
 };
 pub use error::{CoreError, Interruption, IoRejection};
 pub use io_wire::{Operation, Source};
+#[cfg(feature = "kit-v3")]
+pub use kit_intake_v2::{
+    KitDoorV2, KitFallbackProgressV2, KitForeignInputV2, KitFrameIdentityV2, KitInputModeV2,
+    KitIntakeErrorV2, KitIntakeOutcomeV2, KitIntakeReadyV2, KitIntakeScreenV2, KitIntakeSessionV2,
+    KitShareOrdinalV2, KIT_FALLBACK_TABLE_V2,
+};
+#[cfg(feature = "kit-v3")]
+pub use kit_restore_v2::{
+    AuthorizedA1ReprintV2, CardRemainsStatementV2, HumanAssertionDigitV2, KitRestoreActionV2,
+    KitRestoreArtifactV2, KitRestoreErrorV2, KitRestoreForeignOperationV2, KitRestoreOutcomeV2,
+    KitRestoreScreenV2, KitRestoreSessionV2, KitRestoreStageV2, MandatoryFreshWalletMigrationV2,
+};
+#[cfg(feature = "kit-v3")]
+pub use kit_spend_v2::{
+    CoordinatorCompletenessStatementV2, KitSpendApprovalIdentityV2, KitSpendAssertionDigitV2,
+    KitSpendCycleTokenV2, KitSpendErrorV2, KitSpendFinalizedFactsV2, KitSpendForeignOperationV2,
+    KitSpendOutcomeV2, KitSpendRecipientFactV2, KitSpendReviewPositionV2, KitSpendScreenV2,
+    KitSpendSessionV2, KitSpendStageV2,
+};
 #[cfg(feature = "normal-v3")]
 pub use normal_artifact_v2::{
     NormalArtifactErrorV2, NormalArtifactFactsV2, NormalArtifactKindV2, NormalExportActionV2,
@@ -53,6 +78,8 @@ pub use normal_v2::{
     NormalScreenV2, NormalSequenceViewV2, NormalSessionV2, NormalStageV2,
     NormalTransactionResultViewV2, NormalWarningViewV2,
 };
+#[cfg(feature = "kit-v3")]
+pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};
 pub use session::{
     CoreMode, CoreOutbound, CoreReceiveEvent, CoreReceiveOutcome, CoreSession, CoreState,
     HostileIngress,
