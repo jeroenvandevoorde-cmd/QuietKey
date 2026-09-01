@@ -9,6 +9,7 @@
 mod identity;
 mod model;
 mod pcsc_adapter;
+mod pcsc_identity_adapter;
 mod transcript;
 
 pub use identity::{
@@ -23,6 +24,7 @@ pub use model::{
     EnrollmentOutcome, EnrollmentRecord, NegotiatedProtocol, ValidatedMetadata,
 };
 pub use pcsc_adapter::PcscEnrollmentBackend;
+pub use pcsc_identity_adapter::PcscIdentityBackend;
 pub use transcript::encode_transcript;
 
 pub const ACTIVE_ALLOWLIST_ID: &str = "QK-F8-ENROLL-EMPTY-V1";
