@@ -204,6 +204,16 @@ fn host_runtime_unsafe_surface_is_narrow_and_has_no_secret_or_process_operation(
 }
 
 #[test]
+fn inherited_endpoint_duplication_is_atomic_close_on_exec_and_above_standard_descriptors() {
+    assert!(UNIX_RECV.contains("const F_DUPFD_CLOEXEC: c_int = 1030;"));
+    assert!(UNIX_RECV.contains("const F_DUPFD_CLOEXEC: c_int = 67;"));
+    assert!(UNIX_RECV.contains("const FIRST_NON_STANDARD_DESCRIPTOR: c_int = 3;"));
+    assert!(UNIX_RECV.contains("fcntl(source, F_DUPFD_CLOEXEC, FIRST_NON_STANDARD_DESCRIPTOR)"));
+    assert!(!UNIX_RECV.contains("fn dup("));
+    assert!(!UNIX_RECV.contains("F_SETFD"));
+}
+
+#[test]
 fn payload_owner_does_not_clone_format_or_release_its_vector() {
     let owner = STREAM
         .split_once("pub struct ReceivedFrame {")

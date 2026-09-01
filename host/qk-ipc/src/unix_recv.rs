@@ -95,7 +95,6 @@ struct AlignedControl([u8; CONTROL_BYTES]);
 extern "C" {
     fn recvmsg(socket: c_int, message: *mut MessageHeader, flags: c_int) -> isize;
     fn close(descriptor: c_int) -> c_int;
-    fn dup(descriptor: c_int) -> c_int;
     fn fcntl(descriptor: c_int, command: c_int, ...) -> c_int;
     fn getsockopt(
         socket: c_int,
@@ -108,7 +107,14 @@ extern "C" {
     fn getpeername(socket: c_int, address: *mut c_void, address_len: *mut u32) -> c_int;
 }
 
-const F_SETFD: c_int = 2;
+#[cfg(target_os = "linux")]
+const F_DUPFD_CLOEXEC: c_int = 1030;
+#[cfg(target_os = "macos")]
+const F_DUPFD_CLOEXEC: c_int = 67;
+const FIRST_NON_STANDARD_DESCRIPTOR: c_int = 3;
+#[cfg(test)]
+const F_GETFD: c_int = 1;
+#[cfg(test)]
 const FD_CLOEXEC: c_int = 1;
 #[cfg(target_os = "linux")]
 const SO_TYPE: c_int = 3;
@@ -154,16 +160,11 @@ pub fn inherited_endpoint() -> Result<UnixStream, UnixReceiveError> {
 }
 
 fn duplicate_endpoint(source: c_int) -> Result<UnixStream, UnixReceiveError> {
-    // SAFETY: the source is merely duplicated; ownership of the inherited
-    // descriptor remains with its operating-system boundary.
-    let descriptor = unsafe { dup(source) };
+    // SAFETY: F_DUPFD_CLOEXEC atomically creates one owned close-on-exec
+    // duplicate at or above the first non-standard descriptor. Ownership of
+    // the inherited source remains with its operating-system boundary.
+    let descriptor = unsafe { fcntl(source, F_DUPFD_CLOEXEC, FIRST_NON_STANDARD_DESCRIPTOR) };
     if descriptor < 0 {
-        return Err(UnixReceiveError::InheritedEndpointUnavailable);
-    }
-    // SAFETY: F_SETFD consumes the integer flag argument and changes only the
-    // duplicate's close-on-exec bit.
-    if unsafe { fcntl(descriptor, F_SETFD, FD_CLOEXEC) } < 0 {
-        close_descriptor(descriptor);
         return Err(UnixReceiveError::InheritedEndpointUnavailable);
     }
     if !is_stream_socket(descriptor) {
@@ -493,7 +494,8 @@ fn wipe(bytes: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        duplicate_endpoint, returned_event_flags, UnixReceiveError, MSG_CTRUNC, RECEIVE_FLAGS,
+        duplicate_endpoint, fcntl, returned_event_flags, UnixReceiveError, FD_CLOEXEC,
+        FIRST_NON_STANDARD_DESCRIPTOR, F_GETFD, MSG_CTRUNC, RECEIVE_FLAGS,
     };
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -534,6 +536,11 @@ mod tests {
 
         let (mut peer, endpoint) = UnixStream::pair().unwrap();
         let mut duplicate = duplicate_endpoint(endpoint.as_raw_fd()).unwrap();
+        assert!(duplicate.as_raw_fd() >= FIRST_NON_STANDARD_DESCRIPTOR);
+        assert_eq!(
+            unsafe { fcntl(duplicate.as_raw_fd(), F_GETFD) } & FD_CLOEXEC,
+            FD_CLOEXEC
+        );
         duplicate.write_all(b"to-peer").unwrap();
         let mut peer_bytes = [0u8; 7];
         peer.read_exact(&mut peer_bytes).unwrap();
