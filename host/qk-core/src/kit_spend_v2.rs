@@ -767,6 +767,19 @@ impl KitSpendSessionV2 {
             return Err(error);
         }
         self.show_in_core(core, CoreScreen::KitSpendHumanAssertion)?;
+        let approval = self
+            .approval
+            .ok_or_else(|| self.fail(KitSpendErrorV2::ReviewIdentityMismatch))?;
+        if core
+            .lock_kit_approval(
+                approval.token.session_identity,
+                approval.review_hash,
+                approval.token.cycle,
+            )
+            .is_err()
+        {
+            return Err(self.fail(KitSpendErrorV2::ReviewIdentityMismatch));
+        }
         self.screen().ok_or(KitSpendErrorV2::ReviewIdentityMismatch)
     }
 
@@ -858,10 +871,31 @@ impl KitSpendSessionV2 {
         core: &mut CoreSession,
         key: KeypadKey,
     ) -> Result<KitSpendOutcomeV2, KitSpendErrorV2> {
+        if core.kit_post_approval_yielded() {
+            return Err(self.fail(KitSpendErrorV2::PostApprovalYield));
+        }
+        if let Some(reason) = core.terminal_reason() {
+            return Err(self.fail(KitSpendErrorV2::Interrupted(reason)));
+        }
         let approval = match self.approval {
             Some(approval) => approval,
             None => return Err(self.fail(KitSpendErrorV2::ReviewIdentityMismatch)),
         };
+        if core
+            .consume_kit_approval(
+                approval.token.session_identity,
+                approval.review_hash,
+                approval.token.cycle,
+            )
+            .is_err()
+        {
+            let error = if core.kit_post_approval_yielded() {
+                KitSpendErrorV2::PostApprovalYield
+            } else {
+                KitSpendErrorV2::ReviewIdentityMismatch
+            };
+            return Err(self.fail(error));
+        }
         let key = match core.kit_read_key(key) {
             Ok(key) => key,
             Err(_) => {

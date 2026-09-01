@@ -192,6 +192,46 @@ fn product_bridge_binds_core_identity_and_reads_digit_without_caller_token() {
     );
 }
 
+#[test]
+fn actual_core_transport_after_assertion_terminates_and_makes_signing_impossible() {
+    let fixture = fields(SPEND);
+    let mut core = ready_core();
+    let mut session = KitSpendSessionV2::begin(
+        &mut core,
+        &[1],
+        ready(KitDoorV2::KitSpend),
+        &descriptors("old"),
+        KitSpendAssertionDigitV2::new(7).expect("digit"),
+    )
+    .expect("product Kit-Spend");
+    let mut psbt = hex_vec(fixture["s0_hex"]);
+    session
+        .submit_sweep(
+            Source::MediaPsbt,
+            &mut psbt,
+            &descriptors("replacement"),
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
+        .expect("registered sweep");
+    while session.stage() == KitSpendStageV2::Review {
+        session
+            .advance_review_in_core(&mut core)
+            .expect("visit bound review fact");
+    }
+    session
+        .confirm_all_funds_in_core(
+            &mut core,
+            CoordinatorCompletenessStatementV2::AllFundsIncluded,
+        )
+        .expect("lock exact approval");
+
+    assert!(core.begin_ingress(Source::CameraBbqrPsbt).is_err());
+    assert_eq!(
+        session.execute_in_core(&mut core, KeypadKey::Seven).err(),
+        Some(KitSpendErrorV2::PostApprovalYield)
+    );
+}
+
 fn key_for_digit(digit: u8) -> KeypadKey {
     match digit {
         0 => KeypadKey::Zero,

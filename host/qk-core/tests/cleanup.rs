@@ -39,12 +39,40 @@ fn session_identity_namespace_counter_and_returned_owner_are_all_cleared() {
 }
 
 #[test]
+fn kit_approval_identity_is_fixed_wipe_owned_and_closed_on_every_shell_exit() {
+    assert!(SESSION.contains(
+        "struct KitApprovalLockV2 {\n    session_identity: WipingArray<16>,\n    review_hash: WipingArray<32>,\n    cycle: WipingArray<8>,\n}"
+    ));
+    assert!(SESSION.contains(
+        "self.kit_approval = Some(KitApprovalLockV2::new(session_identity, review_hash, cycle));"
+    ));
+
+    let close = SESSION
+        .split_once("fn accept_closed(&mut self, payload: &[u8])")
+        .expect("close helper")
+        .1
+        .split_once("fn show_or_terminate")
+        .expect("close helper end")
+        .0;
+    assert!(close.contains("drop(self.kit_approval.take());"));
+
+    let terminate = SESSION
+        .split_once("fn terminate(&mut self, reason: Interruption) {")
+        .expect("terminate helper")
+        .1
+        .split_once("fn require_open(&self)")
+        .expect("terminate helper end")
+        .0;
+    assert!(terminate.contains("drop(self.kit_approval.take());"));
+}
+
+#[test]
 fn universal_termination_discards_every_session_owned_buffer_before_absorption() {
     let terminate = SESSION
         .split_once("fn terminate(&mut self, reason: Interruption) {")
         .expect("terminate helper")
         .1
-        .split_once("fn require_live(&self)")
+        .split_once("fn require_open(&self)")
         .expect("terminate helper end")
         .0;
     for clear in [
@@ -54,6 +82,7 @@ fn universal_termination_discards_every_session_owned_buffer_before_absorption()
         "self.normal_response = None;",
         "self.decoder = None;",
         "self.ipc = None;",
+        "drop(self.kit_approval.take());",
         "drop(self.session_identity.take());",
     ] {
         assert!(terminate.contains(clear), "missing cleanup {clear}");

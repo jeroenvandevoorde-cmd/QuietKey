@@ -179,6 +179,31 @@ struct IngressTransfer {
     bytes: WipingVec,
 }
 
+/// Exact one-use Kit approval identity retained by the process shell while
+/// every transport, capability, and screen operation is closed.
+struct KitApprovalLockV2 {
+    session_identity: WipingArray<16>,
+    review_hash: WipingArray<32>,
+    cycle: WipingArray<8>,
+}
+
+impl KitApprovalLockV2 {
+    fn new(mut session_identity: [u8; 16], mut review_hash: [u8; 32], cycle: u64) -> Self {
+        let mut cycle = cycle.to_le_bytes();
+        Self {
+            session_identity: WipingArray::take(&mut session_identity),
+            review_hash: WipingArray::take(&mut review_hash),
+            cycle: WipingArray::take(&mut cycle),
+        }
+    }
+
+    fn matches(&self, session_identity: &[u8; 16], review_hash: &[u8; 32], cycle: u64) -> bool {
+        self.session_identity.as_array() == session_identity
+            && self.review_hash.as_array() == review_hash
+            && self.cycle.as_array() == &cycle.to_le_bytes()
+    }
+}
+
 impl IngressTransfer {
     fn try_new(source: Source, total_len: u32) -> Result<Self, CoreError> {
         let length = usize::try_from(total_len).map_err(|_| CoreError::AllocationFailed)?;
@@ -241,6 +266,8 @@ pub struct CoreSession {
     normal_response: Option<WipingVec>,
     kit_response: Option<WipingVec>,
     print_artifact: Option<PrintArtifact>,
+    kit_approval: Option<KitApprovalLockV2>,
+    kit_post_approval_yield: bool,
     grants: CoreDeviceGrants,
 }
 
@@ -277,6 +304,8 @@ impl CoreSession {
             normal_response: None,
             kit_response: None,
             print_artifact: None,
+            kit_approval: None,
+            kit_post_approval_yield: false,
             grants,
         };
         Ok((session, frame))
@@ -326,6 +355,79 @@ impl CoreSession {
             Some(identity) => Ok(identity.as_array()),
             None => Err(CoreError::InvalidTransition),
         }
+    }
+
+    /// Close the process shell around one exact displayed Kit approval. From
+    /// this point only the matching atomic digit-and-sign transition may
+    /// consume the lock; every ordinary shell operation terminates instead.
+    pub(crate) fn lock_kit_approval(
+        &mut self,
+        session_identity: [u8; 16],
+        review_hash: [u8; 32],
+        cycle: u64,
+    ) -> Result<(), CoreError> {
+        self.require_kit_live()?;
+        let identity_matches = self
+            .session_identity
+            .as_ref()
+            .is_some_and(|identity| identity.as_array() == &session_identity);
+        if self.state != CoreState::Ready
+            || !identity_matches
+            || self.expected.is_some()
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.normal_response.is_some()
+            || self.kit_response.is_some()
+            || self.print_artifact.is_some()
+            || self.kit_approval.is_some()
+            || self.kit_post_approval_yield
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.kit_approval = Some(KitApprovalLockV2::new(session_identity, review_hash, cycle));
+        Ok(())
+    }
+
+    /// Consume only the exact approval identity previously locked by this
+    /// process session. Clearing happens before the immediate keypad read, so
+    /// the lock cannot be reused even when the capability fails.
+    pub(crate) fn consume_kit_approval(
+        &mut self,
+        session_identity: [u8; 16],
+        review_hash: [u8; 32],
+        cycle: u64,
+    ) -> Result<(), CoreError> {
+        self.require_open()?;
+        let identity_matches = self.mode == CoreMode::Kit
+            && self.state == CoreState::Ready
+            && self
+                .session_identity
+                .as_ref()
+                .is_some_and(|identity| identity.as_array() == &session_identity);
+        let Some(approval) = self.kit_approval.take() else {
+            self.terminate(Interruption::OperationFailed);
+            return Err(CoreError::InvalidTransition);
+        };
+        let approval_matches = approval.matches(&session_identity, &review_hash, cycle);
+        drop(approval);
+        if !identity_matches
+            || !approval_matches
+            || self.expected.is_some()
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.normal_response.is_some()
+            || self.kit_response.is_some()
+            || self.print_artifact.is_some()
+            || self.kit_post_approval_yield
+        {
+            self.terminate(Interruption::OperationFailed);
+            return Err(CoreError::InvalidTransition);
+        }
+        Ok(())
+    }
+
+    pub(crate) const fn kit_post_approval_yielded(&self) -> bool {
+        self.kit_post_approval_yield
     }
 
     /// Emit the sole typed ingress-begin operation.
@@ -951,7 +1053,7 @@ impl CoreSession {
     /// Record clean or partial connection EOF through the QKIP receive-failure
     /// family, then enter the universal peer-loss terminal path.
     pub fn connection_closed(&mut self) -> Result<Interruption, CoreError> {
-        self.require_live()?;
+        self.require_open()?;
         let decoder_error = match self.decoder.as_mut() {
             Some(decoder) => decoder.finish(),
             None => IpcError::PeerLost,
@@ -970,7 +1072,7 @@ impl CoreSession {
 
     /// Apply one universal closed interruption.
     pub fn interrupt(&mut self, reason: Interruption) -> Result<Interruption, CoreError> {
-        self.require_live()?;
+        self.require_open()?;
         if reason == Interruption::PeerLost {
             return self.connection_closed();
         }
@@ -1246,6 +1348,7 @@ impl CoreSession {
         self.normal_response = None;
         self.kit_response = None;
         self.print_artifact = None;
+        drop(self.kit_approval.take());
         drop(self.session_identity.take());
         self.show_or_terminate(CoreScreen::Closed)?;
         Ok(CoreReceiveEvent::SessionClosed)
@@ -1275,6 +1378,7 @@ impl CoreSession {
     }
 
     fn terminate(&mut self, reason: Interruption) {
+        drop(self.kit_approval.take());
         if self.state == CoreState::Terminated {
             return;
         }
@@ -1292,9 +1396,20 @@ impl CoreSession {
         let _ = self.grants.display_mut().show(CoreScreen::Terminated);
     }
 
-    fn require_live(&self) -> Result<(), CoreError> {
+    fn require_open(&self) -> Result<(), CoreError> {
         if self.state == CoreState::Terminated || self.state == CoreState::Closed {
             Err(CoreError::CoreTerminated)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn require_live(&mut self) -> Result<(), CoreError> {
+        self.require_open()?;
+        if self.kit_approval.is_some() {
+            self.kit_post_approval_yield = true;
+            self.terminate(Interruption::OperationFailed);
+            Err(CoreError::InvalidTransition)
         } else {
             Ok(())
         }
