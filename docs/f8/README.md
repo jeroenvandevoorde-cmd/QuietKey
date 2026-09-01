@@ -1,15 +1,16 @@
 # F8 Card-Bench Preparation and Enrollment
 
-EXPERIMENTAL - HOST BENCH PREPARATION - ZERO APDU COMMANDS AUTHORIZED
+EXPERIMENTAL - HOST BENCH OBSERVATION - FIXED READ-ONLY IDENTITY SEQUENCE
 
 ## Status and authority
 
-QK-DEC-105 established the non-mutating F8 groundwork. QK-DEC-147 opens the
+QK-DEC-105 established the non-mutating F8 groundwork. QK-DEC-147 opened the
 ring-fenced `bench/card-enrollment/` preparation lane for the delivered reader
-and three Owner-supplied J3R180 specimens. The lane creates no card secret, key
-or applet, authorizes no mutation, changes no Gate, and makes no target or card-
-capability claim. Protocol-Lab retains its separate capture and Reader scope;
-no source moves between the repositories.
+and three Owner-supplied J3R180 specimens; enrollment is complete and frozen.
+QK-DEC-153 activates only the fixed read-only `QK-F8-IDENT-V1` sequence. The
+lane creates no card secret, key or applet, authorizes no mutation, changes no
+Gate, and makes no target or card-capability claim. Protocol-Lab retains its
+separate capture and Reader scope; no source moves between the repositories.
 
 The controlling card behavior is Core Architecture v2 under QK-DEC-121,
 QK-REQ-CARD-001 through QK-REQ-CARD-010, QK-REQ-KIT-010,
@@ -30,32 +31,24 @@ coordinator UTXO completeness.
 
 ## Current registration and ordered locks
 
-The sole active enrollment registration is `QK-F8-ENROLL-EMPTY-V1`. It permits,
-once all evidence prerequisites are complete, bounded reader enumeration,
-exclusive connection to the exact registered reader, one explicit reset, exact
-ATR and negotiated-protocol capture, and disconnect. It permits zero APDU
-commands. The enrollment tool has no transmit surface and names every attempted
-transmit `ApduTransmitNotAuthorized`.
+The completed enrollment registration `QK-F8-ENROLL-EMPTY-V1` permits bounded
+reader enumeration, exclusive connection to the exact registered reader, one
+explicit reset, exact ATR and negotiated-protocol capture, and disconnect. It
+permits zero APDU commands. Its three specimen transcripts and public ATRs are
+registered in `ENROLLMENT-MANIFEST.md`.
 
-Preparation has two parallel prerequisites before first card contact:
+The only active live-card APDU registration is `QK-F8-IDENT-V1`. After the
+final tool source commit is published, it permits one fixed private adapter to
+issue exactly `80 CA 00 66 00` and, only after its response validates, exactly
+`80 CA 9F 7F 00`. Generic transmit remains mechanically refused as
+`ApduTransmitNotAuthorized`; no caller supplies an APDU.
 
-- complete the private-bundle manifest for the supplied labeling and package
-   photographs, including exact byte counts, SHA-256 values and timestamps.
-- build and register the exact enrollment tool and source commit, then bind the
-   apparatus aliases and selected reader-name bytes for the invocation.
-
-After both prerequisites are complete, contact order is locked:
-
-1. Contact `J3R180-02` alone and register its complete canonical transcript and
-   public ATR for review.
-2. Only after that review, contact `J3R180-03` and register its evidence.
-3. Contact protected reference `J3R180-01` last, only after the same procedure
-   has succeeded twice.
-
-Any unexpected identity, state, status, response or evidence gap stops the
-procedure for Owner disposition. No specimen contact, reset, ATR capture,
-protocol negotiation or enrollment success is claimed by the records currently
-in this directory. Empty-reader USB identification is permitted now.
+Identity contact order is `J3R180-02`, then `J3R180-03` only after 02 passes,
+then protected reference `J3R180-01` only after both prior sessions pass. Any
+non-PASS identity outcome stops the sequence for Owner disposition. No
+identity-read session or result is registered yet. The labeling photographs
+remain an optional, unhashed private-custody fact under QK-DEC-148; no present
+or future step depends on them.
 
 ## Enrollment evidence boundary
 
@@ -70,12 +63,13 @@ redaction or normalization. The tool never persists automatically; the Owner
 redirects output into the private bundle, and `ENROLLMENT-MANIFEST.md` registers
 the later exact byte counts and SHA-256 values.
 
-Photographs, serials, and any future CPLC, raw-transcript or APDU bytes remain
-verbatim in durable private Owner custody and must be hash-bound when their
-manifests are completed. The repository then publishes aliases, exact byte
-counts, SHA-256 values, timestamps, tool and source commits, custody paths, and
-each specimen ATR verbatim. The absence of raw private evidence from Git is
-deliberate, not a license to normalize it.
+Serials and all future CPLC, Card Data, raw-transcript and APDU bytes remain
+verbatim in durable private Owner custody and are hash-bound when the identity
+manifest is completed. The repository publishes aliases, exact byte counts,
+SHA-256 values, timestamps, tool and source commits, custody paths, counts and
+each specimen ATR verbatim, but never publishes the CPLC or Card Data bytes.
+The absence of raw private evidence from Git is deliberate, not a license to
+normalize it.
 
 ## Existing mock trace checker
 
@@ -88,16 +82,16 @@ format nor changes any existing F8 run packet.
 
 ## Committed records
 
-- `APPARATUS-REGISTER.md`: supplied host, reader, hub and topology facts;
-  private serial and evidence hashes remain pending.
+- `APPARATUS-REGISTER.md`: supplied host, reader, hub and topology facts.
 - `SPECIMEN-REGISTER.md`: supplied order, physical appearance, assignments,
-  custody and contact order; photograph hashes and timestamps remain pending.
-- `NONMUTATING-ALLOWLIST.md`: active zero-APDU enrollment registration and
-  exact non-APDU operation bounds.
-- `ARRIVAL-ALLOWLIST-DRAFT.md`: registered inactive two-command candidate;
-  its required source pair is absent and it grants no execution authority.
-- `ENROLLMENT-MANIFEST.md`: public/private evidence boundary and pending
-  enrollment ledger.
+  custody and completed enrollment order.
+- `NONMUTATING-ALLOWLIST.md`: frozen zero-APDU enrollment registration, active
+  fixed identity registration and exact operation bounds.
+- `ARRIVAL-ALLOWLIST-DRAFT.md`: retained activation record for the two-command
+  candidate and its now-complete source checklist.
+- `ENROLLMENT-MANIFEST.md`: completed enrollment evidence ledger.
+- `IDENTITY-MANIFEST.md`: identity transcript contract and pending three-row
+  ledger.
 - `RUN-REGISTER.md` and `EXECUTION-PACKETS.md`: the existing seven future bench
   packets, still blocked until their own Owner rows.
 

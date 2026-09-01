@@ -1,20 +1,21 @@
-# QuietKey F8 card-enrollment tool
+# QuietKey F8 card-observation tool
 
-HOST BENCH PREPARATION ONLY - ZERO APDU COMMANDS - NO GATE CLAIM
+HOST BENCH OBSERVATION ONLY - FIXED READ-ONLY IDENTITY SEQUENCE - NO GATE CLAIM
 
-This ring-fenced tool implements QK-DEC-147. It can enumerate PC/SC reader
-names and, only after the F8 manifest prerequisites and a later execution
-authorization are complete, connect to one exactly selected reader in
-exclusive mode, explicitly reset one inserted specimen, capture its exact ATR
-and negotiated protocol, and disconnect. It has no APDU transmit or control
-surface. `QK-F8-ENROLL-EMPTY-V1` is the complete active allowlist.
+This ring-fenced tool implements QK-DEC-147 and QK-DEC-153. The completed
+`QK-F8-ENROLL-EMPTY-V1` path can enumerate PC/SC reader names, connect to one
+exactly selected reader in exclusive mode, explicitly reset one inserted
+specimen, capture its exact ATR and negotiated protocol, and disconnect without
+an APDU. The separate `QK-F8-IDENT-V1` path checks the registered ATR and T=1,
+then performs only two private literal reads in fixed order. It has no caller-
+supplied APDU, raw card, passthrough or control surface.
 
-The tool writes one canonical `QK-CARD-ENROLLMENT-V1` transcript to standard
-output and never opens an output file. The Owner redirects that output into
-the durable private custody bundle. A later repository manifest records the
-transcript's exact byte count and SHA-256, source commit, timestamp, aliases,
-and custody path; ATR bytes are additionally published verbatim only when the
-ordered specimen enrollment is authorized and completed.
+The tool writes a canonical `QK-CARD-ENROLLMENT-V1` or
+`QK-CARD-IDENTITY-V1` transcript to standard output and never opens an output
+file. The Owner redirects output into the durable private custody bundle. The
+identity manifest later records each transcript's exact byte count and SHA-256,
+source commit, timestamp, aliases, custody path and counts; ATR bytes are public
+while Card Data, CPLC and complete raw transcripts remain private.
 
 ## Locked build
 
@@ -35,19 +36,17 @@ cargo build --manifest-path bench/card-enrollment/Cargo.toml --locked --offline
 cargo test --manifest-path bench/card-enrollment/Cargo.toml --locked --offline
 ```
 
-## Preparation-only invocations
+## Invocations
 
-Empty-reader enumeration is the only currently permitted physical use:
+The completed enumeration form remains:
 
 ```sh
 cargo run --manifest-path bench/card-enrollment/Cargo.toml --locked --offline -- \
   enumerate <40-lowercase-hex-source-commit> <YYYY-MM-DDTHH:MM:SSZ> iMac SCR3310-01
 ```
 
-The enrollment form is documented for the later Owner-run procedure and must
-not be invoked until the photo and private-serial manifests are complete and
-the run is authorized. The selected PC/SC reader name is supplied as complete
-lowercase hex so every name byte is preserved:
+The completed zero-APDU enrollment form remains byte-frozen. The selected
+PC/SC reader name is complete lowercase hex so every name byte is preserved:
 
 ```sh
 cargo run --manifest-path bench/card-enrollment/Cargo.toml --locked --offline -- \
@@ -55,7 +54,15 @@ cargo run --manifest-path bench/card-enrollment/Cargo.toml --locked --offline --
   J3R180-02 <selected-reader-name-lowerhex>
 ```
 
-The physical order remains `J3R180-02`, then `J3R180-03` only after the first
-record is registered and reviewed, then `J3R180-01` only after two successful
-procedures. No invocation changes card state beyond the expressly ratified
-exclusive connection and reset observations, and no APDU can be supplied.
+After the final identity-tool source commit is published, the Owner uses only:
+
+```sh
+cargo run --manifest-path bench/card-enrollment/Cargo.toml --locked --offline -- \
+  identity <40-lowercase-hex-source-commit> <YYYY-MM-DDTHH:MM:SSZ> iMac SCR3310-01 \
+  J3R180-02 <selected-reader-name-lowerhex>
+```
+
+The required order is `J3R180-02`, `J3R180-03` only after 02 passes, then
+protected `J3R180-01` only after both prior sessions pass. A non-PASS outcome
+stops the sequence. The command accepts no APDU bytes; its only transmissions
+are fixed `80 CA 00 66 00` and, after exact validation, `80 CA 9F 7F 00`.
