@@ -604,6 +604,13 @@ fn validate_exchange(
     command: &[u8; 5],
     validate_response: fn(&[u8]) -> Result<(), IdentityError>,
 ) -> Result<(), IdentityError> {
+    if exchange
+        .response
+        .as_deref()
+        .is_some_and(|response| response.len() > MAX_IDENTITY_RESPONSE_BYTES)
+    {
+        return sequence_violation();
+    }
     if transmit.is_none() {
         if exchange.request.is_some() || exchange.response.is_some() || receive.is_some() {
             return sequence_violation();
@@ -653,8 +660,7 @@ fn valid_enumeration_rejection(error: IdentityError, readers: &[Vec<u8>]) -> boo
         IdentityError::ReaderEnumerationFailed
         | IdentityError::ReaderListTooLarge
         | IdentityError::ReaderCountExceeded
-        | IdentityError::BoundaryPanicked
-        | IdentityError::IdentitySequenceViolation => readers.is_empty(),
+        | IdentityError::BoundaryPanicked => readers.is_empty(),
         IdentityError::ReaderNameEmpty
         | IdentityError::ReaderNameTooLong
         | IdentityError::ReaderNameContainsNul => {
@@ -700,8 +706,7 @@ fn valid_operation_rejection(operation: IdentityOperation, error: IdentityError)
         ),
         IdentityOperation::ReceiveCardRecognition => matches!(
             error,
-            IdentityError::CardRecognitionResponseTooLong
-                | IdentityError::CardRecognitionResponseTooShort
+            IdentityError::CardRecognitionResponseTooShort
                 | IdentityError::CardRecognitionStatusRejected
                 | IdentityError::CardRecognitionOuterTagMismatch
                 | IdentityError::CardRecognitionLengthMalformed

@@ -160,7 +160,25 @@ fn contradictory_failure_records_never_encode() {
     let mut wrong_disconnect = record();
     wrong_disconnect.disconnected = Some(false);
 
-    for malformed in [wrong_result, invented_response, wrong_disconnect] {
+    let mut oversized_response = record();
+    oversized_response.events.truncate(7);
+    oversized_response.events[6].outcome =
+        IdentityOutcome::Reject(IdentityError::CardRecognitionResponseTooLong);
+    oversized_response.events.push(IdentityEvent {
+        operation: IdentityOperation::Disconnect,
+        outcome: IdentityOutcome::Pass,
+    });
+    oversized_response.exchanges[0].response = Some(vec![0; 259]);
+    oversized_response.exchanges[1] = IdentityExchange::default();
+    oversized_response.outcome =
+        IdentityOutcome::Reject(IdentityError::CardRecognitionResponseTooLong);
+
+    for malformed in [
+        wrong_result,
+        invented_response,
+        wrong_disconnect,
+        oversized_response,
+    ] {
         assert_eq!(
             encode_identity_transcript(&malformed),
             Err(qk_card_enrollment::IdentityError::IdentitySequenceViolation)
