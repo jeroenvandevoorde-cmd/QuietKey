@@ -129,6 +129,38 @@ fn second_command_without_valid_first_response_is_a_sequence_violation() {
 }
 
 #[test]
+fn successful_backend_claims_require_every_bound_identity_fact() {
+    let mut cases = Vec::new();
+    let mut wrong_command = success_attempt();
+    wrong_command.exchanges[0].request = Some(vec![0x80, 0xca, 0x00, 0x67, 0x00]);
+    cases.push(wrong_command);
+    let mut wrong_atr = success_attempt();
+    wrong_atr.observed_atr = Some(vec![0x3b]);
+    cases.push(wrong_atr);
+    let mut wrong_protocol = success_attempt();
+    wrong_protocol.observed_protocol = Some(NegotiatedProtocol::T0);
+    cases.push(wrong_protocol);
+    let mut no_disconnect = success_attempt();
+    no_disconnect.disconnected = Some(false);
+    cases.push(no_disconnect);
+    let mut missing_event = success_attempt();
+    missing_event.events.remove(6);
+    cases.push(missing_event);
+
+    for attempt in cases {
+        let mut backend = MockBackend {
+            readers: Ok(vec![READER.to_vec()]),
+            attempt,
+            captures: 0,
+        };
+        assert_eq!(
+            run_identity(metadata(), &mut backend).outcome,
+            IdentityOutcome::Reject(IdentityError::IdentitySequenceViolation)
+        );
+    }
+}
+
+#[test]
 fn reader_selection_is_checked_before_contact() {
     let mut backend = MockBackend {
         readers: Ok(vec![b"another reader".to_vec()]),
@@ -169,6 +201,14 @@ fn card_recognition_parser_locks_precedence_and_canonical_length() {
         Err(IdentityError::CardRecognitionLengthMalformed)
     );
     assert_eq!(
+        validate_card_recognition_response(&[0x66, 0x82, 0x00, 0x01, 0x73, 0x90, 0x00]),
+        Err(IdentityError::CardRecognitionLengthMalformed)
+    );
+    assert_eq!(
+        validate_card_recognition_response(&[0x66, 0x02, 0x73, 0x90, 0x00]),
+        Err(IdentityError::CardRecognitionLengthMalformed)
+    );
+    assert_eq!(
         validate_card_recognition_response(&[0x66, 0x01, 0x73, 0x00, 0x90, 0x00]),
         Err(IdentityError::CardRecognitionTrailingByte)
     );
@@ -206,4 +246,73 @@ fn cplc_parser_requires_the_exact_47_byte_shape() {
         validate_cplc_response(&cplc()[..46]),
         Err(IdentityError::CplcStatusRejected)
     );
+    let mut short_with_success = vec![0x9f, 0x7f, 0x2a];
+    short_with_success.extend(vec![0; 41]);
+    short_with_success.extend([0x90, 0x00]);
+    assert_eq!(
+        validate_cplc_response(&short_with_success),
+        Err(IdentityError::CplcResponseLengthMismatch)
+    );
+}
+
+#[test]
+fn identity_rejection_names_are_exact() {
+    let cases = [
+        (
+            IdentityError::RegisteredAtrMismatch,
+            "RegisteredAtrMismatch",
+        ),
+        (
+            IdentityError::IdentityProtocolMismatch,
+            "IdentityProtocolMismatch",
+        ),
+        (
+            IdentityError::CardRecognitionTransmitFailed,
+            "CardRecognitionTransmitFailed",
+        ),
+        (
+            IdentityError::CardRecognitionResponseTooLong,
+            "CardRecognitionResponseTooLong",
+        ),
+        (
+            IdentityError::CardRecognitionResponseTooShort,
+            "CardRecognitionResponseTooShort",
+        ),
+        (
+            IdentityError::CardRecognitionStatusRejected,
+            "CardRecognitionStatusRejected",
+        ),
+        (
+            IdentityError::CardRecognitionOuterTagMismatch,
+            "CardRecognitionOuterTagMismatch",
+        ),
+        (
+            IdentityError::CardRecognitionLengthMalformed,
+            "CardRecognitionLengthMalformed",
+        ),
+        (
+            IdentityError::CardRecognitionTrailingByte,
+            "CardRecognitionTrailingByte",
+        ),
+        (
+            IdentityError::CardRecognitionFirstNestedTagMismatch,
+            "CardRecognitionFirstNestedTagMismatch",
+        ),
+        (IdentityError::CplcTransmitFailed, "CplcTransmitFailed"),
+        (
+            IdentityError::CplcResponseLengthMismatch,
+            "CplcResponseLengthMismatch",
+        ),
+        (IdentityError::CplcStatusRejected, "CplcStatusRejected"),
+        (IdentityError::CplcTagMismatch, "CplcTagMismatch"),
+        (IdentityError::CplcLengthMismatch, "CplcLengthMismatch"),
+        (
+            IdentityError::IdentitySequenceViolation,
+            "IdentitySequenceViolation",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.name(), expected);
+        assert_eq!(error.to_string(), expected);
+    }
 }
