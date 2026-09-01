@@ -52,8 +52,10 @@ struct ControlHeader {
     kind: c_int,
 }
 
+const TEST_CONTROL_BYTES: usize = 4_096;
+
 #[repr(C, align(8))]
-struct AlignedControl([u8; 64]);
+struct AlignedControl([u8; TEST_CONTROL_BYTES]);
 
 #[cfg(target_os = "macos")]
 #[repr(C)]
@@ -165,7 +167,11 @@ fn real_scm_rights_is_closed_and_rejected_before_bytes() {
     let (sender, receiver) = UnixStream::pair().unwrap();
     let descriptor_source = std::fs::File::open("/dev/null").unwrap();
     let before = open_descriptor_count();
-    send_fd(sender.as_raw_fd(), descriptor_source.as_raw_fd(), b"QKIP");
+    send_fds(
+        sender.as_raw_fd(),
+        &[descriptor_source.as_raw_fd()],
+        b"QKIP",
+    );
 
     let mut decoder = StreamDecoder::new();
     let mut scratch = [0xa5; 64];
@@ -181,7 +187,31 @@ fn real_scm_rights_is_closed_and_rejected_before_bytes() {
     assert_eq!(open_descriptor_count(), before);
 }
 
-fn send_fd(socket: RawFd, descriptor: RawFd, payload: &[u8]) {
+#[test]
+fn oversized_scm_rights_is_fully_closed_before_rejection() {
+    #[cfg(target_os = "linux")]
+    const PLATFORM_MAX_RIGHTS: usize = 253;
+    #[cfg(target_os = "macos")]
+    const PLATFORM_MAX_RIGHTS: usize = 254;
+
+    let _serial = SOCKET_TEST.lock().unwrap();
+    let (sender, receiver) = UnixStream::pair().unwrap();
+    let descriptor_source = std::fs::File::open("/dev/null").unwrap();
+    let descriptors = vec![descriptor_source.as_raw_fd(); PLATFORM_MAX_RIGHTS];
+    let before = open_descriptor_count();
+    send_fds(sender.as_raw_fd(), &descriptors, b"QKIP");
+
+    let mut scratch = [0xa5; 64];
+    assert_eq!(
+        receive_bytes_once(&receiver, &mut scratch),
+        Err(UnixReceiveError::Ipc(IpcError::AncillaryData))
+    );
+    assert_eq!(&scratch[..4], &[0; 4]);
+    assert_eq!(open_descriptor_count(), before);
+}
+
+fn send_fds(socket: RawFd, descriptors: &[RawFd], payload: &[u8]) {
+    assert!(!descriptors.is_empty());
     let alignment = if cfg!(target_os = "linux") {
         mem::size_of::<usize>()
     } else {
@@ -189,10 +219,10 @@ fn send_fd(socket: RawFd, descriptor: RawFd, payload: &[u8]) {
     };
     let header_size = mem::size_of::<ControlHeader>();
     let data_offset = (header_size + alignment - 1) & !(alignment - 1);
-    let control_len = data_offset + mem::size_of::<c_int>();
+    let control_len = data_offset + mem::size_of_val(descriptors);
     let control_space = (control_len + alignment - 1) & !(alignment - 1);
-    assert!(control_space <= 64);
-    let mut control = AlignedControl([0u8; 64]);
+    assert!(control_space <= TEST_CONTROL_BYTES);
+    let mut control = AlignedControl([0u8; TEST_CONTROL_BYTES]);
     #[cfg(target_os = "linux")]
     let header = ControlHeader {
         len: control_len,
@@ -207,9 +237,10 @@ fn send_fd(socket: RawFd, descriptor: RawFd, payload: &[u8]) {
     };
     unsafe {
         core::ptr::write_unaligned(control.0.as_mut_ptr().cast::<ControlHeader>(), header);
-        core::ptr::write_unaligned(
+        core::ptr::copy_nonoverlapping(
+            descriptors.as_ptr(),
             control.0.as_mut_ptr().add(data_offset).cast::<c_int>(),
-            descriptor,
+            descriptors.len(),
         );
     }
     let mut payload = payload.to_vec();

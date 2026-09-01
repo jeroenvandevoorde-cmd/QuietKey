@@ -13,7 +13,19 @@ use std::os::unix::net::UnixStream;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("qk-ipc Unix receive adapter supports only Linux and Darwin");
 
-const CONTROL_BYTES: usize = 256;
+#[cfg(target_os = "linux")]
+const MAX_RECEIVED_RIGHTS: usize = 253;
+#[cfg(target_os = "macos")]
+const MAX_RECEIVED_RIGHTS: usize = 254;
+
+const fn control_space_for_rights(count: usize) -> usize {
+    let alignment = control_alignment();
+    let header = (mem::size_of::<ControlHeader>() + alignment - 1) & !(alignment - 1);
+    let length = header + count * mem::size_of::<c_int>();
+    (length + alignment - 1) & !(alignment - 1)
+}
+
+const CONTROL_BYTES: usize = control_space_for_rights(MAX_RECEIVED_RIGHTS);
 
 #[cfg(target_os = "linux")]
 const SOL_SOCKET: c_int = 1;
