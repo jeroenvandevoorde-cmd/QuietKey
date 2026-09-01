@@ -78,7 +78,7 @@ reordered, repeated, corrected or explored during execution.
 - [x] Exact V1 grammars frozen by QK-DEC-153 and V2 SELECT grammar by its supplement.
 - [x] Specimen and apparatus evidence complete and aliases bound.
 - [x] QK-DEC-153-SUP-002 registers the exact V2 sequence and fresh three-session order.
-- [x] Code table and tests change in the same bounded V2 range.
+- [x] Code table and tests change in the same bounded activation range.
 
 No V2 identity session may run before the final tool source commit is published
 and reviewed.
