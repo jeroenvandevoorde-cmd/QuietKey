@@ -208,6 +208,7 @@ dependencies = [
  "qk-bbqr",
  "qk-descriptor",
  "qk-ipc",
+ "qk-kit",
  "qk-provisioning",
  "qk-psbt",
  "qk-wallet-v2",

@@ -48,6 +48,9 @@ case "$target" in
   qk_core_provisioning_run) max_len=512; seed=145002 ;;
   qk_core_normal_entry) max_len=4096; seed=149001 ;;
   qk_core_normal_run) max_len=4096; seed=149002 ;;
+  qk_core_kit_intake) max_len=512; seed=151001 ;;
+  qk_core_kit_restore) max_len=512; seed=151002 ;;
+  qk_core_kit_spend) max_len=512; seed=151003 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 
@@ -91,6 +94,9 @@ case "$target" in
     ;;
   qk_core_normal_entry|qk_core_normal_run)
     set -- --no-default-features --features process-s6-core "$target" "fuzz/corpus/$target"
+    ;;
+  qk_core_kit_intake|qk_core_kit_restore|qk_core_kit_spend)
+    set -- --no-default-features --features process-s7-core "$target" "fuzz/corpus/$target"
     ;;
   *) set -- "$target" "fuzz/corpus/$target" ;;
 esac

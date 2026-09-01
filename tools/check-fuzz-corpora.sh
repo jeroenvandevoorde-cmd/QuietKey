@@ -221,6 +221,8 @@ process_s5_manifest='fuzz/CORPUS-MANIFEST-PROCESS-S5.tsv'
 process_s5_campaign='fuzz/CAMPAIGN-024.md'
 process_s6_manifest='fuzz/CORPUS-MANIFEST-PROCESS-S6.tsv'
 process_s6_campaign='fuzz/CAMPAIGN-025.md'
+process_s7_manifest='fuzz/CORPUS-MANIFEST-PROCESS-S7.tsv'
+process_s7_campaign='fuzz/CAMPAIGN-026.md'
 m21_targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
 m22_targets='qk_bbqr_codec qk_bbqr_reassembly'
 m23_targets='qk_psbt_m23 qk_host_sim_m23'
@@ -246,6 +248,7 @@ process_s3_targets='qk_io_ingress qk_io_egress qk_io_session'
 process_s4_targets='qk_core_io_peer qk_core_session'
 process_s5_targets='qk_core_provisioning_entry qk_core_provisioning_run'
 process_s6_targets='qk_core_normal_entry qk_core_normal_run'
+process_s7_targets='qk_core_io_peer qk_core_session qk_core_provisioning_entry qk_core_provisioning_run qk_core_normal_entry qk_core_normal_run qk_core_kit_intake qk_core_kit_restore qk_core_kit_spend'
 base_targets="$m21_targets $m22_targets $m23_targets $m24_targets $m25_targets $m26_targets $m27_targets $m28_targets $m29_targets $m30_targets $v2s4_targets $v2s5_targets $v2s6_targets $v2s7_targets $v2s8_targets $v2s9_targets $v2s10_targets $v2s11_targets $firmware_targets $process_s1_targets $process_s2_targets $process_s3_targets $process_s4_targets"
 all_targets=$base_targets
 m21_order='qk_psbt,qk_descriptor,qk_a1,qk_a1_codec,qk_card_trace'
@@ -273,6 +276,7 @@ process_s3_order='qk_io_ingress,qk_io_egress,qk_io_session'
 process_s4_order='qk_core_io_peer,qk_core_session'
 process_s5_order='qk_core_provisioning_entry,qk_core_provisioning_run'
 process_s6_order='qk_core_normal_entry,qk_core_normal_run'
+process_s7_order='qk_core_io_peer,qk_core_session,qk_core_provisioning_entry,qk_core_provisioning_run,qk_core_normal_entry,qk_core_normal_run,qk_core_kit_intake,qk_core_kit_restore,qk_core_kit_spend'
 
 mode=check
 render_source=''
@@ -305,9 +309,10 @@ case "$#" in
       --render-process-s4) mode=render_process_s4 ;;
       --render-process-s5) mode=render_process_s5 ;;
       --render-process-s6) mode=render_process_s6 ;;
+      --render-process-s7) mode=render_process_s7 ;;
       --render-qk-descriptor) mode=render_qk_descriptor ;;
       --render-qk-psbt-v3) mode=render_qk_psbt_v3 ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT]' ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT]' ;;
     esac
     render_source=$2
     if [ "$mode" = render_qk_descriptor ] || [ "$mode" = render_qk_psbt_v3 ]; then
@@ -316,8 +321,23 @@ case "$#" in
       validate_source_commit "$render_source"
     fi
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT]' ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT]' ;;
 esac
+
+# QK-DEC-151 pre-campaign renderer. Campaign 026 activates this partition in
+# the full checker only after the final-code campaigns and minimizations.
+if [ "$mode" = render_process_s7 ]; then
+  process_s7_entries=$(mktemp) || fail 'mktemp failed for process slice-7 corpus entries'
+  process_s7_expected=$(mktemp) || fail 'mktemp failed for process slice-7 corpus manifest'
+  target_tmp=$(mktemp) || fail 'mktemp failed for process slice-7 target entries'
+  trap 'rm -f "$process_s7_entries" "$process_s7_expected" "$target_tmp"' EXIT HUP INT TERM
+  emit_partition_entries "$process_s7_targets" "$process_s7_entries"
+  render_partition 'QK-PROCESS-S7-CORPUS-MANIFEST-V1' "$render_source" \
+    "$process_s7_targets" "$process_s7_order" "$process_s7_entries" \
+    "$process_s7_expected"
+  sed -n 'p' "$process_s7_expected"
+  exit 0
+fi
 
 firmware_registered=no
 process_s1_registered=no

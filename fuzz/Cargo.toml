@@ -54,6 +54,13 @@ process-s6-core = [
     "qk-core/fuzzing",
     "qk-ipc/fuzzing",
 ]
+process-s7-core = [
+    "dep:qk-core",
+    "dep:qk-ipc",
+    "dep:qk-psbt",
+    "qk-core/fuzzing",
+    "qk-ipc/fuzzing",
+]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }
@@ -394,6 +401,30 @@ test = false
 doc = false
 bench = false
 required-features = ["process-s6-core"]
+
+[[bin]]
+name = "qk_core_kit_intake"
+path = "fuzz_targets/qk_core_kit_intake.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s7-core"]
+
+[[bin]]
+name = "qk_core_kit_restore"
+path = "fuzz_targets/qk_core_kit_restore.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s7-core"]
+
+[[bin]]
+name = "qk_core_kit_spend"
+path = "fuzz_targets/qk_core_kit_spend.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s7-core"]
 
 [profile.release]
 overflow-checks = true

@@ -70,9 +70,19 @@ process_feature_counts=$(awk '
     $0 != "    \"dep:qk-core\"," && $0 != "    \"dep:qk-ipc\"," && \
     $0 != "    \"qk-core/fuzzing\"," && $0 != "    \"qk-ipc/fuzzing\"," { core_s6_extra++ }
   core_s6_start && $0 == "]" { core_s6_end++; core_s6_start = 0 }
-  END { print decoy + 0, supervisor + 0, io_blocks + 0, io_start + 0, io_end + 0, bbqr + 0, io_dep + 0, ipc + 0, io_fuzz + 0, ipc_fuzz + 0, core_s4_blocks + 0, core_s4_start + 0, core_s4_end + 0, core_s4_dep + 0, core_s4_ipc + 0, core_s4_fuzz + 0, core_s4_ipc_fuzz + 0, core_s5_blocks + 0, core_s5_start + 0, core_s5_end + 0, core_s5_dep + 0, core_s5_ipc + 0, core_s5_fuzz + 0, core_s5_ipc_fuzz + 0, core_s5_extra + 0, core_s6_blocks + 0, core_s6_start + 0, core_s6_end + 0, core_s6_dep + 0, core_s6_ipc + 0, core_s6_fuzz + 0, core_s6_ipc_fuzz + 0, core_s6_extra + 0 }
+  $0 == "process-s7-core = [" { core_s7_start = 1; core_s7_blocks++ }
+  core_s7_start && $0 == "    \"dep:qk-core\"," { core_s7_dep++ }
+  core_s7_start && $0 == "    \"dep:qk-ipc\"," { core_s7_ipc++ }
+  core_s7_start && $0 == "    \"dep:qk-psbt\"," { core_s7_psbt++ }
+  core_s7_start && $0 == "    \"qk-core/fuzzing\"," { core_s7_fuzz++ }
+  core_s7_start && $0 == "    \"qk-ipc/fuzzing\"," { core_s7_ipc_fuzz++ }
+  core_s7_start && $0 != "process-s7-core = [" && $0 != "]" && \
+    $0 != "    \"dep:qk-core\"," && $0 != "    \"dep:qk-ipc\"," && $0 != "    \"dep:qk-psbt\"," && \
+    $0 != "    \"qk-core/fuzzing\"," && $0 != "    \"qk-ipc/fuzzing\"," { core_s7_extra++ }
+  core_s7_start && $0 == "]" { core_s7_end++; core_s7_start = 0 }
+  END { print decoy + 0, supervisor + 0, io_blocks + 0, io_start + 0, io_end + 0, bbqr + 0, io_dep + 0, ipc + 0, io_fuzz + 0, ipc_fuzz + 0, core_s4_blocks + 0, core_s4_start + 0, core_s4_end + 0, core_s4_dep + 0, core_s4_ipc + 0, core_s4_fuzz + 0, core_s4_ipc_fuzz + 0, core_s5_blocks + 0, core_s5_start + 0, core_s5_end + 0, core_s5_dep + 0, core_s5_ipc + 0, core_s5_fuzz + 0, core_s5_ipc_fuzz + 0, core_s5_extra + 0, core_s6_blocks + 0, core_s6_start + 0, core_s6_end + 0, core_s6_dep + 0, core_s6_ipc + 0, core_s6_fuzz + 0, core_s6_ipc_fuzz + 0, core_s6_extra + 0, core_s7_blocks + 0, core_s7_start + 0, core_s7_end + 0, core_s7_dep + 0, core_s7_ipc + 0, core_s7_psbt + 0, core_s7_fuzz + 0, core_s7_ipc_fuzz + 0, core_s7_extra + 0 }
 ' fuzz/Cargo.toml) || fail 'cannot inspect process fuzz feature declarations'
-[ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1 0 1 0 1 1 1 1 1 0' ] || \
+[ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1 0 1 0 1 1 1 1 1 0 1 0 1 1 1 1 1 1 0' ] || \
   fail 'process fuzz features are not declared exactly once in canonical form'
 
 if ! awk '
@@ -96,7 +106,10 @@ if ! awk '
     } else if (name == "qk_core_normal_entry" || name == "qk_core_normal_run") {
       core_s6++
       if (required != "process-s6-core") bad = 1
-    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core") {
+    } else if (name == "qk_core_kit_intake" || name == "qk_core_kit_restore" || name == "qk_core_kit_spend") {
+      core_s7++
+      if (required != "process-s7-core") bad = 1
+    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core") {
       bad = 1
     }
   }
@@ -125,7 +138,7 @@ if ! awk '
   }
   END {
     flush_bin()
-    exit (bad || decoy != 1 || supervisor != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2) ? 1 : 0
+    exit (bad || decoy != 1 || supervisor != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3) ? 1 : 0
   }
 ' fuzz/Cargo.toml; then
   fail 'process fuzz target-to-feature mapping is not exact'
@@ -152,6 +165,8 @@ core_s5_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s5-core fuzz de
 core_s5_tmp=$(mktemp) || fail 'mktemp failed for process-s5-core fuzz dependency closure'
 core_s6_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s6-core fuzz dependency closure'
 core_s6_tmp=$(mktemp) || fail 'mktemp failed for process-s6-core fuzz dependency closure'
+core_s7_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s7-core fuzz dependency closure'
+core_s7_tmp=$(mktemp) || fail 'mktemp failed for process-s7-core fuzz dependency closure'
 host_decoy_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-decoy host dependency closure'
 host_decoy_tmp=$(mktemp) || fail 'mktemp failed for qk-decoy host dependency closure'
 host_supervisor_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-supervisor host dependency closure'
@@ -167,6 +182,7 @@ trap 'rm -f "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
   "$supervisor_raw_tmp" "$supervisor_tmp" "$io_raw_tmp" "$io_tmp" "$host_decoy_raw_tmp" \
   "$core_raw_tmp" "$core_tmp" "$core_s5_raw_tmp" "$core_s5_tmp" \
   "$core_s6_raw_tmp" "$core_s6_tmp" \
+  "$core_s7_raw_tmp" "$core_s7_tmp" \
   "$host_decoy_tmp" "$host_supervisor_raw_tmp" "$host_supervisor_tmp" \
   "$host_io_raw_tmp" "$host_io_tmp" "$host_core_raw_tmp" "$host_core_tmp" \
   "$closure_raw_tmp" "$closure_tmp"' EXIT HUP INT TERM
@@ -523,8 +539,37 @@ core_s6_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s6_tmp")
 [ "$core_s6_path_set" = "$expected_core_path_set" ] || \
   fail 'process-s6-core fuzz dependency closure is not the exact eleven-crate qk-core closure'
 
+if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+    --no-default-features --features process-s7-core --target "$host_target" --edges normal,build \
+    --prefix none --format '{p}' > "$tree_tmp"; then
+  fail 'cannot resolve the locked process-s7-core fuzz dependency closure offline'
+fi
+if ! awk '
+  {
+    line = $0
+    sub(/[[:space:]]+\(\*\)$/, "", line)
+    split(line, fields, " ")
+    name = fields[1]
+    version = fields[2]
+    sub(/^v/, "", version)
+    if (name == "quietkey-fuzz") next
+    kind = (name ~ /^qk-/) ? "path" : "registry"
+    if (name == "" || version == "") exit 1
+    print kind "|" name "|" version
+  }
+' "$tree_tmp" > "$core_s7_raw_tmp"; then
+  fail 'cannot parse process-s7-core fuzz dependency closure'
+fi
+sort -u "$core_s7_raw_tmp" > "$core_s7_tmp" || \
+  fail 'cannot normalize process-s7-core fuzz dependency closure'
+[ -s "$core_s7_tmp" ] || fail 'process-s7-core fuzz dependency closure is empty'
+core_s7_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s7_tmp") || \
+  fail 'cannot enumerate process-s7-core path dependencies'
+[ "$core_s7_path_set" = "$expected_core_path_set" ] || \
+  fail 'process-s7-core fuzz dependency closure is not the exact eleven-crate qk-core closure'
+
 cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$io_tmp" "$core_tmp" \
-  "$core_s5_tmp" "$core_s6_tmp" > "$closure_raw_tmp" || \
+  "$core_s5_tmp" "$core_s6_tmp" "$core_s7_tmp" > "$closure_raw_tmp" || \
   fail 'cannot combine fuzz dependency closures'
 sort -u "$closure_raw_tmp" > "$closure_tmp" || fail 'cannot normalize union fuzz dependency closure'
 [ -s "$closure_tmp" ] || fail 'union fuzz dependency closure is empty'
