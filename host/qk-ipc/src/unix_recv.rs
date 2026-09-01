@@ -11,7 +11,7 @@ use std::os::fd::FromRawFd;
 use std::os::unix::net::UnixStream;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("qk-supervisor Unix receive adapter supports only Linux and Darwin");
+compile_error!("qk-ipc Unix receive adapter supports only Linux and Darwin");
 
 const CONTROL_BYTES: usize = 256;
 

@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
-description = "Dependency-free HOST reference for the bounded QuietKey process IPC envelope. Not a socket adapter or wallet."
+description = "Dependency-free HOST reference for bounded QuietKey process IPC with a non-default Unix receive boundary."
 
 [features]
 fuzzing = []

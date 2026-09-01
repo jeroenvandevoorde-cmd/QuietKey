@@ -4,10 +4,11 @@
 //! PERFORMANCE, PRODUCTION, OR GATE CLAIM.
 //!
 //! This dependency-free leaf implements the QK-DEC-140 `QKIP` envelope and
-//! pure protocol state. It performs no socket, filesystem, process, clock,
-//! randomness, wallet, card, camera, display, signing, logging, or persistence
-//! operation. Its non-default `host-runtime` surface owns the narrow Unix
-//! receive boundary that reports ancillary data before interpreting bytes.
+//! pure protocol state. Its default surface performs no socket, filesystem,
+//! process, clock, randomness, wallet, card, camera, display, signing, logging,
+//! or persistence operation. Its non-default `host-runtime` surface owns the
+//! narrow Unix receive boundary that reports ancillary data before interpreting
+//! bytes.
 
 #![deny(unsafe_code)]
 
