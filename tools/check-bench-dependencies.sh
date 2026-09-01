@@ -96,10 +96,53 @@ workspace_shape=$(awk '
 
 bench_sources=$(git ls-files | grep -E '^bench/card-enrollment/.*\.rs$') || bench_sources=''
 [ -n "$bench_sources" ] || fail 'bench Rust sources are missing'
+expected_bench_sources='bench/card-enrollment/src/identity.rs
+bench/card-enrollment/src/identity_transcript.rs
+bench/card-enrollment/src/lib.rs
+bench/card-enrollment/src/main.rs
+bench/card-enrollment/src/model.rs
+bench/card-enrollment/src/pcsc_adapter.rs
+bench/card-enrollment/src/pcsc_identity_adapter.rs
+bench/card-enrollment/src/transcript.rs
+bench/card-enrollment/tests/identity_mock.rs
+bench/card-enrollment/tests/identity_transcript.rs
+bench/card-enrollment/tests/mock.rs
+bench/card-enrollment/tests/surface.rs
+bench/card-enrollment/tests/transcript.rs'
+[ "$(printf '%s\n' "$bench_sources" | LC_ALL=C sort)" = "$expected_bench_sources" ] || \
+  fail 'bench Rust source set is not exact'
 for source in $bench_sources; do
   [ -f "$source" ] || fail "tracked bench source is missing: $source"
   [ ! -L "$source" ] || fail "tracked bench source must not be a symbolic link: $source"
 done
+
+identity_adapter='bench/card-enrollment/src/pcsc_identity_adapter.rs'
+bench_production_sources=$(printf '%s\n' "$bench_sources" | grep '^bench/card-enrollment/src/') || \
+  fail 'bench production Rust sources are missing'
+identity_transmit_count=$(grep -F -c '.transmit(' "$identity_adapter") || \
+  identity_transmit_count=0
+[ "$identity_transmit_count" = 2 ] || \
+  fail 'the private identity adapter must contain exactly two transmit calls'
+for source in $bench_production_sources; do
+  [ "$source" = "$identity_adapter" ] && continue
+  if grep -F '.transmit(' "$source" >/dev/null 2>&1; then
+    fail "transmit call exists outside the private identity adapter: $source"
+  fi
+done
+for forbidden_surface in '.control(' '.get_attribute(' '.begin_transaction(' 'pub fn card' 'pub fn context' 'pub use pcsc::'; do
+  if grep -F "$forbidden_surface" $bench_production_sources >/dev/null 2>&1; then
+    fail "bench source exposes forbidden PC/SC surface: $forbidden_surface"
+  fi
+done
+grep -F 'pub const CARD_RECOGNITION_COMMAND: [u8; 5] = [0x80, 0xca, 0x00, 0x66, 0x00];' \
+  bench/card-enrollment/src/identity.rs >/dev/null 2>&1 || \
+  fail 'card-recognition command bytes are not exact'
+grep -F 'pub const CPLC_COMMAND: [u8; 5] = [0x80, 0xca, 0x9f, 0x7f, 0x00];' \
+  bench/card-enrollment/src/identity.rs >/dev/null 2>&1 || \
+  fail 'CPLC command bytes are not exact'
+grep -F 'EnrollmentOperation::Transmit => Err(EnrollmentError::ApduTransmitNotAuthorized)' \
+  bench/card-enrollment/src/model.rs >/dev/null 2>&1 || \
+  fail 'generic transmit refusal is missing'
 grep -n -E \
   '(^|[^[:alnum:]_])unsafe([^[:alnum:]_]|$)|extern[[:space:]]*"C"|#\[[[:space:]]*link|pcsc[_-]sys' \
   $bench_sources >/dev/null 2>&1
