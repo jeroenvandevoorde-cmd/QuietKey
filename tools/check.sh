@@ -69,6 +69,8 @@ else
   fail 'bench dependency allowlist or isolation check failed'
 fi
 
+tools/check-process-harness.sh || fail 'HOST process harness check failed'
+
 # --- 4. Persistent fuzz corpus registry ---------------------------------
 if [ ! -x tools/check-fuzz-corpora.sh ]; then
   fail 'tools/check-fuzz-corpora.sh is missing or not executable'
