@@ -537,7 +537,8 @@ if [ "$mode" = check ]; then
        [ -e "$process_s8_manifest" ] || [ -L "$process_s8_manifest" ]; then
     fail 'process slice-8 evidence exists before its target is tracked'
   fi
-elif [ "$mode" = render_process_s4 ]; then
+elif [ "$mode" = render_process_s1 ] || [ "$mode" = render_process_s2 ] ||
+     [ "$mode" = render_process_s3 ] || [ "$mode" = render_process_s4 ]; then
   process_s5_active=yes
   process_s5_registered=yes
   process_s6_active=yes
