@@ -59,3 +59,34 @@ fn supervisor_sources_are_entirely_safe() {
     assert!(!RUNTIME.contains("eprintln!"));
     assert!(!RUNTIME.contains("dbg!"));
 }
+
+#[test]
+fn every_child_receives_fresh_write_only_null_stderr_without_changing_other_grants() {
+    assert_eq!(RUNTIME.matches("map_mock(false, 2)").count(), 3);
+    assert!(RUNTIME.contains("options.read(readable).write(!readable);"));
+    assert!(RUNTIME.contains("options.open(\"/dev/null\")"));
+    assert!(
+        RUNTIME.contains("map_mock(false, 2).map_err(|_| LauncherRuntimeError::DecoyGrantFailed)?")
+    );
+    assert!(
+        RUNTIME.contains("map_mock(true, 3).map_err(|_| LauncherRuntimeError::DecoyGrantFailed)?")
+    );
+    assert!(
+        RUNTIME.contains("map_mock(false, 4).map_err(|_| LauncherRuntimeError::DecoyGrantFailed)?")
+    );
+    for exact_map in [
+        "map_descriptor(endpoint.as_raw_fd(), 0)?",
+        "map_descriptor(endpoint.as_raw_fd(), 1)?",
+        "map_mock(false, 3)?",
+        "map_mock(true, 4)?",
+        "map_mock(true, 5)?",
+        "map_mock(false, 6)?",
+        "map_mock(true, 3)?",
+        "map_mock(false, 5)?",
+    ] {
+        assert!(
+            RUNTIME.contains(exact_map),
+            "missing descriptor map {exact_map}"
+        );
+    }
+}

@@ -569,6 +569,7 @@ struct ExecSpec {
 impl ExecSpec {
     fn decoy(path: &Path) -> Result<Self, LauncherRuntimeError> {
         let descriptors = vec![
+            map_mock(false, 2).map_err(|_| LauncherRuntimeError::DecoyGrantFailed)?,
             map_mock(true, 3).map_err(|_| LauncherRuntimeError::DecoyGrantFailed)?,
             map_mock(false, 4).map_err(|_| LauncherRuntimeError::DecoyGrantFailed)?,
         ];
@@ -583,6 +584,7 @@ impl ExecSpec {
         let descriptors = vec![
             map_descriptor(endpoint.as_raw_fd(), 0)?,
             map_descriptor(endpoint.as_raw_fd(), 1)?,
+            map_mock(false, 2)?,
             map_mock(false, 3)?,
             map_mock(true, 4)?,
             map_mock(true, 5)?,
@@ -595,6 +597,7 @@ impl ExecSpec {
         let descriptors = vec![
             map_descriptor(endpoint.as_raw_fd(), 0)?,
             map_descriptor(endpoint.as_raw_fd(), 1)?,
+            map_mock(false, 2)?,
             map_mock(true, 3)?,
             map_mock(true, 4)?,
             map_mock(false, 5)?,
@@ -1278,6 +1281,7 @@ mod tests {
         TERMINATION_BOUND,
     };
     use std::fs;
+    use std::os::unix::net::UnixStream;
     use std::path::Path;
     use std::time::{Duration, Instant};
 
@@ -1325,8 +1329,39 @@ mod tests {
                 (mapping.target, access)
             })
             .collect();
-        assert_eq!(actual, [(3, 0), (4, 1)]);
+        assert_eq!(actual, [(2, 1), (3, 0), (4, 1)]);
         assert_eq!(spec.arguments.len(), 1);
+    }
+
+    #[test]
+    fn product_specs_keep_their_exact_endpoint_and_device_grants_with_stderr_bound() {
+        let (_, core_endpoint) = UnixStream::pair().unwrap();
+        let core = ExecSpec::core(
+            Path::new("/dev/null"),
+            super::LauncherMode::Normal,
+            &core_endpoint,
+        )
+        .unwrap();
+        let (_, io_endpoint) = UnixStream::pair().unwrap();
+        let io = ExecSpec::io(Path::new("/dev/null"), &io_endpoint).unwrap();
+        let grants = |spec: &ExecSpec| {
+            spec.descriptors
+                .iter()
+                .map(|mapping| {
+                    // SAFETY: every source is an open descriptor owned by `spec`.
+                    let access = unsafe { fcntl(mapping.source.raw(), F_GETFL) } & 3;
+                    (mapping.target, access)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            grants(&core),
+            [(0, 2), (1, 2), (2, 1), (3, 1), (4, 0), (5, 0), (6, 1)]
+        );
+        assert_eq!(
+            grants(&io),
+            [(0, 2), (1, 2), (2, 1), (3, 0), (4, 0), (5, 1), (6, 1)]
+        );
     }
 
     #[test]
