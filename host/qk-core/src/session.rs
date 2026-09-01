@@ -649,6 +649,31 @@ impl CoreSession {
         }
     }
 
+    /// Consume the exact source-01 scan-back into the Kit-Restore purpose
+    /// owner. No generic byte accessor is introduced, and the print phase is
+    /// closed before the hostile allocation leaves this shell boundary.
+    pub(crate) fn take_kit_a1_scanback(&mut self) -> Result<HostileIngress, CoreError> {
+        self.require_kit_live()?;
+        if self.state != CoreState::IngressComplete
+            || self.print_artifact != Some(PrintArtifact::A1)
+            || self.transfer.is_some()
+            || self.expected.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let candidate = self
+            .completed
+            .take()
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))?;
+        if candidate.source != Source::CameraA1Candidate {
+            drop(candidate);
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.print_artifact = None;
+        self.state = CoreState::Ready;
+        Ok(candidate)
+    }
+
     /// Select one setup screen without exposing the capability owner.
     pub(crate) fn setup_show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {
         self.require_setup_live()?;

@@ -10,7 +10,7 @@ use crate::capability::{CoreScreen, KeypadKey};
 use crate::error::Interruption;
 use crate::io_wire::Source;
 use crate::kit_intake_v2::{KitFrameIdentityV2, KitInputModeV2, KitIntakeReadyV2};
-use crate::session::{CoreSession, HostileIngress};
+use crate::session::{CoreOutbound, CoreSession, HostileIngress};
 use crate::wipe::WipingArray;
 use core::fmt;
 use qk_descriptor::parse_descriptor_pair_v2;
@@ -600,6 +600,7 @@ impl KitRestoreSessionV2 {
         self.active = false;
         Ok(AuthorizedA1ReprintV2 {
             staged: Some(prepared.into_staged()),
+            phase: A1ReprintProductPhaseV2::ReadyBegin,
         })
     }
 
@@ -762,12 +763,152 @@ impl Drop for KitRestoreSessionV2 {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum A1ReprintProductPhaseV2 {
+    ReadyBegin,
+    AwaitBegin,
+    AwaitWrite,
+    AwaitFinish,
+    AwaitScanBegin,
+    AwaitScanRead,
+    Failed,
+}
+
 /// One authorized, one-use process adapter for A1 print and scan-back.
 pub struct AuthorizedA1ReprintV2 {
     staged: Option<StagedA1ReprintV2>,
+    phase: A1ReprintProductPhaseV2,
 }
 
 impl AuthorizedA1ReprintV2 {
+    /// Emit the exact frozen A1 print-begin request.
+    pub fn begin_print(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<CoreOutbound, KitRestoreErrorV2> {
+        if self.phase != A1ReprintProductPhaseV2::ReadyBegin || self.staged.is_none() {
+            return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected));
+        }
+        let outbound = match core.begin_a1_print() {
+            Ok(outbound) => outbound,
+            Err(_) => return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected)),
+        };
+        self.phase = A1ReprintProductPhaseV2::AwaitBegin;
+        Ok(outbound)
+    }
+
+    /// After the exact begin receipt, emit one offset-zero write borrowing the
+    /// retained capsule without exposing it to the product caller.
+    pub fn write_print(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<CoreOutbound, KitRestoreErrorV2> {
+        if self.phase != A1ReprintProductPhaseV2::AwaitBegin {
+            return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected));
+        }
+        let outbound = match self
+            .staged
+            .as_ref()
+            .map(StagedA1ReprintV2::capsule)
+            .ok_or(KitRestoreErrorV2::Finished)
+            .and_then(|capsule| {
+                core.write_a1_print(capsule)
+                    .map_err(|_| KitRestoreErrorV2::A1PrintRejected)
+            }) {
+            Ok(outbound) => outbound,
+            Err(error) => return Err(self.fail_product(core, error)),
+        };
+        self.phase = A1ReprintProductPhaseV2::AwaitWrite;
+        Ok(outbound)
+    }
+
+    /// After the exact write receipt, emit the sole print-finish request.
+    pub fn finish_print(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<CoreOutbound, KitRestoreErrorV2> {
+        if self.phase != A1ReprintProductPhaseV2::AwaitWrite {
+            return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected));
+        }
+        let outbound = match core.finish_a1_print() {
+            Ok(outbound) => outbound,
+            Err(_) => return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected)),
+        };
+        self.phase = A1ReprintProductPhaseV2::AwaitFinish;
+        Ok(outbound)
+    }
+
+    /// After the exact finish receipt, emit only the frozen source-01
+    /// scan-back begin request.
+    pub fn begin_scan_back(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<CoreOutbound, KitRestoreErrorV2> {
+        if self.phase != A1ReprintProductPhaseV2::AwaitFinish {
+            return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected));
+        }
+        let outbound = match core.begin_a1_scanback() {
+            Ok(outbound) => outbound,
+            Err(_) => return Err(self.fail_product(core, KitRestoreErrorV2::A1PrintRejected)),
+        };
+        self.phase = A1ReprintProductPhaseV2::AwaitScanBegin;
+        Ok(outbound)
+    }
+
+    /// After the exact source-01 begin receipt, emit its sole offset-zero read.
+    pub fn request_scan_back(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<CoreOutbound, KitRestoreErrorV2> {
+        if self.phase != A1ReprintProductPhaseV2::AwaitScanBegin {
+            return Err(self.fail_product(core, KitRestoreErrorV2::A1VerificationMismatch));
+        }
+        let outbound = match core.request_a1_scanback_chunk() {
+            Ok(outbound) => outbound,
+            Err(_) => {
+                return Err(self.fail_product(core, KitRestoreErrorV2::A1VerificationMismatch))
+            }
+        };
+        self.phase = A1ReprintProductPhaseV2::AwaitScanRead;
+        Ok(outbound)
+    }
+
+    /// Consume the completed exact source-01 scan-back through byte equality
+    /// and A1 authentication, then select the mandatory migration screen.
+    pub fn complete_from_core(
+        self,
+        core: &mut CoreSession,
+    ) -> Result<KitRestoreOutcomeV2, KitRestoreErrorV2> {
+        if self.phase != A1ReprintProductPhaseV2::AwaitScanRead {
+            let mut this = self;
+            return Err(this.fail_product(core, KitRestoreErrorV2::A1VerificationMismatch));
+        }
+        let ingress = match core.take_kit_a1_scanback() {
+            Ok(ingress) => ingress,
+            Err(_) => {
+                let mut this = self;
+                return Err(this.fail_product(core, KitRestoreErrorV2::A1VerificationMismatch));
+            }
+        };
+        let outcome = match self.complete_scan_back_ingress(ingress) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        if core
+            .kit_show(CoreScreen::MandatoryFreshWalletMigration)
+            .is_err()
+        {
+            return Err(KitRestoreErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            ));
+        }
+        Ok(outcome)
+    }
+
     /// Borrow the exact 67-byte capsule for the frozen print artifact.
     #[must_use]
     pub fn capsule(&self) -> Option<&[u8; A1_CAPSULE_BYTES]> {
@@ -814,7 +955,19 @@ impl AuthorizedA1ReprintV2 {
     /// Consume and clear the staged owner after a named print-boundary failure.
     pub fn reject_print(mut self) -> KitRestoreErrorV2 {
         self.staged.take();
+        self.phase = A1ReprintProductPhaseV2::Failed;
         KitRestoreErrorV2::A1PrintRejected
+    }
+
+    fn fail_product(
+        &mut self,
+        core: &mut CoreSession,
+        error: KitRestoreErrorV2,
+    ) -> KitRestoreErrorV2 {
+        self.staged.take();
+        self.phase = A1ReprintProductPhaseV2::Failed;
+        core.terminate_kit(Interruption::OperationFailed);
+        error
     }
 }
 

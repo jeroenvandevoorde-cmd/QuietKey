@@ -8,7 +8,7 @@ use qk_core::{
     MandatoryFreshWalletMigrationV2, MockCardSlot, MockDisplay, MockKeypad, SurvivingBFactorV2,
     KIT_FALLBACK_TABLE_V2,
 };
-use qk_io::BrokerSession;
+use qk_io::{BrokerSession, MockInput, MockOutputWriter, Sink, Source as IoSource};
 use qk_ipc::{ReceivedFrame, StreamDecoder};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -169,7 +169,7 @@ fn decode_one(bytes: &[u8]) -> ReceivedFrame {
     decoder.take_frame().expect("owned QKIP frame")
 }
 
-fn ready_core() -> CoreSession {
+fn ready_core_and_broker() -> (CoreSession, BrokerSession) {
     let grants = CoreDeviceGrants::validate(
         Some(MockDisplay::new()),
         Some(MockKeypad::new()),
@@ -184,7 +184,22 @@ fn ready_core() -> CoreSession {
         .expect("session ready");
     core.receive(response.frame_bytes(), false)
         .expect("accept session ready");
-    core
+    (core, broker)
+}
+
+fn ready_core() -> CoreSession {
+    ready_core_and_broker().0
+}
+
+fn broker_reply(
+    broker: &mut BrokerSession,
+    outbound: &qk_core::CoreOutbound,
+    input: Option<&mut MockInput>,
+    writer: Option<&mut MockOutputWriter>,
+) -> qk_io::BrokerReply {
+    broker
+        .accept(&decode_one(outbound.frame_bytes()), input, writer)
+        .expect("broker accepts exact Kit operation")
 }
 
 fn begin(
@@ -402,6 +417,67 @@ fn staged_a1_reprint_uses_fresh_nonce_and_consumes_exact_scanback() {
 }
 
 #[test]
+fn product_a1_reprint_drives_exact_print_and_source_01_scanback() {
+    let (mut core, mut broker) = ready_core_and_broker();
+    let mut restore = KitRestoreSessionV2::begin(
+        &mut core,
+        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        &descriptors(),
+        HumanAssertionDigitV2::new(2).expect("digit"),
+    )
+    .expect("product restore");
+    restore
+        .select_action_in_core(&mut core, KitRestoreActionV2::A1Reprint)
+        .expect("select reprint");
+    restore
+        .prepare_a1_reprint_in_core(&mut core, surviving_b(), &FRESH_NONCE)
+        .expect("prepare reprint");
+    let mut staged = restore
+        .begin_a1_reprint_in_core(&mut core, KeypadKey::TwoDown)
+        .expect("authorize reprint");
+
+    let a2 = hex_array::<32>(field(PROVISIONING, "a2_transcript_sha256"));
+    let seed_a = hex_array::<32>(field(PROVISIONING, "seed_a_transcript_sha256"));
+    let expected = qk_a1::encrypt(&a2, &wallet_id(), &FRESH_NONCE, &seed_a);
+
+    let mut outbound = staged.begin_print(&mut core).expect("print begin");
+    let reply = broker_reply(&mut broker, &outbound, None, None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("print begin receipt");
+    outbound = staged.write_print(&mut core).expect("one capsule write");
+    let reply = broker_reply(&mut broker, &outbound, None, None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("print write receipt");
+    outbound = staged.finish_print(&mut core).expect("print finish");
+    let mut writer = MockOutputWriter::new(Sink::Print);
+    let reply = broker_reply(&mut broker, &outbound, None, Some(&mut writer));
+    core.receive(reply.frame_bytes(), false)
+        .expect("print finish receipt");
+    assert_eq!(writer.final_bytes(), Some(expected.as_slice()));
+
+    outbound = staged
+        .begin_scan_back(&mut core)
+        .expect("source-01 scan begin");
+    let mut scan = MockInput::try_new(IoSource::CameraA1Candidate, &expected)
+        .expect("exact source-01 candidate");
+    let reply = broker_reply(&mut broker, &outbound, Some(&mut scan), None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("scan begin receipt");
+    outbound = staged.request_scan_back(&mut core).expect("sole scan read");
+    let reply = broker_reply(&mut broker, &outbound, None, None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("scan read receipt");
+    let outcome = staged
+        .complete_from_core(&mut core)
+        .expect("authenticated scan-back");
+    assert_eq!(outcome.posture(), MandatoryFreshWalletMigrationV2::Required);
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::MandatoryFreshWalletMigration)
+    );
+}
+
+#[test]
 fn wrong_digit_print_failure_and_scanback_mismatch_are_terminal_without_retry() {
     let mut wrong_digit = session(6);
     wrong_digit
@@ -444,6 +520,32 @@ fn wrong_digit_print_failure_and_scanback_mismatch_are_terminal_without_retry() 
         Some(KitRestoreErrorV2::A1VerificationMismatch)
     );
     assert_eq!(scan_back, [0; 67]);
+
+    let mut core = ready_core();
+    let mut wrong_order = KitRestoreSessionV2::begin(
+        &mut core,
+        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        &descriptors(),
+        HumanAssertionDigitV2::new(6).expect("digit"),
+    )
+    .expect("product restore");
+    wrong_order
+        .select_action_in_core(&mut core, KitRestoreActionV2::A1Reprint)
+        .expect("select reprint");
+    wrong_order
+        .prepare_a1_reprint_in_core(&mut core, surviving_b(), &FRESH_NONCE)
+        .expect("prepare reprint");
+    let mut staged = wrong_order
+        .begin_a1_reprint_in_core(&mut core, KeypadKey::SixRight)
+        .expect("authorize reprint");
+    assert_eq!(
+        staged.write_print(&mut core).err(),
+        Some(KitRestoreErrorV2::A1PrintRejected)
+    );
+    assert_eq!(
+        staged.begin_print(&mut core).err(),
+        Some(KitRestoreErrorV2::A1PrintRejected)
+    );
 }
 
 #[test]

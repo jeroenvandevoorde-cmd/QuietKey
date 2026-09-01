@@ -154,6 +154,11 @@ fn kit_cleanup_covers_share_payload_transaction_and_delivery_owners() {
     assert!(KIT_RESTORE.contains("self.payload.take();"));
     assert!(KIT_RESTORE.contains("self.prepared_replacement.take();"));
     assert!(KIT_RESTORE.contains("self.prepared_a1.take();"));
+    assert!(KIT_RESTORE.contains("pub struct AuthorizedA1ReprintV2 {"));
+    assert!(KIT_RESTORE.contains("staged: Option<StagedA1ReprintV2>"));
+    assert!(KIT_RESTORE.contains("self.staged.take();"));
+    assert!(SESSION.contains("pub(crate) fn take_kit_a1_scanback"));
+    assert!(SESSION.contains("self.print_artifact = None;"));
 
     assert!(KIT_SPEND.contains("impl Drop for CallerPsbtGuard<'_>"));
     assert!(KIT_SPEND.contains("wipe::bytes(self.bytes);"));
