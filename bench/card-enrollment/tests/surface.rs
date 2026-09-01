@@ -1,6 +1,10 @@
 const LIB: &str = include_str!("../src/lib.rs");
+const IDENTITY: &str = include_str!("../src/identity.rs");
+const IDENTITY_TRANSCRIPT: &str = include_str!("../src/identity_transcript.rs");
 const MODEL: &str = include_str!("../src/model.rs");
 const ADAPTER: &str = include_str!("../src/pcsc_adapter.rs");
+const IDENTITY_ADAPTER: &str = include_str!("../src/pcsc_identity_adapter.rs");
+const TRANSCRIPT: &str = include_str!("../src/transcript.rs");
 const MAIN: &str = include_str!("../src/main.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
@@ -8,7 +12,16 @@ const MANIFEST: &str = include_str!("../Cargo.toml");
 fn production_roots_forbid_unsafe_code() {
     assert_eq!(LIB.matches("#![forbid(unsafe_code)]").count(), 1);
     assert_eq!(MAIN.matches("#![forbid(unsafe_code)]").count(), 1);
-    for source in [LIB, MODEL, ADAPTER, MAIN] {
+    for source in [
+        LIB,
+        IDENTITY,
+        IDENTITY_TRANSCRIPT,
+        MODEL,
+        ADAPTER,
+        IDENTITY_ADAPTER,
+        TRANSCRIPT,
+        MAIN,
+    ] {
         assert!(!source.contains(concat!("extern", " \"C\"")));
         assert!(!source.contains(concat!("pcsc", "_sys")));
         assert!(!source.contains(concat!("pcsc", "-sys")));
@@ -16,9 +29,29 @@ fn production_roots_forbid_unsafe_code() {
 }
 
 #[test]
-fn safe_adapter_exposes_no_apdu_or_raw_handle_operation() {
-    for source in [LIB, MODEL, ADAPTER, MAIN] {
+fn safe_adapter_exposes_only_the_two_private_fixed_transmits() {
+    for source in [
+        LIB,
+        IDENTITY,
+        IDENTITY_TRANSCRIPT,
+        MODEL,
+        ADAPTER,
+        TRANSCRIPT,
+        MAIN,
+    ] {
         assert!(!source.contains(".transmit("));
+    }
+    assert_eq!(IDENTITY_ADAPTER.matches(".transmit(").count(), 2);
+    for source in [
+        LIB,
+        IDENTITY,
+        IDENTITY_TRANSCRIPT,
+        MODEL,
+        ADAPTER,
+        IDENTITY_ADAPTER,
+        TRANSCRIPT,
+        MAIN,
+    ] {
         assert!(!source.contains(".control("));
         assert!(!source.contains(".get_attribute("));
         assert!(!source.contains(".begin_transaction("));
@@ -30,6 +63,18 @@ fn safe_adapter_exposes_no_apdu_or_raw_handle_operation() {
     assert_eq!(ADAPTER.matches("fn capture_card(").count(), 1);
     assert_eq!(ADAPTER.matches("mem::forget(card)").count(), 2);
     assert_eq!(ADAPTER.matches("Disposition::ResetCard").count(), 1);
+    assert_eq!(
+        IDENTITY_ADAPTER.matches("Disposition::ResetCard").count(),
+        1
+    );
+    assert_eq!(
+        IDENTITY_ADAPTER.matches("CARD_RECOGNITION_COMMAND").count(),
+        3
+    );
+    assert_eq!(IDENTITY_ADAPTER.matches("CPLC_COMMAND").count(), 3);
+    assert!(IDENTITY.contains("fn capture_identity(&mut self, reader_name: &[u8])"));
+    assert!(!IDENTITY.contains("apdu: &[u8]"));
+    assert!(!IDENTITY_ADAPTER.contains("apdu: &[u8]"));
 }
 
 #[test]
@@ -38,7 +83,7 @@ fn active_policy_has_one_explicit_transmit_refusal() {
         "EnrollmentOperation::Transmit => Err(EnrollmentError::ApduTransmitNotAuthorized)"
     ));
     assert_eq!(ADAPTER.matches("Transmit").count(), 0);
-    assert_eq!(MAIN.matches("Transmit").count(), 0);
+    assert!(!MAIN.contains("caller-apdu"));
 }
 
 #[test]
@@ -76,6 +121,19 @@ fn public_reexports_are_the_reviewed_boundary() {
         "ValidatedMetadata",
         "PcscEnrollmentBackend",
         "encode_transcript",
+        "run_identity",
+        "validate_card_recognition_response",
+        "validate_cplc_response",
+        "IdentityAttempt",
+        "IdentityBackend",
+        "IdentityError",
+        "IdentityEvent",
+        "IdentityExchange",
+        "IdentityOperation",
+        "IdentityOutcome",
+        "IdentityRecord",
+        "PcscIdentityBackend",
+        "encode_identity_transcript",
     ];
     for name in expected {
         assert!(LIB.contains(name), "missing reviewed public item: {name}");

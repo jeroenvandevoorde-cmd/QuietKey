@@ -5,9 +5,15 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use qk_card_enrollment::{
-    encode_transcript, run_enrollment, EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome,
-    EnrollmentRecord, PcscEnrollmentBackend,
+    encode_identity_transcript, encode_transcript, run_enrollment, run_identity,
+    EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome, EnrollmentRecord, IdentityExchange,
+    IdentityOutcome, IdentityRecord, PcscEnrollmentBackend, PcscIdentityBackend,
 };
+
+enum Command {
+    Enrollment(EnrollmentMetadata),
+    Identity(EnrollmentMetadata),
+}
 
 fn usage() {
     eprintln!(
@@ -15,6 +21,9 @@ fn usage() {
     );
     eprintln!(
         "   or: qk-card-enrollment enroll <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <selected-reader-name-lowerhex>"
+    );
+    eprintln!(
+        "   or: qk-card-enrollment identity <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <selected-reader-name-lowerhex>"
     );
 }
 
@@ -44,7 +53,7 @@ fn parse_lower_hex(value: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-fn parse_arguments() -> Option<EnrollmentMetadata> {
+fn parse_arguments() -> Option<Command> {
     let mut arguments = env::args();
     let _program = arguments.next()?;
     let mode = arguments.next()?;
@@ -57,7 +66,7 @@ fn parse_arguments() -> Option<EnrollmentMetadata> {
             if arguments.next().is_some() {
                 return None;
             }
-            Some(EnrollmentMetadata {
+            Some(Command::Enrollment(EnrollmentMetadata {
                 mode: EnrollmentMode::Enumerate,
                 source_commit,
                 timestamp_utc,
@@ -65,15 +74,15 @@ fn parse_arguments() -> Option<EnrollmentMetadata> {
                 reader_alias,
                 specimen_alias: None,
                 selected_reader_name: None,
-            })
+            }))
         }
-        "enroll" => {
+        "enroll" | "identity" => {
             let specimen_alias = arguments.next()?;
             let selected_reader_name = parse_lower_hex(&arguments.next()?)?;
             if arguments.next().is_some() {
                 return None;
             }
-            Some(EnrollmentMetadata {
+            let metadata = EnrollmentMetadata {
                 mode: EnrollmentMode::Enroll,
                 source_commit,
                 timestamp_utc,
@@ -81,23 +90,41 @@ fn parse_arguments() -> Option<EnrollmentMetadata> {
                 reader_alias,
                 specimen_alias: Some(specimen_alias),
                 selected_reader_name: Some(selected_reader_name),
-            })
+            };
+            if mode == "identity" {
+                Some(Command::Identity(metadata))
+            } else {
+                Some(Command::Enrollment(metadata))
+            }
         }
         _ => None,
     }
 }
 
 fn main() -> ExitCode {
-    let Some(metadata) = parse_arguments() else {
+    let Some(command) = parse_arguments() else {
         usage();
         return ExitCode::from(64);
     };
-    let metadata = match metadata.validate() {
+    match command {
+        Command::Enrollment(metadata) => run_enrollment_command(metadata),
+        Command::Identity(metadata) => run_identity_command(metadata),
+    }
+}
+
+fn validate_metadata(
+    metadata: EnrollmentMetadata,
+) -> Result<qk_card_enrollment::ValidatedMetadata, ExitCode> {
+    metadata.validate().map_err(|error| {
+        eprintln!("result={}", error.name());
+        ExitCode::from(64)
+    })
+}
+
+fn run_enrollment_command(metadata: EnrollmentMetadata) -> ExitCode {
+    let metadata = match validate_metadata(metadata) {
         Ok(metadata) => metadata,
-        Err(error) => {
-            eprintln!("result={}", error.name());
-            return ExitCode::from(64);
-        }
+        Err(exit) => return exit,
     };
     let mut backend = match PcscEnrollmentBackend::new() {
         Ok(backend) => backend,
@@ -117,6 +144,30 @@ fn main() -> ExitCode {
     write_record(record)
 }
 
+fn run_identity_command(metadata: EnrollmentMetadata) -> ExitCode {
+    let metadata = match validate_metadata(metadata) {
+        Ok(metadata) => metadata,
+        Err(exit) => return exit,
+    };
+    let mut backend = match PcscIdentityBackend::new() {
+        Ok(backend) => backend,
+        Err(error) => {
+            return write_identity_record(IdentityRecord {
+                metadata,
+                readers: Vec::new(),
+                events: Vec::new(),
+                observed_atr: None,
+                observed_protocol: None,
+                exchanges: core::array::from_fn(|_| IdentityExchange::default()),
+                disconnected: None,
+                outcome: IdentityOutcome::Reject(error),
+            });
+        }
+    };
+    let record = run_identity(metadata, &mut backend);
+    write_identity_record(record)
+}
+
 fn write_record(record: EnrollmentRecord) -> ExitCode {
     let transcript = match encode_transcript(&record) {
         Ok(transcript) => transcript,
@@ -132,6 +183,24 @@ fn write_record(record: EnrollmentRecord) -> ExitCode {
     match record.outcome {
         EnrollmentOutcome::Pass => ExitCode::SUCCESS,
         EnrollmentOutcome::Reject(_) => ExitCode::from(1),
+    }
+}
+
+fn write_identity_record(record: IdentityRecord) -> ExitCode {
+    let transcript = match encode_identity_transcript(&record) {
+        Ok(transcript) => transcript,
+        Err(error) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(1);
+        }
+    };
+    if io::stdout().lock().write_all(&transcript).is_err() {
+        eprintln!("result=OutputFailed");
+        return ExitCode::from(1);
+    }
+    match record.outcome {
+        IdentityOutcome::Pass => ExitCode::SUCCESS,
+        IdentityOutcome::Reject(_) => ExitCode::from(1),
     }
 }
 
