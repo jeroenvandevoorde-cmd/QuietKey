@@ -1,4 +1,4 @@
-//! Private fixed-sequence adapter for QK-F8-IDENT-V1.
+//! Private fixed-sequence adapter for QK-F8-IDENT-V2.
 
 use std::ffi::CString;
 use std::mem;
@@ -8,10 +8,11 @@ use pcsc::{Context, Disposition, Protocol, Protocols, Scope, ShareMode};
 
 use crate::{
     encode_identity_transcript, run_identity, validate_card_recognition_response,
-    validate_cplc_response, IdentityAttempt, IdentityBackend, IdentityError, IdentityExchange,
-    IdentityOperation, IdentityOutcome, IdentityRecord, NegotiatedProtocol, ValidatedMetadata,
-    CARD_RECOGNITION_COMMAND, CPLC_COMMAND, MAX_ATR_BYTES, MAX_IDENTITY_RESPONSE_BYTES,
-    MAX_READER_LIST_BYTES, REGISTERED_J3R180_ATR,
+    validate_cplc_response, validate_select_response, IdentityAttempt, IdentityBackend,
+    IdentityError, IdentityExchange, IdentityOperation, IdentityOutcome, IdentityRecord,
+    NegotiatedProtocol, ValidatedMetadata, CARD_RECOGNITION_COMMAND, CPLC_COMMAND, MAX_ATR_BYTES,
+    MAX_IDENTITY_RESPONSE_BYTES, MAX_READER_LIST_BYTES, REGISTERED_J3R180_ATR,
+    SELECT_DEFAULT_APPLICATION_COMMAND,
 };
 
 const _: [(); MAX_ATR_BYTES] = [(); pcsc::MAX_ATR_SIZE];
@@ -181,7 +182,52 @@ impl IdentityBackend for PcscIdentityBackend {
         }
         attempt.push_pass(IdentityOperation::CaptureProtocol);
 
-        attempt.exchanges[0].request = Some(CARD_RECOGNITION_COMMAND.to_vec());
+        attempt.exchanges[0].request = Some(SELECT_DEFAULT_APPLICATION_COMMAND.to_vec());
+        let mut select_buffer = [0u8; MAX_IDENTITY_RESPONSE_BYTES];
+        let select = match catch_unwind(AssertUnwindSafe(|| {
+            card.transmit(&SELECT_DEFAULT_APPLICATION_COMMAND, &mut select_buffer)
+                .map(<[u8]>::to_vec)
+        })) {
+            Ok(Ok(response)) => {
+                attempt.push_pass(IdentityOperation::TransmitSelect);
+                response
+            }
+            Ok(Err(pcsc::Error::InsufficientBuffer)) => {
+                attempt.reject(
+                    IdentityOperation::TransmitSelect,
+                    IdentityError::SelectResponseTooLong,
+                );
+                finish_disconnect(&mut attempt, card);
+                return attempt;
+            }
+            Ok(Err(_)) => {
+                attempt.reject(
+                    IdentityOperation::TransmitSelect,
+                    IdentityError::SelectTransmitFailed,
+                );
+                finish_disconnect(&mut attempt, card);
+                return attempt;
+            }
+            Err(_) => {
+                attempt.reject(
+                    IdentityOperation::TransmitSelect,
+                    IdentityError::BoundaryPanicked,
+                );
+                finish_disconnect(&mut attempt, card);
+                return attempt;
+            }
+        };
+        attempt.exchanges[0].response = Some(select.clone());
+        match validate_select_response(&select) {
+            Ok(()) => attempt.push_pass(IdentityOperation::ReceiveSelect),
+            Err(error) => {
+                attempt.reject(IdentityOperation::ReceiveSelect, error);
+                finish_disconnect(&mut attempt, card);
+                return attempt;
+            }
+        }
+
+        attempt.exchanges[1].request = Some(CARD_RECOGNITION_COMMAND.to_vec());
         let mut card_recognition_buffer = [0u8; MAX_IDENTITY_RESPONSE_BYTES];
         let card_recognition = match catch_unwind(AssertUnwindSafe(|| {
             card.transmit(&CARD_RECOGNITION_COMMAND, &mut card_recognition_buffer)
@@ -216,7 +262,7 @@ impl IdentityBackend for PcscIdentityBackend {
                 return attempt;
             }
         };
-        attempt.exchanges[0].response = Some(card_recognition.clone());
+        attempt.exchanges[1].response = Some(card_recognition.clone());
         match validate_card_recognition_response(&card_recognition) {
             Ok(()) => attempt.push_pass(IdentityOperation::ReceiveCardRecognition),
             Err(error) => {
@@ -226,7 +272,7 @@ impl IdentityBackend for PcscIdentityBackend {
             }
         }
 
-        attempt.exchanges[1].request = Some(CPLC_COMMAND.to_vec());
+        attempt.exchanges[2].request = Some(CPLC_COMMAND.to_vec());
         let mut cplc_buffer = [0u8; MAX_IDENTITY_RESPONSE_BYTES];
         let cplc = match catch_unwind(AssertUnwindSafe(|| {
             card.transmit(&CPLC_COMMAND, &mut cplc_buffer)
@@ -261,7 +307,7 @@ impl IdentityBackend for PcscIdentityBackend {
                 return attempt;
             }
         };
-        attempt.exchanges[1].response = Some(cplc.clone());
+        attempt.exchanges[2].response = Some(cplc.clone());
         match validate_cplc_response(&cplc) {
             Ok(()) => attempt.push_pass(IdentityOperation::ReceiveCplc),
             Err(error) => attempt.reject(IdentityOperation::ReceiveCplc, error),

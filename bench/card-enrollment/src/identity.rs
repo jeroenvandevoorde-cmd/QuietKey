@@ -5,6 +5,7 @@ use crate::{
     MAX_READER_LIST_BYTES, MAX_READER_NAME_BYTES,
 };
 
+pub const SELECT_DEFAULT_APPLICATION_COMMAND: [u8; 5] = [0x00, 0xa4, 0x04, 0x00, 0x00];
 pub const CARD_RECOGNITION_COMMAND: [u8; 5] = [0x80, 0xca, 0x00, 0x66, 0x00];
 pub const CPLC_COMMAND: [u8; 5] = [0x80, 0xca, 0x9f, 0x7f, 0x00];
 pub const REGISTERED_J3R180_ATR: [u8; 15] = [
@@ -34,6 +35,13 @@ pub enum IdentityError {
     BoundaryPanicked,
     RegisteredAtrMismatch,
     IdentityProtocolMismatch,
+    SelectTransmitFailed,
+    SelectResponseTooLong,
+    SelectResponseTooShort,
+    SelectStatusRejected,
+    SelectFciOuterTagMismatch,
+    SelectFciLengthMalformed,
+    SelectFciTrailingByte,
     CardRecognitionTransmitFailed,
     CardRecognitionResponseTooLong,
     CardRecognitionResponseTooShort,
@@ -75,6 +83,13 @@ impl IdentityError {
             Self::BoundaryPanicked => "BoundaryPanicked",
             Self::RegisteredAtrMismatch => "RegisteredAtrMismatch",
             Self::IdentityProtocolMismatch => "IdentityProtocolMismatch",
+            Self::SelectTransmitFailed => "SelectTransmitFailed",
+            Self::SelectResponseTooLong => "SelectResponseTooLong",
+            Self::SelectResponseTooShort => "SelectResponseTooShort",
+            Self::SelectStatusRejected => "SelectStatusRejected",
+            Self::SelectFciOuterTagMismatch => "SelectFciOuterTagMismatch",
+            Self::SelectFciLengthMalformed => "SelectFciLengthMalformed",
+            Self::SelectFciTrailingByte => "SelectFciTrailingByte",
             Self::CardRecognitionTransmitFailed => "CardRecognitionTransmitFailed",
             Self::CardRecognitionResponseTooLong => "CardRecognitionResponseTooLong",
             Self::CardRecognitionResponseTooShort => "CardRecognitionResponseTooShort",
@@ -110,6 +125,8 @@ pub enum IdentityOperation {
     Reset,
     CaptureAtr,
     CaptureProtocol,
+    TransmitSelect,
+    ReceiveSelect,
     TransmitCardRecognition,
     ReceiveCardRecognition,
     TransmitCplc,
@@ -125,6 +142,8 @@ impl IdentityOperation {
             Self::Reset => "Reset",
             Self::CaptureAtr => "CaptureAtr",
             Self::CaptureProtocol => "CaptureProtocol",
+            Self::TransmitSelect => "TransmitSelect",
+            Self::ReceiveSelect => "ReceiveSelect",
             Self::TransmitCardRecognition => "TransmitCardRecognition",
             Self::ReceiveCardRecognition => "ReceiveCardRecognition",
             Self::TransmitCplc => "TransmitCplc",
@@ -166,7 +185,7 @@ pub struct IdentityAttempt {
     pub events: Vec<IdentityEvent>,
     pub observed_atr: Option<Vec<u8>>,
     pub observed_protocol: Option<NegotiatedProtocol>,
-    pub exchanges: [IdentityExchange; 2],
+    pub exchanges: [IdentityExchange; 3],
     pub disconnected: Option<bool>,
     pub outcome: IdentityOutcome,
 }
@@ -174,7 +193,7 @@ pub struct IdentityAttempt {
 impl IdentityAttempt {
     pub(crate) fn new() -> Self {
         Self {
-            events: Vec::with_capacity(9),
+            events: Vec::with_capacity(11),
             observed_atr: None,
             observed_protocol: None,
             exchanges: core::array::from_fn(|_| IdentityExchange::default()),
@@ -225,7 +244,7 @@ pub struct IdentityRecord {
     pub events: Vec<IdentityEvent>,
     pub observed_atr: Option<Vec<u8>>,
     pub observed_protocol: Option<NegotiatedProtocol>,
-    pub exchanges: [IdentityExchange; 2],
+    pub exchanges: [IdentityExchange; 3],
     pub disconnected: Option<bool>,
     pub outcome: IdentityOutcome,
 }
@@ -237,7 +256,7 @@ pub fn run_identity<B: IdentityBackend>(
     let mut record = IdentityRecord {
         metadata,
         readers: Vec::new(),
-        events: Vec::with_capacity(10),
+        events: Vec::with_capacity(12),
         observed_atr: None,
         observed_protocol: None,
         exchanges: core::array::from_fn(|_| IdentityExchange::default()),
@@ -337,7 +356,7 @@ fn validate_reader_name(reader: &[u8]) -> Result<(), IdentityError> {
 
 pub(crate) fn validate_identity_record(record: &IdentityRecord) -> Result<(), IdentityError> {
     if record.metadata.inner().mode != EnrollmentMode::Enroll
-        || record.events.len() > 10
+        || record.events.len() > 12
         || record.readers.len() > MAX_READERS
     {
         return sequence_violation();
@@ -449,12 +468,14 @@ pub(crate) fn validate_identity_record(record: &IdentityRecord) -> Result<(), Id
 }
 
 fn validate_event_sequence(record: &IdentityRecord) -> Result<(), IdentityError> {
-    const OPERATIONS: [IdentityOperation; 10] = [
+    const OPERATIONS: [IdentityOperation; 12] = [
         IdentityOperation::EnumerateReaders,
         IdentityOperation::ExclusiveConnect,
         IdentityOperation::Reset,
         IdentityOperation::CaptureAtr,
         IdentityOperation::CaptureProtocol,
+        IdentityOperation::TransmitSelect,
+        IdentityOperation::ReceiveSelect,
         IdentityOperation::TransmitCardRecognition,
         IdentityOperation::ReceiveCardRecognition,
         IdentityOperation::TransmitCplc,
@@ -580,17 +601,25 @@ fn validate_observations(record: &IdentityRecord) -> Result<(), IdentityError> {
 fn validate_exchanges(record: &IdentityRecord) -> Result<(), IdentityError> {
     let first = &record.exchanges[0];
     let second = &record.exchanges[1];
+    let third = &record.exchanges[2];
+    validate_exchange(
+        event_for(record, IdentityOperation::TransmitSelect),
+        event_for(record, IdentityOperation::ReceiveSelect),
+        first,
+        &SELECT_DEFAULT_APPLICATION_COMMAND,
+        validate_select_response,
+    )?;
     validate_exchange(
         event_for(record, IdentityOperation::TransmitCardRecognition),
         event_for(record, IdentityOperation::ReceiveCardRecognition),
-        first,
+        second,
         &CARD_RECOGNITION_COMMAND,
         validate_card_recognition_response,
     )?;
     validate_exchange(
         event_for(record, IdentityOperation::TransmitCplc),
         event_for(record, IdentityOperation::ReceiveCplc),
-        second,
+        third,
         &CPLC_COMMAND,
         validate_cplc_response,
     )?;
@@ -698,6 +727,20 @@ fn valid_operation_rejection(operation: IdentityOperation, error: IdentityError)
             error,
             IdentityError::ProtocolUnavailable | IdentityError::IdentityProtocolMismatch
         ),
+        IdentityOperation::TransmitSelect => matches!(
+            error,
+            IdentityError::SelectTransmitFailed
+                | IdentityError::SelectResponseTooLong
+                | IdentityError::BoundaryPanicked
+        ),
+        IdentityOperation::ReceiveSelect => matches!(
+            error,
+            IdentityError::SelectResponseTooShort
+                | IdentityError::SelectStatusRejected
+                | IdentityError::SelectFciOuterTagMismatch
+                | IdentityError::SelectFciLengthMalformed
+                | IdentityError::SelectFciTrailingByte
+        ),
         IdentityOperation::TransmitCardRecognition => matches!(
             error,
             IdentityError::CardRecognitionTransmitFailed
@@ -742,6 +785,42 @@ fn event_for(record: &IdentityRecord, operation: IdentityOperation) -> Option<&I
 
 fn sequence_violation<T>() -> Result<T, IdentityError> {
     Err(IdentityError::IdentitySequenceViolation)
+}
+
+pub fn validate_select_response(response: &[u8]) -> Result<(), IdentityError> {
+    if response.len() > MAX_IDENTITY_RESPONSE_BYTES {
+        return Err(IdentityError::SelectResponseTooLong);
+    }
+    if response.len() < 2 {
+        return Err(IdentityError::SelectResponseTooShort);
+    }
+    if response[response.len() - 2..] != [0x90, 0x00] {
+        return Err(IdentityError::SelectStatusRejected);
+    }
+    if response.len() < 4 {
+        return Err(IdentityError::SelectResponseTooShort);
+    }
+    let body = &response[..response.len() - 2];
+    if body[0] != 0x6f {
+        return Err(IdentityError::SelectFciOuterTagMismatch);
+    }
+    let (header_length, value_length) = match body[1] {
+        length @ 0x00..=0x7f => (2usize, usize::from(length)),
+        0x81 if body.len() >= 3 && (0x80..=0xfd).contains(&body[2]) => {
+            (3usize, usize::from(body[2]))
+        }
+        _ => return Err(IdentityError::SelectFciLengthMalformed),
+    };
+    let expected = header_length
+        .checked_add(value_length)
+        .ok_or(IdentityError::SelectFciLengthMalformed)?;
+    if body.len() < expected {
+        return Err(IdentityError::SelectFciLengthMalformed);
+    }
+    if body.len() > expected {
+        return Err(IdentityError::SelectFciTrailingByte);
+    }
+    Ok(())
 }
 
 pub fn validate_card_recognition_response(response: &[u8]) -> Result<(), IdentityError> {

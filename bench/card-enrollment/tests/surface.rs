@@ -29,7 +29,7 @@ fn production_roots_forbid_unsafe_code() {
 }
 
 #[test]
-fn safe_adapter_exposes_only_the_two_private_fixed_transmits() {
+fn safe_adapter_exposes_only_the_three_private_fixed_transmits() {
     for source in [
         LIB,
         IDENTITY,
@@ -41,7 +41,7 @@ fn safe_adapter_exposes_only_the_two_private_fixed_transmits() {
     ] {
         assert!(!source.contains(".transmit("));
     }
-    assert_eq!(IDENTITY_ADAPTER.matches(".transmit(").count(), 2);
+    assert_eq!(IDENTITY_ADAPTER.matches(".transmit(").count(), 3);
     for source in [
         LIB,
         IDENTITY,
@@ -68,10 +68,27 @@ fn safe_adapter_exposes_only_the_two_private_fixed_transmits() {
         1
     );
     assert_eq!(
+        IDENTITY_ADAPTER
+            .matches("SELECT_DEFAULT_APPLICATION_COMMAND")
+            .count(),
+        3
+    );
+    assert_eq!(
         IDENTITY_ADAPTER.matches("CARD_RECOGNITION_COMMAND").count(),
         3
     );
     assert_eq!(IDENTITY_ADAPTER.matches("CPLC_COMMAND").count(), 3);
+    let select_transmit = IDENTITY_ADAPTER
+        .find("card.transmit(&SELECT_DEFAULT_APPLICATION_COMMAND")
+        .expect("fixed SELECT transmit");
+    let card_recognition_transmit = IDENTITY_ADAPTER
+        .find("card.transmit(&CARD_RECOGNITION_COMMAND")
+        .expect("fixed Card Recognition transmit");
+    let cplc_transmit = IDENTITY_ADAPTER
+        .find("card.transmit(&CPLC_COMMAND")
+        .expect("fixed CPLC transmit");
+    assert!(select_transmit < card_recognition_transmit);
+    assert!(card_recognition_transmit < cplc_transmit);
     assert!(IDENTITY.contains("fn capture_identity(&mut self, reader_name: &[u8])"));
     assert!(!IDENTITY.contains("apdu: &[u8]"));
     assert!(!IDENTITY_ADAPTER.contains("apdu: &[u8]"));
@@ -131,6 +148,7 @@ fn public_reexports_are_the_reviewed_boundary() {
         "PcscEnrollmentBackend",
         "encode_transcript",
         "run_identity",
+        "validate_select_response",
         "validate_card_recognition_response",
         "validate_cplc_response",
         "IdentityAttempt",

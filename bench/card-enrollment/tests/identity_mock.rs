@@ -1,8 +1,9 @@
 use qk_card_enrollment::{
-    run_identity, validate_card_recognition_response, validate_cplc_response, EnrollmentMetadata,
-    EnrollmentMode, IdentityAttempt, IdentityBackend, IdentityError, IdentityEvent,
-    IdentityExchange, IdentityOperation, IdentityOutcome, NegotiatedProtocol,
-    CARD_RECOGNITION_COMMAND, CPLC_COMMAND, MAX_IDENTITY_RESPONSE_BYTES, REGISTERED_J3R180_ATR,
+    run_identity, validate_card_recognition_response, validate_cplc_response,
+    validate_select_response, EnrollmentMetadata, EnrollmentMode, IdentityAttempt, IdentityBackend,
+    IdentityError, IdentityEvent, IdentityExchange, IdentityOperation, IdentityOutcome,
+    NegotiatedProtocol, CARD_RECOGNITION_COMMAND, CPLC_COMMAND, MAX_IDENTITY_RESPONSE_BYTES,
+    REGISTERED_J3R180_ATR, SELECT_DEFAULT_APPLICATION_COMMAND,
 };
 
 const READER: &[u8] = b"Identive SCR33xx v2.0 USB SC Reader";
@@ -44,6 +45,10 @@ fn card_recognition() -> Vec<u8> {
     vec![0x66, 0x03, 0x73, 0x01, 0x00, 0x90, 0x00]
 }
 
+fn select_fci() -> Vec<u8> {
+    vec![0x6f, 0x03, 0x84, 0x01, 0x00, 0x90, 0x00]
+}
+
 fn cplc() -> Vec<u8> {
     let mut response = vec![0x9f, 0x7f, 0x2a];
     response.extend(0u8..42);
@@ -57,6 +62,8 @@ fn success_attempt() -> IdentityAttempt {
         IdentityOperation::Reset,
         IdentityOperation::CaptureAtr,
         IdentityOperation::CaptureProtocol,
+        IdentityOperation::TransmitSelect,
+        IdentityOperation::ReceiveSelect,
         IdentityOperation::TransmitCardRecognition,
         IdentityOperation::ReceiveCardRecognition,
         IdentityOperation::TransmitCplc,
@@ -75,6 +82,10 @@ fn success_attempt() -> IdentityAttempt {
         observed_protocol: Some(NegotiatedProtocol::T1),
         exchanges: [
             IdentityExchange {
+                request: Some(SELECT_DEFAULT_APPLICATION_COMMAND.to_vec()),
+                response: Some(select_fci()),
+            },
+            IdentityExchange {
                 request: Some(CARD_RECOGNITION_COMMAND.to_vec()),
                 response: Some(card_recognition()),
             },
@@ -89,7 +100,7 @@ fn success_attempt() -> IdentityAttempt {
 }
 
 #[test]
-fn success_is_the_exact_two_command_sequence() {
+fn success_is_the_exact_three_command_sequence() {
     let mut backend = MockBackend {
         readers: Ok(vec![READER.to_vec()]),
         attempt: success_attempt(),
@@ -98,25 +109,29 @@ fn success_is_the_exact_two_command_sequence() {
     let record = run_identity(metadata(), &mut backend);
     assert_eq!(backend.captures, 1);
     assert_eq!(record.outcome, IdentityOutcome::Pass);
-    assert_eq!(record.events.len(), 10);
+    assert_eq!(record.events.len(), 12);
     assert_eq!(
         record.events[0].operation,
         IdentityOperation::EnumerateReaders
     );
     assert_eq!(
         record.exchanges[0].request,
+        Some(SELECT_DEFAULT_APPLICATION_COMMAND.to_vec())
+    );
+    assert_eq!(
+        record.exchanges[1].request,
         Some(CARD_RECOGNITION_COMMAND.to_vec())
     );
-    assert_eq!(record.exchanges[1].request, Some(CPLC_COMMAND.to_vec()));
+    assert_eq!(record.exchanges[2].request, Some(CPLC_COMMAND.to_vec()));
     assert_eq!(record.observed_atr, Some(REGISTERED_J3R180_ATR.to_vec()));
     assert_eq!(record.observed_protocol, Some(NegotiatedProtocol::T1));
     assert_eq!(record.disconnected, Some(true));
 }
 
 #[test]
-fn second_command_without_valid_first_response_is_a_sequence_violation() {
+fn later_command_without_valid_select_response_is_a_sequence_violation() {
     let mut attempt = success_attempt();
-    attempt.exchanges[0].response = Some(vec![0x6a, 0x82]);
+    attempt.exchanges[0].response = Some(vec![0x69, 0x85]);
     let mut backend = MockBackend {
         readers: Ok(vec![READER.to_vec()]),
         attempt,
@@ -189,6 +204,10 @@ fn card_recognition_parser_locks_precedence_and_canonical_length() {
         Err(IdentityError::CardRecognitionResponseTooShort)
     );
     assert_eq!(
+        validate_card_recognition_response(&[0x69, 0x85]),
+        Err(IdentityError::CardRecognitionStatusRejected)
+    );
+    assert_eq!(
         validate_card_recognition_response(&[0x66, 0x01, 0x73, 0x6a, 0x82]),
         Err(IdentityError::CardRecognitionStatusRejected)
     );
@@ -221,6 +240,50 @@ fn card_recognition_parser_locks_precedence_and_canonical_length() {
     long.extend(vec![0; 127]);
     long.extend([0x90, 0x00]);
     assert_eq!(validate_card_recognition_response(&long), Ok(()));
+}
+
+#[test]
+fn select_parser_locks_precedence_and_canonical_length() {
+    assert_eq!(validate_select_response(&select_fci()), Ok(()));
+    assert_eq!(validate_select_response(&[0x6f, 0x00, 0x90, 0x00]), Ok(()));
+    assert_eq!(
+        validate_select_response(&vec![0; MAX_IDENTITY_RESPONSE_BYTES + 1]),
+        Err(IdentityError::SelectResponseTooLong)
+    );
+    assert_eq!(
+        validate_select_response(&[]),
+        Err(IdentityError::SelectResponseTooShort)
+    );
+    assert_eq!(
+        validate_select_response(&[0x6f, 0x00, 0x69, 0x85]),
+        Err(IdentityError::SelectStatusRejected)
+    );
+    assert_eq!(
+        validate_select_response(&[0x6e, 0x00, 0x90, 0x00]),
+        Err(IdentityError::SelectFciOuterTagMismatch)
+    );
+    assert_eq!(
+        validate_select_response(&[0x6f, 0x81, 0x01, 0x00, 0x90, 0x00]),
+        Err(IdentityError::SelectFciLengthMalformed)
+    );
+    assert_eq!(
+        validate_select_response(&[0x6f, 0x82, 0x00, 0x01, 0x00, 0x90, 0x00]),
+        Err(IdentityError::SelectFciLengthMalformed)
+    );
+    assert_eq!(
+        validate_select_response(&[0x6f, 0x02, 0x00, 0x90, 0x00]),
+        Err(IdentityError::SelectFciLengthMalformed)
+    );
+    assert_eq!(
+        validate_select_response(&[0x6f, 0x00, 0x00, 0x90, 0x00]),
+        Err(IdentityError::SelectFciTrailingByte)
+    );
+
+    let mut long = vec![0x6f, 0x81, 0xfd];
+    long.extend(vec![0; 253]);
+    long.extend([0x90, 0x00]);
+    assert_eq!(long.len(), MAX_IDENTITY_RESPONSE_BYTES);
+    assert_eq!(validate_select_response(&long), Ok(()));
 }
 
 #[test]
@@ -265,6 +328,28 @@ fn identity_rejection_names_are_exact() {
         (
             IdentityError::IdentityProtocolMismatch,
             "IdentityProtocolMismatch",
+        ),
+        (IdentityError::SelectTransmitFailed, "SelectTransmitFailed"),
+        (
+            IdentityError::SelectResponseTooLong,
+            "SelectResponseTooLong",
+        ),
+        (
+            IdentityError::SelectResponseTooShort,
+            "SelectResponseTooShort",
+        ),
+        (IdentityError::SelectStatusRejected, "SelectStatusRejected"),
+        (
+            IdentityError::SelectFciOuterTagMismatch,
+            "SelectFciOuterTagMismatch",
+        ),
+        (
+            IdentityError::SelectFciLengthMalformed,
+            "SelectFciLengthMalformed",
+        ),
+        (
+            IdentityError::SelectFciTrailingByte,
+            "SelectFciTrailingByte",
         ),
         (
             IdentityError::CardRecognitionTransmitFailed,

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fail-closed validator for QK-DEC-147's ring-fenced card-enrollment tool.
+# Fail-closed validator for QK-DEC-147's ring-fenced card-observation tool.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -59,7 +59,7 @@ package_shape=$(awk '
   $0 == "[package]" { package_sections++; in_package = 1; next }
   /^\[/ { in_package = 0; next }
   in_package && $0 == "name = \"qk-card-enrollment\"" { names++ }
-  in_package && $0 == "version = \"0.0.2\"" { versions++ }
+  in_package && $0 == "version = \"0.0.3\"" { versions++ }
   in_package && $0 == "publish = false" { publish++ }
   in_package && $0 == "edition = \"2021\"" { editions++ }
   in_package && $0 == "license = \"Apache-2.0\"" { licenses++ }
@@ -121,8 +121,8 @@ bench_production_sources=$(printf '%s\n' "$bench_sources" | grep '^bench/card-en
   fail 'bench production Rust sources are missing'
 identity_transmit_count=$(grep -F -c '.transmit(' "$identity_adapter") || \
   identity_transmit_count=0
-[ "$identity_transmit_count" = 2 ] || \
-  fail 'the private identity adapter must contain exactly two transmit calls'
+[ "$identity_transmit_count" = 3 ] || \
+  fail 'the private identity adapter must contain exactly three transmit calls'
 for source in $bench_production_sources; do
   [ "$source" = "$identity_adapter" ] && continue
   if grep -F '.transmit(' "$source" >/dev/null 2>&1; then
@@ -134,6 +134,9 @@ for forbidden_surface in '.control(' '.get_attribute(' '.begin_transaction(' 'pu
     fail "bench source exposes forbidden PC/SC surface: $forbidden_surface"
   fi
 done
+grep -F 'pub const SELECT_DEFAULT_APPLICATION_COMMAND: [u8; 5] = [0x00, 0xa4, 0x04, 0x00, 0x00];' \
+  bench/card-enrollment/src/identity.rs >/dev/null 2>&1 || \
+  fail 'default-application SELECT command bytes are not exact'
 grep -F 'pub const CARD_RECOGNITION_COMMAND: [u8; 5] = [0x80, 0xca, 0x00, 0x66, 0x00];' \
   bench/card-enrollment/src/identity.rs >/dev/null 2>&1 || \
   fail 'card-recognition command bytes are not exact'
@@ -245,7 +248,7 @@ expected_lock_facts='bitflags|2.13.1|registry+https://github.com/rust-lang/crate
 pcsc-sys|1.3.0|registry+https://github.com/rust-lang/crates.io-index|e14ef017e15d2e5592a9e39a346c1dbaea5120bab7ed7106b210ef58ebd97003
 pcsc|2.9.0|registry+https://github.com/rust-lang/crates.io-index|7dd833ecf8967e65934c49d3521a175929839bf6d0e497f3bd0d3a2ca08943da
 pkg-config|0.3.34|registry+https://github.com/rust-lang/crates.io-index|f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548
-qk-card-enrollment|0.0.2||'
+qk-card-enrollment|0.0.3||'
 [ "$(cat "$lock_facts_tmp")" = "$expected_lock_facts" ] || \
   fail 'bench Cargo.lock package set or checksum facts differ from QK-DEC-147'
 
@@ -266,7 +269,7 @@ normal_facts=$(normalize_tree "$normal_tree_tmp") || fail 'cannot normalize benc
 expected_normal_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
-qk-card-enrollment|0.0.2'
+qk-card-enrollment|0.0.3'
 [ "$normal_facts" = "$expected_normal_facts" ] || \
   fail 'bench normal dependency closure is not the exact reviewed four-package set'
 
@@ -280,7 +283,7 @@ expected_build_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.2'
+qk-card-enrollment|0.0.3'
 [ "$build_facts" = "$expected_build_facts" ] || \
   fail 'bench normal/build dependency closure is not the exact reviewed five-package set'
 
