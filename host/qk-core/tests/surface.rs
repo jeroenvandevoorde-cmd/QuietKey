@@ -34,7 +34,7 @@ fn direct_product_and_dev_dependencies_are_exact() {
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\", optional = true }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
