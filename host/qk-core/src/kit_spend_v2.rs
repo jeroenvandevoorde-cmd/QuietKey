@@ -6,11 +6,13 @@
 //! authority only after the coordinator statement and screen-named digit.
 //! The finalized PSBT is never exposed as an export artifact by this module.
 
-use crate::capability::KeypadKey;
+use crate::capability::{CoreScreen, KeypadKey};
 use crate::error::Interruption;
 use crate::io_wire::Source;
+use crate::kit_artifact_v2::{KitArtifactErrorV2, KitExportArtifactsV2};
 use crate::kit_intake_v2::{KitDoorV2, KitFrameIdentityV2, KitInputModeV2, KitIntakeReadyV2};
 use crate::normal_artifact_v2::{NormalArtifactErrorV2, NormalProfileV2};
+use crate::session::{CoreSession, HostileIngress};
 use crate::wipe;
 use core::fmt;
 use qk_descriptor::parse_descriptor_pair_v2;
@@ -371,14 +373,8 @@ impl KitSpendOutcomeV2 {
         self.completeness
     }
 
-    #[must_use]
-    pub(crate) const fn finalized(&self) -> &FinalizedNormalV3 {
-        &self.finalized
-    }
-
-    #[must_use]
-    pub(crate) fn into_finalized(self) -> FinalizedNormalV3 {
-        self.finalized
+    pub(crate) fn into_export_artifacts(self) -> Result<KitExportArtifactsV2, KitArtifactErrorV2> {
+        KitExportArtifactsV2::bind_finalized(self.facts.profile, &self.finalized)
     }
 }
 
@@ -422,6 +418,64 @@ pub struct KitSpendSessionV2 {
 impl KitSpendSessionV2 {
     /// Consume one `KitSpend` readiness capability and bind exact old D.
     pub fn begin(
+        core: &mut CoreSession,
+        profile_bytes: &[u8],
+        ready: KitIntakeReadyV2,
+        old_descriptors: &[[u8; 306]; 2],
+        assertion_digit: KitSpendAssertionDigitV2,
+    ) -> Result<Self, KitSpendErrorV2> {
+        let session_identity = match core.kit_session_identity() {
+            Ok(identity) => *identity,
+            Err(_) => {
+                return Err(KitSpendErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::OperationFailed),
+                ))
+            }
+        };
+        let mut session = match Self::begin_bound(
+            profile_bytes,
+            ready,
+            old_descriptors,
+            assertion_digit,
+            session_identity,
+        ) {
+            Ok(session) => session,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        if core.kit_show(CoreScreen::KitSpendTransaction).is_err() {
+            return Err(session.fail(KitSpendErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(session)
+    }
+
+    /// Deterministic explicit-identity constructor reserved for ring-fenced
+    /// fuzzing; the product constructor always takes identity from qk-core.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn fuzz_begin(
+        profile_bytes: &[u8],
+        ready: KitIntakeReadyV2,
+        old_descriptors: &[[u8; 306]; 2],
+        assertion_digit: KitSpendAssertionDigitV2,
+        session_identity: [u8; 16],
+    ) -> Result<Self, KitSpendErrorV2> {
+        Self::begin_bound(
+            profile_bytes,
+            ready,
+            old_descriptors,
+            assertion_digit,
+            session_identity,
+        )
+    }
+
+    fn begin_bound(
         profile_bytes: &[u8],
         ready: KitIntakeReadyV2,
         old_descriptors: &[[u8; 306]; 2],
@@ -573,6 +627,51 @@ impl KitSpendSessionV2 {
         }
     }
 
+    /// Consume one purpose-bound hostile PSBT owner and delegate to the exact
+    /// sweep path. The existing source gate admits only camera-BBQr PSBT or
+    /// media PSBT, while the transport allocation is cleared on every exit.
+    pub fn submit_sweep_ingress(
+        &mut self,
+        ingress: HostileIngress,
+        replacement_descriptors: &[[u8; 306]; 2],
+        destination_index: ReplacementReceiveIndexV2,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        let (source, mut bytes) = ingress.into_kit_parts();
+        self.submit_sweep(
+            source,
+            bytes.as_mut_slice(),
+            replacement_descriptors,
+            destination_index,
+        )
+    }
+
+    /// Consume the completed source-03/source-04 owner retained by qk-core,
+    /// prove the sweep, and select the first immutable review screen.
+    pub fn submit_sweep_from_core(
+        &mut self,
+        core: &mut CoreSession,
+        replacement_descriptors: &[[u8; 306]; 2],
+        destination_index: ReplacementReceiveIndexV2,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        let ingress = match core.take_kit_ingress() {
+            Ok(ingress) => ingress,
+            Err(_) => {
+                return Err(self.fail(KitSpendErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::OperationFailed),
+                )))
+            }
+        };
+        if let Err(error) =
+            self.submit_sweep_ingress(ingress, replacement_descriptors, destination_index)
+        {
+            core.terminate_kit(Interruption::OperationFailed);
+            return Err(error);
+        }
+        self.show_review_in_core(core)?;
+        self.screen().ok_or(KitSpendErrorV2::ReviewIncomplete)
+    }
+
     /// Visit the next immutable review fact, or enter the completeness screen
     /// only after the final fee warning (if any) has been visited.
     pub fn advance_review(&mut self) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
@@ -594,6 +693,24 @@ impl KitSpendSessionV2 {
             Some(screen) => Ok(screen),
             None => Err(KitSpendErrorV2::ReviewIncomplete),
         }
+    }
+
+    /// Advance one and only one bound review position and select its existing
+    /// typed screen through qk-core's display capability.
+    pub fn advance_review_in_core(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        if let Err(error) = self.advance_review() {
+            core.terminate_kit(Interruption::OperationFailed);
+            return Err(error);
+        }
+        if self.stage == KitSpendStageV2::CompletenessStatement {
+            self.show_in_core(core, CoreScreen::KitSpendCompleteness)?;
+        } else {
+            self.show_review_in_core(core)?;
+        }
+        self.screen().ok_or(KitSpendErrorV2::ReviewIncomplete)
     }
 
     /// Record the sole external completeness statement and mint one approval
@@ -636,6 +753,21 @@ impl KitSpendSessionV2 {
             Some(screen) => Ok(screen),
             None => Err(KitSpendErrorV2::ReviewIdentityMismatch),
         }
+    }
+
+    /// Bind the external completeness statement and move directly to the
+    /// screen-named assertion digit without permitting another yield.
+    pub fn confirm_all_funds_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        statement: CoordinatorCompletenessStatementV2,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        if let Err(error) = self.confirm_all_funds(statement) {
+            core.terminate_kit(Interruption::OperationFailed);
+            return Err(error);
+        }
+        self.show_in_core(core, CoreScreen::KitSpendHumanAssertion)?;
+        self.screen().ok_or(KitSpendErrorV2::ReviewIdentityMismatch)
     }
 
     /// Read the one asserted digit and, without yielding, consume the proof
@@ -718,6 +850,39 @@ impl KitSpendSessionV2 {
         })
     }
 
+    /// Read the one digit through qk-core and immediately consume the bound
+    /// approval identity through signing and finalization. There is no
+    /// transport, capability, or screen operation between the read and sign.
+    pub fn execute_in_core(
+        mut self,
+        core: &mut CoreSession,
+        key: KeypadKey,
+    ) -> Result<KitSpendOutcomeV2, KitSpendErrorV2> {
+        let approval = match self.approval {
+            Some(approval) => approval,
+            None => return Err(self.fail(KitSpendErrorV2::ReviewIdentityMismatch)),
+        };
+        let key = match core.kit_read_key(key) {
+            Ok(key) => key,
+            Err(_) => {
+                return Err(self.fail(KitSpendErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::CapabilityFailed),
+                )))
+            }
+        };
+        match self.execute(approval, key) {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => {
+                core.terminate_kit(match error {
+                    KitSpendErrorV2::Interrupted(reason) => reason,
+                    _ => Interruption::OperationFailed,
+                });
+                Err(error)
+            }
+        }
+    }
+
     /// Reject every foreign operation. Once review is complete, any such
     /// call is the no-yield violation regardless of its earlier-stage name.
     pub fn reject_foreign_operation(
@@ -762,6 +927,37 @@ impl KitSpendSessionV2 {
 
     fn review(&self) -> Option<&ReviewV3> {
         self.proof.as_ref().map(ValidatedKitSweepV3::review)
+    }
+
+    fn show_review_in_core(&mut self, core: &mut CoreSession) -> Result<(), KitSpendErrorV2> {
+        let screen = match self.review_position {
+            Some(KitSpendReviewPositionV2::Overview) => CoreScreen::ReviewOverview,
+            Some(KitSpendReviewPositionV2::Arithmetic) => CoreScreen::ReviewArithmetic,
+            Some(KitSpendReviewPositionV2::Recipient(_)) => CoreScreen::ReviewRecipient,
+            Some(KitSpendReviewPositionV2::Change(_)) => CoreScreen::ReviewChange,
+            Some(KitSpendReviewPositionV2::OpReturn(_)) => CoreScreen::ReviewOpReturn,
+            Some(KitSpendReviewPositionV2::Locktime) => CoreScreen::ReviewLocktime,
+            Some(KitSpendReviewPositionV2::Sequence(_)) => CoreScreen::ReviewSequence,
+            Some(KitSpendReviewPositionV2::FeePolicy) => CoreScreen::ReviewFeePolicy,
+            Some(KitSpendReviewPositionV2::FeeFacts) => CoreScreen::ReviewFeeFacts,
+            Some(KitSpendReviewPositionV2::Warning(_)) => CoreScreen::ReviewWarning,
+            None => return Err(self.fail(KitSpendErrorV2::ReviewIncomplete)),
+        };
+        self.show_in_core(core, screen)
+    }
+
+    fn show_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        screen: CoreScreen,
+    ) -> Result<(), KitSpendErrorV2> {
+        if core.kit_show(screen).is_err() {
+            return Err(self.fail(KitSpendErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(())
     }
 
     fn review_screen(&self) -> Option<KitSpendScreenV2<'_>> {

@@ -20,6 +20,8 @@ mod capability;
 mod error;
 mod io_wire;
 #[cfg(feature = "kit-v3")]
+mod kit_artifact_v2;
+#[cfg(feature = "kit-v3")]
 mod kit_intake_v2;
 #[cfg(feature = "kit-v3")]
 mod kit_restore_v2;
@@ -44,6 +46,11 @@ pub use capability::{
 };
 pub use error::{CoreError, Interruption, IoRejection};
 pub use io_wire::{Operation, Source};
+#[cfg(feature = "kit-v3")]
+pub use kit_artifact_v2::{
+    KitArtifactErrorV2, KitDeliveryReceiveOutcomeV2, KitDeliverySessionV2, KitExportActionV2,
+    KitExportResultV2, KitExportRouteV2, KitRawTransactionFactsV2, KitSdReceiptV2,
+};
 #[cfg(feature = "kit-v3")]
 pub use kit_intake_v2::{
     KitDoorV2, KitFallbackProgressV2, KitForeignInputV2, KitFrameIdentityV2, KitInputModeV2,

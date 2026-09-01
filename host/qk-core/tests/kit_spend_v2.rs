@@ -1,11 +1,14 @@
 //! QK-DEC-151 Kit-Spend process-owner tests.
 
 use qk_core::{
-    CoordinatorCompletenessStatementV2, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2,
-    KitIntakeSessionV2, KitSpendAssertionDigitV2, KitSpendErrorV2, KitSpendForeignOperationV2,
-    KitSpendReviewPositionV2, KitSpendScreenV2, KitSpendSessionV2, KitSpendStageV2,
-    NormalProfileV2, Source,
+    CardPresence, CoordinatorCompletenessStatementV2, CoreDeviceGrants, CoreMode, CoreScreen,
+    CoreSession, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2,
+    KitSpendAssertionDigitV2, KitSpendErrorV2, KitSpendForeignOperationV2,
+    KitSpendReviewPositionV2, KitSpendScreenV2, KitSpendSessionV2, KitSpendStageV2, MockCardSlot,
+    MockDisplay, MockKeypad, NormalProfileV2, Source,
 };
+use qk_io::BrokerSession;
+use qk_ipc::{ReceivedFrame, StreamDecoder};
 use qk_psbt::ReplacementReceiveIndexV2;
 use std::collections::BTreeMap;
 
@@ -71,13 +74,47 @@ fn ready(door: KitDoorV2) -> qk_core::KitIntakeReadyV2 {
     }
 }
 
+fn decode_one(bytes: &[u8]) -> ReceivedFrame {
+    let mut decoder = StreamDecoder::new();
+    let outcome = decoder.ingest(bytes, false).expect("complete QKIP frame");
+    assert!(outcome.frame_ready());
+    decoder.take_frame().expect("owned QKIP frame")
+}
+
+fn ready_core() -> CoreSession {
+    let grants = CoreDeviceGrants::validate(
+        Some(MockDisplay::new()),
+        Some(MockKeypad::new()),
+        Some(MockCardSlot::new(CardPresence::Present)),
+        false,
+    )
+    .expect("Kit grants");
+    let (mut core, opening) = CoreSession::start(CoreMode::Kit, grants).expect("Kit core");
+    let mut broker = BrokerSession::new();
+    let response = broker
+        .accept(&decode_one(opening.frame_bytes()), None, None)
+        .expect("session ready");
+    core.receive(response.frame_bytes(), false)
+        .expect("accept session ready");
+    core
+}
+
+fn begin(
+    profile: &[u8],
+    ready: qk_core::KitIntakeReadyV2,
+    old: &[[u8; 306]; 2],
+    digit: KitSpendAssertionDigitV2,
+) -> Result<KitSpendSessionV2, KitSpendErrorV2> {
+    let mut core = ready_core();
+    KitSpendSessionV2::begin(&mut core, profile, ready, old, digit)
+}
+
 fn start(profile: u8, digit: u8) -> KitSpendSessionV2 {
-    KitSpendSessionV2::begin(
+    begin(
         &[profile],
         ready(KitDoorV2::KitSpend),
         &descriptors("old"),
         KitSpendAssertionDigitV2::new(digit).expect("digit"),
-        [0x5a; 16],
     )
     .expect("registered Kit-Spend start")
 }
@@ -106,6 +143,53 @@ fn finish_review(session: &mut KitSpendSessionV2) -> Vec<KitSpendReviewPositionV
         session.advance_review().expect("fixed review advance");
     }
     positions
+}
+
+#[test]
+fn product_bridge_binds_core_identity_and_reads_digit_without_caller_token() {
+    let fixture = fields(SPEND);
+    let mut core = ready_core();
+    let mut session = KitSpendSessionV2::begin(
+        &mut core,
+        &[1],
+        ready(KitDoorV2::KitSpend),
+        &descriptors("old"),
+        KitSpendAssertionDigitV2::new(7).expect("digit"),
+    )
+    .expect("product Kit-Spend");
+    assert_eq!(core.current_screen(), Some(CoreScreen::KitSpendTransaction));
+
+    let mut psbt = hex_vec(fixture["s0_hex"]);
+    session
+        .submit_sweep(
+            Source::MediaPsbt,
+            &mut psbt,
+            &descriptors("replacement"),
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
+        .expect("registered sweep");
+    while session.stage() == KitSpendStageV2::Review {
+        session
+            .advance_review_in_core(&mut core)
+            .expect("visit bound review fact");
+    }
+    session
+        .confirm_all_funds_in_core(
+            &mut core,
+            CoordinatorCompletenessStatementV2::AllFundsIncluded,
+        )
+        .expect("completeness statement");
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::KitSpendHumanAssertion)
+    );
+    let outcome = session
+        .execute_in_core(&mut core, KeypadKey::Seven)
+        .expect("digit read then immediate sweep signing");
+    assert_eq!(
+        outcome.facts().raw_transaction_sha256(),
+        hex_array(fixture["raw_transaction_sha256"])
+    );
 }
 
 fn key_for_digit(digit: u8) -> KeypadKey {
@@ -197,12 +281,11 @@ fn profile_old_descriptor_and_source_rejections_are_distinct_and_wipe() {
         (&[1, 2][..], KitSpendErrorV2::ProfileMalformed),
     ] {
         assert_eq!(
-            KitSpendSessionV2::begin(
+            begin(
                 bytes,
                 ready(KitDoorV2::KitSpend),
                 &descriptors("old"),
                 KitSpendAssertionDigitV2::new(0).expect("digit"),
-                [1; 16],
             )
             .err(),
             Some(expected)
@@ -210,12 +293,11 @@ fn profile_old_descriptor_and_source_rejections_are_distinct_and_wipe() {
     }
 
     assert_eq!(
-        KitSpendSessionV2::begin(
+        begin(
             &[1],
             ready(KitDoorV2::KitRestore),
             &descriptors("old"),
             KitSpendAssertionDigitV2::new(0).expect("digit"),
-            [1; 16],
         )
         .err(),
         Some(KitSpendErrorV2::WrongDoor)
@@ -224,12 +306,11 @@ fn profile_old_descriptor_and_source_rejections_are_distinct_and_wipe() {
     let mut old = descriptors("old");
     old[0][0] ^= 1;
     assert_eq!(
-        KitSpendSessionV2::begin(
+        begin(
             &[1],
             ready(KitDoorV2::KitSpend),
             &old,
             KitSpendAssertionDigitV2::new(0).expect("digit"),
-            [1; 16],
         )
         .err(),
         Some(KitSpendErrorV2::RecoveredWalletMismatch)

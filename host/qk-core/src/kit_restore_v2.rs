@@ -6,9 +6,11 @@
 //! and ends in mandatory fresh-wallet migration. It contains no transport,
 //! general signing, Kit generation, or normal-wallet operation.
 
-use crate::capability::KeypadKey;
+use crate::capability::{CoreScreen, KeypadKey};
 use crate::error::Interruption;
+use crate::io_wire::Source;
 use crate::kit_intake_v2::{KitFrameIdentityV2, KitInputModeV2, KitIntakeReadyV2};
+use crate::session::{CoreSession, HostileIngress};
 use crate::wipe::WipingArray;
 use core::fmt;
 use qk_descriptor::parse_descriptor_pair_v2;
@@ -242,6 +244,42 @@ pub struct KitRestoreSessionV2 {
 impl KitRestoreSessionV2 {
     /// Consume exact Kit-Restore readiness and rebind it to authenticated D.
     pub fn begin(
+        core: &mut CoreSession,
+        ready: KitIntakeReadyV2,
+        descriptors: &[[u8; 306]; 2],
+        assertion_digit: HumanAssertionDigitV2,
+    ) -> Result<Self, KitRestoreErrorV2> {
+        let mut session = match Self::begin_bound(ready, descriptors, assertion_digit) {
+            Ok(session) => session,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        if core
+            .kit_show(CoreScreen::KitRestoreActionSelection)
+            .is_err()
+        {
+            return Err(session.fail(KitRestoreErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(session)
+    }
+
+    /// Deterministic semantic constructor reserved for ring-fenced fuzzing.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn fuzz_begin(
+        ready: KitIntakeReadyV2,
+        descriptors: &[[u8; 306]; 2],
+        assertion_digit: HumanAssertionDigitV2,
+    ) -> Result<Self, KitRestoreErrorV2> {
+        Self::begin_bound(ready, descriptors, assertion_digit)
+    }
+
+    fn begin_bound(
         ready: KitIntakeReadyV2,
         descriptors: &[[u8; 306]; 2],
         assertion_digit: HumanAssertionDigitV2,
@@ -318,6 +356,28 @@ impl KitRestoreSessionV2 {
         self.screen().ok_or(KitRestoreErrorV2::InvalidTransition)
     }
 
+    /// Fix the restore action and select only its ratified typed screen.
+    pub fn select_action_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        action: KitRestoreActionV2,
+    ) -> Result<KitRestoreScreenV2, KitRestoreErrorV2> {
+        let screen = match self.select_action(action) {
+            Ok(screen) => screen,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        let target = match screen.stage() {
+            KitRestoreStageV2::CardRemainsConfirmation => CoreScreen::CardRemainsConfirmation,
+            KitRestoreStageV2::BranchPreparation => CoreScreen::KitRestorePreparation,
+            _ => CoreScreen::KitRestoreActionSelection,
+        };
+        self.show_in_core(core, target)?;
+        Ok(screen)
+    }
+
     /// Record whether the old role-B physical remains are in hand.
     pub fn confirm_card_remains(
         &mut self,
@@ -334,6 +394,24 @@ impl KitRestoreSessionV2 {
         }
         self.stage = KitRestoreStageV2::BranchPreparation;
         self.screen().ok_or(KitRestoreErrorV2::InvalidTransition)
+    }
+
+    /// Read the old-card remains choice through the typed restore process and
+    /// expose no card capability or secret material.
+    pub fn confirm_card_remains_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        statement: CardRemainsStatementV2,
+    ) -> Result<KitRestoreScreenV2, KitRestoreErrorV2> {
+        let screen = match self.confirm_card_remains(statement) {
+            Ok(screen) => screen,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        self.show_in_core(core, CoreScreen::KitRestorePreparation)?;
+        Ok(screen)
     }
 
     /// Authenticate surviving A1 before the assertion digit is exposed.
@@ -356,6 +434,54 @@ impl KitRestoreSessionV2 {
         self.screen().ok_or(KitRestoreErrorV2::InvalidTransition)
     }
 
+    /// Consume one exact surviving-A1 camera ingress before replacement-B
+    /// preparation. Foreign sources and non-canonical widths terminate the
+    /// purpose owner, and every transport or scratch byte is cleared.
+    pub fn prepare_replacement_b_ingress(
+        &mut self,
+        ingress: HostileIngress,
+    ) -> Result<KitRestoreScreenV2, KitRestoreErrorV2> {
+        let (source, bytes) = ingress.into_kit_parts();
+        if source != Source::CameraA1Candidate {
+            drop(bytes);
+            return Err(self.fail(KitRestoreErrorV2::ForeignInputProhibited));
+        }
+        if bytes.len() != A1_CAPSULE_BYTES {
+            drop(bytes);
+            return Err(self.fail(KitRestoreErrorV2::SurvivingA1Mismatch));
+        }
+        let mut capsule = WipingArray::<A1_CAPSULE_BYTES>::zeroed();
+        capsule.as_mut_array().copy_from_slice(bytes.as_slice());
+        drop(bytes);
+        self.prepare_replacement_b(capsule.as_mut_array())
+    }
+
+    /// Consume one completed surviving-A1 transfer retained by qk-core and
+    /// advance directly to the existing human-assertion screen.
+    pub fn prepare_replacement_b_from_core(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<KitRestoreScreenV2, KitRestoreErrorV2> {
+        let ingress = match core.take_kit_ingress() {
+            Ok(ingress) => ingress,
+            Err(_) => {
+                return Err(self.fail(KitRestoreErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::OperationFailed),
+                )))
+            }
+        };
+        let screen = match self.prepare_replacement_b_ingress(ingress) {
+            Ok(screen) => screen,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        self.show_in_core(core, CoreScreen::KitRestoreHumanAssertion)?;
+        Ok(screen)
+    }
+
     /// Authenticate surviving B and bind the fresh caller nonce before the
     /// assertion digit is exposed.
     pub fn prepare_a1_reprint(
@@ -372,6 +498,24 @@ impl KitRestoreSessionV2 {
         self.prepared_a1 = Some(prepared);
         self.stage = KitRestoreStageV2::HumanAssertion;
         self.screen().ok_or(KitRestoreErrorV2::InvalidTransition)
+    }
+
+    /// Stage the A1 reprint branch and select the existing assertion screen.
+    pub fn prepare_a1_reprint_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        surviving_b: SurvivingBFactorV2,
+        nonce: &[u8; 12],
+    ) -> Result<KitRestoreScreenV2, KitRestoreErrorV2> {
+        let screen = match self.prepare_a1_reprint(surviving_b, nonce) {
+            Ok(screen) => screen,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        self.show_in_core(core, CoreScreen::KitRestoreHumanAssertion)?;
+        Ok(screen)
     }
 
     /// Authorize and consume exactly one public-facts-only replacement call.
@@ -400,6 +544,44 @@ impl KitRestoreSessionV2 {
         })
     }
 
+    /// Read the assertion digit through qk-core and invoke exactly its one-use
+    /// public-facts-only replacement-B mock boundary.
+    pub fn execute_replacement_b_in_core(
+        mut self,
+        core: &mut CoreSession,
+        key: KeypadKey,
+    ) -> Result<KitRestoreOutcomeV2, KitRestoreErrorV2> {
+        let key = match core.kit_read_key(key) {
+            Ok(key) => key,
+            Err(_) => {
+                return Err(self.fail(KitRestoreErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::CapabilityFailed),
+                )))
+            }
+        };
+        let outcome = match self.execute_replacement_b(key, |view| core.kit_replace_b(view)) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                core.terminate_kit(match error {
+                    KitRestoreErrorV2::Interrupted(reason) => reason,
+                    _ => Interruption::OperationFailed,
+                });
+                return Err(error);
+            }
+        };
+        if core
+            .kit_show(CoreScreen::MandatoryFreshWalletMigration)
+            .is_err()
+        {
+            return Err(KitRestoreErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            ));
+        }
+        Ok(outcome)
+    }
+
     /// Authorize the exact staged A1 print boundary.
     ///
     /// The returned owner lends the capsule only for the frozen process print
@@ -419,6 +601,41 @@ impl KitRestoreSessionV2 {
         Ok(AuthorizedA1ReprintV2 {
             staged: Some(prepared.into_staged()),
         })
+    }
+
+    /// Read the assertion digit through qk-core and stage the sole A1 reprint
+    /// without exposing the keypad capability.
+    pub fn begin_a1_reprint_in_core(
+        mut self,
+        core: &mut CoreSession,
+        key: KeypadKey,
+    ) -> Result<AuthorizedA1ReprintV2, KitRestoreErrorV2> {
+        let key = match core.kit_read_key(key) {
+            Ok(key) => key,
+            Err(_) => {
+                return Err(self.fail(KitRestoreErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::CapabilityFailed),
+                )))
+            }
+        };
+        let staged = match self.begin_a1_reprint(key) {
+            Ok(staged) => staged,
+            Err(error) => {
+                core.terminate_kit(match error {
+                    KitRestoreErrorV2::Interrupted(reason) => reason,
+                    _ => Interruption::OperationFailed,
+                });
+                return Err(error);
+            }
+        };
+        if core.kit_show(CoreScreen::A1Reprint).is_err() {
+            return Err(KitRestoreErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            ));
+        }
+        Ok(staged)
     }
 
     /// Terminate on an operation outside the one fixed restore action.
@@ -459,6 +676,20 @@ impl KitRestoreSessionV2 {
 
     fn require_active(&self) -> Result<(), KitRestoreErrorV2> {
         self.active.then_some(()).ok_or(KitRestoreErrorV2::Finished)
+    }
+
+    fn show_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        screen: CoreScreen,
+    ) -> Result<(), KitRestoreErrorV2> {
+        if core.kit_show(screen).is_err() {
+            return Err(self.fail(KitRestoreErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(())
     }
 
     fn require_action(&mut self, expected: KitRestoreActionV2) -> Result<(), KitRestoreErrorV2> {
@@ -556,6 +787,28 @@ impl AuthorizedA1ReprintV2 {
             artifact: KitRestoreArtifactV2::A1Reprint(receipt),
             posture: MandatoryFreshWalletMigrationV2::Required,
         })
+    }
+
+    /// Consume one exact A1-camera scan-back without exposing transport bytes.
+    /// A foreign source or non-canonical width consumes the staged owner and
+    /// returns its closest ratified named rejection.
+    pub fn complete_scan_back_ingress(
+        self,
+        ingress: HostileIngress,
+    ) -> Result<KitRestoreOutcomeV2, KitRestoreErrorV2> {
+        let (source, bytes) = ingress.into_kit_parts();
+        if source != Source::CameraA1Candidate {
+            drop(bytes);
+            return Err(KitRestoreErrorV2::ForeignInputProhibited);
+        }
+        if bytes.len() != A1_CAPSULE_BYTES {
+            drop(bytes);
+            return Err(KitRestoreErrorV2::A1VerificationMismatch);
+        }
+        let mut scan_back = WipingArray::<A1_CAPSULE_BYTES>::zeroed();
+        scan_back.as_mut_array().copy_from_slice(bytes.as_slice());
+        drop(bytes);
+        self.complete_scan_back(scan_back.as_mut_array())
     }
 
     /// Consume and clear the staged owner after a named print-boundary failure.

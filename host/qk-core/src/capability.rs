@@ -8,6 +8,7 @@
 
 use crate::error::CoreError;
 use crate::wipe::{self, WipingArray, WipingValueVec, WipingVec};
+use qk_kit::{KitRestoreDispositionV2, ReplacementBViewV2};
 
 const MAX_NORMAL_INPUTS: usize = 100;
 const MAX_DER_SIGNATURE_BYTES: usize = 72;
@@ -99,6 +100,23 @@ pub enum CoreScreen {
     AwaitingExportAction,
     TransactionResult,
     CompletedWiped,
+    KitStart,
+    KitDoorSelection,
+    KitDoorConfirmation,
+    ScanKitShareOne,
+    ScanKitShareTwo,
+    CombineKitShares,
+    KitRestoreActionSelection,
+    CardRemainsConfirmation,
+    KitRestorePreparation,
+    KitRestoreHumanAssertion,
+    ProvisionReplacementB,
+    A1Reprint,
+    MandatoryFreshWalletMigration,
+    KitSpendTransaction,
+    KitSpendValidation,
+    KitSpendCompleteness,
+    KitSpendHumanAssertion,
 }
 
 /// Presence fact exposed by the card-slot mock.
@@ -395,6 +413,7 @@ pub struct MockCardSlot {
     required_binding: Option<CardBPublicBindingV2>,
     spare_binding: Option<CardBPublicBindingV2>,
     normal_data: Option<NormalCardBDataV2>,
+    replacement_b_used: bool,
 }
 
 impl MockCardSlot {
@@ -405,6 +424,7 @@ impl MockCardSlot {
             required_binding: None,
             spare_binding: None,
             normal_data: None,
+            replacement_b_used: false,
         }
     }
 
@@ -417,6 +437,7 @@ impl MockCardSlot {
             required_binding: None,
             spare_binding: None,
             normal_data: Some(normal_data),
+            replacement_b_used: false,
         }
     }
 
@@ -481,6 +502,24 @@ impl MockCardSlot {
         self.normal_data
             .take()
             .ok_or(NormalCardMockErrorV2::CardDataUnavailable)
+    }
+
+    /// Consume the sole public-facts-only replacement-B mock call.
+    ///
+    /// Absence, an injected capability failure, or any second call rejects.
+    /// No card command, secret key, payload byte, or signing operation crosses
+    /// this boundary.
+    pub(crate) fn replace_b(&mut self, _view: ReplacementBViewV2<'_>) -> KitRestoreDispositionV2 {
+        if self.replacement_b_used {
+            return KitRestoreDispositionV2::Rejected;
+        }
+        self.replacement_b_used = true;
+        if self.take_failure() || self.presence != CardPresence::Present {
+            return KitRestoreDispositionV2::Rejected;
+        }
+        // Qk-kit consumes the same scoped public view to construct the typed
+        // receipt; this mock retains no duplicate wallet fact.
+        KitRestoreDispositionV2::Accepted
     }
 
     fn take_failure(&mut self) -> bool {

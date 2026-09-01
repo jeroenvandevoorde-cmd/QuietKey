@@ -1,9 +1,13 @@
 //! Process-slice-7 qk-core Kit intake behavior.
 
 use qk_core::{
+    CardPresence, CoreDeviceGrants, CoreMode, CoreReceiveEvent, CoreScreen, CoreSession, CoreState,
     Interruption, KeypadKey, KitDoorV2, KitForeignInputV2, KitInputModeV2, KitIntakeErrorV2,
-    KitIntakeOutcomeV2, KitIntakeSessionV2, KitShareOrdinalV2, KIT_FALLBACK_TABLE_V2,
+    KitIntakeOutcomeV2, KitIntakeSessionV2, KitShareOrdinalV2, MockCardSlot, MockDisplay,
+    MockKeypad, Source, KIT_FALLBACK_TABLE_V2,
 };
+use qk_io::{BrokerSession, MockInput, Source as IoSource};
+use qk_ipc::{ReceivedFrame, StreamDecoder};
 use qk_kit::{encode_frame, KitError, ShareIndex, FALLBACK_SYMBOLS, FRAME_LEN};
 
 const FIXTURE: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
@@ -47,6 +51,62 @@ fn fallback(number: u8) -> [u8; FALLBACK_SYMBOLS] {
 
 fn wallet_id() -> [u8; 32] {
     hex_array(field("wallet_id_hex"))
+}
+
+fn decode_one(bytes: &[u8]) -> ReceivedFrame {
+    let mut decoder = StreamDecoder::new();
+    let outcome = decoder.ingest(bytes, false).expect("complete QKIP frame");
+    assert!(outcome.frame_ready());
+    decoder.take_frame().expect("owned QKIP frame")
+}
+
+fn opened_kit_core() -> (CoreSession, BrokerSession) {
+    let grants = CoreDeviceGrants::validate(
+        Some(MockDisplay::new()),
+        Some(MockKeypad::new()),
+        Some(MockCardSlot::new(CardPresence::Present)),
+        false,
+    )
+    .expect("Kit grants");
+    let (mut core, opening) = CoreSession::start(CoreMode::Kit, grants).expect("Kit core");
+    let mut broker = BrokerSession::new();
+    let response = broker
+        .accept(&decode_one(opening.frame_bytes()), None, None)
+        .expect("session ready");
+    assert_eq!(
+        core.receive(response.frame_bytes(), false)
+            .expect("accept session ready")
+            .event(),
+        CoreReceiveEvent::SessionReady
+    );
+    (core, broker)
+}
+
+fn load_kit_candidate(core: &mut CoreSession, broker: &mut BrokerSession, bytes: &[u8; 142]) {
+    let mut input = MockInput::try_new(IoSource::CameraKitCandidate, bytes).expect("Kit input");
+    let begin = decode_one(
+        core.begin_ingress(Source::CameraKitCandidate)
+            .expect("begin Kit ingress")
+            .frame_bytes(),
+    );
+    let response = broker
+        .accept(&begin, Some(&mut input), None)
+        .expect("ingress begin response");
+    core.receive(response.frame_bytes(), false)
+        .expect("accept ingress begin");
+    while core.state() == CoreState::IngressReadReady {
+        let read = decode_one(
+            core.request_next_chunk()
+                .expect("request Kit chunk")
+                .frame_bytes(),
+        );
+        let response = broker
+            .accept(&read, None, None)
+            .expect("ingress read response");
+        core.receive(response.frame_bytes(), false)
+            .expect("accept ingress chunk");
+    }
+    assert_eq!(core.state(), CoreState::IngressComplete);
 }
 
 fn numeric_key(number: u8) -> KeypadKey {
@@ -102,6 +162,30 @@ fn assert_first(outcome: KitIntakeOutcomeV2) {
     };
     assert_eq!(screen.page(), KitShareOrdinalV2::Two);
     assert_eq!(screen.fallback().committed_symbols(), 0);
+}
+
+#[test]
+fn product_bridge_consumes_source_02_and_selects_typed_share_screens() {
+    let (mut core, mut broker) = opened_kit_core();
+    let mut intake =
+        KitIntakeSessionV2::begin_in_core(&mut core, KitDoorV2::KitSpend, KitInputModeV2::Scanner)
+            .expect("product intake");
+    assert_eq!(core.current_screen(), Some(CoreScreen::ScanKitShareOne));
+
+    load_kit_candidate(&mut core, &mut broker, &frame(1));
+    assert_first(
+        intake
+            .submit_scanner_from_core(&mut core)
+            .expect("first source-02 share"),
+    );
+    assert_eq!(core.current_screen(), Some(CoreScreen::ScanKitShareTwo));
+
+    load_kit_candidate(&mut core, &mut broker, &frame(2));
+    assert!(matches!(
+        intake.submit_scanner_from_core(&mut core),
+        Ok(KitIntakeOutcomeV2::Ready(_))
+    ));
+    assert_eq!(core.current_screen(), Some(CoreScreen::CombineKitShares));
 }
 
 #[test]

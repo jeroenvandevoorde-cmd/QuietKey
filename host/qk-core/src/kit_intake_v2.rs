@@ -5,8 +5,10 @@
 //! 228-symbol share. The selected door and representation are immutable. Only
 //! qk-kit authenticates frames and releases an opaque combined payload owner.
 
-use crate::capability::KeypadKey;
+use crate::capability::{CoreScreen, KeypadKey};
 use crate::error::Interruption;
+use crate::io_wire::Source;
+use crate::session::{CoreSession, HostileIngress};
 use crate::wipe::{self, WipingArray};
 use core::fmt;
 use qk_kit::{
@@ -68,6 +70,7 @@ pub enum KitForeignInputV2 {
 pub enum KitIntakeErrorV2 {
     InvalidTransition,
     KitScannerModeMismatch,
+    WrongIngressSource,
     DoorSwitchAttempt,
     InvalidFallbackRow,
     InvalidFallbackColumn,
@@ -87,6 +90,7 @@ impl KitIntakeErrorV2 {
         match self {
             Self::InvalidTransition => "InvalidTransition",
             Self::KitScannerModeMismatch => "KitScannerModeMismatch",
+            Self::WrongIngressSource => "WrongIngressSource",
             Self::DoorSwitchAttempt => "DoorSwitchAttempt",
             Self::InvalidFallbackRow => "InvalidFallbackRow",
             Self::InvalidFallbackColumn => "InvalidFallbackColumn",
@@ -338,6 +342,24 @@ impl KitIntakeSessionV2 {
         }
     }
 
+    /// Start the product intake owner on an already-open Kit process session.
+    /// The typed door and representation are fixed before the first share
+    /// screen, and no capability or process identity leaves `CoreSession`.
+    pub fn begin_in_core(
+        core: &mut CoreSession,
+        door: KitDoorV2,
+        mode: KitInputModeV2,
+    ) -> Result<Self, KitIntakeErrorV2> {
+        let mut session = Self::begin(door, mode);
+        if core.kit_show(CoreScreen::ScanKitShareOne).is_err() {
+            return Err(session.fail(KitIntakeErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(session)
+    }
+
     #[must_use]
     pub fn screen(&self) -> Option<KitIntakeScreenV2> {
         self.active.then(|| self.current_screen())
@@ -364,6 +386,71 @@ impl KitIntakeSessionV2 {
         self.accept_frame(candidate.as_array())
     }
 
+    /// Consume one purpose-bound camera candidate without exposing transport
+    /// bytes through a public accessor.
+    ///
+    /// The transport allocation and fixed scratch are cleared on every return
+    /// path. Only the exact Kit-camera source and canonical frame width reach
+    /// the existing scanner parser.
+    pub fn submit_scanner_ingress(
+        &mut self,
+        ingress: HostileIngress,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        let (source, bytes) = ingress.into_kit_parts();
+        if !self.active {
+            drop(bytes);
+            return Err(KitIntakeErrorV2::Finished);
+        }
+        if self.mode != KitInputModeV2::Scanner {
+            drop(bytes);
+            return Err(self.fail(KitIntakeErrorV2::KitScannerModeMismatch));
+        }
+        if source != Source::CameraKitCandidate {
+            drop(bytes);
+            return Err(self.fail(KitIntakeErrorV2::WrongIngressSource));
+        }
+        if bytes.len() != FRAME_LEN {
+            drop(bytes);
+            return Err(self.fail(KitIntakeErrorV2::Codec(KitError::FrameLength)));
+        }
+        let mut frame = WipingArray::<FRAME_LEN>::zeroed();
+        frame.as_mut_array().copy_from_slice(bytes.as_slice());
+        drop(bytes);
+        self.submit_scanner_frame(frame.as_mut_array())
+    }
+
+    /// Consume the one completed source-02 transfer retained by qk-core and
+    /// advance only the typed Kit share screens. Transport bytes never cross a
+    /// public accessor and every rejection terminates both purpose owners.
+    pub fn submit_scanner_from_core(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        let ingress = match core.take_kit_ingress() {
+            Ok(ingress) => ingress,
+            Err(_) => {
+                return Err(self.fail(KitIntakeErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::OperationFailed),
+                )))
+            }
+        };
+        let outcome = match self.submit_scanner_ingress(ingress) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
+            }
+        };
+        if core.kit_show(intake_outcome_screen(&outcome)).is_err() {
+            return Err(self.fail(KitIntakeErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(outcome)
+    }
+
     /// Apply one exact logical P0.1 key to the selected fallback screen.
     pub fn apply_fallback_key(
         &mut self,
@@ -384,6 +471,41 @@ impl KitIntakeSessionV2 {
             KeypadKey::EqualsConfirmEnter => self.confirm_fallback(),
             _ => self.apply_fallback_coordinate(key),
         }
+    }
+
+    /// Read one fallback coordinate through the sole qk-core keypad grant and
+    /// advance the typed share display without exposing the capability.
+    pub fn apply_fallback_key_from_core(
+        &mut self,
+        core: &mut CoreSession,
+        key: KeypadKey,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        let key = match core.kit_read_key(key) {
+            Ok(key) => key,
+            Err(_) => {
+                return Err(self.fail(KitIntakeErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::CapabilityFailed),
+                )))
+            }
+        };
+        let outcome = match self.apply_fallback_key(key) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                core.terminate_kit(match error {
+                    KitIntakeErrorV2::Interrupted(reason) => reason,
+                    _ => Interruption::OperationFailed,
+                });
+                return Err(error);
+            }
+        };
+        if core.kit_show(intake_outcome_screen(&outcome)).is_err() {
+            return Err(self.fail(KitIntakeErrorV2::Interrupted(
+                core.terminal_reason()
+                    .unwrap_or(Interruption::CapabilityFailed),
+            )));
+        }
+        Ok(outcome)
     }
 
     /// Mode is immutable after the typed share flow begins.
@@ -626,6 +748,17 @@ const fn numeric_key(key: KeypadKey) -> Option<u8> {
         KeypadKey::Zero => 0,
         _ => return None,
     })
+}
+
+const fn intake_outcome_screen(outcome: &KitIntakeOutcomeV2) -> CoreScreen {
+    match outcome {
+        KitIntakeOutcomeV2::Continue(screen) => match screen.page {
+            KitShareOrdinalV2::One => CoreScreen::ScanKitShareOne,
+            KitShareOrdinalV2::Two => CoreScreen::ScanKitShareTwo,
+        },
+        KitIntakeOutcomeV2::FirstShareAccepted(_) => CoreScreen::ScanKitShareTwo,
+        KitIntakeOutcomeV2::Ready(_) => CoreScreen::CombineKitShares,
+    }
 }
 
 #[cfg(test)]

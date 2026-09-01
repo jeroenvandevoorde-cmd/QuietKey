@@ -16,6 +16,7 @@ use crate::session_id::DeterministicSessionIdMint;
 use crate::session_id::{mint_session_id, SessionId, SessionIdError};
 use crate::wipe::{self, WipingArray, WipingVec};
 use qk_ipc::{CoreEvent, CoreProtocol, IpcError, OutboundFrame, StreamDecoder};
+use qk_kit::{KitRestoreDispositionV2, ReplacementBViewV2};
 
 /// Product-flow family selected by the supervisor for this HOST shell.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,6 +82,7 @@ enum OutstandingResponse {
     Ingress(ExpectedResponse),
     Print(ExpectedPrintResponse),
     NormalEgress,
+    KitEgress,
 }
 
 /// Exact stream-consumption fact and the at-most-one resulting shell event.
@@ -92,6 +94,12 @@ pub struct CoreReceiveOutcome {
 
 /// Crate-private stream fact for the purpose-bound normal egress path.
 pub(crate) struct NormalCoreReceiveOutcome {
+    pub(crate) consumed: usize,
+    pub(crate) response_ready: bool,
+}
+
+/// Crate-private stream fact for the purpose-bound Kit egress path.
+pub(crate) struct KitCoreReceiveOutcome {
     pub(crate) consumed: usize,
     pub(crate) response_ready: bool,
 }
@@ -150,6 +158,10 @@ impl HostileIngress {
     }
 
     pub(crate) fn into_normal_parts(self) -> (Source, WipingVec) {
+        (self.source, self.bytes)
+    }
+
+    pub(crate) fn into_kit_parts(self) -> (Source, WipingVec) {
         (self.source, self.bytes)
     }
 
@@ -227,6 +239,7 @@ pub struct CoreSession {
     transfer: Option<IngressTransfer>,
     completed: Option<HostileIngress>,
     normal_response: Option<WipingVec>,
+    kit_response: Option<WipingVec>,
     print_artifact: Option<PrintArtifact>,
     grants: CoreDeviceGrants,
 }
@@ -262,6 +275,7 @@ impl CoreSession {
             transfer: None,
             completed: None,
             normal_response: None,
+            kit_response: None,
             print_artifact: None,
             grants,
         };
@@ -301,6 +315,19 @@ impl CoreSession {
         }
     }
 
+    /// Borrow the exact QKIP identity solely for the purpose-bound Kit review
+    /// and approval provenance. No public shell surface exposes this copy.
+    pub(crate) fn kit_session_identity(&mut self) -> Result<&[u8; 16], CoreError> {
+        self.require_kit_live()?;
+        if self.session_identity.is_none() {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        match self.session_identity.as_ref() {
+            Some(identity) => Ok(identity.as_array()),
+            None => Err(CoreError::InvalidTransition),
+        }
+    }
+
     /// Emit the sole typed ingress-begin operation.
     pub fn begin_ingress(&mut self, source: Source) -> Result<CoreOutbound, CoreError> {
         self.require_live()?;
@@ -308,6 +335,7 @@ impl CoreSession {
             || self.transfer.is_some()
             || self.completed.is_some()
             || self.normal_response.is_some()
+            || self.kit_response.is_some()
             || self.expected.is_some()
             || self.print_artifact.is_some()
         {
@@ -332,7 +360,9 @@ impl CoreSession {
     /// Emit the next exact-offset A1 scan-back read without replacing the
     /// purpose screen with the generic ingress lifecycle screen.
     pub(crate) fn request_a1_scanback_chunk(&mut self) -> Result<CoreOutbound, CoreError> {
-        if self.mode != CoreMode::Setup || self.print_artifact != Some(PrintArtifact::A1) {
+        if !matches!(self.mode, CoreMode::Setup | CoreMode::Kit)
+            || self.print_artifact != Some(PrintArtifact::A1)
+        {
             return Err(self.fail(CoreError::InvalidTransition));
         }
         self.request_chunk(false)
@@ -462,7 +492,7 @@ impl CoreSession {
     /// Begin the sole allowed scan-back after an accepted A1 print receipt.
     pub(crate) fn begin_a1_scanback(&mut self) -> Result<CoreOutbound, CoreError> {
         self.require_live()?;
-        if self.mode != CoreMode::Setup
+        if !matches!(self.mode, CoreMode::Setup | CoreMode::Kit)
             || self.state != CoreState::EgressComplete
             || self.print_artifact != Some(PrintArtifact::A1)
             || self.transfer.is_some()
@@ -489,7 +519,7 @@ impl CoreSession {
         expected: &[u8; A1_PRINT_BYTES],
     ) -> Result<bool, CoreError> {
         self.require_live()?;
-        if self.mode != CoreMode::Setup
+        if !matches!(self.mode, CoreMode::Setup | CoreMode::Kit)
             || self.state != CoreState::IngressComplete
             || self.print_artifact != Some(PrintArtifact::A1)
             || self.transfer.is_some()
@@ -560,6 +590,28 @@ impl CoreSession {
             || self.transfer.is_some()
             || self.expected.is_some()
             || self.normal_response.is_some()
+            || self.kit_response.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let ingress = self
+            .completed
+            .take()
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))?;
+        self.state = CoreState::Ready;
+        Ok(ingress)
+    }
+
+    /// Consume one complete Kit ingress without adding a public byte accessor.
+    /// The purpose owner performs the only frame, descriptor, or transaction
+    /// interpretation over the returned wiping allocation.
+    pub(crate) fn take_kit_ingress(&mut self) -> Result<HostileIngress, CoreError> {
+        self.require_kit_live()?;
+        if self.state != CoreState::IngressComplete
+            || self.transfer.is_some()
+            || self.expected.is_some()
+            || self.normal_response.is_some()
+            || self.kit_response.is_some()
         {
             return Err(self.fail(CoreError::InvalidTransition));
         }
@@ -589,6 +641,35 @@ impl CoreSession {
         }
     }
 
+    /// Select one Kit-flow typed screen without exposing the capability.
+    pub(crate) fn kit_show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {
+        self.require_kit_live()?;
+        self.show_or_terminate(screen)
+    }
+
+    /// Read one normalized Kit-flow key through the sole keypad grant.
+    pub(crate) fn kit_read_key(&mut self, key: KeypadKey) -> Result<KeypadKey, CoreError> {
+        self.require_kit_live()?;
+        match self.grants.keypad_mut().read(key) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.terminate(Interruption::CapabilityFailed);
+                Err(error)
+            }
+        }
+    }
+
+    /// Execute at most one public-facts-only mock replacement-B call.
+    pub(crate) fn kit_replace_b(
+        &mut self,
+        view: ReplacementBViewV2<'_>,
+    ) -> KitRestoreDispositionV2 {
+        if self.require_kit_live().is_err() {
+            return KitRestoreDispositionV2::Rejected;
+        }
+        self.grants.card_slot_mut().replace_b(view)
+    }
+
     /// Consume the sole preloaded authenticated mock card-B factor.
     pub(crate) fn take_normal_card_data(
         &mut self,
@@ -606,6 +687,7 @@ impl CoreSession {
             || self.transfer.is_some()
             || self.completed.is_some()
             || self.normal_response.is_some()
+            || self.kit_response.is_some()
             || self.expected.is_some()
             || self.print_artifact.is_some()
         {
@@ -683,8 +765,97 @@ impl CoreSession {
         })
     }
 
+    /// Wrap one exact purpose-bound Kit egress request in QKIP.
+    pub(crate) fn begin_kit_egress(&mut self, payload: &[u8]) -> Result<CoreOutbound, CoreError> {
+        self.require_kit_live()?;
+        if self.state != CoreState::Ready
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.normal_response.is_some()
+            || self.kit_response.is_some()
+            || self.expected.is_some()
+            || self.print_artifact.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.begin_operation(
+            payload,
+            OutstandingResponse::KitEgress,
+            CoreState::EgressWritePending,
+        )
+    }
+
+    /// Consume the complete hostile inner response retained by QKIP for Kit.
+    pub(crate) fn take_kit_egress_response(&mut self) -> Result<WipingVec, CoreError> {
+        self.require_kit_live()?;
+        if self.state != CoreState::Ready || self.expected.is_some() {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.kit_response
+            .take()
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))
+    }
+
+    /// Consume at most one QKIP frame while the exact Kit egress response is
+    /// outstanding. It cannot be confused with the normal-flow exchange.
+    pub(crate) fn receive_kit_egress(
+        &mut self,
+        input: &[u8],
+        ancillary_present: bool,
+    ) -> Result<KitCoreReceiveOutcome, CoreError> {
+        self.require_kit_live()?;
+        if self.expected != Some(OutstandingResponse::KitEgress)
+            || self.state != CoreState::EgressWritePending
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let outcome = match self.decoder.as_mut() {
+            Some(decoder) => decoder.ingest(input, ancillary_present),
+            None => return Err(CoreError::CoreTerminated),
+        };
+        let outcome = match outcome {
+            Ok(value) => value,
+            Err(error) => return Err(self.fail_ipc(error)),
+        };
+        if !outcome.frame_ready() {
+            return Ok(KitCoreReceiveOutcome {
+                consumed: outcome.consumed(),
+                response_ready: false,
+            });
+        }
+        let frame = match self.decoder.as_mut() {
+            Some(decoder) => decoder.take_frame(),
+            None => return Err(CoreError::CoreTerminated),
+        };
+        let frame = match frame {
+            Ok(value) => value,
+            Err(error) => return Err(self.fail_ipc(error)),
+        };
+        let event = match self.ipc.as_mut() {
+            Some(ipc) => ipc.accept(&frame),
+            None => return Err(CoreError::CoreTerminated),
+        };
+        let event = match event {
+            Ok(value) => value,
+            Err(error) => return Err(self.fail_ipc(error)),
+        };
+        if event != CoreEvent::OperationResponse {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.accept_kit_egress(frame.payload())?;
+        Ok(KitCoreReceiveOutcome {
+            consumed: outcome.consumed(),
+            response_ready: true,
+        })
+    }
+
     /// Route one normal-flow interruption through the universal terminal path.
     pub(crate) fn terminate_normal(&mut self, reason: Interruption) {
+        self.terminate(reason);
+    }
+
+    /// Route one Kit-flow interruption through the universal terminal path.
+    pub(crate) fn terminate_kit(&mut self, reason: Interruption) {
         self.terminate(reason);
     }
 
@@ -878,7 +1049,9 @@ impl CoreSession {
         match expected {
             OutstandingResponse::Ingress(expected) => self.accept_ingress(payload, expected),
             OutstandingResponse::Print(expected) => self.accept_print(payload, expected),
-            OutstandingResponse::NormalEgress => Err(CoreError::InvalidTransition),
+            OutstandingResponse::NormalEgress | OutstandingResponse::KitEgress => {
+                Err(CoreError::InvalidTransition)
+            }
         }
     }
 
@@ -891,6 +1064,20 @@ impl CoreSession {
             return Err(CoreError::InvalidTransition);
         }
         self.normal_response =
+            Some(WipingVec::try_copy(payload).map_err(|_| CoreError::AllocationFailed)?);
+        self.state = CoreState::Ready;
+        Ok(())
+    }
+
+    fn accept_kit_egress(&mut self, payload: &[u8]) -> Result<(), CoreError> {
+        if self.expected.take() != Some(OutstandingResponse::KitEgress)
+            || self.mode != CoreMode::Kit
+            || self.state != CoreState::EgressWritePending
+            || self.kit_response.is_some()
+        {
+            return Err(CoreError::InvalidTransition);
+        }
+        self.kit_response =
             Some(WipingVec::try_copy(payload).map_err(|_| CoreError::AllocationFailed)?);
         self.state = CoreState::Ready;
         Ok(())
@@ -1007,7 +1194,7 @@ impl CoreSession {
         pending_state: CoreState,
     ) -> Result<CoreOutbound, CoreError> {
         self.require_live()?;
-        if self.mode != CoreMode::Setup
+        if !self.mode_allows_print(artifact)
             || self.state != CoreState::Ready
             || self.transfer.is_some()
             || self.completed.is_some()
@@ -1026,7 +1213,7 @@ impl CoreSession {
         state: CoreState,
     ) -> Result<(), CoreError> {
         self.require_live()?;
-        if self.mode != CoreMode::Setup
+        if !self.mode_allows_print(artifact)
             || self.state != state
             || self.print_artifact != Some(artifact)
             || self.transfer.is_some()
@@ -1036,6 +1223,14 @@ impl CoreSession {
         } else {
             Ok(())
         }
+    }
+
+    const fn mode_allows_print(&self, artifact: PrintArtifact) -> bool {
+        matches!(
+            (self.mode, artifact),
+            (CoreMode::Setup, PrintArtifact::A1 | PrintArtifact::Kit)
+                | (CoreMode::Kit, PrintArtifact::A1)
+        )
     }
 
     fn accept_closed(&mut self, payload: &[u8]) -> Result<CoreReceiveEvent, CoreError> {
@@ -1049,6 +1244,7 @@ impl CoreSession {
         self.transfer = None;
         self.completed = None;
         self.normal_response = None;
+        self.kit_response = None;
         self.print_artifact = None;
         drop(self.session_identity.take());
         self.show_or_terminate(CoreScreen::Closed)?;
@@ -1088,6 +1284,7 @@ impl CoreSession {
         self.transfer = None;
         self.completed = None;
         self.normal_response = None;
+        self.kit_response = None;
         self.print_artifact = None;
         self.decoder = None;
         self.ipc = None;
@@ -1115,6 +1312,15 @@ impl CoreSession {
     fn require_normal_live(&mut self) -> Result<(), CoreError> {
         self.require_live()?;
         if self.mode == CoreMode::A1B {
+            Ok(())
+        } else {
+            Err(self.fail(CoreError::InvalidTransition))
+        }
+    }
+
+    fn require_kit_live(&mut self) -> Result<(), CoreError> {
+        self.require_live()?;
+        if self.mode == CoreMode::Kit {
             Ok(())
         } else {
             Err(self.fail(CoreError::InvalidTransition))
@@ -1222,6 +1428,18 @@ mod tests {
     fn ready_setup(namespace: [u8; 12]) -> (CoreSession, [u8; 16]) {
         let (mut session, open) =
             fuzz_start_session(namespace, 0, CoreMode::Setup, grants()).unwrap();
+        let id = session_id(&open);
+        let ready = response(id, 1, MessageKind::SessionReady, &[]);
+        assert_eq!(
+            session.receive(&ready, false).unwrap().event(),
+            CoreReceiveEvent::SessionReady
+        );
+        (session, id)
+    }
+
+    fn ready_kit(namespace: [u8; 12]) -> (CoreSession, [u8; 16]) {
+        let (mut session, open) =
+            fuzz_start_session(namespace, 0, CoreMode::Kit, grants()).unwrap();
         let id = session_id(&open);
         let ready = response(id, 1, MessageKind::SessionReady, &[]);
         assert_eq!(
@@ -1500,5 +1718,100 @@ mod tests {
             session.terminal_reason(),
             Some(Interruption::SessionTimeout)
         );
+    }
+
+    #[test]
+    fn kit_identity_screen_key_and_sealed_ingress_are_purpose_locked() {
+        let (mut session, id) = ready_kit([0x4a; 12]);
+        assert_eq!(session.kit_session_identity().unwrap(), &id);
+        session.kit_show(CoreScreen::KitDoorSelection).unwrap();
+        assert_eq!(session.current_screen(), Some(CoreScreen::KitDoorSelection));
+        assert_eq!(
+            session.kit_read_key(KeypadKey::TwoDown).unwrap(),
+            KeypadKey::TwoDown
+        );
+
+        session.state = CoreState::IngressComplete;
+        session.completed = Some(HostileIngress {
+            source: Source::CameraKitCandidate,
+            bytes: WipingVec::try_copy(&[0x4b; 142]).unwrap(),
+        });
+        let ingress = session.take_kit_ingress().unwrap();
+        assert_eq!(session.state(), CoreState::Ready);
+        let (source, bytes) = ingress.into_kit_parts();
+        assert_eq!(source, Source::CameraKitCandidate);
+        assert_eq!(bytes.as_slice(), &[0x4b; 142]);
+
+        let (mut wrong_mode, _) = ready_setup([0x4b; 12]);
+        assert_eq!(
+            wrong_mode.kit_show(CoreScreen::KitStart),
+            Err(CoreError::InvalidTransition)
+        );
+        assert_eq!(wrong_mode.state(), CoreState::Terminated);
+    }
+
+    #[test]
+    fn kit_egress_is_exact_one_exchange_and_response_wipes_with_identity() {
+        let (mut session, id) = ready_kit([0x4c; 12]);
+        let payload = [0xa5; 29];
+        let request = session.begin_kit_egress(&payload).unwrap();
+        assert_eq!(
+            parse_frame(request.frame_bytes()).unwrap().payload(),
+            payload
+        );
+        drop(request);
+
+        let reply_payload = [0x5a; 41];
+        let reply = response(id, 2, MessageKind::OperationResponse, &reply_payload);
+        let split = 17;
+        let (prefix_bytes, suffix_bytes) = reply.split_at(split);
+        let prefix = session.receive_kit_egress(prefix_bytes, false).unwrap();
+        assert_eq!(prefix.consumed, split);
+        assert!(!prefix.response_ready);
+        let suffix = session.receive_kit_egress(suffix_bytes, false).unwrap();
+        assert_eq!(suffix.consumed, reply.len() - split);
+        assert!(suffix.response_ready);
+
+        let retained = session.take_kit_egress_response().unwrap();
+        assert_eq!(retained.as_slice(), reply_payload);
+        drop(retained);
+
+        let request = session.begin_kit_egress(&[0x11; 7]).unwrap();
+        drop(request);
+        let reply = response(id, 3, MessageKind::OperationResponse, &[0x22; 37]);
+        assert!(
+            session
+                .receive_kit_egress(&reply, false)
+                .unwrap()
+                .response_ready
+        );
+        reset_wiped_bytes();
+        session.terminate_kit(Interruption::SessionTimeout);
+        assert_eq!(wiped_bytes(), 37 + 16);
+    }
+
+    #[test]
+    fn kit_a1_reprint_reuses_exact_setup_bytes_but_kit_page_print_stays_setup_only() {
+        let artifact = [0xa1; A1_PRINT_BYTES];
+        let (mut kit, kit_id) = ready_kit([0x4d; 12]);
+        kit.kit_show(CoreScreen::A1Reprint).unwrap();
+        finish_a1_print(&mut kit, kit_id, &artifact);
+        assert!(finish_a1_scanback(&mut kit, kit_id, &artifact, &artifact));
+        assert_eq!(kit.state(), CoreState::Ready);
+
+        let (mut wrong_artifact, _) = ready_kit([0x4e; 12]);
+        assert_eq!(
+            wrong_artifact.begin_kit_print().err(),
+            Some(CoreError::InvalidTransition)
+        );
+        assert_eq!(wrong_artifact.state(), CoreState::Terminated);
+
+        // Existing Setup behavior remains covered by the byte-exact tests
+        // above and remains capable of both A1 and Kit-page printing.
+        let (mut setup, setup_id) = ready_setup([0x4f; 12]);
+        finish_a1_print(&mut setup, setup_id, &artifact);
+        assert!(finish_a1_scanback(
+            &mut setup, setup_id, &artifact, &artifact
+        ));
     }
 }

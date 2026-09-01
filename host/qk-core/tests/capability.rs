@@ -90,6 +90,34 @@ fn exact_grant_validation_and_each_mock_fault_are_named_and_one_shot() {
 }
 
 #[test]
+fn every_ratified_kit_screen_is_a_typed_display_selection() {
+    let screens = [
+        CoreScreen::KitStart,
+        CoreScreen::KitDoorSelection,
+        CoreScreen::KitDoorConfirmation,
+        CoreScreen::ScanKitShareOne,
+        CoreScreen::ScanKitShareTwo,
+        CoreScreen::CombineKitShares,
+        CoreScreen::KitRestoreActionSelection,
+        CoreScreen::CardRemainsConfirmation,
+        CoreScreen::KitRestorePreparation,
+        CoreScreen::KitRestoreHumanAssertion,
+        CoreScreen::ProvisionReplacementB,
+        CoreScreen::A1Reprint,
+        CoreScreen::MandatoryFreshWalletMigration,
+        CoreScreen::KitSpendTransaction,
+        CoreScreen::KitSpendValidation,
+        CoreScreen::KitSpendCompleteness,
+        CoreScreen::KitSpendHumanAssertion,
+    ];
+    let mut display = MockDisplay::new();
+    for screen in screens {
+        display.show(screen).expect("typed Kit screen");
+        assert_eq!(display.current(), Some(screen));
+    }
+}
+
+#[test]
 fn every_non_cancel_key_is_state_preserving_and_cancel_is_terminal() {
     let (mut session, _) =
         CoreSession::start(CoreMode::Setup, grants(CardPresence::Present)).expect("session");

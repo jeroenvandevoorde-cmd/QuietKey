@@ -1,12 +1,15 @@
 //! QK-DEC-151 Kit-Restore product-owner behavior over frozen public facts.
 
 use qk_core::{
-    CardRemainsStatementV2, HumanAssertionDigitV2, Interruption, KeypadKey, KitDoorV2,
-    KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2, KitRestoreActionV2,
-    KitRestoreArtifactV2, KitRestoreDispositionV2, KitRestoreErrorV2, KitRestoreForeignOperationV2,
-    KitRestoreSessionV2, KitRestoreStageV2, MandatoryFreshWalletMigrationV2, SurvivingBFactorV2,
+    CardPresence, CardRemainsStatementV2, CoreDeviceGrants, CoreMode, CoreScreen, CoreSession,
+    HumanAssertionDigitV2, Interruption, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2,
+    KitIntakeSessionV2, KitRestoreActionV2, KitRestoreArtifactV2, KitRestoreDispositionV2,
+    KitRestoreErrorV2, KitRestoreForeignOperationV2, KitRestoreSessionV2, KitRestoreStageV2,
+    MandatoryFreshWalletMigrationV2, MockCardSlot, MockDisplay, MockKeypad, SurvivingBFactorV2,
     KIT_FALLBACK_TABLE_V2,
 };
+use qk_io::BrokerSession;
+use qk_ipc::{ReceivedFrame, StreamDecoder};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const PROVISIONING: &str = include_str!("../../qk-provisioning/tests/fixtures/provisioning_v2.txt");
@@ -159,8 +162,42 @@ fn ready(door: KitDoorV2, mode: KitInputModeV2, order: [u8; 2]) -> qk_core::KitI
     }
 }
 
+fn decode_one(bytes: &[u8]) -> ReceivedFrame {
+    let mut decoder = StreamDecoder::new();
+    let outcome = decoder.ingest(bytes, false).expect("complete QKIP frame");
+    assert!(outcome.frame_ready());
+    decoder.take_frame().expect("owned QKIP frame")
+}
+
+fn ready_core() -> CoreSession {
+    let grants = CoreDeviceGrants::validate(
+        Some(MockDisplay::new()),
+        Some(MockKeypad::new()),
+        Some(MockCardSlot::new(CardPresence::Present)),
+        false,
+    )
+    .expect("Kit grants");
+    let (mut core, opening) = CoreSession::start(CoreMode::Kit, grants).expect("Kit core");
+    let mut broker = BrokerSession::new();
+    let response = broker
+        .accept(&decode_one(opening.frame_bytes()), None, None)
+        .expect("session ready");
+    core.receive(response.frame_bytes(), false)
+        .expect("accept session ready");
+    core
+}
+
+fn begin(
+    ready: qk_core::KitIntakeReadyV2,
+    descriptors: &[[u8; 306]; 2],
+    digit: HumanAssertionDigitV2,
+) -> Result<KitRestoreSessionV2, KitRestoreErrorV2> {
+    let mut core = ready_core();
+    KitRestoreSessionV2::begin(&mut core, ready, descriptors, digit)
+}
+
 fn session_for(mode: KitInputModeV2, order: [u8; 2], digit: u8) -> KitRestoreSessionV2 {
-    KitRestoreSessionV2::begin(
+    begin(
         ready(KitDoorV2::KitRestore, mode, order),
         &descriptors(),
         HumanAssertionDigitV2::new(digit).expect("decimal digit"),
@@ -205,7 +242,7 @@ fn prepare_replacement(session: &mut KitRestoreSessionV2) {
 #[test]
 fn exact_restore_readiness_and_exact_old_d_are_required() {
     assert!(matches!(
-        KitRestoreSessionV2::begin(
+        begin(
             ready(KitDoorV2::KitSpend, KitInputModeV2::Scanner, [1, 2]),
             &descriptors(),
             HumanAssertionDigitV2::new(0).expect("digit"),
@@ -216,7 +253,7 @@ fn exact_restore_readiness_and_exact_old_d_are_required() {
     let mut wrong_d = descriptors();
     wrong_d[0][0] ^= 1;
     assert!(matches!(
-        KitRestoreSessionV2::begin(
+        begin(
             ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
             &wrong_d,
             HumanAssertionDigitV2::new(0).expect("digit"),
@@ -287,6 +324,44 @@ fn replacement_b_requires_remains_factor_and_exact_digit_before_one_call() {
         Some(KitRestoreErrorV2::MissingCardRequiresKitSpend)
     );
     assert!(missing.is_terminal());
+}
+
+#[test]
+fn product_bridge_uses_typed_display_keypad_and_one_use_card_boundary() {
+    let mut core = ready_core();
+    let mut restore = KitRestoreSessionV2::begin(
+        &mut core,
+        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        &descriptors(),
+        HumanAssertionDigitV2::new(7).expect("digit"),
+    )
+    .expect("product restore");
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::KitRestoreActionSelection)
+    );
+    restore
+        .select_action_in_core(&mut core, KitRestoreActionV2::ReplacementB)
+        .expect("replacement action");
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::CardRemainsConfirmation)
+    );
+    restore
+        .confirm_card_remains_in_core(&mut core, CardRemainsStatementV2::InHand)
+        .expect("old card remains");
+    let mut capsule = hex_array(field(PROVISIONING, "a1_capsule_hex"));
+    restore
+        .prepare_replacement_b(&mut capsule)
+        .expect("registered surviving A1");
+    let outcome = restore
+        .execute_replacement_b_in_core(&mut core, KeypadKey::Seven)
+        .expect("one qk-core replacement call");
+    assert_eq!(outcome.posture(), MandatoryFreshWalletMigrationV2::Required);
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::MandatoryFreshWalletMigration)
+    );
 }
 
 #[test]
