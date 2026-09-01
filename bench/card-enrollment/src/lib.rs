@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod identity;
+mod identity_transcript;
 mod model;
 mod pcsc_adapter;
 mod pcsc_identity_adapter;
@@ -18,6 +19,7 @@ pub use identity::{
     IdentityOutcome, IdentityRecord, CARD_RECOGNITION_COMMAND, CPLC_COMMAND,
     MAX_IDENTITY_RESPONSE_BYTES, REGISTERED_J3R180_ATR,
 };
+pub use identity_transcript::encode_identity_transcript;
 pub use model::{
     authorize_operation, run_enrollment, CaptureAttempt, CardCapture, EnrollmentBackend,
     EnrollmentError, EnrollmentEvent, EnrollmentMetadata, EnrollmentMode, EnrollmentOperation,

@@ -1,0 +1,140 @@
+use qk_card_enrollment::{
+    encode_identity_transcript, EnrollmentMetadata, EnrollmentMode, IdentityEvent,
+    IdentityExchange, IdentityOperation, IdentityOutcome, IdentityRecord, NegotiatedProtocol,
+    CARD_RECOGNITION_COMMAND, CPLC_COMMAND, IDENTITY_ALLOWLIST_ID, IDENTITY_TOOL_VERSION,
+    IDENTITY_TRANSCRIPT_VERSION, REGISTERED_J3R180_ATR,
+};
+
+fn record() -> IdentityRecord {
+    let reader = b"Identive SCR33xx v2.0 USB SC Reader".to_vec();
+    let metadata = EnrollmentMetadata {
+        mode: EnrollmentMode::Enroll,
+        source_commit: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        timestamp_utc: "2026-09-01T12:34:56Z".to_owned(),
+        host_alias: "iMac".to_owned(),
+        reader_alias: "SCR3310-01".to_owned(),
+        specimen_alias: Some("J3R180-02".to_owned()),
+        selected_reader_name: Some(reader.clone()),
+    }
+    .validate()
+    .expect("fixture metadata");
+    let operations = [
+        IdentityOperation::EnumerateReaders,
+        IdentityOperation::ExclusiveConnect,
+        IdentityOperation::Reset,
+        IdentityOperation::CaptureAtr,
+        IdentityOperation::CaptureProtocol,
+        IdentityOperation::TransmitCardRecognition,
+        IdentityOperation::ReceiveCardRecognition,
+        IdentityOperation::TransmitCplc,
+        IdentityOperation::ReceiveCplc,
+        IdentityOperation::Disconnect,
+    ];
+    let mut cplc = vec![0x9f, 0x7f, 0x2a];
+    cplc.extend(0u8..42);
+    cplc.extend([0x90, 0x00]);
+    IdentityRecord {
+        metadata,
+        readers: vec![reader],
+        events: operations
+            .into_iter()
+            .map(|operation| IdentityEvent {
+                operation,
+                outcome: IdentityOutcome::Pass,
+            })
+            .collect(),
+        observed_atr: Some(REGISTERED_J3R180_ATR.to_vec()),
+        observed_protocol: Some(NegotiatedProtocol::T1),
+        exchanges: [
+            IdentityExchange {
+                request: Some(CARD_RECOGNITION_COMMAND.to_vec()),
+                response: Some(vec![0x66, 0x03, 0x73, 0x01, 0x00, 0x90, 0x00]),
+            },
+            IdentityExchange {
+                request: Some(CPLC_COMMAND.to_vec()),
+                response: Some(cplc),
+            },
+        ],
+        disconnected: Some(true),
+        outcome: IdentityOutcome::Pass,
+    }
+}
+
+#[test]
+fn canonical_identity_transcript_is_byte_exact() {
+    let actual = encode_identity_transcript(&record()).expect("transcript");
+    let expected = concat!(
+        "QK-CARD-IDENTITY-V1\n",
+        "allowlist=QK-F8-IDENT-V1\n",
+        "tool_version=0.0.2\n",
+        "source_commit=0123456789abcdef0123456789abcdef01234567\n",
+        "timestamp_utc=2026-09-01T12:34:56Z\n",
+        "host_alias=iMac\n",
+        "reader_alias=SCR3310-01\n",
+        "specimen_alias=J3R180-02\n",
+        "mode=IDENTITY\n",
+        "reader_count=1\n",
+        "reader.0.name_hex=4964656e7469766520534352333378782076322e302055534220534320526561646572\n",
+        "selected_reader_name_hex=4964656e7469766520534352333378782076322e302055534220534320526561646572\n",
+        "event_count=10\n",
+        "event.0=EnumerateReaders:PASS\n",
+        "event.1=ExclusiveConnect:PASS\n",
+        "event.2=Reset:PASS\n",
+        "event.3=CaptureAtr:PASS\n",
+        "event.4=CaptureProtocol:PASS\n",
+        "event.5=TransmitCardRecognition:PASS\n",
+        "event.6=ReceiveCardRecognition:PASS\n",
+        "event.7=TransmitCplc:PASS\n",
+        "event.8=ReceiveCplc:PASS\n",
+        "event.9=Disconnect:PASS\n",
+        "protocol=T1\n",
+        "atr_hex=3bd518ff8191fe1fc38073c821100a\n",
+        "apdu_tx_count=2\n",
+        "apdu_rx_count=2\n",
+        "apdu.0.tx_hex=80ca006600\n",
+        "apdu.0.rx_hex=66037301009000\n",
+        "apdu.1.tx_hex=80ca9f7f00\n",
+        "apdu.1.rx_hex=9f7f2a000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728299000\n",
+        "disconnect=PASS\n",
+        "result=PASS\n",
+    )
+    .as_bytes();
+    assert_eq!(IDENTITY_TRANSCRIPT_VERSION, "QK-CARD-IDENTITY-V1");
+    assert_eq!(IDENTITY_ALLOWLIST_ID, "QK-F8-IDENT-V1");
+    assert_eq!(IDENTITY_TOOL_VERSION, "0.0.2");
+    assert_eq!(actual, expected);
+    assert!(actual.is_ascii());
+    assert!(actual.ends_with(b"\n"));
+    assert!(!actual.contains(&b'\r'));
+    assert!(!actual.contains(&0));
+}
+
+#[test]
+fn failed_transmit_records_request_without_inventing_a_response() {
+    let mut record = record();
+    record.events.truncate(6);
+    record.events[5].outcome =
+        IdentityOutcome::Reject(qk_card_enrollment::IdentityError::CardRecognitionTransmitFailed);
+    record.events.push(IdentityEvent {
+        operation: IdentityOperation::Disconnect,
+        outcome: IdentityOutcome::Pass,
+    });
+    record.exchanges[0].response = None;
+    record.exchanges[1] = IdentityExchange::default();
+    record.outcome =
+        IdentityOutcome::Reject(qk_card_enrollment::IdentityError::CardRecognitionTransmitFailed);
+    let text =
+        String::from_utf8(encode_identity_transcript(&record).expect("transcript")).expect("ASCII");
+    assert!(text.contains("apdu_tx_count=1\napdu_rx_count=0\n"));
+    assert!(text.contains("apdu.0.tx_hex=80ca006600\napdu.0.rx_hex=NONE\n"));
+    assert!(text.contains("apdu.1.tx_hex=NONE\napdu.1.rx_hex=NONE\n"));
+    assert!(text.ends_with("result=CardRecognitionTransmitFailed\n"));
+}
+
+#[test]
+fn encoding_is_deterministic() {
+    assert_eq!(
+        encode_identity_transcript(&record()).expect("first"),
+        encode_identity_transcript(&record()).expect("second")
+    );
+}
