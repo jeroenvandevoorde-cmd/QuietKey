@@ -2,7 +2,6 @@
 
 const LIB: &str = include_str!("../src/lib.rs");
 const LIFECYCLE: &str = include_str!("../src/lifecycle.rs");
-const UNIX_RECV: &str = include_str!("../src/unix_recv.rs");
 const CARGO: &str = include_str!("../Cargo.toml");
 
 #[test]
@@ -12,14 +11,17 @@ fn manifest_depends_only_on_the_pure_ipc_leaf() {
         .expect("dependency section")
         .1;
     assert_eq!(dependencies.trim(), "qk-ipc = { path = \"../qk-ipc\" }");
+    assert!(CARGO.contains("default = []"));
+    assert!(CARGO.contains("host-runtime = [\"qk-ipc/host-runtime\"]"));
     assert!(!CARGO.contains("qk-decoy"));
 }
 
 #[test]
-fn crate_root_has_one_explicit_surface_and_one_unsafe_module() {
+fn crate_root_has_one_explicit_surface_and_no_unsafe_module() {
     assert!(LIB.contains("#![deny(unsafe_code)]"));
-    assert_eq!(LIB.matches("#[allow(unsafe_code)]").count(), 1);
-    assert!(LIB.contains("mod unix_recv;"));
+    assert_eq!(LIB.matches("#[allow(unsafe_code)]").count(), 0);
+    assert!(!LIB.contains("mod unix_recv;"));
+    assert!(LIB.contains("pub use qk_ipc::{"));
     assert!(!LIB.contains("pub mod "));
 }
 
@@ -46,24 +48,7 @@ fn lifecycle_has_no_process_device_secret_or_logging_operation() {
 }
 
 #[test]
-fn unsafe_is_confined_to_recv_close_control_parse_and_wipe() {
+fn supervisor_sources_are_entirely_safe() {
     assert!(!LIFECYCLE.contains("unsafe"));
-    assert_eq!(UNIX_RECV.matches("unsafe {").count(), 5);
-    for forbidden in [
-        "sendmsg(",
-        "Command::new",
-        "std::process",
-        "rand::",
-        "getrandom",
-        "Secret",
-        "PrivateKey",
-        "println!",
-        "eprintln!",
-        "dbg!",
-    ] {
-        assert!(
-            !UNIX_RECV.contains(forbidden),
-            "forbidden token {forbidden}"
-        );
-    }
+    assert_eq!(LIB.matches("unsafe").count(), 1);
 }

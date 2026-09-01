@@ -1,19 +1,21 @@
 //! Bounded QuietKey process-IPC wire and endpoint-state reference.
 //!
-//! HOST REFERENCE ONLY -- NOT A SOCKET ADAPTER -- NOT A WALLET -- NO TARGET,
-//! PRIVILEGE-ENFORCEMENT, PERFORMANCE, PRODUCTION, OR GATE CLAIM.
+//! HOST REFERENCE ONLY -- NOT A WALLET -- NO TARGET, PRIVILEGE-ENFORCEMENT,
+//! PERFORMANCE, PRODUCTION, OR GATE CLAIM.
 //!
 //! This dependency-free leaf implements the QK-DEC-140 `QKIP` envelope and
 //! pure protocol state. It performs no socket, filesystem, process, clock,
 //! randomness, wallet, card, camera, display, signing, logging, or persistence
-//! operation. A later supervisor-owned operating-system boundary must report
-//! whether a receive carried ancillary data; this crate rejects that fact
-//! before interpreting bytes.
+//! operation. Its non-default `host-runtime` surface owns the narrow Unix
+//! receive boundary that reports ancillary data before interpreting bytes.
 
 #![deny(unsafe_code)]
 
 mod session;
 mod stream;
+#[cfg(feature = "host-runtime")]
+#[allow(unsafe_code)]
+mod unix_recv;
 mod wipe;
 mod wire;
 
@@ -21,6 +23,10 @@ use core::fmt;
 
 pub use session::{CoreEvent, CoreProtocol, IoEvent, IoProtocol, OutboundFrame};
 pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};
+#[cfg(feature = "host-runtime")]
+pub use unix_recv::{
+    inherited_endpoint, receive_bytes_once, receive_once, UnixReceiveError, UnixReceiveOutcome,
+};
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
 pub use wipe::{reset_wiped_bytes, wiped_bytes};

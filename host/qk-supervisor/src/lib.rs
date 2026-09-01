@@ -8,11 +8,12 @@
 #![deny(unsafe_code)]
 
 mod lifecycle;
-#[allow(unsafe_code)]
-mod unix_recv;
 
 pub use lifecycle::{
     Child, Device, MockGrantSet, ProcessRole, Supervisor, SupervisorAction, SupervisorError,
     SupervisorEvent, SupervisorOutcome, SupervisorState,
 };
-pub use unix_recv::{receive_once, UnixReceiveError, UnixReceiveOutcome};
+#[cfg(feature = "host-runtime")]
+pub use qk_ipc::{
+    inherited_endpoint, receive_bytes_once, receive_once, UnixReceiveError, UnixReceiveOutcome,
+};

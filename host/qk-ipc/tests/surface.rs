@@ -3,6 +3,7 @@
 const LIB: &str = include_str!("../src/lib.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const STREAM: &str = include_str!("../src/stream.rs");
+const UNIX_RECV: &str = include_str!("../src/unix_recv.rs");
 const WIRE: &str = include_str!("../src/wire.rs");
 const WIPE: &str = include_str!("../src/wipe.rs");
 const CARGO: &str = include_str!("../Cargo.toml");
@@ -15,6 +16,8 @@ fn manifest_is_dependency_free_and_host_sim_does_not_depend_on_ipc() {
         .expect("dependency section")
         .1;
     assert!(dependencies.trim().is_empty());
+    assert!(CARGO.contains("[features]\nfuzzing = []\nhost-runtime = []"));
+    assert!(!CARGO.contains("default = [\"host-runtime\"]"));
     assert!(!HOST_SIM_CARGO.contains("qk-ipc"));
 }
 
@@ -30,6 +33,7 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
         [
             "pub use session::{CoreEvent, CoreProtocol, IoEvent, IoProtocol, OutboundFrame};",
             "pub use stream::{IngestOutcome, ReceivedFrame, StreamDecoder};",
+            "pub use unix_recv::{",
             "pub use wipe::{reset_wiped_bytes, wiped_bytes};",
             "pub use wire::{encode_frame, parse_frame, Direction, FrameHeader, FrameRef, MessageKind};",
             "pub const MAGIC: [u8; 4] = *b\"QKIP\";",
@@ -118,6 +122,17 @@ fn every_public_method_entry_is_pinned() {
             "pub fn wiped_bytes() -> usize {",
         ]
     );
+    assert_eq!(
+        public_methods(UNIX_RECV),
+        [
+            "pub fn inherited_endpoint() -> Result<UnixStream, UnixReceiveError> {",
+            "pub const fn received(&self) -> usize {",
+            "pub const fn consumed(&self) -> usize {",
+            "pub const fn frame_ready(&self) -> bool {",
+            "pub fn receive_once(",
+            "pub fn receive_bytes_once(",
+        ]
+    );
 }
 
 #[test]
@@ -155,14 +170,37 @@ fn production_sources_have_no_os_device_wallet_signer_or_logging_surface() {
 }
 
 #[test]
-fn unsafe_is_confined_to_the_two_volatile_wipe_functions() {
-    assert_eq!(LIB.matches("unsafe").count(), 1);
+fn unsafe_is_confined_to_the_host_runtime_and_two_volatile_wipe_functions() {
+    assert_eq!(LIB.matches("unsafe").count(), 2);
     assert!(LIB.contains("#![deny(unsafe_code)]"));
+    assert_eq!(LIB.matches("#[allow(unsafe_code)]").count(), 1);
     assert!(!SESSION.contains("unsafe"));
     assert!(!STREAM.contains("unsafe"));
     assert!(!WIRE.contains("unsafe"));
     assert_eq!(WIPE.matches("#[allow(unsafe_code)]").count(), 2);
     assert_eq!(WIPE.matches("unsafe {").count(), 2);
+    assert_eq!(UNIX_RECV.matches("unsafe {").count(), 11);
+}
+
+#[test]
+fn host_runtime_unsafe_surface_is_narrow_and_has_no_secret_or_process_operation() {
+    for forbidden in [
+        "sendmsg(",
+        "Command::new",
+        "std::process",
+        "rand::",
+        "getrandom",
+        "Secret",
+        "PrivateKey",
+        "println!",
+        "eprintln!",
+        "dbg!",
+    ] {
+        assert!(
+            !UNIX_RECV.contains(forbidden),
+            "forbidden token {forbidden}"
+        );
+    }
 }
 
 #[test]

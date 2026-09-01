@@ -7,7 +7,9 @@ publish = false
 description = "HOST-only QuietKey child-lifecycle, mock-grant, and Unix receive-boundary reference."
 
 [features]
+default = []
 fuzzing = []
+host-runtime = ["qk-ipc/host-runtime"]
 
 [dependencies]
 qk-ipc = { path = "../qk-ipc" }

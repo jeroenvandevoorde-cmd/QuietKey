@@ -1,9 +1,12 @@
-#![cfg(any(target_os = "linux", target_os = "macos"))]
+#![cfg(all(
+    feature = "host-runtime",
+    any(target_os = "linux", target_os = "macos")
+))]
 
 use core::ffi::{c_int, c_void};
 use core::mem;
 use qk_ipc::{encode_frame, Direction, IpcError, MessageKind, StreamDecoder, HEADER_BYTES};
-use qk_supervisor::{receive_once, UnixReceiveError};
+use qk_supervisor::{receive_bytes_once, receive_once, UnixReceiveError};
 use std::io::Write;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
@@ -142,6 +145,18 @@ fn empty_scratch_fails_and_terminates_the_decoder() {
         decoder.ingest(b"x", false),
         Err(IpcError::DecoderTerminated)
     );
+}
+
+#[test]
+fn raw_receive_boundary_returns_uninterpreted_bytes_and_distinguishes_eof() {
+    let _serial = SOCKET_TEST.lock().unwrap();
+    let (mut sender, receiver) = UnixStream::pair().unwrap();
+    sender.write_all(b"not-qkip").unwrap();
+    let mut scratch = [0xa5; 16];
+    assert_eq!(receive_bytes_once(&receiver, &mut scratch).unwrap(), 8);
+    assert_eq!(&scratch[..8], b"not-qkip");
+    drop(sender);
+    assert_eq!(receive_bytes_once(&receiver, &mut scratch).unwrap(), 0);
 }
 
 #[test]

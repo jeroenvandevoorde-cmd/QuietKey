@@ -8,5 +8,6 @@ description = "Dependency-free HOST reference for the bounded QuietKey process I
 
 [features]
 fuzzing = []
+host-runtime = []
 
 [dependencies]
