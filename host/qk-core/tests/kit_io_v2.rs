@@ -8,7 +8,10 @@ use qk_core::{
     KitSpendOutcomeV2, KitSpendScreenV2, KitSpendSessionV2, KitSpendStageV2, MockCardSlot,
     MockDisplay, MockKeypad, NormalProfileV2, Source,
 };
-use qk_io::{parse_request, Artifact, BrokerSession, MockOutputWriter, Request, Sink as IoSink};
+use qk_io::{
+    parse_request, Artifact, BrokerSession, MockInput, MockOutputWriter, Request, Sink as IoSink,
+    Source as IoSource,
+};
 use qk_ipc::{ReceivedFrame, StreamDecoder};
 use qk_psbt::ReplacementReceiveIndexV2;
 use std::collections::BTreeMap;
@@ -40,6 +43,16 @@ fn hex_array<const N: usize>(value: &str) -> [u8; N] {
     hex_vec(value).try_into().expect("registered width")
 }
 
+fn media_record(payload: &[u8]) -> Vec<u8> {
+    let name = b"kit-delivery.psbt";
+    let mut record = Vec::with_capacity(1 + name.len() + 4 + payload.len());
+    record.push(name.len() as u8);
+    record.extend_from_slice(name);
+    record.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    record.extend_from_slice(payload);
+    record
+}
+
 fn descriptors(prefix: &str) -> [[u8; 306]; 2] {
     let fixture = fields(SPEND);
     [
@@ -54,26 +67,44 @@ fn descriptors(prefix: &str) -> [[u8; 306]; 2] {
     ]
 }
 
-fn finalized_outcome(profile: u8) -> KitSpendOutcomeV2 {
+fn finalized_outcome(profile: u8) -> (KitSpendOutcomeV2, CoreSession, BrokerSession) {
     let shares = fields(SHARES);
     let spend = fields(SPEND);
-    let mut first = hex_array::<142>(shares["frame_1_hex"]);
-    let mut second = hex_array::<142>(shares["frame_2_hex"]);
-    let mut intake = KitIntakeSessionV2::begin(KitDoorV2::KitSpend, KitInputModeV2::Scanner);
-    assert!(matches!(
-        intake.submit_scanner_frame(&mut first),
-        Ok(KitIntakeOutcomeV2::FirstShareAccepted(_))
-    ));
-    let ready = match intake
-        .submit_scanner_frame(&mut second)
-        .expect("registered Kit pair")
-    {
-        KitIntakeOutcomeV2::Ready(ready) => ready,
-        KitIntakeOutcomeV2::Continue(_) | KitIntakeOutcomeV2::FirstShareAccepted(_) => {
-            panic!("second share must complete intake")
+    let (mut core, mut broker) = opened_kit_core();
+    let mut intake =
+        KitIntakeSessionV2::begin_in_core(&mut core, KitDoorV2::KitSpend, KitInputModeV2::Scanner)
+            .expect("product intake");
+    let mut ready = None;
+    for bytes in [
+        hex_array::<142>(shares["frame_1_hex"]),
+        hex_array::<142>(shares["frame_2_hex"]),
+    ] {
+        let mut input = MockInput::try_new(IoSource::CameraKitCandidate, &bytes).expect("input");
+        let begin = core
+            .begin_ingress(Source::CameraKitCandidate)
+            .expect("begin share");
+        let response = broker
+            .accept(&decode_one(begin.frame_bytes()), Some(&mut input), None)
+            .expect("begin response");
+        core.receive(response.frame_bytes(), false)
+            .expect("accept begin");
+        while core.state() == qk_core::CoreState::IngressReadReady {
+            let read = core.request_next_chunk().expect("read share");
+            let response = broker
+                .accept(&decode_one(read.frame_bytes()), None, None)
+                .expect("read response");
+            core.receive(response.frame_bytes(), false)
+                .expect("accept chunk");
         }
-    };
-    let (mut core, _broker) = opened_kit_core();
+        match intake
+            .submit_scanner_from_core(&mut core)
+            .expect("registered share")
+        {
+            KitIntakeOutcomeV2::Ready(value) => ready = Some(value),
+            KitIntakeOutcomeV2::Continue(_) | KitIntakeOutcomeV2::FirstShareAccepted(_) => {}
+        }
+    }
+    let ready = ready.expect("registered pair");
     let mut session = KitSpendSessionV2::begin(
         &mut core,
         &[profile],
@@ -82,28 +113,40 @@ fn finalized_outcome(profile: u8) -> KitSpendOutcomeV2 {
         KitSpendAssertionDigitV2::new(7).expect("digit"),
     )
     .expect("registered spend start");
-    let mut psbt = hex_vec(spend["s0_hex"]);
+    let psbt = hex_vec(spend["s0_hex"]);
+    load_ingress(
+        &mut core,
+        &mut broker,
+        Source::MediaPsbt,
+        IoSource::MediaPsbt,
+        &media_record(&psbt),
+    );
     session
-        .submit_sweep(
-            Source::MediaPsbt,
-            &mut psbt,
+        .submit_sweep_from_core(
+            &mut core,
             &descriptors("replacement"),
             ReplacementReceiveIndexV2::from_untrusted(0),
         )
         .expect("registered sweep");
     while session.stage() == KitSpendStageV2::Review {
-        session.advance_review().expect("complete review");
+        session
+            .advance_review_in_core(&mut core)
+            .expect("complete review");
     }
-    let approval = match session
-        .confirm_all_funds(CoordinatorCompletenessStatementV2::AllFundsIncluded)
+    match session
+        .confirm_all_funds_in_core(
+            &mut core,
+            CoordinatorCompletenessStatementV2::AllFundsIncluded,
+        )
         .expect("completeness statement")
     {
-        KitSpendScreenV2::HumanAssertion { approval } => approval,
+        KitSpendScreenV2::HumanAssertion { .. } => {}
         _ => panic!("assertion screen"),
-    };
-    session
-        .execute(approval, KeypadKey::Seven)
-        .expect("one finalized sweep")
+    }
+    let outcome = session
+        .execute_in_core(&mut core, KeypadKey::Seven)
+        .expect("one finalized sweep");
+    (outcome, core, broker)
 }
 
 fn grants() -> CoreDeviceGrants {
@@ -138,6 +181,30 @@ fn opened_kit_core() -> (CoreSession, BrokerSession) {
     (core, broker)
 }
 
+fn load_ingress(
+    core: &mut CoreSession,
+    broker: &mut BrokerSession,
+    source: Source,
+    io_source: IoSource,
+    bytes: &[u8],
+) {
+    let mut input = MockInput::try_new(io_source, bytes).expect("input");
+    let begin = core.begin_ingress(source).expect("begin ingress");
+    let response = broker
+        .accept(&decode_one(begin.frame_bytes()), Some(&mut input), None)
+        .expect("begin response");
+    core.receive(response.frame_bytes(), false)
+        .expect("accept begin");
+    while core.state() == qk_core::CoreState::IngressReadReady {
+        let read = core.request_next_chunk().expect("read request");
+        let response = broker
+            .accept(&decode_one(read.frame_bytes()), None, None)
+            .expect("read response");
+        core.receive(response.frame_bytes(), false)
+            .expect("accept chunk");
+    }
+}
+
 fn expected_filename(nonce: [u8; 16]) -> Vec<u8> {
     let mut name = b"qk-".to_vec();
     for byte in nonce {
@@ -158,8 +225,7 @@ fn all_profiles_deliver_only_the_exact_raw_transaction_to_sd() {
         (2, NormalProfileV2::Inheritance),
         (3, NormalProfileV2::QuantumShelter),
     ] {
-        let outcome = finalized_outcome(profile_byte);
-        let (core, mut broker) = opened_kit_core();
+        let (outcome, core, mut broker) = finalized_outcome(profile_byte);
         let (mut delivery, mut outbound) = KitDeliverySessionV2::begin(
             outcome,
             core,
@@ -254,8 +320,7 @@ fn bbqr_finish_is_exact_type_t_and_never_opens_sd() {
     let fixture = fields(SPEND);
     let raw = hex_vec(fixture["raw_transaction_hex"]);
     let part_len = 100u16;
-    let outcome = finalized_outcome(3);
-    let (core, mut broker) = opened_kit_core();
+    let (outcome, core, mut broker) = finalized_outcome(3);
     let (mut delivery, mut outbound) = KitDeliverySessionV2::begin(
         outcome,
         core,

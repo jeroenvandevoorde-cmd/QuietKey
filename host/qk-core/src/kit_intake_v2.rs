@@ -230,6 +230,7 @@ pub enum KitIntakeOutcomeV2 {
 /// This owner deliberately exposes no recovered-payload accessor.
 pub struct KitIntakeReadyV2 {
     payload: RecoveredKitPayload,
+    session_identity: Option<WipingArray<16>>,
     door: KitDoorV2,
     mode: KitInputModeV2,
     wallet_id: [u8; 32],
@@ -238,6 +239,7 @@ pub struct KitIntakeReadyV2 {
 
 pub(crate) struct KitIntakeRestorePartsV2 {
     pub(crate) payload: RecoveredKitPayload,
+    pub(crate) session_identity: Option<WipingArray<16>>,
     pub(crate) door: KitDoorV2,
     pub(crate) mode: KitInputModeV2,
     pub(crate) wallet_id: [u8; 32],
@@ -246,6 +248,7 @@ pub(crate) struct KitIntakeRestorePartsV2 {
 
 pub(crate) struct KitIntakeSpendPartsV2 {
     pub(crate) payload: RecoveredKitPayload,
+    pub(crate) session_identity: Option<WipingArray<16>>,
     pub(crate) door: KitDoorV2,
     pub(crate) mode: KitInputModeV2,
     pub(crate) wallet_id: [u8; 32],
@@ -276,6 +279,7 @@ impl KitIntakeReadyV2 {
     pub(crate) fn into_restore_parts(self) -> KitIntakeRestorePartsV2 {
         KitIntakeRestorePartsV2 {
             payload: self.payload,
+            session_identity: self.session_identity,
             door: self.door,
             mode: self.mode,
             wallet_id: self.wallet_id,
@@ -286,6 +290,7 @@ impl KitIntakeReadyV2 {
     pub(crate) fn into_spend_parts(self) -> KitIntakeSpendPartsV2 {
         KitIntakeSpendPartsV2 {
             payload: self.payload,
+            session_identity: self.session_identity,
             door: self.door,
             mode: self.mode,
             wallet_id: self.wallet_id,
@@ -312,6 +317,7 @@ impl Drop for ScannerCandidateGuard<'_> {
 
 /// One mode-locked owner spanning exactly two Kit-share screens.
 pub struct KitIntakeSessionV2 {
+    session_identity: Option<WipingArray<16>>,
     door: KitDoorV2,
     mode: KitInputModeV2,
     page: KitShareOrdinalV2,
@@ -327,8 +333,19 @@ pub struct KitIntakeSessionV2 {
 impl KitIntakeSessionV2 {
     /// Start one already-confirmed typed door and input-mode pair.
     #[must_use]
+    #[cfg(any(test, feature = "fuzzing"))]
+    #[doc(hidden)]
     pub fn begin(door: KitDoorV2, mode: KitInputModeV2) -> Self {
+        Self::begin_bound(door, mode, None)
+    }
+
+    fn begin_bound(
+        door: KitDoorV2,
+        mode: KitInputModeV2,
+        session_identity: Option<[u8; 16]>,
+    ) -> Self {
         Self {
+            session_identity: session_identity.map(|mut value| WipingArray::take(&mut value)),
             door,
             mode,
             page: KitShareOrdinalV2::One,
@@ -350,7 +367,16 @@ impl KitIntakeSessionV2 {
         door: KitDoorV2,
         mode: KitInputModeV2,
     ) -> Result<Self, KitIntakeErrorV2> {
-        let mut session = Self::begin(door, mode);
+        let session_identity = match core.begin_kit_intake() {
+            Ok(identity) => identity,
+            Err(_) => {
+                return Err(KitIntakeErrorV2::Interrupted(
+                    core.terminal_reason()
+                        .unwrap_or(Interruption::OperationFailed),
+                ))
+            }
+        };
+        let mut session = Self::begin_bound(door, mode, Some(session_identity));
         if core.kit_show(CoreScreen::ScanKitShareOne).is_err() {
             return Err(session.fail(KitIntakeErrorV2::Interrupted(
                 core.terminal_reason()
@@ -372,7 +398,7 @@ impl KitIntakeSessionV2 {
 
     /// Consume one exact scanner candidate and clear the caller's bytes on
     /// success, rejection, finished-session use, or unwind.
-    pub fn submit_scanner_frame(
+    fn submit_scanner_frame_bound(
         &mut self,
         frame: &mut [u8; FRAME_LEN],
     ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
@@ -386,13 +412,23 @@ impl KitIntakeSessionV2 {
         self.accept_frame(candidate.as_array())
     }
 
+    /// Semantic scanner transition reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn submit_scanner_frame(
+        &mut self,
+        frame: &mut [u8; FRAME_LEN],
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.submit_scanner_frame_bound(frame)
+    }
+
     /// Consume one purpose-bound camera candidate without exposing transport
     /// bytes through a public accessor.
     ///
     /// The transport allocation and fixed scratch are cleared on every return
     /// path. Only the exact Kit-camera source and canonical frame width reach
     /// the existing scanner parser.
-    pub fn submit_scanner_ingress(
+    fn submit_scanner_ingress_bound(
         &mut self,
         ingress: HostileIngress,
     ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
@@ -416,7 +452,17 @@ impl KitIntakeSessionV2 {
         let mut frame = WipingArray::<FRAME_LEN>::zeroed();
         frame.as_mut_array().copy_from_slice(bytes.as_slice());
         drop(bytes);
-        self.submit_scanner_frame(frame.as_mut_array())
+        self.submit_scanner_frame_bound(frame.as_mut_array())
+    }
+
+    /// Semantic hostile-ingress transition reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn submit_scanner_ingress(
+        &mut self,
+        ingress: HostileIngress,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.submit_scanner_ingress_bound(ingress)
     }
 
     /// Consume the one completed source-02 transfer retained by qk-core and
@@ -426,6 +472,7 @@ impl KitIntakeSessionV2 {
         &mut self,
         core: &mut CoreSession,
     ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        let session_identity = self.require_core_binding(core)?;
         let ingress = match core.take_kit_ingress() {
             Ok(ingress) => ingress,
             Err(_) => {
@@ -435,13 +482,14 @@ impl KitIntakeSessionV2 {
                 )))
             }
         };
-        let outcome = match self.submit_scanner_ingress(ingress) {
+        let outcome = match self.submit_scanner_ingress_bound(ingress) {
             Ok(outcome) => outcome,
             Err(error) => {
                 core.terminate_kit(Interruption::OperationFailed);
                 return Err(error);
             }
         };
+        self.finish_core_intake(core, &session_identity, &outcome)?;
         if core.kit_show(intake_outcome_screen(&outcome)).is_err() {
             return Err(self.fail(KitIntakeErrorV2::Interrupted(
                 core.terminal_reason()
@@ -452,7 +500,7 @@ impl KitIntakeSessionV2 {
     }
 
     /// Apply one exact logical P0.1 key to the selected fallback screen.
-    pub fn apply_fallback_key(
+    fn apply_fallback_key_bound(
         &mut self,
         key: KeypadKey,
     ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
@@ -473,6 +521,16 @@ impl KitIntakeSessionV2 {
         }
     }
 
+    /// Semantic fallback-key transition reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn apply_fallback_key(
+        &mut self,
+        key: KeypadKey,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.apply_fallback_key_bound(key)
+    }
+
     /// Read one fallback coordinate through the sole qk-core keypad grant and
     /// advance the typed share display without exposing the capability.
     pub fn apply_fallback_key_from_core(
@@ -480,6 +538,7 @@ impl KitIntakeSessionV2 {
         core: &mut CoreSession,
         key: KeypadKey,
     ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        let session_identity = self.require_core_binding(core)?;
         let key = match core.kit_read_key(key) {
             Ok(key) => key,
             Err(_) => {
@@ -489,7 +548,7 @@ impl KitIntakeSessionV2 {
                 )))
             }
         };
-        let outcome = match self.apply_fallback_key(key) {
+        let outcome = match self.apply_fallback_key_bound(key) {
             Ok(outcome) => outcome,
             Err(error) => {
                 core.terminate_kit(match error {
@@ -499,6 +558,7 @@ impl KitIntakeSessionV2 {
                 return Err(error);
             }
         };
+        self.finish_core_intake(core, &session_identity, &outcome)?;
         if core.kit_show(intake_outcome_screen(&outcome)).is_err() {
             return Err(self.fail(KitIntakeErrorV2::Interrupted(
                 core.terminal_reason()
@@ -509,6 +569,8 @@ impl KitIntakeSessionV2 {
     }
 
     /// Mode is immutable after the typed share flow begins.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
     pub fn select_mode(
         &mut self,
         _mode: KitInputModeV2,
@@ -519,7 +581,23 @@ impl KitIntakeSessionV2 {
         Err(self.fail(KitIntakeErrorV2::KitScannerModeMismatch))
     }
 
+    /// Terminate the bound process session on any attempted mode change.
+    pub fn select_mode_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        _mode: KitInputModeV2,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.require_core_binding(core)?;
+        Err(self.fail_in_core(
+            core,
+            KitIntakeErrorV2::KitScannerModeMismatch,
+            Interruption::OperationFailed,
+        ))
+    }
+
     /// Door is immutable after its typed confirmation.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
     pub fn reselect_door(
         &mut self,
         _door: KitDoorV2,
@@ -530,7 +608,23 @@ impl KitIntakeSessionV2 {
         Err(self.fail(KitIntakeErrorV2::DoorSwitchAttempt))
     }
 
+    /// Terminate the bound process session on any attempted door change.
+    pub fn reselect_door_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        _door: KitDoorV2,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.require_core_binding(core)?;
+        Err(self.fail_in_core(
+            core,
+            KitIntakeErrorV2::DoorSwitchAttempt,
+            Interruption::OperationFailed,
+        ))
+    }
+
     /// Reject every representation foreign to the selected share screen.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
     pub fn reject_foreign_input(
         &mut self,
         _input: KitForeignInputV2,
@@ -541,7 +635,23 @@ impl KitIntakeSessionV2 {
         Err(self.fail(KitIntakeErrorV2::KitScannerModeMismatch))
     }
 
+    /// Terminate the bound process session on a foreign representation.
+    pub fn reject_foreign_input_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        _input: KitForeignInputV2,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.require_core_binding(core)?;
+        Err(self.fail_in_core(
+            core,
+            KitIntakeErrorV2::KitScannerModeMismatch,
+            Interruption::OperationFailed,
+        ))
+    }
+
     /// Every closed interruption family clears and terminates intake.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
     pub fn interrupt(
         &mut self,
         interruption: Interruption,
@@ -550,6 +660,20 @@ impl KitIntakeSessionV2 {
             return Err(KitIntakeErrorV2::Finished);
         }
         Err(self.fail(KitIntakeErrorV2::Interrupted(interruption)))
+    }
+
+    /// Route one interruption through both the purpose owner and process shell.
+    pub fn interrupt_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        interruption: Interruption,
+    ) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
+        self.require_core_binding(core)?;
+        Err(self.fail_in_core(
+            core,
+            KitIntakeErrorV2::Interrupted(interruption),
+            interruption,
+        ))
     }
 
     fn delete_fallback_coordinate(&mut self) -> Result<KitIntakeOutcomeV2, KitIntakeErrorV2> {
@@ -609,6 +733,7 @@ impl KitIntakeSessionV2 {
                 self.active = false;
                 Ok(KitIntakeOutcomeV2::Ready(KitIntakeReadyV2 {
                     payload,
+                    session_identity: self.session_identity.take(),
                     door: self.door,
                     mode: self.mode,
                     wallet_id: metadata.wallet_id,
@@ -697,9 +822,21 @@ impl KitIntakeSessionV2 {
     }
 
     fn fail(&mut self, error: KitIntakeErrorV2) -> KitIntakeErrorV2 {
+        drop(self.session_identity.take());
         self.clear_all();
         self.failed = Some(error);
         self.active = false;
+        error
+    }
+
+    fn fail_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        error: KitIntakeErrorV2,
+        reason: Interruption,
+    ) -> KitIntakeErrorV2 {
+        let error = self.fail(error);
+        core.terminate_kit(reason);
         error
     }
 
@@ -714,10 +851,43 @@ impl KitIntakeSessionV2 {
         self.first_identity = None;
         self.clear_fallback();
     }
+
+    fn require_core_binding(
+        &mut self,
+        core: &mut CoreSession,
+    ) -> Result<[u8; 16], KitIntakeErrorV2> {
+        let Some(identity) = self.session_identity.as_ref() else {
+            core.terminate_kit(Interruption::OperationFailed);
+            return Err(self.fail(KitIntakeErrorV2::InvalidTransition));
+        };
+        if core.require_kit_identity(identity.as_array()).is_err() {
+            return Err(self.fail(KitIntakeErrorV2::InvalidTransition));
+        }
+        Ok(*identity.as_array())
+    }
+
+    fn finish_core_intake(
+        &mut self,
+        core: &mut CoreSession,
+        session_identity: &[u8; 16],
+        outcome: &KitIntakeOutcomeV2,
+    ) -> Result<(), KitIntakeErrorV2> {
+        let KitIntakeOutcomeV2::Ready(ready) = outcome else {
+            return Ok(());
+        };
+        if core
+            .finish_kit_intake(session_identity, ready.door() == KitDoorV2::KitRestore)
+            .is_err()
+        {
+            return Err(self.fail(KitIntakeErrorV2::InvalidTransition));
+        }
+        Ok(())
+    }
 }
 
 impl Drop for KitIntakeSessionV2 {
     fn drop(&mut self) {
+        drop(self.session_identity.take());
         self.clear_all();
         self.active = false;
     }

@@ -41,7 +41,7 @@ fn session_identity_namespace_counter_and_returned_owner_are_all_cleared() {
 #[test]
 fn kit_approval_identity_is_fixed_wipe_owned_and_closed_on_every_shell_exit() {
     assert!(SESSION.contains(
-        "struct KitApprovalLockV2 {\n    session_identity: WipingArray<16>,\n    review_hash: WipingArray<32>,\n    cycle: WipingArray<8>,\n}"
+        "struct KitApprovalLockV2 {\n    session_identity: WipingArray<16>,\n    review_hash: WipingArray<32>,\n    cycle: WipingArray<8>,\n    phase: KitNoYieldPhaseV2,\n}"
     ));
     assert!(SESSION.contains(
         "self.kit_approval = Some(KitApprovalLockV2::new(session_identity, review_hash, cycle));"
@@ -216,6 +216,7 @@ mod executable {
 
     const NAMESPACE: [u8; 12] = [0x44; 12];
     const CANDIDATE: [u8; 67] = [0xa5; 67];
+    const SESSION_ID_BYTES: usize = 16;
 
     fn grants() -> CoreDeviceGrants {
         CoreDeviceGrants::validate(
@@ -322,7 +323,7 @@ mod executable {
         let (mut setup, opening) = SetupSessionV2::fuzz_start(NAMESPACE, 0, grants(), &mut nonce)
             .expect("deterministic setup");
         assert_eq!(nonce, [0; 12]);
-        assert_eq!(wiped_bytes(), 44);
+        assert_eq!(wiped_bytes(), 44 + SESSION_ID_BYTES);
         let ready = reply(&opening, MessageKind::SessionReady, &[]);
         drop(opening);
         assert_eq!(
@@ -337,7 +338,7 @@ mod executable {
         reset_wiped_bytes();
         let (session, open) =
             fuzz_start_session(NAMESPACE, 0, CoreMode::Setup, grants()).expect("session");
-        assert_eq!(wiped_bytes(), 32);
+        assert_eq!(wiped_bytes(), 32 + SESSION_ID_BYTES);
 
         let frame_capacity = open.len();
         reset_wiped_bytes();
@@ -356,7 +357,7 @@ mod executable {
                 .expect("interruption"),
             Interruption::SessionTimeout
         );
-        assert_eq!(wiped_bytes(), CANDIDATE.len());
+        assert_eq!(wiped_bytes(), CANDIDATE.len() + SESSION_ID_BYTES);
         assert_eq!(interrupted.state(), CoreState::Terminated);
 
         let mut rejected = active_ingress();
@@ -368,7 +369,7 @@ mod executable {
             rejected.receive(&malformed, false),
             Err(CoreError::ResponseBodyTruncated)
         );
-        assert_eq!(wiped_bytes(), CANDIDATE.len());
+        assert_eq!(wiped_bytes(), CANDIDATE.len() + SESSION_ID_BYTES);
         assert_eq!(rejected.state(), CoreState::Terminated);
     }
 
@@ -383,7 +384,7 @@ mod executable {
             session.receive(&closed, false).expect("closed").event(),
             CoreReceiveEvent::SessionClosed
         );
-        assert_eq!(wiped_bytes(), CANDIDATE.len());
+        assert_eq!(wiped_bytes(), CANDIDATE.len() + SESSION_ID_BYTES);
         assert_eq!(session.state(), CoreState::Closed);
     }
 
@@ -392,7 +393,7 @@ mod executable {
         let dropped = completed_ingress();
         reset_wiped_bytes();
         drop(dropped);
-        assert_eq!(wiped_bytes(), CANDIDATE.len());
+        assert_eq!(wiped_bytes(), CANDIDATE.len() + SESSION_ID_BYTES);
 
         let unwound = completed_ingress();
         reset_wiped_bytes();
@@ -401,7 +402,7 @@ mod executable {
             panic!("test-only caught unwind");
         }));
         assert!(result.is_err());
-        assert_eq!(wiped_bytes(), CANDIDATE.len());
+        assert_eq!(wiped_bytes(), CANDIDATE.len() + SESSION_ID_BYTES);
     }
 
     #[test]
@@ -438,7 +439,7 @@ mod executable {
             cancelled.interrupt(Interruption::Cancelled),
             Ok(Interruption::Cancelled)
         );
-        assert_eq!(wiped_bytes(), 412);
+        assert_eq!(wiped_bytes(), 412 + SESSION_ID_BYTES);
         assert!(cancelled.is_terminal());
         assert_eq!(
             cancelled.terminal_error(),
@@ -452,6 +453,6 @@ mod executable {
             panic!("test-only setup unwind");
         }));
         assert!(result.is_err());
-        assert_eq!(wiped_bytes(), 812);
+        assert_eq!(wiped_bytes(), 812 + SESSION_ID_BYTES);
     }
 }

@@ -2,7 +2,7 @@
 
 use qk_core as product;
 use qk_host_sim as simulator;
-use qk_io::BrokerSession;
+use qk_io::{BrokerSession, MockInput, Source as IoSource};
 use qk_ipc::{ReceivedFrame, StreamDecoder};
 use qk_psbt::ReplacementReceiveIndexV2;
 
@@ -31,6 +31,16 @@ fn hex_vec(value: &str) -> Vec<u8> {
 
 fn hex_array<const N: usize>(value: &str) -> [u8; N] {
     hex_vec(value).try_into().expect("registered width")
+}
+
+fn media_record(payload: &[u8]) -> Vec<u8> {
+    let name = b"kit-differential.psbt";
+    let mut record = Vec::with_capacity(1 + name.len() + 4 + payload.len());
+    record.push(name.len() as u8);
+    record.extend_from_slice(name);
+    record.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    record.extend_from_slice(payload);
+    record
 }
 
 fn share(number: u8) -> [u8; 142] {
@@ -71,7 +81,7 @@ fn decode_one(bytes: &[u8]) -> ReceivedFrame {
     decoder.take_frame().expect("owned QKIP frame")
 }
 
-fn product_core() -> product::CoreSession {
+fn product_core() -> (product::CoreSession, BrokerSession) {
     let grants = product::CoreDeviceGrants::validate(
         Some(product::MockDisplay::new()),
         Some(product::MockKeypad::new()),
@@ -87,7 +97,64 @@ fn product_core() -> product::CoreSession {
         .expect("session ready");
     core.receive(reply.frame_bytes(), false)
         .expect("session ready accepted");
-    core
+    (core, broker)
+}
+
+fn load_product_ingress(
+    core: &mut product::CoreSession,
+    broker: &mut BrokerSession,
+    source: product::Source,
+    io_source: IoSource,
+    bytes: &[u8],
+) {
+    let mut input = MockInput::try_new(io_source, bytes).expect("product input");
+    let begin = core.begin_ingress(source).expect("begin product ingress");
+    let response = broker
+        .accept(&decode_one(begin.frame_bytes()), Some(&mut input), None)
+        .expect("product begin response");
+    core.receive(response.frame_bytes(), false)
+        .expect("accept product begin");
+    while core.state() == product::CoreState::IngressReadReady {
+        let read = core.request_next_chunk().expect("product read request");
+        let response = broker
+            .accept(&decode_one(read.frame_bytes()), None, None)
+            .expect("product read response");
+        core.receive(response.frame_bytes(), false)
+            .expect("accept product chunk");
+    }
+}
+
+fn product_ready(
+    core: &mut product::CoreSession,
+    broker: &mut BrokerSession,
+    door: product::KitDoorV2,
+) -> product::KitIntakeReadyV2 {
+    let mut intake =
+        product::KitIntakeSessionV2::begin_in_core(core, door, product::KitInputModeV2::Scanner)
+            .expect("product intake");
+    for (position, bytes) in [share(1), share(2)].into_iter().enumerate() {
+        load_product_ingress(
+            core,
+            broker,
+            product::Source::CameraKitCandidate,
+            IoSource::CameraKitCandidate,
+            &bytes,
+        );
+        let outcome = intake
+            .submit_scanner_from_core(core)
+            .expect("product share");
+        if position == 0 {
+            assert!(matches!(
+                outcome,
+                product::KitIntakeOutcomeV2::FirstShareAccepted(_)
+            ));
+        } else if let product::KitIntakeOutcomeV2::Ready(ready) = outcome {
+            return ready;
+        } else {
+            panic!("second share must release readiness");
+        }
+    }
+    unreachable!("two registered shares")
 }
 
 fn simulator_flow(door: simulator::KitDoorV2) -> simulator::ScreenFlowV2 {
@@ -115,25 +182,6 @@ fn simulator_flow(door: simulator::KitDoorV2) -> simulator::ScreenFlowV2 {
     flow
 }
 
-fn product_ready(door: product::KitDoorV2) -> product::KitIntakeReadyV2 {
-    let mut intake = product::KitIntakeSessionV2::begin(door, product::KitInputModeV2::Scanner);
-    let mut first = share(1);
-    assert!(matches!(
-        intake.submit_scanner_frame(&mut first),
-        Ok(product::KitIntakeOutcomeV2::FirstShareAccepted(_))
-    ));
-    assert_eq!(first, [0; 142]);
-    let mut second = share(2);
-    let product::KitIntakeOutcomeV2::Ready(ready) = intake
-        .submit_scanner_frame(&mut second)
-        .expect("registered pair")
-    else {
-        panic!("second share must release readiness");
-    };
-    assert_eq!(second, [0; 142]);
-    ready
-}
-
 fn simulator_ready(door: simulator::KitDoorV2) -> simulator::KitIntakeReadyV2 {
     let mut intake = simulator::KitIntakeSessionV2::begin(
         simulator_flow(door),
@@ -159,7 +207,8 @@ fn simulator_ready(door: simulator::KitDoorV2) -> simulator::KitIntakeReadyV2 {
 
 #[test]
 fn intake_releases_identical_public_frame_identities() {
-    let product = product_ready(product::KitDoorV2::KitSpend);
+    let (mut core, mut broker) = product_core();
+    let product = product_ready(&mut core, &mut broker, product::KitDoorV2::KitSpend);
     let simulator = simulator_ready(simulator::KitDoorV2::KitSpend);
     assert_eq!(product.wallet_id(), simulator.wallet_id());
     let product = product.frame_identities();
@@ -174,28 +223,45 @@ fn intake_releases_identical_public_frame_identities() {
 #[test]
 fn replacement_b_returns_identical_migration_receipt_facts() {
     let descriptors = provisioning_descriptors();
-    let mut core = product_core();
+    let (mut core, mut broker) = product_core();
+    let ready = product_ready(&mut core, &mut broker, product::KitDoorV2::KitRestore);
     let mut product = product::KitRestoreSessionV2::begin(
         &mut core,
-        product_ready(product::KitDoorV2::KitRestore),
+        ready,
         &descriptors,
         product::HumanAssertionDigitV2::new(7).expect("digit"),
     )
     .expect("product restore");
     product
-        .select_action(product::KitRestoreActionV2::ReplacementB)
+        .select_action_in_core(&mut core, product::KitRestoreActionV2::ReplacementB)
         .expect("product action");
     product
-        .confirm_card_remains(product::CardRemainsStatementV2::InHand)
+        .confirm_card_remains_in_core(&mut core, product::CardRemainsStatementV2::InHand)
         .expect("product old B");
-    let mut product_a1 = hex_array(field(PROVISIONING, "a1_capsule_hex"));
+    let product_a1: [u8; 67] = hex_array(field(PROVISIONING, "a1_capsule_hex"));
+    let mut input =
+        MockInput::try_new(IoSource::CameraA1Candidate, &product_a1).expect("product A1 input");
+    let begin = core
+        .begin_ingress(product::Source::CameraA1Candidate)
+        .expect("begin product A1 ingress");
+    let response = broker
+        .accept(&decode_one(begin.frame_bytes()), Some(&mut input), None)
+        .expect("product A1 begin response");
+    core.receive(response.frame_bytes(), false)
+        .expect("accept product A1 begin");
+    while core.state() == product::CoreState::IngressReadReady {
+        let read = core.request_next_chunk().expect("product A1 read request");
+        let response = broker
+            .accept(&decode_one(read.frame_bytes()), None, None)
+            .expect("product A1 read response");
+        core.receive(response.frame_bytes(), false)
+            .expect("accept product A1 chunk");
+    }
     product
-        .prepare_replacement_b(&mut product_a1)
+        .prepare_replacement_b_from_core(&mut core)
         .expect("product surviving A1");
     let product = product
-        .execute_replacement_b(product::KeypadKey::Seven, |_| {
-            product::KitRestoreDispositionV2::Accepted
-        })
+        .execute_replacement_b_in_core(&mut core, product::KeypadKey::Seven)
         .expect("product replacement");
 
     let mut simulator = simulator::KitRestoreSessionV2::begin(
@@ -237,29 +303,37 @@ fn spend_review_identity_and_final_facts_match_the_simulator() {
     let replacement = spend_descriptors("replacement");
     let destination = ReplacementReceiveIndexV2::from_untrusted(0);
 
-    let mut core = product_core();
+    let (mut core, mut broker) = product_core();
+    let ready = product_ready(&mut core, &mut broker, product::KitDoorV2::KitSpend);
     let mut product = product::KitSpendSessionV2::begin(
         &mut core,
         &[1],
-        product_ready(product::KitDoorV2::KitSpend),
+        ready,
         &old,
         product::KitSpendAssertionDigitV2::new(7).expect("digit"),
     )
     .expect("product spend");
-    let mut product_psbt = hex_vec(field(SPEND, "s0_hex"));
+    let product_psbt = hex_vec(field(SPEND, "s0_hex"));
+    load_product_ingress(
+        &mut core,
+        &mut broker,
+        product::Source::MediaPsbt,
+        IoSource::MediaPsbt,
+        &media_record(&product_psbt),
+    );
     product
-        .submit_sweep(
-            product::Source::MediaPsbt,
-            &mut product_psbt,
-            &replacement,
-            destination,
-        )
+        .submit_sweep_from_core(&mut core, &replacement, destination)
         .expect("product review");
     while product.stage() == product::KitSpendStageV2::Review {
-        product.advance_review().expect("complete product review");
+        product
+            .advance_review_in_core(&mut core)
+            .expect("complete product review");
     }
     let product_approval = match product
-        .confirm_all_funds(product::CoordinatorCompletenessStatementV2::AllFundsIncluded)
+        .confirm_all_funds_in_core(
+            &mut core,
+            product::CoordinatorCompletenessStatementV2::AllFundsIncluded,
+        )
         .expect("product completeness")
     {
         product::KitSpendScreenV2::HumanAssertion { approval } => approval,
@@ -300,7 +374,7 @@ fn spend_review_identity_and_final_facts_match_the_simulator() {
         .expect("simulator completeness");
 
     let product = product
-        .execute(product_approval, product::KeypadKey::Seven)
+        .execute_in_core(&mut core, product::KeypadKey::Seven)
         .expect("product one sweep");
     let simulator = simulator
         .execute(simulator::KeypadKey::Seven)
@@ -327,12 +401,15 @@ fn spend_review_identity_and_final_facts_match_the_simulator() {
 
 #[test]
 fn common_terminal_outcomes_keep_the_same_named_category() {
-    let mut product = product::KitIntakeSessionV2::begin(
+    let (mut product_shell, _broker) = product_core();
+    let mut product = product::KitIntakeSessionV2::begin_in_core(
+        &mut product_shell,
         product::KitDoorV2::KitSpend,
         product::KitInputModeV2::Scanner,
-    );
+    )
+    .expect("product intake");
     let product_error = product
-        .interrupt(product::Interruption::SessionTimeout)
+        .interrupt_in_core(&mut product_shell, product::Interruption::SessionTimeout)
         .err()
         .expect("product timeout");
     let mut simulator = simulator::KitIntakeSessionV2::begin(
@@ -347,10 +424,11 @@ fn common_terminal_outcomes_keep_the_same_named_category() {
     assert_eq!(product_error.name(), simulator_error.name());
 
     let descriptors = provisioning_descriptors();
-    let mut core = product_core();
+    let (mut core, mut broker) = product_core();
+    let ready = product_ready(&mut core, &mut broker, product::KitDoorV2::KitSpend);
     let product_error = product::KitRestoreSessionV2::begin(
         &mut core,
-        product_ready(product::KitDoorV2::KitSpend),
+        ready,
         &descriptors,
         product::HumanAssertionDigitV2::new(0).expect("digit"),
     )

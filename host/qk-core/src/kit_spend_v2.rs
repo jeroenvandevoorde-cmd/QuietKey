@@ -13,7 +13,7 @@ use crate::kit_artifact_v2::{KitArtifactErrorV2, KitExportArtifactsV2};
 use crate::kit_intake_v2::{KitDoorV2, KitFrameIdentityV2, KitInputModeV2, KitIntakeReadyV2};
 use crate::normal_artifact_v2::{NormalArtifactErrorV2, NormalProfileV2};
 use crate::session::{CoreSession, HostileIngress};
-use crate::wipe;
+use crate::wipe::{self, WipingArray};
 use core::fmt;
 use qk_descriptor::parse_descriptor_pair_v2;
 use qk_kit::{BoundKitSpendV2, KitSpendMathErrorV3};
@@ -360,6 +360,7 @@ pub struct KitSpendOutcomeV2 {
     finalized: FinalizedNormalV3,
     facts: KitSpendFinalizedFactsV2,
     completeness: CoordinatorCompletenessStatementV2,
+    session_identity: WipingArray<16>,
 }
 
 impl KitSpendOutcomeV2 {
@@ -375,6 +376,11 @@ impl KitSpendOutcomeV2 {
 
     pub(crate) fn into_export_artifacts(self) -> Result<KitExportArtifactsV2, KitArtifactErrorV2> {
         KitExportArtifactsV2::bind_finalized(self.facts.profile, &self.finalized)
+    }
+
+    pub(crate) fn claim_delivery(&self, core: &mut CoreSession) -> bool {
+        core.begin_kit_delivery(self.session_identity.as_array())
+            .is_ok()
     }
 }
 
@@ -439,6 +445,7 @@ impl KitSpendSessionV2 {
             old_descriptors,
             assertion_digit,
             session_identity,
+            true,
         ) {
             Ok(session) => session,
             Err(error) => {
@@ -446,6 +453,9 @@ impl KitSpendSessionV2 {
                 return Err(error);
             }
         };
+        if core.begin_kit_spend(&session_identity).is_err() {
+            return Err(session.fail(KitSpendErrorV2::InvalidStart));
+        }
         if core.kit_show(CoreScreen::KitSpendTransaction).is_err() {
             return Err(session.fail(KitSpendErrorV2::Interrupted(
                 core.terminal_reason()
@@ -472,6 +482,7 @@ impl KitSpendSessionV2 {
             old_descriptors,
             assertion_digit,
             session_identity,
+            false,
         )
     }
 
@@ -481,9 +492,18 @@ impl KitSpendSessionV2 {
         old_descriptors: &[[u8; 306]; 2],
         assertion_digit: KitSpendAssertionDigitV2,
         session_identity: [u8; 16],
+        enforce_ready_binding: bool,
     ) -> Result<Self, KitSpendErrorV2> {
         let profile = parse_profile(profile_bytes)?;
         let parts = ready.into_spend_parts();
+        if enforce_ready_binding
+            && parts
+                .session_identity
+                .as_ref()
+                .is_none_or(|identity| identity.as_array() != &session_identity)
+        {
+            return Err(KitSpendErrorV2::InvalidStart);
+        }
         if parts.door != KitDoorV2::KitSpend {
             return Err(KitSpendErrorV2::WrongDoor);
         }
@@ -572,7 +592,7 @@ impl KitSpendSessionV2 {
 
     /// Copy one hostile PSBT, clear the caller buffer, and prove exact sweep
     /// semantics before any review screen becomes reachable.
-    pub fn submit_sweep(
+    fn submit_sweep_bound(
         &mut self,
         source: Source,
         caller_psbt: &mut [u8],
@@ -627,22 +647,52 @@ impl KitSpendSessionV2 {
         }
     }
 
+    /// Semantic sweep intake reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn submit_sweep(
+        &mut self,
+        source: Source,
+        caller_psbt: &mut [u8],
+        replacement_descriptors: &[[u8; 306]; 2],
+        destination_index: ReplacementReceiveIndexV2,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        self.submit_sweep_bound(
+            source,
+            caller_psbt,
+            replacement_descriptors,
+            destination_index,
+        )
+    }
+
     /// Consume one purpose-bound hostile PSBT owner and delegate to the exact
     /// sweep path. The existing source gate admits only camera-BBQr PSBT or
     /// media PSBT, while the transport allocation is cleared on every exit.
-    pub fn submit_sweep_ingress(
+    fn submit_sweep_ingress_bound(
         &mut self,
         ingress: HostileIngress,
         replacement_descriptors: &[[u8; 306]; 2],
         destination_index: ReplacementReceiveIndexV2,
     ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
         let (source, mut bytes) = ingress.into_kit_parts();
-        self.submit_sweep(
+        self.submit_sweep_bound(
             source,
             bytes.as_mut_slice(),
             replacement_descriptors,
             destination_index,
         )
+    }
+
+    /// Semantic hostile-ingress transition reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn submit_sweep_ingress(
+        &mut self,
+        ingress: HostileIngress,
+        replacement_descriptors: &[[u8; 306]; 2],
+        destination_index: ReplacementReceiveIndexV2,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        self.submit_sweep_ingress_bound(ingress, replacement_descriptors, destination_index)
     }
 
     /// Consume the completed source-03/source-04 owner retained by qk-core,
@@ -653,6 +703,7 @@ impl KitSpendSessionV2 {
         replacement_descriptors: &[[u8; 306]; 2],
         destination_index: ReplacementReceiveIndexV2,
     ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        self.require_core_binding(core)?;
         let ingress = match core.take_kit_ingress() {
             Ok(ingress) => ingress,
             Err(_) => {
@@ -663,7 +714,7 @@ impl KitSpendSessionV2 {
             }
         };
         if let Err(error) =
-            self.submit_sweep_ingress(ingress, replacement_descriptors, destination_index)
+            self.submit_sweep_ingress_bound(ingress, replacement_descriptors, destination_index)
         {
             core.terminate_kit(Interruption::OperationFailed);
             return Err(error);
@@ -674,7 +725,7 @@ impl KitSpendSessionV2 {
 
     /// Visit the next immutable review fact, or enter the completeness screen
     /// only after the final fee warning (if any) has been visited.
-    pub fn advance_review(&mut self) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+    fn advance_review_bound(&mut self) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
         self.require_active()?;
         self.reject_if_post_review_yield()?;
         if self.stage != KitSpendStageV2::Review {
@@ -695,18 +746,32 @@ impl KitSpendSessionV2 {
         }
     }
 
+    /// Semantic review transition reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn advance_review(&mut self) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        self.advance_review_bound()
+    }
+
     /// Advance one and only one bound review position and select its existing
     /// typed screen through qk-core's display capability.
     pub fn advance_review_in_core(
         &mut self,
         core: &mut CoreSession,
     ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
-        if let Err(error) = self.advance_review() {
+        self.require_core_binding(core)?;
+        if let Err(error) = self.advance_review_bound() {
             core.terminate_kit(Interruption::OperationFailed);
             return Err(error);
         }
         if self.stage == KitSpendStageV2::CompletenessStatement {
-            self.show_in_core(core, CoreScreen::KitSpendCompleteness)?;
+            let (review_hash, cycle) = self.no_yield_identity()?;
+            if core
+                .begin_kit_no_yield(self.session_identity, review_hash, cycle)
+                .is_err()
+            {
+                return Err(self.fail(KitSpendErrorV2::ReviewIdentityMismatch));
+            }
         } else {
             self.show_review_in_core(core)?;
         }
@@ -715,7 +780,7 @@ impl KitSpendSessionV2 {
 
     /// Record the sole external completeness statement and mint one approval
     /// identity bound to the exact review hash, session, cycle, and digit.
-    pub fn confirm_all_funds(
+    fn confirm_all_funds_bound(
         &mut self,
         statement: CoordinatorCompletenessStatementV2,
     ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
@@ -755,6 +820,16 @@ impl KitSpendSessionV2 {
         }
     }
 
+    /// Semantic completeness transition reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn confirm_all_funds(
+        &mut self,
+        statement: CoordinatorCompletenessStatementV2,
+    ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
+        self.confirm_all_funds_bound(statement)
+    }
+
     /// Bind the external completeness statement and move directly to the
     /// screen-named assertion digit without permitting another yield.
     pub fn confirm_all_funds_in_core(
@@ -762,16 +837,15 @@ impl KitSpendSessionV2 {
         core: &mut CoreSession,
         statement: CoordinatorCompletenessStatementV2,
     ) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {
-        if let Err(error) = self.confirm_all_funds(statement) {
+        if let Err(error) = self.confirm_all_funds_bound(statement) {
             core.terminate_kit(Interruption::OperationFailed);
             return Err(error);
         }
-        self.show_in_core(core, CoreScreen::KitSpendHumanAssertion)?;
         let approval = self
             .approval
             .ok_or_else(|| self.fail(KitSpendErrorV2::ReviewIdentityMismatch))?;
         if core
-            .lock_kit_approval(
+            .show_kit_assertion_locked(
                 approval.token.session_identity,
                 approval.review_hash,
                 approval.token.cycle,
@@ -785,7 +859,7 @@ impl KitSpendSessionV2 {
 
     /// Read the one asserted digit and, without yielding, consume the proof
     /// through signing and the single normal-v3 finalization engine.
-    pub fn execute(
+    fn execute_bound(
         mut self,
         approval: KitSpendApprovalIdentityV2,
         key: KeypadKey,
@@ -794,7 +868,7 @@ impl KitSpendSessionV2 {
         if self.stage != KitSpendStageV2::HumanAssertion || self.completeness.is_none() {
             return Err(self.fail(KitSpendErrorV2::CompletenessStatementMissing));
         }
-        let expected = self
+        let mut expected = self
             .approval
             .take()
             .ok_or_else(|| self.fail(KitSpendErrorV2::ReviewIdentityMismatch))?;
@@ -860,7 +934,19 @@ impl KitSpendSessionV2 {
             finalized,
             facts,
             completeness,
+            session_identity: WipingArray::take(&mut expected.token.session_identity),
         })
+    }
+
+    /// Semantic signing/finalization reserved for the ring-fenced target.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn execute(
+        self,
+        approval: KitSpendApprovalIdentityV2,
+        key: KeypadKey,
+    ) -> Result<KitSpendOutcomeV2, KitSpendErrorV2> {
+        self.execute_bound(approval, key)
     }
 
     /// Read the one digit through qk-core and immediately consume the bound
@@ -872,40 +958,38 @@ impl KitSpendSessionV2 {
         key: KeypadKey,
     ) -> Result<KitSpendOutcomeV2, KitSpendErrorV2> {
         if core.kit_post_approval_yielded() {
-            return Err(self.fail(KitSpendErrorV2::PostApprovalYield));
+            let error = self.fail(KitSpendErrorV2::PostApprovalYield);
+            core.terminate_kit(Interruption::OperationFailed);
+            return Err(error);
         }
         if let Some(reason) = core.terminal_reason() {
             return Err(self.fail(KitSpendErrorV2::Interrupted(reason)));
         }
         let approval = match self.approval {
             Some(approval) => approval,
-            None => return Err(self.fail(KitSpendErrorV2::ReviewIdentityMismatch)),
-        };
-        if core
-            .consume_kit_approval(
-                approval.token.session_identity,
-                approval.review_hash,
-                approval.token.cycle,
-            )
-            .is_err()
-        {
-            let error = if core.kit_post_approval_yielded() {
-                KitSpendErrorV2::PostApprovalYield
-            } else {
-                KitSpendErrorV2::ReviewIdentityMismatch
-            };
-            return Err(self.fail(error));
-        }
-        let key = match core.kit_read_key(key) {
-            Ok(key) => key,
-            Err(_) => {
-                return Err(self.fail(KitSpendErrorV2::Interrupted(
-                    core.terminal_reason()
-                        .unwrap_or(Interruption::CapabilityFailed),
-                )))
+            None => {
+                let error = self.fail(KitSpendErrorV2::ReviewIdentityMismatch);
+                core.terminate_kit(Interruption::OperationFailed);
+                return Err(error);
             }
         };
-        match self.execute(approval, key) {
+        let key = match core.read_kit_assertion_locked(
+            approval.token.session_identity,
+            approval.review_hash,
+            approval.token.cycle,
+            key,
+        ) {
+            Ok(key) => key,
+            Err(_) => {
+                let error = if core.kit_post_approval_yielded() {
+                    KitSpendErrorV2::PostApprovalYield
+                } else {
+                    KitSpendErrorV2::ReviewIdentityMismatch
+                };
+                return Err(self.fail(error));
+            }
+        };
+        match self.execute_bound(approval, key) {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
                 core.terminate_kit(match error {
@@ -917,9 +1001,7 @@ impl KitSpendSessionV2 {
         }
     }
 
-    /// Reject every foreign operation. Once review is complete, any such
-    /// call is the no-yield violation regardless of its earlier-stage name.
-    pub fn reject_foreign_operation(
+    fn reject_foreign_operation_bound(
         &mut self,
         operation: KitSpendForeignOperationV2,
     ) -> Result<(), KitSpendErrorV2> {
@@ -953,10 +1035,50 @@ impl KitSpendSessionV2 {
         Err(self.fail(error))
     }
 
-    /// Every closed interruption terminates and clears every retained owner.
-    pub fn interrupt(&mut self, reason: Interruption) -> Result<(), KitSpendErrorV2> {
+    /// Semantic-only foreign-operation rejection reserved for fuzzing.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn reject_foreign_operation(
+        &mut self,
+        operation: KitSpendForeignOperationV2,
+    ) -> Result<(), KitSpendErrorV2> {
+        self.reject_foreign_operation_bound(operation)
+    }
+
+    /// Reject a foreign operation and terminate the bound process session.
+    pub fn reject_foreign_operation_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        operation: KitSpendForeignOperationV2,
+    ) -> Result<(), KitSpendErrorV2> {
+        self.require_core_binding(core)?;
+        let result = self.reject_foreign_operation_bound(operation);
+        core.terminate_kit(Interruption::OperationFailed);
+        result
+    }
+
+    fn interrupt_bound(&mut self, reason: Interruption) -> Result<(), KitSpendErrorV2> {
         self.require_active()?;
         Err(self.fail(KitSpendErrorV2::Interrupted(reason)))
+    }
+
+    /// Semantic-only interruption reserved for fuzzing.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn interrupt(&mut self, reason: Interruption) -> Result<(), KitSpendErrorV2> {
+        self.interrupt_bound(reason)
+    }
+
+    /// Route one interruption through both the purpose owner and process shell.
+    pub fn interrupt_in_core(
+        &mut self,
+        core: &mut CoreSession,
+        reason: Interruption,
+    ) -> Result<(), KitSpendErrorV2> {
+        self.require_core_binding(core)?;
+        let result = self.interrupt_bound(reason);
+        core.terminate_kit(reason);
+        result
     }
 
     fn review(&self) -> Option<&ReviewV3> {
@@ -992,6 +1114,27 @@ impl KitSpendSessionV2 {
             )));
         }
         Ok(())
+    }
+
+    fn require_core_binding(&mut self, core: &mut CoreSession) -> Result<(), KitSpendErrorV2> {
+        if core.require_kit_identity(&self.session_identity).is_err() {
+            let error = if core.kit_post_approval_yielded() {
+                KitSpendErrorV2::PostApprovalYield
+            } else {
+                KitSpendErrorV2::InvalidStart
+            };
+            return Err(self.fail(error));
+        }
+        Ok(())
+    }
+
+    fn no_yield_identity(&mut self) -> Result<([u8; 32], u64), KitSpendErrorV2> {
+        let review_hash = self
+            .proof
+            .as_ref()
+            .map(ValidatedKitSweepV3::review_hash)
+            .ok_or_else(|| self.fail(KitSpendErrorV2::ReviewIncomplete))?;
+        Ok((review_hash, self.next_cycle))
     }
 
     fn review_screen(&self) -> Option<KitSpendScreenV2<'_>> {

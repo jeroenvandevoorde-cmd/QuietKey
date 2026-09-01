@@ -251,6 +251,10 @@ impl KitDeliverySessionV2 {
             core.terminate_kit(Interruption::OperationFailed);
             return Err(KitArtifactErrorV2::Core(CoreError::InvalidTransition));
         }
+        if !outcome.claim_delivery(&mut core) {
+            core.terminate_kit(Interruption::OperationFailed);
+            return Err(KitArtifactErrorV2::Core(CoreError::InvalidTransition));
+        }
         let artifacts = match outcome.into_export_artifacts() {
             Ok(value) => value,
             Err(error) => {

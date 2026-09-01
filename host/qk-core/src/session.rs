@@ -85,6 +85,17 @@ enum OutstandingResponse {
     KitEgress,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum KitFlowLifecycleV2 {
+    Unclaimed,
+    Intake,
+    ReadyRestore,
+    ReadySpend,
+    Restore,
+    Spend,
+    Delivery,
+}
+
 /// Exact stream-consumption fact and the at-most-one resulting shell event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CoreReceiveOutcome {
@@ -185,6 +196,13 @@ struct KitApprovalLockV2 {
     session_identity: WipingArray<16>,
     review_hash: WipingArray<32>,
     cycle: WipingArray<8>,
+    phase: KitNoYieldPhaseV2,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum KitNoYieldPhaseV2 {
+    Completeness,
+    Assertion,
 }
 
 impl KitApprovalLockV2 {
@@ -194,6 +212,7 @@ impl KitApprovalLockV2 {
             session_identity: WipingArray::take(&mut session_identity),
             review_hash: WipingArray::take(&mut review_hash),
             cycle: WipingArray::take(&mut cycle),
+            phase: KitNoYieldPhaseV2::Completeness,
         }
     }
 
@@ -268,6 +287,7 @@ pub struct CoreSession {
     print_artifact: Option<PrintArtifact>,
     kit_approval: Option<KitApprovalLockV2>,
     kit_post_approval_yield: bool,
+    kit_flow: KitFlowLifecycleV2,
     grants: CoreDeviceGrants,
 }
 
@@ -306,6 +326,7 @@ impl CoreSession {
             print_artifact: None,
             kit_approval: None,
             kit_post_approval_yield: false,
+            kit_flow: KitFlowLifecycleV2::Unclaimed,
             grants,
         };
         Ok((session, frame))
@@ -357,10 +378,93 @@ impl CoreSession {
         }
     }
 
+    /// Verify one purpose owner against this exact live Kit process session.
+    /// A mismatch is a cross-session handoff and consumes the receiving shell.
+    pub(crate) fn require_kit_identity(
+        &mut self,
+        session_identity: &[u8; 16],
+    ) -> Result<(), CoreError> {
+        self.require_kit_live()?;
+        if self
+            .session_identity
+            .as_ref()
+            .is_some_and(|identity| identity.as_array() == session_identity)
+        {
+            Ok(())
+        } else {
+            Err(self.fail(CoreError::InvalidTransition))
+        }
+    }
+
+    /// Claim the one Kit flow permitted on this process shell.
+    pub(crate) fn begin_kit_intake(&mut self) -> Result<[u8; 16], CoreError> {
+        self.require_kit_live()?;
+        if self.state != CoreState::Ready || self.kit_flow != KitFlowLifecycleV2::Unclaimed {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        let identity = self
+            .session_identity
+            .as_ref()
+            .map(|value| *value.as_array())
+            .ok_or_else(|| self.fail(CoreError::InvalidTransition))?;
+        self.kit_flow = KitFlowLifecycleV2::Intake;
+        Ok(identity)
+    }
+
+    pub(crate) fn finish_kit_intake(
+        &mut self,
+        session_identity: &[u8; 16],
+        restore: bool,
+    ) -> Result<(), CoreError> {
+        self.require_kit_identity(session_identity)?;
+        if self.kit_flow != KitFlowLifecycleV2::Intake {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.kit_flow = if restore {
+            KitFlowLifecycleV2::ReadyRestore
+        } else {
+            KitFlowLifecycleV2::ReadySpend
+        };
+        Ok(())
+    }
+
+    pub(crate) fn begin_kit_restore(
+        &mut self,
+        session_identity: &[u8; 16],
+    ) -> Result<(), CoreError> {
+        self.require_kit_identity(session_identity)?;
+        if self.kit_flow != KitFlowLifecycleV2::ReadyRestore {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.kit_flow = KitFlowLifecycleV2::Restore;
+        Ok(())
+    }
+
+    pub(crate) fn begin_kit_spend(&mut self, session_identity: &[u8; 16]) -> Result<(), CoreError> {
+        self.require_kit_identity(session_identity)?;
+        if self.kit_flow != KitFlowLifecycleV2::ReadySpend {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.kit_flow = KitFlowLifecycleV2::Spend;
+        Ok(())
+    }
+
+    pub(crate) fn begin_kit_delivery(
+        &mut self,
+        session_identity: &[u8; 16],
+    ) -> Result<(), CoreError> {
+        self.require_kit_identity(session_identity)?;
+        if self.kit_flow != KitFlowLifecycleV2::Spend {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.kit_flow = KitFlowLifecycleV2::Delivery;
+        Ok(())
+    }
+
     /// Close the process shell around one exact displayed Kit approval. From
     /// this point only the matching atomic digit-and-sign transition may
     /// consume the lock; every ordinary shell operation terminates instead.
-    pub(crate) fn lock_kit_approval(
+    pub(crate) fn begin_kit_no_yield(
         &mut self,
         session_identity: [u8; 16],
         review_hash: [u8; 32],
@@ -372,6 +476,7 @@ impl CoreSession {
             .as_ref()
             .is_some_and(|identity| identity.as_array() == &session_identity);
         if self.state != CoreState::Ready
+            || self.kit_flow != KitFlowLifecycleV2::Spend
             || !identity_matches
             || self.expected.is_some()
             || self.transfer.is_some()
@@ -385,13 +490,22 @@ impl CoreSession {
             return Err(self.fail(CoreError::InvalidTransition));
         }
         self.kit_approval = Some(KitApprovalLockV2::new(session_identity, review_hash, cycle));
-        Ok(())
+        match self
+            .grants
+            .display_mut()
+            .show(CoreScreen::KitSpendCompleteness)
+        {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.terminate(Interruption::CapabilityFailed);
+                Err(error)
+            }
+        }
     }
 
-    /// Consume only the exact approval identity previously locked by this
-    /// process session. Clearing happens before the immediate keypad read, so
-    /// the lock cannot be reused even when the capability fails.
-    pub(crate) fn consume_kit_approval(
+    /// Move the exact locked Kit-Spend sequence from the completeness screen
+    /// to the assertion screen without reopening the generic display seam.
+    pub(crate) fn show_kit_assertion_locked(
         &mut self,
         session_identity: [u8; 16],
         review_hash: [u8; 32],
@@ -404,11 +518,62 @@ impl CoreSession {
                 .session_identity
                 .as_ref()
                 .is_some_and(|identity| identity.as_array() == &session_identity);
+        let Some(approval) = self.kit_approval.as_mut() else {
+            self.terminate(Interruption::OperationFailed);
+            return Err(CoreError::InvalidTransition);
+        };
+        let approval_matches = approval.matches(&session_identity, &review_hash, cycle)
+            && approval.phase == KitNoYieldPhaseV2::Completeness;
+        if !identity_matches
+            || !approval_matches
+            || self.expected.is_some()
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.normal_response.is_some()
+            || self.kit_response.is_some()
+            || self.print_artifact.is_some()
+            || self.kit_post_approval_yield
+        {
+            self.terminate(Interruption::OperationFailed);
+            return Err(CoreError::InvalidTransition);
+        }
+        approval.phase = KitNoYieldPhaseV2::Assertion;
+        match self
+            .grants
+            .display_mut()
+            .show(CoreScreen::KitSpendHumanAssertion)
+        {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.terminate(Interruption::CapabilityFailed);
+                Err(error)
+            }
+        }
+    }
+
+    /// Read the sole assertion digit from the exact locked session. The lock
+    /// is consumed immediately before this read and the caller proceeds to
+    /// signing in the same stack frame, leaving no callable yield point.
+    pub(crate) fn read_kit_assertion_locked(
+        &mut self,
+        session_identity: [u8; 16],
+        review_hash: [u8; 32],
+        cycle: u64,
+        key: KeypadKey,
+    ) -> Result<KeypadKey, CoreError> {
+        self.require_open()?;
+        let identity_matches = self.mode == CoreMode::Kit
+            && self.state == CoreState::Ready
+            && self
+                .session_identity
+                .as_ref()
+                .is_some_and(|identity| identity.as_array() == &session_identity);
         let Some(approval) = self.kit_approval.take() else {
             self.terminate(Interruption::OperationFailed);
             return Err(CoreError::InvalidTransition);
         };
-        let approval_matches = approval.matches(&session_identity, &review_hash, cycle);
+        let approval_matches = approval.matches(&session_identity, &review_hash, cycle)
+            && approval.phase == KitNoYieldPhaseV2::Assertion;
         drop(approval);
         if !identity_matches
             || !approval_matches
@@ -423,11 +588,43 @@ impl CoreSession {
             self.terminate(Interruption::OperationFailed);
             return Err(CoreError::InvalidTransition);
         }
-        Ok(())
+        match self.grants.keypad_mut().read(key) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.terminate(Interruption::CapabilityFailed);
+                Err(error)
+            }
+        }
     }
 
     pub(crate) const fn kit_post_approval_yielded(&self) -> bool {
         self.kit_post_approval_yield
+    }
+
+    /// Consume one successful Kit-Restore process shell without replacing the
+    /// mandatory-migration screen. The closed shell cannot start another flow.
+    pub(crate) fn complete_kit_restore(
+        &mut self,
+        session_identity: &[u8; 16],
+    ) -> Result<(), CoreError> {
+        self.require_kit_identity(session_identity)?;
+        if self.state != CoreState::Ready
+            || self.kit_flow != KitFlowLifecycleV2::Restore
+            || self.expected.is_some()
+            || self.transfer.is_some()
+            || self.completed.is_some()
+            || self.normal_response.is_some()
+            || self.kit_response.is_some()
+            || self.print_artifact.is_some()
+            || self.kit_approval.is_some()
+        {
+            return Err(self.fail(CoreError::InvalidTransition));
+        }
+        self.state = CoreState::Closed;
+        self.decoder = None;
+        self.ipc = None;
+        drop(self.session_identity.take());
+        Ok(())
     }
 
     /// Emit the sole typed ingress-begin operation.

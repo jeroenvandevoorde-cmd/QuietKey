@@ -253,11 +253,34 @@ fn every_public_method_entry_is_pinned() {
             "pub fn apply_fallback_key(",
             "pub fn apply_fallback_key_from_core(",
             "pub fn select_mode(",
+            "pub fn select_mode_in_core(",
             "pub fn reselect_door(",
+            "pub fn reselect_door_in_core(",
             "pub fn reject_foreign_input(",
+            "pub fn reject_foreign_input_in_core(",
             "pub fn interrupt(",
+            "pub fn interrupt_in_core(",
         ]
     );
+    assert!(KIT_INTAKE.contains(
+        "#[cfg(any(test, feature = \"fuzzing\"))]\n    #[doc(hidden)]\n    pub fn begin(door: KitDoorV2, mode: KitInputModeV2) -> Self {"
+    ));
+    for fuzz_only in [
+        "pub fn submit_scanner_frame(",
+        "pub fn submit_scanner_ingress(",
+        "pub fn apply_fallback_key(",
+        "pub fn select_mode(",
+        "pub fn reselect_door(",
+        "pub fn reject_foreign_input(",
+        "pub fn interrupt(",
+    ] {
+        assert!(
+            KIT_INTAKE.contains(&format!(
+                "#[cfg(feature = \"fuzzing\")]\n    #[doc(hidden)]\n    {fuzz_only}"
+            )),
+            "Kit intake semantic escape is not ring fenced: {fuzz_only}"
+        );
+    }
     assert_eq!(
         public_methods(KIT_RESTORE),
         [
@@ -291,7 +314,9 @@ fn every_public_method_entry_is_pinned() {
             "pub fn begin_a1_reprint(",
             "pub fn begin_a1_reprint_in_core(",
             "pub fn reject_foreign_operation(",
+            "pub fn reject_foreign_operation_in_core(",
             "pub fn interrupt(",
+            "pub fn interrupt_in_core(",
             "pub fn begin_print(",
             "pub fn write_print(",
             "pub fn finish_print(",
@@ -304,6 +329,28 @@ fn every_public_method_entry_is_pinned() {
             "pub fn reject_print(mut self) -> KitRestoreErrorV2 {",
         ]
     );
+    for fuzz_only in [
+        "pub fn select_action(",
+        "pub fn confirm_card_remains(",
+        "pub fn prepare_replacement_b(",
+        "pub fn prepare_replacement_b_ingress(",
+        "pub fn prepare_a1_reprint(",
+        "pub fn execute_replacement_b<F>(",
+        "pub fn begin_a1_reprint(",
+        "pub fn capsule(&self) -> Option<&[u8; A1_CAPSULE_BYTES]> {",
+        "pub fn complete_scan_back(",
+        "pub fn complete_scan_back_ingress(",
+        "pub fn reject_print(mut self) -> KitRestoreErrorV2 {",
+        "pub fn reject_foreign_operation(",
+        "pub fn interrupt(",
+    ] {
+        assert!(
+            KIT_RESTORE.contains(&format!(
+                "#[cfg(feature = \"fuzzing\")]\n    #[doc(hidden)]\n    {fuzz_only}"
+            )),
+            "Kit restore semantic escape is not ring fenced: {fuzz_only}"
+        );
+    }
     assert_eq!(
         public_methods(KIT_SPEND),
         [
@@ -343,9 +390,27 @@ fn every_public_method_entry_is_pinned() {
             "pub fn execute(",
             "pub fn execute_in_core(",
             "pub fn reject_foreign_operation(",
+            "pub fn reject_foreign_operation_in_core(",
             "pub fn interrupt(&mut self, reason: Interruption) -> Result<(), KitSpendErrorV2> {",
+            "pub fn interrupt_in_core(",
         ]
     );
+    for fuzz_only in [
+        "pub fn submit_sweep(",
+        "pub fn submit_sweep_ingress(",
+        "pub fn advance_review(&mut self) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {",
+        "pub fn confirm_all_funds(",
+        "pub fn execute(",
+        "pub fn reject_foreign_operation(",
+        "pub fn interrupt(&mut self, reason: Interruption) -> Result<(), KitSpendErrorV2> {",
+    ] {
+        assert!(
+            KIT_SPEND.contains(&format!(
+                "#[cfg(feature = \"fuzzing\")]\n    #[doc(hidden)]\n    {fuzz_only}"
+            )),
+            "Kit spend semantic escape is not ring fenced: {fuzz_only}"
+        );
+    }
     assert_eq!(
         public_methods(NORMAL_ARTIFACT),
         [

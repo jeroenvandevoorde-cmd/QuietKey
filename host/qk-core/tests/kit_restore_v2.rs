@@ -3,8 +3,8 @@
 use qk_core::{
     CardPresence, CardRemainsStatementV2, CoreDeviceGrants, CoreMode, CoreScreen, CoreSession,
     HumanAssertionDigitV2, Interruption, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2,
-    KitIntakeSessionV2, KitRestoreActionV2, KitRestoreArtifactV2, KitRestoreDispositionV2,
-    KitRestoreErrorV2, KitRestoreForeignOperationV2, KitRestoreSessionV2, KitRestoreStageV2,
+    KitIntakeSessionV2, KitRestoreActionV2, KitRestoreArtifactV2, KitRestoreErrorV2,
+    KitRestoreForeignOperationV2, KitRestoreSessionV2, KitRestoreStageV2,
     MandatoryFreshWalletMigrationV2, MockCardSlot, MockDisplay, MockKeypad, SurvivingBFactorV2,
     KIT_FALLBACK_TABLE_V2,
 };
@@ -100,64 +100,65 @@ fn numeric_key(number: u8) -> KeypadKey {
     }
 }
 
-fn submit_fallback(intake: &mut KitIntakeSessionV2, symbols: &[u8; 228]) {
-    for symbol in symbols {
-        let position = KIT_FALLBACK_TABLE_V2
-            .iter()
-            .flatten()
-            .position(|candidate| candidate == symbol)
-            .expect("registered fallback symbol");
-        let row = numeric_key(u8::try_from(position / 8 + 1).expect("row"));
-        let column = numeric_key(u8::try_from(position % 8 + 1).expect("column"));
-        assert!(matches!(
-            intake.apply_fallback_key(row).expect("row"),
-            KitIntakeOutcomeV2::Continue(_)
-        ));
-        assert!(matches!(
-            intake.apply_fallback_key(column).expect("column"),
-            KitIntakeOutcomeV2::Continue(_)
-        ));
-    }
-}
-
-fn ready(door: KitDoorV2, mode: KitInputModeV2, order: [u8; 2]) -> qk_core::KitIntakeReadyV2 {
-    let mut intake = KitIntakeSessionV2::begin(door, mode);
+fn ready(
+    core: &mut CoreSession,
+    broker: &mut BrokerSession,
+    door: KitDoorV2,
+    mode: KitInputModeV2,
+    order: [u8; 2],
+) -> qk_core::KitIntakeReadyV2 {
+    let mut intake = KitIntakeSessionV2::begin_in_core(core, door, mode).expect("product intake");
     match mode {
         KitInputModeV2::Scanner => {
-            let mut first = frame(order[0]);
-            assert!(matches!(
-                intake
-                    .submit_scanner_frame(&mut first)
-                    .expect("first scanner share"),
-                KitIntakeOutcomeV2::FirstShareAccepted(_)
-            ));
-            assert_eq!(first, [0; 142]);
-            let mut second = frame(order[1]);
-            let KitIntakeOutcomeV2::Ready(ready) = intake
-                .submit_scanner_frame(&mut second)
-                .expect("second scanner share")
-            else {
-                panic!("registered pair releases readiness");
-            };
-            assert_eq!(second, [0; 142]);
-            ready
+            for bytes in [frame(order[0]), frame(order[1])] {
+                let mut input =
+                    MockInput::try_new(IoSource::CameraKitCandidate, &bytes).expect("input");
+                let begin = core
+                    .begin_ingress(qk_core::Source::CameraKitCandidate)
+                    .expect("begin share");
+                let response = broker_reply(broker, &begin, Some(&mut input), None);
+                core.receive(response.frame_bytes(), false)
+                    .expect("accept begin");
+                while core.state() == qk_core::CoreState::IngressReadReady {
+                    let read = core.request_next_chunk().expect("read share");
+                    let response = broker_reply(broker, &read, None, None);
+                    core.receive(response.frame_bytes(), false)
+                        .expect("accept chunk");
+                }
+                if let KitIntakeOutcomeV2::Ready(ready) = intake
+                    .submit_scanner_from_core(core)
+                    .expect("registered scanner share")
+                {
+                    return ready;
+                }
+            }
+            panic!("registered pair releases readiness")
         }
         KitInputModeV2::Fallback => {
-            submit_fallback(&mut intake, &fallback(order[0]));
-            assert!(matches!(
-                intake
-                    .apply_fallback_key(KeypadKey::EqualsConfirmEnter)
-                    .expect("first fallback share"),
-                KitIntakeOutcomeV2::FirstShareAccepted(_)
-            ));
-            submit_fallback(&mut intake, &fallback(order[1]));
-            let KitIntakeOutcomeV2::Ready(ready) = intake
-                .apply_fallback_key(KeypadKey::EqualsConfirmEnter)
-                .expect("second fallback share")
-            else {
-                panic!("registered fallback pair releases readiness");
-            };
-            ready
+            for symbols in [fallback(order[0]), fallback(order[1])] {
+                for symbol in symbols {
+                    let position = KIT_FALLBACK_TABLE_V2
+                        .iter()
+                        .flatten()
+                        .position(|candidate| *candidate == symbol)
+                        .expect("registered fallback symbol");
+                    for key in [
+                        numeric_key(u8::try_from(position / 8 + 1).expect("row")),
+                        numeric_key(u8::try_from(position % 8 + 1).expect("column")),
+                    ] {
+                        intake
+                            .apply_fallback_key_from_core(core, key)
+                            .expect("fallback coordinate");
+                    }
+                }
+                if let KitIntakeOutcomeV2::Ready(ready) = intake
+                    .apply_fallback_key_from_core(core, KeypadKey::EqualsConfirmEnter)
+                    .expect("fallback confirmation")
+                {
+                    return ready;
+                }
+            }
+            panic!("registered fallback pair releases readiness")
         }
     }
 }
@@ -187,10 +188,6 @@ fn ready_core_and_broker() -> (CoreSession, BrokerSession) {
     (core, broker)
 }
 
-fn ready_core() -> CoreSession {
-    ready_core_and_broker().0
-}
-
 fn broker_reply(
     broker: &mut BrokerSession,
     outbound: &qk_core::CoreOutbound,
@@ -203,24 +200,34 @@ fn broker_reply(
 }
 
 fn begin(
-    ready: qk_core::KitIntakeReadyV2,
+    door: KitDoorV2,
+    mode: KitInputModeV2,
+    order: [u8; 2],
     descriptors: &[[u8; 306]; 2],
     digit: HumanAssertionDigitV2,
-) -> Result<KitRestoreSessionV2, KitRestoreErrorV2> {
-    let mut core = ready_core();
+) -> Result<(KitRestoreSessionV2, CoreSession, BrokerSession), KitRestoreErrorV2> {
+    let (mut core, mut broker) = ready_core_and_broker();
+    let ready = ready(&mut core, &mut broker, door, mode, order);
     KitRestoreSessionV2::begin(&mut core, ready, descriptors, digit)
+        .map(|session| (session, core, broker))
 }
 
-fn session_for(mode: KitInputModeV2, order: [u8; 2], digit: u8) -> KitRestoreSessionV2 {
+fn session_for(
+    mode: KitInputModeV2,
+    order: [u8; 2],
+    digit: u8,
+) -> (KitRestoreSessionV2, CoreSession, BrokerSession) {
     begin(
-        ready(KitDoorV2::KitRestore, mode, order),
+        KitDoorV2::KitRestore,
+        mode,
+        order,
         &descriptors(),
         HumanAssertionDigitV2::new(digit).expect("decimal digit"),
     )
     .expect("registered restore capability")
 }
 
-fn session(digit: u8) -> KitRestoreSessionV2 {
+fn session(digit: u8) -> (KitRestoreSessionV2, CoreSession, BrokerSession) {
     session_for(KitInputModeV2::Scanner, [1, 2], digit)
 }
 
@@ -231,34 +238,64 @@ fn surviving_b() -> SurvivingBFactorV2 {
     factor
 }
 
-fn prepare_replacement(session: &mut KitRestoreSessionV2) {
+fn prepare_replacement(
+    session: &mut KitRestoreSessionV2,
+    core: &mut CoreSession,
+    broker: &mut BrokerSession,
+) {
     assert_eq!(
         session
-            .select_action(KitRestoreActionV2::ReplacementB)
+            .select_action_in_core(core, KitRestoreActionV2::ReplacementB)
             .expect("select replacement")
             .stage(),
         KitRestoreStageV2::CardRemainsConfirmation
     );
     assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::CardRemainsConfirmation)
+    );
+    assert_eq!(
         session
-            .confirm_card_remains(CardRemainsStatementV2::InHand)
+            .confirm_card_remains_in_core(core, CardRemainsStatementV2::InHand)
             .expect("old B remains")
             .stage(),
         KitRestoreStageV2::BranchPreparation
     );
-    let mut capsule = hex_array(field(PROVISIONING, "a1_capsule_hex"));
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::KitRestorePreparation)
+    );
+    let capsule = hex_array::<67>(field(PROVISIONING, "a1_capsule_hex"));
+    let mut input = MockInput::try_new(IoSource::CameraA1Candidate, &capsule).expect("A1 input");
+    let begin = core
+        .begin_ingress(qk_core::Source::CameraA1Candidate)
+        .expect("begin surviving A1");
+    let response = broker_reply(broker, &begin, Some(&mut input), None);
+    core.receive(response.frame_bytes(), false)
+        .expect("accept A1 begin");
+    while core.state() == qk_core::CoreState::IngressReadReady {
+        let read = core.request_next_chunk().expect("read surviving A1");
+        let response = broker_reply(broker, &read, None, None);
+        core.receive(response.frame_bytes(), false)
+            .expect("accept A1 chunk");
+    }
     let screen = session
-        .prepare_replacement_b(&mut capsule)
+        .prepare_replacement_b_from_core(core)
         .expect("registered surviving A1");
-    assert_eq!(capsule, [0; 67]);
     assert_eq!(screen.stage(), KitRestoreStageV2::HumanAssertion);
+    assert_eq!(
+        core.current_screen(),
+        Some(CoreScreen::KitRestoreHumanAssertion)
+    );
 }
 
 #[test]
 fn exact_restore_readiness_and_exact_old_d_are_required() {
     assert!(matches!(
         begin(
-            ready(KitDoorV2::KitSpend, KitInputModeV2::Scanner, [1, 2]),
+            KitDoorV2::KitSpend,
+            KitInputModeV2::Scanner,
+            [1, 2],
             &descriptors(),
             HumanAssertionDigitV2::new(0).expect("digit"),
         ),
@@ -269,7 +306,9 @@ fn exact_restore_readiness_and_exact_old_d_are_required() {
     wrong_d[0][0] ^= 1;
     assert!(matches!(
         begin(
-            ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+            KitDoorV2::KitRestore,
+            KitInputModeV2::Scanner,
+            [1, 2],
             &wrong_d,
             HumanAssertionDigitV2::new(0).expect("digit"),
         ),
@@ -286,7 +325,7 @@ fn exact_restore_readiness_and_exact_old_d_are_required() {
         (KitInputModeV2::Fallback, [1, 2]),
         (KitInputModeV2::Fallback, [2, 1]),
     ] {
-        let session = session_for(mode, order, 4);
+        let (session, _core, _broker) = session_for(mode, order, 4);
         let screen = session.screen().expect("active screen");
         assert_eq!(screen.stage(), KitRestoreStageV2::ActionSelection);
         assert_eq!(screen.wallet_id(), wallet_id());
@@ -303,23 +342,16 @@ fn exact_restore_readiness_and_exact_old_d_are_required() {
 
 #[test]
 fn replacement_b_requires_remains_factor_and_exact_digit_before_one_call() {
-    let mut restore = session(7);
-    prepare_replacement(&mut restore);
+    let (mut restore, mut core, mut broker) = session(7);
+    prepare_replacement(&mut restore, &mut core, &mut broker);
     assert_eq!(
         restore.screen().and_then(|screen| screen.assertion_digit()),
         Some(HumanAssertionDigitV2::new(7).expect("digit"))
     );
-    let mut calls = 0usize;
     let outcome = restore
-        .execute_replacement_b(KeypadKey::Seven, |view| {
-            calls += 1;
-            assert_eq!(view.wallet_id(), &wallet_id());
-            assert_eq!(view.account_xpub(), &account_xpub_b());
-            assert_eq!(view.origin_fingerprint(), &fingerprint_b());
-            KitRestoreDispositionV2::Accepted
-        })
+        .execute_replacement_b_in_core(&mut core, KeypadKey::Seven)
         .expect("one replacement call");
-    assert_eq!(calls, 1);
+    assert_eq!(core.state(), qk_core::CoreState::Closed);
     assert_eq!(outcome.posture(), MandatoryFreshWalletMigrationV2::Required);
     let KitRestoreArtifactV2::ReplacementB(receipt) = outcome.artifact() else {
         panic!("replacement artifact only");
@@ -328,13 +360,13 @@ fn replacement_b_requires_remains_factor_and_exact_digit_before_one_call() {
     assert_eq!(receipt.account_xpub(), account_xpub_b());
     assert_eq!(receipt.origin_fingerprint(), fingerprint_b());
 
-    let mut missing = session(1);
+    let (mut missing, mut missing_core, _broker) = session(1);
     missing
-        .select_action(KitRestoreActionV2::ReplacementB)
+        .select_action_in_core(&mut missing_core, KitRestoreActionV2::ReplacementB)
         .expect("select replacement");
     assert_eq!(
         missing
-            .confirm_card_remains(CardRemainsStatementV2::Missing)
+            .confirm_card_remains_in_core(&mut missing_core, CardRemainsStatementV2::Missing,)
             .err(),
         Some(KitRestoreErrorV2::MissingCardRequiresKitSpend)
     );
@@ -343,10 +375,17 @@ fn replacement_b_requires_remains_factor_and_exact_digit_before_one_call() {
 
 #[test]
 fn product_bridge_uses_typed_display_keypad_and_one_use_card_boundary() {
-    let mut core = ready_core();
+    let (mut core, mut broker) = ready_core_and_broker();
+    let ready = ready(
+        &mut core,
+        &mut broker,
+        KitDoorV2::KitRestore,
+        KitInputModeV2::Scanner,
+        [1, 2],
+    );
     let mut restore = KitRestoreSessionV2::begin(
         &mut core,
-        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        ready,
         &descriptors(),
         HumanAssertionDigitV2::new(7).expect("digit"),
     )
@@ -355,24 +394,16 @@ fn product_bridge_uses_typed_display_keypad_and_one_use_card_boundary() {
         core.current_screen(),
         Some(CoreScreen::KitRestoreActionSelection)
     );
-    restore
-        .select_action_in_core(&mut core, KitRestoreActionV2::ReplacementB)
-        .expect("replacement action");
+    prepare_replacement(&mut restore, &mut core, &mut broker);
     assert_eq!(
         core.current_screen(),
-        Some(CoreScreen::CardRemainsConfirmation)
+        Some(CoreScreen::KitRestoreHumanAssertion)
     );
-    restore
-        .confirm_card_remains_in_core(&mut core, CardRemainsStatementV2::InHand)
-        .expect("old card remains");
-    let mut capsule = hex_array(field(PROVISIONING, "a1_capsule_hex"));
-    restore
-        .prepare_replacement_b(&mut capsule)
-        .expect("registered surviving A1");
     let outcome = restore
         .execute_replacement_b_in_core(&mut core, KeypadKey::Seven)
         .expect("one qk-core replacement call");
     assert_eq!(outcome.posture(), MandatoryFreshWalletMigrationV2::Required);
+    assert_eq!(core.state(), qk_core::CoreState::Closed);
     assert_eq!(
         core.current_screen(),
         Some(CoreScreen::MandatoryFreshWalletMigration)
@@ -381,29 +412,54 @@ fn product_bridge_uses_typed_display_keypad_and_one_use_card_boundary() {
 
 #[test]
 fn staged_a1_reprint_uses_fresh_nonce_and_consumes_exact_scanback() {
-    let mut restore = session(2);
+    let (mut restore, mut core, mut broker) = session(2);
     restore
-        .select_action(KitRestoreActionV2::A1Reprint)
+        .select_action_in_core(&mut core, KitRestoreActionV2::A1Reprint)
         .expect("select reprint");
     let assertion = restore
-        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .prepare_a1_reprint_in_core(&mut core, surviving_b(), &FRESH_NONCE)
         .expect("surviving B and fresh nonce");
     assert_eq!(
         assertion.assertion_digit(),
         Some(HumanAssertionDigitV2::new(2).expect("digit"))
     );
-    let staged = restore
-        .begin_a1_reprint(KeypadKey::TwoDown)
+    let mut staged = restore
+        .begin_a1_reprint_in_core(&mut core, KeypadKey::TwoDown)
         .expect("exact assertion digit");
-    let mut scan_back = *staged.capsule().expect("one staged capsule");
+    let a2 = hex_array::<32>(field(PROVISIONING, "a2_transcript_sha256"));
+    let seed_a = hex_array::<32>(field(PROVISIONING, "seed_a_transcript_sha256"));
+    let expected = qk_a1::encrypt(&a2, &wallet_id(), &FRESH_NONCE, &seed_a);
+    let mut outbound = staged.begin_print(&mut core).expect("print begin");
+    let reply = broker_reply(&mut broker, &outbound, None, None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("begin receipt");
+    outbound = staged.write_print(&mut core).expect("print write");
+    let reply = broker_reply(&mut broker, &outbound, None, None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("write receipt");
+    outbound = staged.finish_print(&mut core).expect("print finish");
+    let mut writer = MockOutputWriter::new(Sink::Print);
+    let reply = broker_reply(&mut broker, &outbound, None, Some(&mut writer));
+    core.receive(reply.frame_bytes(), false)
+        .expect("finish receipt");
+    assert_eq!(writer.final_bytes(), Some(expected.as_slice()));
     let old = hex_array::<67>(field(PROVISIONING, "a1_capsule_hex"));
-    assert_ne!(scan_back, old);
-    assert_eq!(&scan_back[..7], b"QKA1\x01\x01\x01");
-    assert_eq!(&scan_back[7..19], &FRESH_NONCE);
+    assert_ne!(expected, old);
+    assert_eq!(&expected[..7], b"QKA1\x01\x01\x01");
+    assert_eq!(&expected[7..19], &FRESH_NONCE);
+    outbound = staged.begin_scan_back(&mut core).expect("scan begin");
+    let mut scan = MockInput::try_new(IoSource::CameraA1Candidate, &expected).expect("scan");
+    let reply = broker_reply(&mut broker, &outbound, Some(&mut scan), None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("scan begin receipt");
+    outbound = staged.request_scan_back(&mut core).expect("scan read");
+    let reply = broker_reply(&mut broker, &outbound, None, None);
+    core.receive(reply.frame_bytes(), false)
+        .expect("scan read receipt");
     let outcome = staged
-        .complete_scan_back(&mut scan_back)
+        .complete_from_core(&mut core)
         .expect("verified scan-back");
-    assert_eq!(scan_back, [0; 67]);
+    assert_eq!(core.state(), qk_core::CoreState::Closed);
     assert_eq!(outcome.posture(), MandatoryFreshWalletMigrationV2::Required);
     let KitRestoreArtifactV2::A1Reprint(receipt) = outcome.artifact() else {
         panic!("A1 reprint artifact only");
@@ -419,9 +475,16 @@ fn staged_a1_reprint_uses_fresh_nonce_and_consumes_exact_scanback() {
 #[test]
 fn product_a1_reprint_drives_exact_print_and_source_01_scanback() {
     let (mut core, mut broker) = ready_core_and_broker();
+    let ready = ready(
+        &mut core,
+        &mut broker,
+        KitDoorV2::KitRestore,
+        KitInputModeV2::Scanner,
+        [1, 2],
+    );
     let mut restore = KitRestoreSessionV2::begin(
         &mut core,
-        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        ready,
         &descriptors(),
         HumanAssertionDigitV2::new(2).expect("digit"),
     )
@@ -471,6 +534,7 @@ fn product_a1_reprint_drives_exact_print_and_source_01_scanback() {
         .complete_from_core(&mut core)
         .expect("authenticated scan-back");
     assert_eq!(outcome.posture(), MandatoryFreshWalletMigrationV2::Required);
+    assert_eq!(core.state(), qk_core::CoreState::Closed);
     assert_eq!(
         core.current_screen(),
         Some(CoreScreen::MandatoryFreshWalletMigration)
@@ -479,52 +543,96 @@ fn product_a1_reprint_drives_exact_print_and_source_01_scanback() {
 
 #[test]
 fn wrong_digit_print_failure_and_scanback_mismatch_are_terminal_without_retry() {
-    let mut wrong_digit = session(6);
+    let (mut wrong_digit, mut wrong_core, _broker) = session(6);
     wrong_digit
-        .select_action(KitRestoreActionV2::A1Reprint)
+        .select_action_in_core(&mut wrong_core, KitRestoreActionV2::A1Reprint)
         .expect("select reprint");
     wrong_digit
-        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .prepare_a1_reprint_in_core(&mut wrong_core, surviving_b(), &FRESH_NONCE)
         .expect("prepare reprint");
     assert!(matches!(
-        wrong_digit.begin_a1_reprint(KeypadKey::Five),
+        wrong_digit.begin_a1_reprint_in_core(&mut wrong_core, KeypadKey::Five),
         Err(KitRestoreErrorV2::HumanAssertionMismatch)
     ));
 
-    let mut print_failure = session(6);
+    let (mut print_failure, mut print_core, _broker) = session(6);
     print_failure
-        .select_action(KitRestoreActionV2::A1Reprint)
+        .select_action_in_core(&mut print_core, KitRestoreActionV2::A1Reprint)
         .expect("select reprint");
     print_failure
-        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
+        .prepare_a1_reprint_in_core(&mut print_core, surviving_b(), &FRESH_NONCE)
         .expect("prepare reprint");
-    let staged = print_failure
-        .begin_a1_reprint(KeypadKey::SixRight)
+    let mut staged = print_failure
+        .begin_a1_reprint_in_core(&mut print_core, KeypadKey::SixRight)
         .expect("authorize reprint");
-    assert_eq!(staged.reject_print(), KitRestoreErrorV2::A1PrintRejected);
-
-    let mut mismatch = session(6);
-    mismatch
-        .select_action(KitRestoreActionV2::A1Reprint)
-        .expect("select reprint");
-    mismatch
-        .prepare_a1_reprint(surviving_b(), &FRESH_NONCE)
-        .expect("prepare reprint");
-    let staged = mismatch
-        .begin_a1_reprint(KeypadKey::SixRight)
-        .expect("authorize reprint");
-    let mut scan_back = *staged.capsule().expect("capsule");
-    scan_back[31] ^= 1;
     assert_eq!(
-        staged.complete_scan_back(&mut scan_back).err(),
+        staged.write_print(&mut print_core).err(),
+        Some(KitRestoreErrorV2::A1PrintRejected)
+    );
+
+    let (mut mismatch, mut mismatch_core, mut mismatch_broker) = session(6);
+    mismatch
+        .select_action_in_core(&mut mismatch_core, KitRestoreActionV2::A1Reprint)
+        .expect("select reprint");
+    mismatch
+        .prepare_a1_reprint_in_core(&mut mismatch_core, surviving_b(), &FRESH_NONCE)
+        .expect("prepare reprint");
+    let mut staged = mismatch
+        .begin_a1_reprint_in_core(&mut mismatch_core, KeypadKey::SixRight)
+        .expect("authorize reprint");
+    let a2 = hex_array::<32>(field(PROVISIONING, "a2_transcript_sha256"));
+    let seed_a = hex_array::<32>(field(PROVISIONING, "seed_a_transcript_sha256"));
+    let mut scan_back = qk_a1::encrypt(&a2, &wallet_id(), &FRESH_NONCE, &seed_a);
+    let mut outbound = staged.begin_print(&mut mismatch_core).expect("print begin");
+    let reply = broker_reply(&mut mismatch_broker, &outbound, None, None);
+    mismatch_core
+        .receive(reply.frame_bytes(), false)
+        .expect("begin receipt");
+    outbound = staged.write_print(&mut mismatch_core).expect("print write");
+    let reply = broker_reply(&mut mismatch_broker, &outbound, None, None);
+    mismatch_core
+        .receive(reply.frame_bytes(), false)
+        .expect("write receipt");
+    outbound = staged
+        .finish_print(&mut mismatch_core)
+        .expect("print finish");
+    let mut writer = MockOutputWriter::new(Sink::Print);
+    let reply = broker_reply(&mut mismatch_broker, &outbound, None, Some(&mut writer));
+    mismatch_core
+        .receive(reply.frame_bytes(), false)
+        .expect("finish receipt");
+    outbound = staged
+        .begin_scan_back(&mut mismatch_core)
+        .expect("scan begin");
+    scan_back[31] ^= 1;
+    let mut scan = MockInput::try_new(IoSource::CameraA1Candidate, &scan_back).expect("scan");
+    let reply = broker_reply(&mut mismatch_broker, &outbound, Some(&mut scan), None);
+    mismatch_core
+        .receive(reply.frame_bytes(), false)
+        .expect("scan begin receipt");
+    outbound = staged
+        .request_scan_back(&mut mismatch_core)
+        .expect("scan read");
+    let reply = broker_reply(&mut mismatch_broker, &outbound, None, None);
+    mismatch_core
+        .receive(reply.frame_bytes(), false)
+        .expect("scan read receipt");
+    assert_eq!(
+        staged.complete_from_core(&mut mismatch_core).err(),
         Some(KitRestoreErrorV2::A1VerificationMismatch)
     );
-    assert_eq!(scan_back, [0; 67]);
 
-    let mut core = ready_core();
+    let (mut core, mut broker) = ready_core_and_broker();
+    let ready = ready(
+        &mut core,
+        &mut broker,
+        KitDoorV2::KitRestore,
+        KitInputModeV2::Scanner,
+        [1, 2],
+    );
     let mut wrong_order = KitRestoreSessionV2::begin(
         &mut core,
-        ready(KitDoorV2::KitRestore, KitInputModeV2::Scanner, [1, 2]),
+        ready,
         &descriptors(),
         HumanAssertionDigitV2::new(6).expect("digit"),
     )
@@ -581,15 +689,13 @@ fn foreign_operations_interruptions_and_unwind_never_create_a_second_action() {
         ),
     ];
     for (operation, expected_name) in foreign {
-        let mut restore = session(0);
+        let (mut restore, mut core, _broker) = session(0);
         let error = restore
-            .reject_foreign_operation(operation)
+            .reject_foreign_operation_in_core(&mut core, operation)
             .expect_err("foreign operation rejects");
         assert_eq!(error.name(), expected_name);
-        assert_eq!(
-            restore.select_action(KitRestoreActionV2::A1Reprint).err(),
-            Some(KitRestoreErrorV2::Finished)
-        );
+        assert!(restore.is_terminal());
+        assert_eq!(core.state(), qk_core::CoreState::Terminated);
     }
 
     for reason in [
@@ -604,19 +710,60 @@ fn foreign_operations_interruptions_and_unwind_never_create_a_second_action() {
         Interruption::PeerLost,
         Interruption::CapabilityFailed,
     ] {
-        let mut restore = session(0);
+        let (mut restore, mut core, _broker) = session(0);
         assert_eq!(
-            restore.interrupt(reason).expect_err("interrupts").name(),
+            restore
+                .interrupt_in_core(&mut core, reason)
+                .expect_err("interrupts")
+                .name(),
             reason.name()
         );
         assert!(restore.is_terminal());
+        assert_eq!(core.state(), qk_core::CoreState::Terminated);
+        assert_eq!(core.terminal_reason(), Some(reason));
     }
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut restore = session(3);
-        prepare_replacement(&mut restore);
-        let _ = restore
-            .execute_replacement_b(KeypadKey::Three, |_| panic!("caught mock-boundary unwind"));
+        let (mut restore, mut core, mut broker) = session(3);
+        prepare_replacement(&mut restore, &mut core, &mut broker);
+        let _restore = restore;
+        panic!("caught restore-owner unwind");
     }));
     assert!(result.is_err());
+}
+
+#[test]
+fn foreign_restore_rejection_clears_pending_a1_ingress() {
+    let (mut restore, mut core, mut broker) = session(0);
+    restore
+        .select_action_in_core(&mut core, KitRestoreActionV2::ReplacementB)
+        .expect("select replacement");
+    restore
+        .confirm_card_remains_in_core(&mut core, CardRemainsStatementV2::InHand)
+        .expect("old card remains");
+
+    let capsule = hex_array::<67>(field(PROVISIONING, "a1_capsule_hex"));
+    let mut input = MockInput::try_new(IoSource::CameraA1Candidate, &capsule).expect("A1 input");
+    let begin = core
+        .begin_ingress(qk_core::Source::CameraA1Candidate)
+        .expect("begin surviving A1");
+    let response = broker_reply(&mut broker, &begin, Some(&mut input), None);
+    core.receive(response.frame_bytes(), false)
+        .expect("accept A1 begin");
+    while core.state() == qk_core::CoreState::IngressReadReady {
+        let read = core.request_next_chunk().expect("read surviving A1");
+        let response = broker_reply(&mut broker, &read, None, None);
+        core.receive(response.frame_bytes(), false)
+            .expect("accept A1 chunk");
+    }
+    assert!(core.completed_ingress().is_some());
+
+    assert_eq!(
+        restore
+            .reject_foreign_operation_in_core(&mut core, KitRestoreForeignOperationV2::Signing,)
+            .err(),
+        Some(KitRestoreErrorV2::SigningProhibited)
+    );
+    assert_eq!(core.state(), qk_core::CoreState::Terminated);
+    assert!(core.completed_ingress().is_none());
 }

@@ -2,15 +2,20 @@
 
 use qk_core::{
     CardPresence, CoreDeviceGrants, CoreMode, CoreReceiveEvent, CoreScreen, CoreSession, CoreState,
-    Interruption, KeypadKey, KitDoorV2, KitForeignInputV2, KitInputModeV2, KitIntakeErrorV2,
+    Interruption, KitDoorV2, KitForeignInputV2, KitInputModeV2, KitIntakeErrorV2,
     KitIntakeOutcomeV2, KitIntakeSessionV2, KitShareOrdinalV2, MockCardSlot, MockDisplay,
-    MockKeypad, Source, KIT_FALLBACK_TABLE_V2,
+    MockKeypad, Source,
 };
+#[cfg(feature = "fuzzing")]
+use qk_core::{KeypadKey, KIT_FALLBACK_TABLE_V2};
 use qk_io::{BrokerSession, MockInput, Source as IoSource};
 use qk_ipc::{ReceivedFrame, StreamDecoder};
-use qk_kit::{encode_frame, KitError, ShareIndex, FALLBACK_SYMBOLS, FRAME_LEN};
+use qk_kit::FRAME_LEN;
+#[cfg(feature = "fuzzing")]
+use qk_kit::{encode_frame, KitError, ShareIndex, FALLBACK_SYMBOLS};
 
 const FIXTURE: &str = include_str!("../../qk-kit/tests/fixtures/kit_share_v2.txt");
+#[cfg(feature = "fuzzing")]
 const EXPECTED_TABLE: [[u8; 8]; 4] = [*b"23456789", *b"abcdefgh", *b"ijkmnpqr", *b"stuvwxyz"];
 
 fn field(name: &str) -> &'static str {
@@ -42,6 +47,7 @@ fn frame(number: u8) -> [u8; FRAME_LEN] {
     hex_array(field(&format!("frame_{number}_hex")))
 }
 
+#[cfg(feature = "fuzzing")]
 fn fallback(number: u8) -> [u8; FALLBACK_SYMBOLS] {
     field(&format!("fallback_{number}_ascii"))
         .as_bytes()
@@ -49,6 +55,7 @@ fn fallback(number: u8) -> [u8; FALLBACK_SYMBOLS] {
         .expect("exact fallback width")
 }
 
+#[cfg(feature = "fuzzing")]
 fn wallet_id() -> [u8; 32] {
     hex_array(field("wallet_id_hex"))
 }
@@ -109,6 +116,7 @@ fn load_kit_candidate(core: &mut CoreSession, broker: &mut BrokerSession, bytes:
     assert_eq!(core.state(), CoreState::IngressComplete);
 }
 
+#[cfg(feature = "fuzzing")]
 fn numeric_key(number: u8) -> KeypadKey {
     match number {
         0 => KeypadKey::Zero,
@@ -125,6 +133,7 @@ fn numeric_key(number: u8) -> KeypadKey {
     }
 }
 
+#[cfg(feature = "fuzzing")]
 fn append_symbol(session: &mut KitIntakeSessionV2, symbol: u8) {
     let (row, column) = EXPECTED_TABLE
         .iter()
@@ -146,6 +155,7 @@ fn append_symbol(session: &mut KitIntakeSessionV2, symbol: u8) {
     ));
 }
 
+#[cfg(feature = "fuzzing")]
 fn submit_fallback(
     session: &mut KitIntakeSessionV2,
     symbols: &[u8; FALLBACK_SYMBOLS],
@@ -189,6 +199,25 @@ fn product_bridge_consumes_source_02_and_selects_typed_share_screens() {
 }
 
 #[test]
+fn one_core_session_claims_exactly_one_kit_intake() {
+    let (mut core, _broker) = opened_kit_core();
+    let _first =
+        KitIntakeSessionV2::begin_in_core(&mut core, KitDoorV2::KitSpend, KitInputModeV2::Scanner)
+            .expect("first intake claims the shell");
+    assert_eq!(
+        KitIntakeSessionV2::begin_in_core(
+            &mut core,
+            KitDoorV2::KitRestore,
+            KitInputModeV2::Fallback,
+        )
+        .err(),
+        Some(KitIntakeErrorV2::Interrupted(Interruption::OperationFailed))
+    );
+    assert_eq!(core.state(), CoreState::Terminated);
+}
+
+#[test]
+#[cfg(feature = "fuzzing")]
 fn scanner_accepts_both_doors_and_both_share_orders_and_clears_callers() {
     for door in [KitDoorV2::KitRestore, KitDoorV2::KitSpend] {
         for order in [[1u8, 2u8], [2, 1]] {
@@ -230,6 +259,7 @@ fn scanner_accepts_both_doors_and_both_share_orders_and_clears_callers() {
 }
 
 #[test]
+#[cfg(feature = "fuzzing")]
 fn scanner_rejections_are_named_terminal_and_clear_every_candidate() {
     let mut checksum = KitIntakeSessionV2::begin(KitDoorV2::KitSpend, KitInputModeV2::Scanner);
     let mut bad = frame(1);
@@ -273,6 +303,7 @@ fn scanner_rejections_are_named_terminal_and_clear_every_candidate() {
 }
 
 #[test]
+#[cfg(feature = "fuzzing")]
 fn door_mode_foreign_inputs_and_all_interruptions_terminate() {
     let mut mode = KitIntakeSessionV2::begin(KitDoorV2::KitSpend, KitInputModeV2::Scanner);
     assert_eq!(
@@ -333,6 +364,75 @@ fn door_mode_foreign_inputs_and_all_interruptions_terminate() {
 }
 
 #[test]
+fn product_terminal_inputs_terminate_the_core_and_clear_completed_ingress() {
+    let (mut mode_core, _broker) = opened_kit_core();
+    let mut mode = KitIntakeSessionV2::begin_in_core(
+        &mut mode_core,
+        KitDoorV2::KitSpend,
+        KitInputModeV2::Scanner,
+    )
+    .expect("product intake");
+    assert_eq!(
+        mode.select_mode_in_core(&mut mode_core, KitInputModeV2::Fallback)
+            .err(),
+        Some(KitIntakeErrorV2::KitScannerModeMismatch)
+    );
+    assert_eq!(mode_core.state(), CoreState::Terminated);
+
+    let (mut door_core, mut door_broker) = opened_kit_core();
+    let mut door = KitIntakeSessionV2::begin_in_core(
+        &mut door_core,
+        KitDoorV2::KitSpend,
+        KitInputModeV2::Scanner,
+    )
+    .expect("product intake");
+    load_kit_candidate(&mut door_core, &mut door_broker, &frame(1));
+    assert!(door_core.completed_ingress().is_some());
+    assert_eq!(
+        door.reselect_door_in_core(&mut door_core, KitDoorV2::KitRestore)
+            .err(),
+        Some(KitIntakeErrorV2::DoorSwitchAttempt)
+    );
+    assert_eq!(door_core.state(), CoreState::Terminated);
+    assert!(door_core.completed_ingress().is_none());
+
+    let (mut foreign_core, _broker) = opened_kit_core();
+    let mut foreign = KitIntakeSessionV2::begin_in_core(
+        &mut foreign_core,
+        KitDoorV2::KitRestore,
+        KitInputModeV2::Fallback,
+    )
+    .expect("product intake");
+    assert_eq!(
+        foreign
+            .reject_foreign_input_in_core(&mut foreign_core, KitForeignInputV2::Transport)
+            .err(),
+        Some(KitIntakeErrorV2::KitScannerModeMismatch)
+    );
+    assert_eq!(foreign_core.state(), CoreState::Terminated);
+
+    let (mut interrupted_core, _broker) = opened_kit_core();
+    let mut interrupted = KitIntakeSessionV2::begin_in_core(
+        &mut interrupted_core,
+        KitDoorV2::KitRestore,
+        KitInputModeV2::Fallback,
+    )
+    .expect("product intake");
+    assert_eq!(
+        interrupted
+            .interrupt_in_core(&mut interrupted_core, Interruption::SessionTimeout)
+            .err(),
+        Some(KitIntakeErrorV2::Interrupted(Interruption::SessionTimeout))
+    );
+    assert_eq!(interrupted_core.state(), CoreState::Terminated);
+    assert_eq!(
+        interrupted_core.terminal_reason(),
+        Some(Interruption::SessionTimeout)
+    );
+}
+
+#[test]
+#[cfg(feature = "fuzzing")]
 fn fallback_accepts_both_doors_and_both_orders_with_exact_progress() {
     assert_eq!(KIT_FALLBACK_TABLE_V2, EXPECTED_TABLE);
     for door in [KitDoorV2::KitRestore, KitDoorV2::KitSpend] {
@@ -363,6 +463,7 @@ fn fallback_accepts_both_doors_and_both_orders_with_exact_progress() {
 }
 
 #[test]
+#[cfg(feature = "fuzzing")]
 fn fallback_ce_and_each_entry_rejection_are_exact_and_non_retrying() {
     let mut ce = KitIntakeSessionV2::begin(KitDoorV2::KitSpend, KitInputModeV2::Fallback);
     assert!(matches!(
@@ -429,6 +530,7 @@ fn fallback_ce_and_each_entry_rejection_are_exact_and_non_retrying() {
 }
 
 #[test]
+#[cfg(feature = "fuzzing")]
 fn malformed_fallback_never_releases_a_ready_capability() {
     let mut malformed = fallback(1);
     malformed[0] = if malformed[0] == b'2' { b'3' } else { b'2' };
