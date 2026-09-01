@@ -132,11 +132,15 @@ fn public_reexports_are_the_reviewed_boundary() {
         "IdentityOperation",
         "IdentityOutcome",
         "IdentityRecord",
-        "PcscIdentityBackend",
+        "execute_pcsc_identity",
         "encode_identity_transcript",
     ];
     for name in expected {
         assert!(LIB.contains(name), "missing reviewed public item: {name}");
     }
     assert!(!LIB.contains("pub use pcsc::"));
+    assert!(!LIB.contains("PcscIdentityBackend"));
+    assert!(!IDENTITY_ADAPTER.contains("pub struct PcscIdentityBackend"));
+    assert!(!IDENTITY_ADAPTER.contains("pub fn new()"));
+    assert!(IDENTITY_ADAPTER.contains("pub fn execute_pcsc_identity("));
 }

@@ -7,25 +7,47 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use pcsc::{Context, Disposition, Protocol, Protocols, Scope, ShareMode};
 
 use crate::{
-    validate_card_recognition_response, validate_cplc_response, IdentityAttempt, IdentityBackend,
-    IdentityError, IdentityOperation, NegotiatedProtocol, CARD_RECOGNITION_COMMAND, CPLC_COMMAND,
-    MAX_ATR_BYTES, MAX_IDENTITY_RESPONSE_BYTES, MAX_READER_LIST_BYTES, REGISTERED_J3R180_ATR,
+    encode_identity_transcript, run_identity, validate_card_recognition_response,
+    validate_cplc_response, IdentityAttempt, IdentityBackend, IdentityError, IdentityExchange,
+    IdentityOperation, IdentityOutcome, IdentityRecord, NegotiatedProtocol, ValidatedMetadata,
+    CARD_RECOGNITION_COMMAND, CPLC_COMMAND, MAX_ATR_BYTES, MAX_IDENTITY_RESPONSE_BYTES,
+    MAX_READER_LIST_BYTES, REGISTERED_J3R180_ATR,
 };
 
 const _: [(); MAX_ATR_BYTES] = [(); pcsc::MAX_ATR_SIZE];
 
-pub struct PcscIdentityBackend {
+struct PcscIdentityBackend {
     context: Context,
 }
 
 impl PcscIdentityBackend {
-    pub fn new() -> Result<Self, IdentityError> {
+    fn new() -> Result<Self, IdentityError> {
         match catch_unwind(|| Context::establish(Scope::User)) {
             Ok(Ok(context)) => Ok(Self { context }),
             Ok(Err(_)) => Err(IdentityError::ContextUnavailable),
             Err(_) => Err(IdentityError::BoundaryPanicked),
         }
     }
+}
+
+pub fn execute_pcsc_identity(
+    metadata: ValidatedMetadata,
+) -> Result<(Vec<u8>, IdentityOutcome), IdentityError> {
+    let record = match PcscIdentityBackend::new() {
+        Ok(mut backend) => run_identity(metadata, &mut backend),
+        Err(error) => IdentityRecord {
+            metadata,
+            readers: Vec::new(),
+            events: Vec::new(),
+            observed_atr: None,
+            observed_protocol: None,
+            exchanges: core::array::from_fn(|_| IdentityExchange::default()),
+            disconnected: None,
+            outcome: IdentityOutcome::Reject(error),
+        },
+    };
+    let outcome = record.outcome;
+    encode_identity_transcript(&record).map(|transcript| (transcript, outcome))
 }
 
 impl IdentityBackend for PcscIdentityBackend {

@@ -5,9 +5,8 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use qk_card_enrollment::{
-    encode_identity_transcript, encode_transcript, run_enrollment, run_identity,
-    EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome, EnrollmentRecord, IdentityExchange,
-    IdentityOutcome, IdentityRecord, PcscEnrollmentBackend, PcscIdentityBackend,
+    encode_transcript, execute_pcsc_identity, run_enrollment, EnrollmentMetadata, EnrollmentMode,
+    EnrollmentOutcome, EnrollmentRecord, IdentityOutcome, PcscEnrollmentBackend,
 };
 
 enum Command {
@@ -149,23 +148,13 @@ fn run_identity_command(metadata: EnrollmentMetadata) -> ExitCode {
         Ok(metadata) => metadata,
         Err(exit) => return exit,
     };
-    let mut backend = match PcscIdentityBackend::new() {
-        Ok(backend) => backend,
+    match execute_pcsc_identity(metadata) {
+        Ok((transcript, outcome)) => write_identity_execution(&transcript, outcome),
         Err(error) => {
-            return write_identity_record(IdentityRecord {
-                metadata,
-                readers: Vec::new(),
-                events: Vec::new(),
-                observed_atr: None,
-                observed_protocol: None,
-                exchanges: core::array::from_fn(|_| IdentityExchange::default()),
-                disconnected: None,
-                outcome: IdentityOutcome::Reject(error),
-            });
+            eprintln!("result={}", error.name());
+            ExitCode::from(1)
         }
-    };
-    let record = run_identity(metadata, &mut backend);
-    write_identity_record(record)
+    }
 }
 
 fn write_record(record: EnrollmentRecord) -> ExitCode {
@@ -186,19 +175,12 @@ fn write_record(record: EnrollmentRecord) -> ExitCode {
     }
 }
 
-fn write_identity_record(record: IdentityRecord) -> ExitCode {
-    let transcript = match encode_identity_transcript(&record) {
-        Ok(transcript) => transcript,
-        Err(error) => {
-            eprintln!("result={}", error.name());
-            return ExitCode::from(1);
-        }
-    };
-    if io::stdout().lock().write_all(&transcript).is_err() {
+fn write_identity_execution(transcript: &[u8], outcome: IdentityOutcome) -> ExitCode {
+    if io::stdout().lock().write_all(transcript).is_err() {
         eprintln!("result=OutputFailed");
         return ExitCode::from(1);
     }
-    match record.outcome {
+    match outcome {
         IdentityOutcome::Pass => ExitCode::SUCCESS,
         IdentityOutcome::Reject(_) => ExitCode::from(1),
     }
