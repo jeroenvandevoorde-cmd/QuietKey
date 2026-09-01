@@ -2,6 +2,7 @@
 
 const LIB: &str = include_str!("../src/lib.rs");
 const LIFECYCLE: &str = include_str!("../src/lifecycle.rs");
+const RUNTIME: &str = include_str!("../src/runtime.rs");
 const CARGO: &str = include_str!("../Cargo.toml");
 
 #[test]
@@ -17,10 +18,11 @@ fn manifest_depends_only_on_the_pure_ipc_leaf() {
 }
 
 #[test]
-fn crate_root_has_one_explicit_surface_and_no_unsafe_module() {
+fn crate_root_has_one_explicit_surface_and_one_feature_gated_unsafe_module() {
     assert!(LIB.contains("#![deny(unsafe_code)]"));
-    assert_eq!(LIB.matches("#[allow(unsafe_code)]").count(), 0);
+    assert_eq!(LIB.matches("#[allow(unsafe_code)]").count(), 1);
     assert!(!LIB.contains("mod unix_recv;"));
+    assert!(LIB.contains("#[cfg(feature = \"host-runtime\")]\n#[allow(unsafe_code)]\nmod runtime;"));
     assert!(LIB.contains("pub use qk_ipc::{"));
     assert!(!LIB.contains("pub mod "));
 }
@@ -50,5 +52,10 @@ fn lifecycle_has_no_process_device_secret_or_logging_operation() {
 #[test]
 fn supervisor_sources_are_entirely_safe() {
     assert!(!LIFECYCLE.contains("unsafe"));
-    assert_eq!(LIB.matches("unsafe").count(), 1);
+    assert_eq!(LIB.matches("unsafe").count(), 2);
+    assert!(!RUNTIME.contains("Secret"));
+    assert!(!RUNTIME.contains("PrivateKey"));
+    assert!(!RUNTIME.contains("println!"));
+    assert!(!RUNTIME.contains("eprintln!"));
+    assert!(!RUNTIME.contains("dbg!"));
 }

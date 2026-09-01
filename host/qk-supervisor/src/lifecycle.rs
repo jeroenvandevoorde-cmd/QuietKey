@@ -319,3 +319,265 @@ impl Default for Supervisor {
         Self::new()
     }
 }
+
+/// Exact HOST process-harness stages fixed by QK-DEC-154.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessLifecycleState {
+    DecoyRunning,
+    DecoyStopRequested,
+    DecoyReaped,
+    RuntimePrepared,
+    ProductGrantsInstalled,
+    ConnectionAcceptedAndUnlinked,
+    SessionActive,
+    Terminating,
+    ProductChildrenReaped,
+    Terminated,
+}
+
+/// Closed result facts consumed by the pure process-harness model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessLifecycleEvent {
+    WalletSessionRequested,
+    DecoyReaped,
+    RuntimePrepared,
+    ProductGrantsInstalled(MockGrantSet),
+    ConnectionAcceptedAndUnlinked,
+    ProductChildrenStartedAndParentEndpointsClosed,
+    SessionCompleted,
+    ProductChildrenReaped,
+    RuntimeRemoved,
+    ChildLost(Child),
+    ConnectionLost,
+    StepFailed,
+    CleanupFailed,
+}
+
+/// Exact next operating-system operation selected by the pure model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessLifecycleAction {
+    TerminateDecoy,
+    PrepareRuntime,
+    InstallProductGrants,
+    EstablishConnection,
+    StartProductChildren,
+    WaitForSession,
+    ReapProductChildren,
+    TerminateChildren,
+    RemoveRuntime,
+    None,
+}
+
+/// Closed process-harness rejection vocabulary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessLifecycleError {
+    InvalidTransition,
+    DecoyNotReaped,
+    GrantConflict,
+    ChildLost,
+    ConnectionLost,
+    StepFailed,
+    CleanupFailed,
+    SessionTerminated,
+}
+
+impl fmt::Display for ProcessLifecycleError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::InvalidTransition => "InvalidTransition",
+            Self::DecoyNotReaped => "DecoyNotReaped",
+            Self::GrantConflict => "GrantConflict",
+            Self::ChildLost => "ChildLost",
+            Self::ConnectionLost => "ConnectionLost",
+            Self::StepFailed => "StepFailed",
+            Self::CleanupFailed => "CleanupFailed",
+            Self::SessionTerminated => "SessionTerminated",
+        })
+    }
+}
+
+impl std::error::Error for ProcessLifecycleError {}
+
+/// One total process-harness transition result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessLifecycleOutcome {
+    Advanced(ProcessLifecycleAction),
+    FailedClosed(ProcessLifecycleError, ProcessLifecycleAction),
+}
+
+/// Pure no-restart lifecycle used by the HOST launcher and its fuzz oracle.
+pub struct ProcessLifecycle {
+    state: ProcessLifecycleState,
+    grants: MockGrantSet,
+    failure: Option<ProcessLifecycleError>,
+}
+
+impl ProcessLifecycle {
+    /// Start with only the calculator child and its exact mock grants.
+    pub const fn new() -> Self {
+        Self {
+            state: ProcessLifecycleState::DecoyRunning,
+            grants: MockGrantSet::decoy(),
+            failure: None,
+        }
+    }
+
+    /// Current process-harness stage.
+    pub const fn state(&self) -> ProcessLifecycleState {
+        self.state
+    }
+
+    /// Current exact mock grants.
+    pub const fn grants(&self) -> MockGrantSet {
+        self.grants
+    }
+
+    /// First latched failure, retained through cleanup.
+    pub const fn failure(&self) -> Option<ProcessLifecycleError> {
+        self.failure
+    }
+
+    /// Consume one externally confirmed fact and select one next operation.
+    pub fn apply(&mut self, event: ProcessLifecycleEvent) -> ProcessLifecycleOutcome {
+        if self.state == ProcessLifecycleState::Terminated {
+            return ProcessLifecycleOutcome::FailedClosed(
+                self.failure
+                    .unwrap_or(ProcessLifecycleError::SessionTerminated),
+                ProcessLifecycleAction::None,
+            );
+        }
+
+        if self.state == ProcessLifecycleState::ProductChildrenReaped
+            && event == ProcessLifecycleEvent::CleanupFailed
+        {
+            if self.failure.is_none() {
+                self.failure = Some(ProcessLifecycleError::CleanupFailed);
+            }
+            self.grants = MockGrantSet::empty();
+            self.state = ProcessLifecycleState::Terminated;
+            return ProcessLifecycleOutcome::FailedClosed(
+                self.failure.unwrap_or(ProcessLifecycleError::CleanupFailed),
+                ProcessLifecycleAction::None,
+            );
+        }
+
+        if let Some(error) = self.failure_for(event) {
+            return self.begin_failure(error);
+        }
+
+        match (self.state, event) {
+            (
+                ProcessLifecycleState::DecoyRunning,
+                ProcessLifecycleEvent::WalletSessionRequested,
+            ) => {
+                self.state = ProcessLifecycleState::DecoyStopRequested;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::TerminateDecoy)
+            }
+            (ProcessLifecycleState::DecoyStopRequested, ProcessLifecycleEvent::DecoyReaped) => {
+                self.grants = MockGrantSet::empty();
+                self.state = ProcessLifecycleState::DecoyReaped;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::PrepareRuntime)
+            }
+            (ProcessLifecycleState::DecoyReaped, ProcessLifecycleEvent::RuntimePrepared) => {
+                self.state = ProcessLifecycleState::RuntimePrepared;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::InstallProductGrants)
+            }
+            (
+                ProcessLifecycleState::RuntimePrepared,
+                ProcessLifecycleEvent::ProductGrantsInstalled(grants),
+            ) => {
+                if !grants.is_well_formed() || grants != MockGrantSet::product() {
+                    return self.begin_failure(ProcessLifecycleError::GrantConflict);
+                }
+                self.grants = grants;
+                self.state = ProcessLifecycleState::ProductGrantsInstalled;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::EstablishConnection)
+            }
+            (
+                ProcessLifecycleState::ProductGrantsInstalled,
+                ProcessLifecycleEvent::ConnectionAcceptedAndUnlinked,
+            ) => {
+                self.state = ProcessLifecycleState::ConnectionAcceptedAndUnlinked;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::StartProductChildren)
+            }
+            (
+                ProcessLifecycleState::ConnectionAcceptedAndUnlinked,
+                ProcessLifecycleEvent::ProductChildrenStartedAndParentEndpointsClosed,
+            ) => {
+                self.state = ProcessLifecycleState::SessionActive;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::WaitForSession)
+            }
+            (ProcessLifecycleState::SessionActive, ProcessLifecycleEvent::SessionCompleted) => {
+                self.grants = MockGrantSet::empty();
+                self.state = ProcessLifecycleState::Terminating;
+                ProcessLifecycleOutcome::Advanced(ProcessLifecycleAction::ReapProductChildren)
+            }
+            (ProcessLifecycleState::Terminating, ProcessLifecycleEvent::ProductChildrenReaped) => {
+                self.state = ProcessLifecycleState::ProductChildrenReaped;
+                self.cleanup_outcome(ProcessLifecycleAction::RemoveRuntime)
+            }
+            (
+                ProcessLifecycleState::ProductChildrenReaped,
+                ProcessLifecycleEvent::RuntimeRemoved,
+            ) => {
+                self.state = ProcessLifecycleState::Terminated;
+                self.cleanup_outcome(ProcessLifecycleAction::None)
+            }
+            (state, event) if Self::attempts_product_work_before_reap(state, event) => {
+                self.begin_failure(ProcessLifecycleError::DecoyNotReaped)
+            }
+            _ => self.begin_failure(ProcessLifecycleError::InvalidTransition),
+        }
+    }
+
+    const fn failure_for(&self, event: ProcessLifecycleEvent) -> Option<ProcessLifecycleError> {
+        match event {
+            ProcessLifecycleEvent::ChildLost(_) => Some(ProcessLifecycleError::ChildLost),
+            ProcessLifecycleEvent::ConnectionLost => Some(ProcessLifecycleError::ConnectionLost),
+            ProcessLifecycleEvent::StepFailed => Some(ProcessLifecycleError::StepFailed),
+            ProcessLifecycleEvent::CleanupFailed => Some(ProcessLifecycleError::CleanupFailed),
+            _ => None,
+        }
+    }
+
+    const fn attempts_product_work_before_reap(
+        state: ProcessLifecycleState,
+        event: ProcessLifecycleEvent,
+    ) -> bool {
+        matches!(
+            state,
+            ProcessLifecycleState::DecoyRunning | ProcessLifecycleState::DecoyStopRequested
+        ) && matches!(
+            event,
+            ProcessLifecycleEvent::RuntimePrepared
+                | ProcessLifecycleEvent::ProductGrantsInstalled(_)
+                | ProcessLifecycleEvent::ConnectionAcceptedAndUnlinked
+                | ProcessLifecycleEvent::ProductChildrenStartedAndParentEndpointsClosed
+        )
+    }
+
+    fn begin_failure(&mut self, error: ProcessLifecycleError) -> ProcessLifecycleOutcome {
+        if self.failure.is_none() {
+            self.failure = Some(error);
+        }
+        self.grants = MockGrantSet::empty();
+        self.state = ProcessLifecycleState::Terminating;
+        ProcessLifecycleOutcome::FailedClosed(
+            self.failure.unwrap_or(error),
+            ProcessLifecycleAction::TerminateChildren,
+        )
+    }
+
+    fn cleanup_outcome(&self, action: ProcessLifecycleAction) -> ProcessLifecycleOutcome {
+        match self.failure {
+            Some(error) => ProcessLifecycleOutcome::FailedClosed(error, action),
+            None => ProcessLifecycleOutcome::Advanced(action),
+        }
+    }
+}
+
+impl Default for ProcessLifecycle {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -6,6 +6,11 @@ license = "Apache-2.0"
 publish = false
 description = "HOST-only QuietKey child-lifecycle, mock-grant, and Unix receive-boundary reference."
 
+[[bin]]
+name = "qk-supervisor-host"
+path = "src/bin/qk-supervisor-host.rs"
+required-features = ["host-runtime"]
+
 [features]
 default = []
 fuzzing = []
