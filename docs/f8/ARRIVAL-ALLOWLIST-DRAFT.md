@@ -1,6 +1,6 @@
 # F8 Arrival Allowlist Activation Record
 
-QK-F8-IDENT-V1 STOPPED; QK-F8-IDENT-V2 PREPARED
+QK-F8-IDENT-V1 STOPPED; QK-F8-IDENT-V2 SESSION 1 REGISTERED
 
 The earlier state marker `DRAFT - NOT ACTIVE - ZERO APDU COMMANDS AUTHORIZED`
 is retained as a historical G0 comparison fact only and is superseded for the
@@ -12,8 +12,9 @@ unfilled V1 schedule after its first session stopped and registers V2.
 The mock registration `QK-F8-G0-EMPTY-V1` and enrollment registration
 `QK-F8-ENROLL-EMPTY-V1` remain empty. QK-DEC-153-SUP-002 registers the exact
 candidate below as `QK-F8-IDENT-V2` only through the private fixed-sequence
-identity adapter. Sessions remain stopped until its row and final tool source
-receive the required review.
+identity adapter. The first session ran only after its row and final tool source
+received the required review. After that registered first V2 session, later
+sessions remain stopped under the evidence-ledger review gates.
 
 No command byte, AID, response, status word, size, timeout, repetition or
 sequence may be inferred from generic J3R180, JCOP, GlobalPlatform, Java Card
@@ -42,10 +43,12 @@ describe or authorize the separately fixed `QK-F8-IDENT-V2` adapter.
 The stopped V1 session on specimen `J3R180-02` reached its first command once,
 received `69 85`, sent no second command and disconnected cleanly. Its source
 commit and supplied timestamp are `800da1a2b6158e08195237c2523cb560a957571a`
-and `2026-09-01T14:00:40Z`; exact private transcript byte count and SHA-256 are
-still owed before evidence registration. The result is compatible with the
-absence of an application context, while both pinned behavioral sources SELECT
-before GET DATA; it proves neither the internal cause nor any capability.
+and `2026-09-01T14:00:40Z`; private transcript `identity-J3R180-02.txt` is 919
+bytes with SHA-256
+`5b5b08b339fc813462dde6a0080de60d98e9e07d4333cfd5d1fe3b4e3a3cf599`.
+The result is compatible with the absence of an application context, while both
+pinned behavioral sources SELECT before GET DATA; it proves neither the
+internal cause nor any capability.
 
 The V2 identity sequence is exact:
 
@@ -62,6 +65,12 @@ The V2 identity sequence is exact:
 3. `80 CA 9F 7F 00` (5 bytes), at most once and third, only after the second
    response meets that exact grammar. Its purpose is CPLC data.
    Success is exactly `9F 7F 2A` followed by 42 bytes and then status `9000`.
+
+The first V2 session, on J3R180-02, completed all three commands and is
+registered by exact private transcript identity in `IDENTITY-MANIFEST.md`.
+The J3R180-03 session remains stopped until that evidence commit is reviewed;
+the protected J3R180-01 session remains stopped until both earlier procedures
+succeed and are registered.
 
 For the first two commands, canonical definite length is short form for value
 lengths 0 through 127 or `81` followed by lengths 128 through 253; indefinite,
@@ -80,7 +89,7 @@ reordered, repeated, corrected or explored during execution.
 - [x] QK-DEC-153-SUP-002 registers the exact V2 sequence and fresh three-session order.
 - [x] Code table and tests change in the same bounded activation range.
 
-No V2 identity session may run before the final tool source commit is published
-and reviewed.
+No later V2 identity session may run before its preceding evidence gate is
+satisfied.
 Any unlisted behavior stops and returns to Owner disposition rather than being
 explored ad hoc.

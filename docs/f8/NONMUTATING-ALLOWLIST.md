@@ -45,8 +45,8 @@ recorded verbatim. Any transport, bound, status or grammar failure is named,
 attempts disconnect, preserves the first failure, prevents any later command
 and stops for Owner disposition. On its only physical session, specimen
 `J3R180-02` returned status `69 85` to row 1, the second command was not sent,
-and the registration stopped. Its exact private artifact identity remains
-pending. QK-F8-IDENT-V1 authorizes no further session.
+and the registration stopped. Its exact private artifact identity is registered
+in `IDENTITY-MANIFEST.md`. QK-F8-IDENT-V1 authorizes no further session.
 
 ## Registration QK-F8-IDENT-V2
 
@@ -69,6 +69,12 @@ attempts disconnect, preserves the first failure, prevents every later command
 and stops for Owner disposition. There is no other `SELECT`, caller-supplied
 command, retry, `61xx` follow-up, `6Cxx` correction, chaining, alternate CLA,
 resize-and-resend or exploration.
+
+The J3R180-02 V2 session completed the three-command sequence and its exact
+private artifact identity is registered in `IDENTITY-MANIFEST.md`. The
+J3R180-03 session remains stopped until that evidence commit is reviewed; the
+protected J3R180-01 session remains stopped until both earlier procedures
+succeed and are registered.
 
 ## Registration QK-F8-G0-EMPTY-V1
 

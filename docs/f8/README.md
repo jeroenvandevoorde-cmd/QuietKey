@@ -40,20 +40,22 @@ registered in `ENROLLMENT-MANIFEST.md`.
 
 The stopped `QK-F8-IDENT-V1` registration authorizes no further session. Its
 single J3R180-02 attempt returned `69 85` to `80 CA 00 66 00`, sent no later
-command and disconnected cleanly; exact private artifact registration remains
-pending. The registered replacement `QK-F8-IDENT-V2`, after the final tool
-source commit is published and reviewed, permits one fixed private adapter to
-issue exactly `00 A4 04 00 00`, then only after validation exactly
+command and disconnected cleanly; its exact private artifact identity is
+registered in `IDENTITY-MANIFEST.md`. The registered replacement
+`QK-F8-IDENT-V2` permits one fixed private adapter to issue exactly
+`00 A4 04 00 00`, then only after validation exactly
 `80 CA 00 66 00`, then only after validation exactly `80 CA 9F 7F 00`.
 Generic transmit remains mechanically refused as
 `ApduTransmitNotAuthorized`; no caller supplies an APDU.
 
 Fresh V2 contact order is `J3R180-02`, then `J3R180-03` only after 02 passes,
 then protected reference `J3R180-01` only after both prior sessions pass. Any
-non-PASS identity outcome stops the sequence for Owner disposition. No
-V2 identity-read session or result is registered yet. The labeling photographs
-remain an optional, unhashed private-custody fact under QK-DEC-148; no present
-or future step depends on them.
+non-PASS identity outcome stops the sequence for Owner disposition. The
+J3R180-02 V2 PASS artifact is registered; J3R180-03 remains stopped until that
+evidence commit is reviewed, and J3R180-01 remains stopped until both earlier
+procedures succeed and are registered. The labeling photographs remain an
+optional, unhashed private-custody fact under QK-DEC-148; no present or future
+step depends on them.
 
 ## Enrollment evidence boundary
 
@@ -96,8 +98,8 @@ format nor changes any existing F8 run packet.
 - `ARRIVAL-ALLOWLIST-DRAFT.md`: retained activation record for the stopped V1
   sequence and the three-command V2 replacement.
 - `ENROLLMENT-MANIFEST.md`: completed enrollment evidence ledger.
-- `IDENTITY-MANIFEST.md`: identity transcript contract and pending three-row
-  ledger.
+- `IDENTITY-MANIFEST.md`: registered stopped V1 artifact and the V2 transcript
+  ledger, with row 1 registered and rows 2 and 3 stopped.
 - `RUN-REGISTER.md` and `EXECUTION-PACKETS.md`: the existing seven future bench
   packets, still blocked until their own Owner rows.
 
