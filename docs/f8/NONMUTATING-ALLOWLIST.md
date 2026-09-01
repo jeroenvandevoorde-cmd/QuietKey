@@ -70,12 +70,12 @@ and stops for Owner disposition. There is no other `SELECT`, caller-supplied
 command, retry, `61xx` follow-up, `6Cxx` correction, chaining, alternate CLA,
 resize-and-resend or exploration.
 
-The J3R180-02 and J3R180-03 V2 sessions completed the three-command sequence,
-and both exact private artifact identities are registered in
-`IDENTITY-MANIFEST.md`. The protected J3R180-01 session remains stopped until
-the J3R180-03 evidence commit is checked by the LOA. The single recorded
-ordering departure for J3R180-03 grants no authority for another session to run
-ahead of its ledger.
+The J3R180-02, J3R180-03 and protected J3R180-01 V2 sessions completed the
+three-command sequence, and all three exact private artifact identities are
+registered in `IDENTITY-MANIFEST.md`. The single recorded ordering departure
+for J3R180-03 stands; J3R180-01 followed the required row-2 evidence gate. The
+fixed sequence is complete, and QK-DEC-153-SUP-002 authorizes no further
+identity session.
 
 ## Registration QK-F8-G0-EMPTY-V1
 

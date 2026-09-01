@@ -48,16 +48,14 @@ registered in `IDENTITY-MANIFEST.md`. The registered replacement
 Generic transmit remains mechanically refused as
 `ApduTransmitNotAuthorized`; no caller supplies an APDU.
 
-Fresh V2 contact order is `J3R180-02`, then `J3R180-03` only after 02 passes,
-then protected reference `J3R180-01` only after both prior sessions pass. Any
-non-PASS identity outcome stops the sequence for Owner disposition. The
-J3R180-02 and J3R180-03 V2 PASS artifacts are registered. J3R180-01 remains
-stopped until the J3R180-03 evidence commit is checked by the LOA. The Owner
-records that J3R180-03 ran after the LOA check of row 1 but before row 1 was
-registered on `main`; that observation stands, and no further identity session
-may run ahead of its ledger. The labeling photographs remain an optional,
-unhashed private-custody fact under QK-DEC-148; no present or future step
-depends on them.
+Fresh V2 contact order was `J3R180-02`, then `J3R180-03`, then protected
+reference `J3R180-01`. All three V2 PASS artifacts are registered and the
+sequence is complete. The Owner records that J3R180-03 ran after the LOA check
+of row 1 but before row 1 was registered on `main`; that observation stands.
+J3R180-01 ran after the required LOA check of the row-2 evidence commit.
+QK-DEC-153-SUP-002 authorizes no further identity session. The labeling
+photographs remain an optional, unhashed private-custody fact under QK-DEC-148;
+no present or future step depends on them.
 
 ## Enrollment evidence boundary
 
@@ -73,11 +71,11 @@ redirects output into the private bundle, and `ENROLLMENT-MANIFEST.md` registers
 the later exact byte counts and SHA-256 values.
 
 Serials and all identity CPLC, Card Data, FCI, raw-transcript and APDU bytes
-remain verbatim in durable private Owner custody and are hash-bound when the
-identity manifest is completed. The repository publishes aliases, exact byte
+remain verbatim in durable private Owner custody and are hash-bound by the
+completed identity manifest. The repository publishes aliases, exact byte
 counts, SHA-256 values, timestamps, tool and source commits, custody paths,
-counts and each specimen ATR verbatim, but never publishes the FCI, CPLC or
-Card Data bytes.
+counts and each specimen ATR verbatim, but never publishes the FCI, CPLC or Card
+Data bytes.
 The absence of raw private evidence from Git is deliberate, not a license to
 normalize it.
 
@@ -101,7 +99,7 @@ format nor changes any existing F8 run packet.
   sequence and the three-command V2 replacement.
 - `ENROLLMENT-MANIFEST.md`: completed enrollment evidence ledger.
 - `IDENTITY-MANIFEST.md`: registered stopped V1 artifact and the V2 transcript
-  ledger, with rows 1 and 2 registered and row 3 stopped.
+  ledger, with all three rows registered and the sequence complete.
 - `RUN-REGISTER.md` and `EXECUTION-PACKETS.md`: the existing seven future bench
   packets, still blocked until their own Owner rows.
 

@@ -1,6 +1,6 @@
 # F8 Arrival Allowlist Activation Record
 
-QK-F8-IDENT-V1 STOPPED; QK-F8-IDENT-V2 SESSIONS 1 AND 2 REGISTERED
+QK-F8-IDENT-V1 STOPPED; QK-F8-IDENT-V2 SEQUENCE COMPLETE
 
 The earlier state marker `DRAFT - NOT ACTIVE - ZERO APDU COMMANDS AUTHORIZED`
 is retained as a historical G0 comparison fact only and is superseded for the
@@ -13,8 +13,8 @@ The mock registration `QK-F8-G0-EMPTY-V1` and enrollment registration
 `QK-F8-ENROLL-EMPTY-V1` remain empty. QK-DEC-153-SUP-002 registers the exact
 candidate below as `QK-F8-IDENT-V2` only through the private fixed-sequence
 identity adapter. The first session ran only after its row and final tool source
-received the required review. The first two V2 sessions are registered; the
-protected final session remains stopped under the evidence-ledger review gate.
+received the required review. All three V2 sessions are registered, and
+QK-DEC-153-SUP-002 authorizes no further identity session after row 3.
 
 No command byte, AID, response, status word, size, timeout, repetition or
 sequence may be inferred from generic J3R180, JCOP, GlobalPlatform, Java Card
@@ -66,12 +66,11 @@ The V2 identity sequence is exact:
    response meets that exact grammar. Its purpose is CPLC data.
    Success is exactly `9F 7F 2A` followed by 42 bytes and then status `9000`.
 
-The first two V2 sessions, on J3R180-02 and J3R180-03, completed all three
-commands and are registered by exact private transcript identity in
-`IDENTITY-MANIFEST.md`. The protected J3R180-01 session remains stopped until
-the J3R180-03 evidence commit is checked by the LOA. J3R180-03 is the single
-Owner-recorded ordering departure; no further identity session may run ahead of
-its ledger.
+All three V2 sessions, on J3R180-02, J3R180-03 and protected J3R180-01,
+completed all three commands and are registered by exact private transcript
+identity in `IDENTITY-MANIFEST.md`. J3R180-03 is the single Owner-recorded
+ordering departure; J3R180-01 ran after the required LOA check of the row-2
+evidence commit. The fixed three-session sequence is complete.
 
 For the first two commands, canonical definite length is short form for value
 lengths 0 through 127 or `81` followed by lengths 128 through 253; indefinite,
@@ -90,7 +89,6 @@ reordered, repeated, corrected or explored during execution.
 - [x] QK-DEC-153-SUP-002 registers the exact V2 sequence and fresh three-session order.
 - [x] Code table and tests change in the same bounded activation range.
 
-No later V2 identity session may run before its preceding evidence gate is
-satisfied.
+QK-DEC-153-SUP-002 authorizes no later V2 identity session.
 Any unlisted behavior stops and returns to Owner disposition rather than being
 explored ad hoc.

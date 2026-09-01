@@ -1,6 +1,6 @@
 # F8 Identity-Read Evidence Manifest
 
-EXPERIMENTAL - V1 ARTIFACT REGISTERED - V2 SESSIONS 1 AND 2 REGISTERED
+EXPERIMENTAL - V1 ARTIFACT REGISTERED - V2 SEQUENCE COMPLETE
 
 ## Registration boundary
 
@@ -9,10 +9,9 @@ QK-DEC-153 authorized `QK-F8-IDENT-V1`. Its first and only session, on
 QK-DEC-153-SUP-002 supersedes the unfilled V1 schedule with one fresh fixed
 read-only `QK-F8-IDENT-V2` session per enrolled specimen, in order
 `J3R180-02`, `J3R180-03`, `J3R180-01`. A non-PASS result stops the sequence for
-Owner disposition. The J3R180-02 and J3R180-03 V2 sessions are registered
-below. The protected J3R180-01 session remains stopped until the J3R180-03
-evidence commit is checked by the LOA. This file authorizes no command beyond
-the exact V2 sequence.
+Owner disposition. All three V2 sessions are registered below and the fixed
+sequence is complete. QK-DEC-153-SUP-002 authorizes no further identity
+session. This file authorizes no command beyond the exact V2 sequence.
 
 The frozen `ENROLLMENT-MANIFEST.md` statement that no further card contact is
 authorized closes only `QK-F8-ENROLL-EMPTY-V1`; QK-DEC-153 and its V2
@@ -21,10 +20,10 @@ no further enrollment session.
 
 The complete raw transcripts, reader and specimen serials, and every Card Data,
 CPLC, request and response byte stay in durable private Owner custody. The V1
-artifact identity and the first two V2 artifact identities are registered
-below. Each V2 row is filled by its own Owner-directed evidence commit after
-its session. The repository continues to publish ATRs verbatim but never
-publishes FCI, Card Data or CPLC bytes.
+artifact identity and all three V2 artifact identities are registered below.
+Each V2 row was filled by its own Owner-directed evidence commit after its
+session. The repository continues to publish ATRs verbatim but never publishes
+FCI, Card Data or CPLC bytes.
 
 ## Registered V1 stopped-session artifact
 
@@ -77,13 +76,21 @@ registered on `main`, departing from the QK-DEC-153-SUP-002 ordering. The
 observation stands and is registered below. No further identity session may run
 ahead of its preceding ledger registration and review.
 
+The protected J3R180-01 V2 procedure used exactly one invocation and one
+timestamped output name after the required LOA check of the row-2 evidence
+commit. The retained artifact check reproduced its hash and exact schema, and
+all three responses matched the registered grammars. Its FCI and Card
+Recognition Data bytes were byte-identical to specimens 02 and 03; its CPLC
+differed in the IC serial and pre-personalization fields. Those bytes remain in
+Owner custody. This third registered row completes the fixed V2 sequence.
+
 ## V2 evidence ledger
 
 | Required order | Specimen alias | Public ATR | Protocol | Private transcript alias | Exact byte count | SHA-256 | Tool/source commit | UTC timestamp | Private custody path | tx/rx counts | Result |
 |---:|---|---|---|---|---:|---|---|---|---|---|---|
 | 1 | `J3R180-02` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `identity-v2-J3R180-02.txt` | 1312 | `d35b5bca64ae16d160ddc5de969a71b9eb8caf83334d84010f1f6698506631c7` | `qk-card-enrollment 0.0.3` / source `f4cd9e73afb5993eb3427bb8558dfd853988a7ff` | `2026-09-01T18:28:54Z` | Private F8 bundle in locked storage at Owner premises | `3/3` | PASS; 12 events all PASS; all three responses matched the registered grammars; disconnect PASS |
 | 2 | `J3R180-03` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `identity-v2-J3R180-03-2026-09-01T18:55:05Z.txt` | 1312 | `f9146888489e53a1f8ddecab022cc34fb1ea24921278ac8a6f87211d46356493` | `qk-card-enrollment 0.0.3` / source `f4cd9e73afb5993eb3427bb8558dfd853988a7ff` | `2026-09-01T18:55:05Z` | Private F8 bundle in locked storage at Owner premises | `3/3` | PASS; 12 events all PASS; all three responses matched the registered grammars; disconnect PASS; exactly one invocation |
-| 3 | `J3R180-01` | `3bd518ff8191fe1fc38073c821100a` | `T1` | PENDING | PENDING | PENDING | `qk-card-enrollment 0.0.3` / PENDING | PENDING | Private F8 bundle in locked storage at Owner premises | PENDING | STOPPED - LOA check of row 2 evidence commit required before session |
+| 3 | `J3R180-01` | `3bd518ff8191fe1fc38073c821100a` | `T1` | `identity-v2-J3R180-01-2026-09-01T21:21:10Z.txt` | 1312 | `22a3dc9c69cfed0eb3f25314b4bda16ef65b373e77499979978628f6f4415600` | `qk-card-enrollment 0.0.3` / source `edd4bb18754cb3498aa11423bdac33244552a5fc` | `2026-09-01T21:21:10Z` | Private F8 bundle in locked storage at Owner premises | `3/3` | PASS; 12 events all PASS; all three responses matched the registered grammars; disconnect PASS; exactly one invocation |
 
 No row may be filled from terminal recollection or normalized output. Each row
 is tied to the exact retained private artifact bytes supplied by the Owner.
