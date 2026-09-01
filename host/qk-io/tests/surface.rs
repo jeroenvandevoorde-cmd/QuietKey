@@ -125,6 +125,37 @@ fn host_process_surface_is_feature_locked_no_secret_and_control_only() {
     assert!(PROCESS.contains(".accept(&frame, None, None)"));
 }
 
+#[test]
+fn host_binary_has_one_silent_unwind_boundary_and_only_the_fixed_statuses() {
+    assert_eq!(
+        PROCESS_BIN
+            .matches("const INVOCATION_REJECTED: u8 = 64;")
+            .count(),
+        1
+    );
+    assert_eq!(
+        PROCESS_BIN
+            .matches("const RUNTIME_TERMINATED: u8 = 70;")
+            .count(),
+        1
+    );
+    assert_eq!(PROCESS_BIN.matches("fn main() -> ExitCode {").count(), 1);
+    assert_eq!(PROCESS_BIN.matches("fn run() -> ExitCode {").count(), 1);
+    assert_eq!(
+        PROCESS_BIN
+            .matches("std::panic::set_hook(Box::new(|_| {}));")
+            .count(),
+        1
+    );
+    assert_eq!(
+        PROCESS_BIN.matches("std::panic::catch_unwind(run)").count(),
+        1
+    );
+    assert_eq!(PROCESS_BIN.matches("ExitCode::SUCCESS").count(), 1);
+    assert_eq!(PROCESS_BIN.matches("std::env::").count(), 1);
+    assert!(!PROCESS_BIN.contains("var_os"));
+}
+
 fn public_methods(source: &str) -> Vec<&str> {
     source
         .lines()

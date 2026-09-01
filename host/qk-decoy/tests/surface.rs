@@ -60,6 +60,36 @@ fn process_owner_adds_no_controller_device_or_wallet_protocol() {
 }
 
 #[test]
+fn host_binary_has_one_silent_unwind_boundary_and_only_the_fixed_statuses() {
+    assert_eq!(
+        PROCESS_BIN
+            .matches("const INVOCATION_REJECTED: u8 = 64;")
+            .count(),
+        1
+    );
+    assert_eq!(
+        PROCESS_BIN
+            .matches("const RUNTIME_TERMINATED: u8 = 70;")
+            .count(),
+        1
+    );
+    assert_eq!(PROCESS_BIN.matches("fn main() -> ExitCode {").count(), 1);
+    assert_eq!(PROCESS_BIN.matches("fn run() -> ExitCode {").count(), 1);
+    assert_eq!(
+        PROCESS_BIN
+            .matches("std::panic::set_hook(Box::new(|_| {}));")
+            .count(),
+        1
+    );
+    assert_eq!(
+        PROCESS_BIN.matches("std::panic::catch_unwind(run)").count(),
+        1
+    );
+    assert_eq!(PROCESS_BIN.matches("std::env::").count(), 1);
+    assert!(!PROCESS_BIN.contains("var_os"));
+}
+
+#[test]
 fn production_source_has_no_secret_os_ipc_crypto_or_logging_surface() {
     for forbidden in [
         "qk_ipc",
