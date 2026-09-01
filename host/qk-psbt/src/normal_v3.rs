@@ -7,6 +7,7 @@
 use crate::bip143::{
     sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, Bip143Precomputed, SIGHASH_ALL,
 };
+use crate::kit_sweep_v3::ValidatedKitSweepV3Parts;
 use crate::wipe;
 use crate::{
     analyze_descriptor_ownership_v2, build_review_v3, canonical_serialize, parse, InputSource,
@@ -846,6 +847,49 @@ pub fn finalize_validated_normal_v3(
         &proof.descriptor,
         &proof.review,
         proof.review_hash(),
+    )
+}
+
+/// Finalize one already-signed exact Kit sweep through the normal-v3 engine.
+///
+/// This adapter accepts only the move-only exact-sweep proof. It translates
+/// its already-proven input plans into the private normal-v3 plan owner, then
+/// delegates signature verification, ordered insertion, canonicalization,
+/// witness assembly, extraction, reparse, and fresh verification to
+/// [`finalize_validated_normal_v3`]. It does not add a generic finalization
+/// capability or a second implementation of those rules.
+pub fn finalize_validated_kit_sweep_v3(
+    proof: ValidatedKitSweepV3Parts,
+    role_a_signatures: &[NormalSubmittedSignatureV3<'_>],
+    role_b_signatures: &[NormalSubmittedSignatureV3<'_>],
+) -> Result<FinalizedNormalV3, NormalFinalizationErrorV3> {
+    let (s0, descriptor, review, review_hash, kit_plans) = proof.into_execution_parts();
+    let mut plans = wipe::WipingValueVec::new();
+    plans
+        .try_reserve_exact(kit_plans.len())
+        .map_err(|_| NormalFinalizationErrorV3::AllocationFailed)?;
+    for kit_plan in &kit_plans {
+        plans.push(NormalInputSigningPlanV3 {
+            input_index: kit_plan.input_index(),
+            branch: kit_plan.branch(),
+            child_index: kit_plan.child_index(),
+            digest: kit_plan.digest(),
+            role_public_keys: kit_plan.role_public_keys(),
+            existing_role_signatures: kit_plan.existing_role_signatures(),
+        });
+    }
+    drop(kit_plans);
+
+    finalize_validated_normal_v3(
+        ValidatedNormalV3Parts {
+            s0,
+            descriptor,
+            review,
+            review_hash: wipe::ByteArray::new(review_hash.value()),
+            plans,
+        },
+        role_a_signatures,
+        role_b_signatures,
     )
 }
 

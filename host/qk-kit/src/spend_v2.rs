@@ -7,6 +7,11 @@
 
 use crate::RecoveredKitPayload;
 use core::fmt;
+#[cfg(feature = "process-v3")]
+use qk_psbt::{
+    finalize_validated_kit_sweep_v3, FinalizedNormalV3, NormalFinalizationErrorV3,
+    NormalSubmittedSignatureV3,
+};
 use qk_psbt::{ValidatedKitSweepV3, ValidatedKitSweepV3Parts};
 use qk_wallet_v2::{
     rebind_wallet_v2, sign_validated_kit_sweep_v3, KitSweepSigningErrorV3,
@@ -16,6 +21,8 @@ use qk_wallet_v2::{
 const PAYLOAD_BYTES: usize = 96;
 const SEED_A_OFFSET: usize = 0;
 const SIGNER_B_OFFSET: usize = 32;
+#[cfg(feature = "process-v3")]
+const MAX_SWEEP_INPUTS: usize = 100;
 
 /// Closed rejection surface for the consuming Kit-Spend math boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -131,6 +138,54 @@ impl SignedKitSweepV3 {
 
     pub fn into_execution_parts(self) -> (ValidatedKitSweepV3Parts, WalletKitSweepSignaturesV3) {
         self.signed.into_execution_parts()
+    }
+
+    /// Consume this purpose-bound signature capability into one finalized
+    /// sweep through qk-psbt's normal-v3 finalization engine.
+    ///
+    /// Signature owners remain borrowed until the delegated call returns;
+    /// neither their bytes nor the exact-sweep proof can be reused afterward.
+    #[cfg(feature = "process-v3")]
+    pub fn finalize_v3(self) -> Result<FinalizedNormalV3, NormalFinalizationErrorV3> {
+        let (proof, signatures) = self.into_execution_parts();
+        if proof.input_count() != signatures.inputs().len()
+            || proof.input_count() > MAX_SWEEP_INPUTS
+        {
+            return Err(NormalFinalizationErrorV3::ThresholdIncomplete);
+        }
+
+        let empty = NormalSubmittedSignatureV3::new(0, &[]);
+        let mut role_a = [empty; MAX_SWEEP_INPUTS];
+        let mut role_b = [empty; MAX_SWEEP_INPUTS];
+        let mut role_a_len = 0usize;
+        let mut role_b_len = 0usize;
+        for input in signatures.inputs() {
+            if let Some(signature) = input.role_a() {
+                let slot = role_a
+                    .get_mut(role_a_len)
+                    .ok_or(NormalFinalizationErrorV3::TooManyInsertions)?;
+                *slot = NormalSubmittedSignatureV3::new(input.input_index(), signature.der());
+                role_a_len = role_a_len
+                    .checked_add(1)
+                    .ok_or(NormalFinalizationErrorV3::TooManyInsertions)?;
+            }
+            if let Some(signature) = input.role_b() {
+                let slot = role_b
+                    .get_mut(role_b_len)
+                    .ok_or(NormalFinalizationErrorV3::TooManyInsertions)?;
+                *slot = NormalSubmittedSignatureV3::new(input.input_index(), signature.der());
+                role_b_len = role_b_len
+                    .checked_add(1)
+                    .ok_or(NormalFinalizationErrorV3::TooManyInsertions)?;
+            }
+        }
+        let role_a = role_a
+            .get(..role_a_len)
+            .ok_or(NormalFinalizationErrorV3::InternalInvariant)?;
+        let role_b = role_b
+            .get(..role_b_len)
+            .ok_or(NormalFinalizationErrorV3::InternalInvariant)?;
+        finalize_validated_kit_sweep_v3(proof, role_a, role_b)
     }
 }
 

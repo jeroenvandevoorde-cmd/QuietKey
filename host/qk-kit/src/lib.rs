@@ -29,6 +29,8 @@ use core::fmt;
 pub use fallback::{decode_fallback, encode_fallback};
 pub use frame::{combine_frames, encode_frame, frame_metadata};
 pub use qr::encode_qr;
+#[cfg(feature = "process-v3")]
+pub use restore_v2::StagedA1ReprintV2;
 pub use restore_v2::{
     A1ReprintDispositionV2, A1ReprintReceiptV2, A1ReprintViewV2, BoundKitRestoreV2,
     KitRestoreDispositionV2, KitRestoreErrorV2, PreparedA1ReprintV2, PreparedReplacementBV2,

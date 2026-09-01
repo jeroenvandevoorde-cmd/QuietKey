@@ -129,9 +129,9 @@ pub use kit_sweep_v3::{
 };
 #[cfg(feature = "normal-v3")]
 pub use normal_v3::{
-    build_validated_normal_v3, finalize_validated_normal_v3, FinalizedNormalV3,
-    NormalFinalizationErrorV3, NormalInputSigningPlanV3, NormalSubmittedSignatureV3, NormalV3Error,
-    ValidatedNormalV3, ValidatedNormalV3Parts,
+    build_validated_normal_v3, finalize_validated_kit_sweep_v3, finalize_validated_normal_v3,
+    FinalizedNormalV3, NormalFinalizationErrorV3, NormalInputSigningPlanV3,
+    NormalSubmittedSignatureV3, NormalV3Error, ValidatedNormalV3, ValidatedNormalV3Parts,
 };
 pub use parse::{parse, InputSource, PsbtView, UnsignedTxSummary};
 pub use raw::{Record, Records, Span};

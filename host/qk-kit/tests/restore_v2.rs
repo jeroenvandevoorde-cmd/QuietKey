@@ -251,6 +251,45 @@ fn a1_reprint_requires_exact_surviving_b_and_authenticates_scan_back() {
     assert_eq!(opened, [0xa5; 32], "failed authentication releases nothing");
 }
 
+#[cfg(feature = "process-v3")]
+#[test]
+fn staged_a1_reprint_survives_transport_yield_and_consumes_scan_back() {
+    let expected_wallet = wallet_id();
+    let a2 = hex_array::<32>(field(PROVISIONING, "a2_transcript_sha256"));
+    let staged = bound()
+        .prepare_a1_reprint(
+            surviving_b(expected_wallet, account_xpubs()[1], fingerprints()[1], a2),
+            &FRESH_REPRINT_NONCE,
+        )
+        .expect("registered surviving-B precondition")
+        .into_staged();
+
+    let mut printed = [0u8; 67];
+    printed.copy_from_slice(staged.capsule());
+    let mut scan_back = printed;
+    let receipt = staged
+        .complete_scan_back(&mut scan_back)
+        .expect("exact asynchronous scan-back");
+    assert_eq!(scan_back, [0u8; 67], "caller scan-back is consumed");
+    assert_eq!(receipt.wallet_id(), expected_wallet);
+    assert_eq!(receipt.nonce(), FRESH_REPRINT_NONCE);
+
+    let staged = bound()
+        .prepare_a1_reprint(
+            surviving_b(expected_wallet, account_xpubs()[1], fingerprints()[1], a2),
+            &FRESH_REPRINT_NONCE,
+        )
+        .expect("registered surviving-B precondition")
+        .into_staged();
+    let mut changed = *staged.capsule();
+    changed[31] ^= 1;
+    assert_eq!(
+        staged.complete_scan_back(&mut changed).err(),
+        Some(KitRestoreErrorV2::A1VerificationMismatch)
+    );
+    assert_eq!(changed, [0u8; 67], "rejected scan-back is consumed");
+}
+
 #[test]
 fn every_surviving_b_fact_mismatch_rejects_before_print() {
     let wallet = wallet_id();

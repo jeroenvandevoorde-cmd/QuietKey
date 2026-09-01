@@ -6,6 +6,10 @@ license = "Apache-2.0"
 publish = false
 description = "Fixed-memory HOST-only reference for canonical QuietKey v2 Kit shares and opaque, consuming restore and exact-sweep operations."
 
+[features]
+default = []
+process-v3 = ["qk-psbt/normal-v3"]
+
 [dependencies]
 qk-a1 = { path = "../qk-a1" }
 qk-psbt = { path = "../qk-psbt" }

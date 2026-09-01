@@ -8,6 +8,8 @@ use qk_psbt::{
     build_validated_kit_sweep_v3, parse, InputSource, KitSweepV3Error, OwnedS0, RecipientType,
     ReplacementReceiveIndexV2, ReviewV3OutputOwnership, ValidatedKitSweepV3,
 };
+#[cfg(feature = "normal-v3")]
+use qk_psbt::{finalize_validated_kit_sweep_v3, NormalSubmittedSignatureV3};
 
 const SIGNING_FIXTURE: &str = include_str!("fixtures/signing_finalization_v2.txt");
 const KIT_SPEND_FIXTURE: &str = include_str!("../../qk-host-sim/tests/fixtures/kit_spend_v2.txt");
@@ -265,6 +267,47 @@ fn exact_one_output_replacement_sweep_binds_review_and_input_plans() {
     assert_eq!(descriptor.wallet_id(), old_wallet_id);
     assert_eq!(review_hash.value(), review.review_hash().unwrap());
     assert_eq!(plans.len(), 1);
+}
+
+#[cfg(feature = "normal-v3")]
+#[test]
+fn exact_sweep_adapter_delegates_to_the_normal_v3_finalizer() {
+    let proof = build_validated_kit_sweep_v3(
+        OwnedS0::new(&unsigned_sweep(), InputSource::MicroSd).expect("bounded S0"),
+        old_descriptor(),
+        replacement_descriptor(),
+        receive_index(0),
+    )
+    .expect("exact replacement sweep");
+    let role_a = hex(field(KIT_SPEND_FIXTURE, "role_a_der_hex"));
+    let role_b = hex(field(KIT_SPEND_FIXTURE, "role_b_der_hex"));
+    let finalized = finalize_validated_kit_sweep_v3(
+        proof.into_parts(),
+        &[NormalSubmittedSignatureV3::new(0, &role_a)],
+        &[NormalSubmittedSignatureV3::new(0, &role_b)],
+    )
+    .expect("purpose-bound Kit sweep finalization");
+
+    assert_eq!(
+        finalized.finalized_psbt(),
+        hex(field(KIT_SPEND_FIXTURE, "finalized_psbt_hex"))
+    );
+    assert_eq!(
+        finalized.raw_transaction(),
+        hex(field(KIT_SPEND_FIXTURE, "raw_transaction_hex"))
+    );
+    assert_eq!(
+        finalized.finalized_psbt_sha256(),
+        hex_array(field(KIT_SPEND_FIXTURE, "finalized_psbt_sha256"))
+    );
+    assert_eq!(
+        finalized.raw_transaction_sha256(),
+        hex_array(field(KIT_SPEND_FIXTURE, "raw_transaction_sha256"))
+    );
+    assert_eq!(
+        finalized.review_hash(),
+        hex_array(field(KIT_SPEND_FIXTURE, "review_hash_hex"))
+    );
 }
 
 #[test]

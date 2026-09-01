@@ -262,6 +262,17 @@ pub struct PreparedA1ReprintV2 {
 }
 
 impl PreparedA1ReprintV2 {
+    /// Convert this one-use candidate into the staged process adapter.
+    ///
+    /// The staged owner permits the caller to copy a borrowed capsule into an
+    /// asynchronous print transport, then later consumes one scan-back buffer.
+    /// The original synchronous callback API remains unchanged.
+    #[cfg(feature = "process-v3")]
+    #[must_use]
+    pub fn into_staged(self) -> StagedA1ReprintV2 {
+        StagedA1ReprintV2 { prepared: self }
+    }
+
     /// Consume the prepared owner through one print and scan-back boundary.
     pub fn complete<F>(self, sink: F) -> Result<A1ReprintReceiptV2, KitRestoreErrorV2>
     where
@@ -299,6 +310,58 @@ impl PreparedA1ReprintV2 {
         Ok(A1ReprintReceiptV2 {
             wallet_id,
             nonce: self.nonce,
+            capsule_sha256,
+        })
+    }
+}
+
+/// One-use A1 candidate retained across asynchronous print and scan-back.
+///
+/// The candidate and recovered payload remain inside their existing wiping
+/// owners. The only view is a borrow for constructing the print artifact; the
+/// only completion consumes this owner and takes then clears the caller's
+/// exact scan-back buffer before authenticating it.
+#[cfg(feature = "process-v3")]
+pub struct StagedA1ReprintV2 {
+    prepared: PreparedA1ReprintV2,
+}
+
+#[cfg(feature = "process-v3")]
+impl StagedA1ReprintV2 {
+    /// Borrow the generated capsule for one typed print-artifact constructor.
+    #[must_use]
+    pub fn capsule(&self) -> &[u8; CAPSULE_BYTES] {
+        self.prepared.candidate.as_bytes()
+    }
+
+    /// Consume one exact scan-back and authenticate it against the candidate.
+    ///
+    /// The caller array is zeroed immediately by ownership transfer. Rejection
+    /// and success both clear the retained candidate, payload, and scan-back.
+    pub fn complete_scan_back(
+        self,
+        scan_back: &mut [u8; CAPSULE_BYTES],
+    ) -> Result<A1ReprintReceiptV2, KitRestoreErrorV2> {
+        let scan_back = Secret::take(scan_back);
+        if !constant_time_eq(self.prepared.candidate.as_bytes(), scan_back.as_bytes()) {
+            return Err(KitRestoreErrorV2::A1VerificationMismatch);
+        }
+
+        let seed_a = payload_part(self.prepared.bound.payload._bytes.as_bytes(), SEED_A_OFFSET);
+        let a2 = payload_part(self.prepared.bound.payload._bytes.as_bytes(), A2_OFFSET);
+        let wallet_id = self.prepared.bound.wallet.wallet_id();
+        let mut recovered = [0u8; 32];
+        if qk_a1::decrypt(a2, &wallet_id, scan_back.as_bytes(), &mut recovered).is_err()
+            || !constant_time_eq(seed_a, &recovered)
+        {
+            wipe(&mut recovered);
+            return Err(KitRestoreErrorV2::A1VerificationMismatch);
+        }
+        wipe(&mut recovered);
+        let capsule_sha256 = sha256(self.prepared.candidate.as_bytes());
+        Ok(A1ReprintReceiptV2 {
+            wallet_id,
+            nonce: self.prepared.nonce,
             capsule_sha256,
         })
     }

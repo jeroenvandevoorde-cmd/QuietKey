@@ -28,6 +28,7 @@ fn public_surface_is_exactly_the_fixed_codec_and_opaque_owner() {
             "pub use fallback::{decode_fallback, encode_fallback};",
             "pub use frame::{combine_frames, encode_frame, frame_metadata};",
             "pub use qr::encode_qr;",
+            "pub use restore_v2::StagedA1ReprintV2;",
             "pub use restore_v2::{",
             "pub use spend_v2::{BoundKitSpendV2, KitSpendMathErrorV3, SignedKitSweepV3};",
             "pub const FRAME_LEN: usize = 142;",
@@ -88,7 +89,11 @@ fn public_surface_is_exactly_the_fixed_codec_and_opaque_owner() {
             "pub struct PreparedReplacementBV2 {",
             "pub fn complete<F>(self, sink: F) -> Result<ReplacementBReceiptV2, KitRestoreErrorV2>",
             "pub struct PreparedA1ReprintV2 {",
+            "pub fn into_staged(self) -> StagedA1ReprintV2 {",
             "pub fn complete<F>(self, sink: F) -> Result<A1ReprintReceiptV2, KitRestoreErrorV2>",
+            "pub struct StagedA1ReprintV2 {",
+            "pub fn capsule(&self) -> &[u8; CAPSULE_BYTES] {",
+            "pub fn complete_scan_back(",
             "pub struct ReplacementBViewV2<'view> {",
             "pub const fn wallet_id(&self) -> &[u8; 32] {",
             "pub const fn account_xpub(&self) -> &[u8; 111] {",
@@ -118,6 +123,7 @@ fn public_surface_is_exactly_the_fixed_codec_and_opaque_owner() {
             "pub fn wallet_id(&self) -> [u8; 32] {",
             "pub fn input_count(&self) -> usize {",
             "pub fn into_execution_parts(self) -> (ValidatedKitSweepV3Parts, WalletKitSweepSignaturesV3) {",
+            "pub fn finalize_v3(self) -> Result<FinalizedNormalV3, NormalFinalizationErrorV3> {",
         ]
     );
     assert!(public_lines(SHA256).is_empty());
@@ -312,6 +318,7 @@ fn restore_secret_owners_are_opaque_and_the_crate_exposes_no_signing_path() {
         "BoundKitRestoreV2",
         "PreparedReplacementBV2",
         "PreparedA1ReprintV2",
+        "StagedA1ReprintV2",
     ] {
         let definition = format!("pub struct {owner} {{");
         let start = RESTORE.find(&definition).expect("restore owner definition");
