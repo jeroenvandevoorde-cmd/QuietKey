@@ -1,4 +1,4 @@
-# QuietKey M21/M22/M23/M24/M25/M26/M27/M28/M29/M30/v2 slices 4, 7, 8, 9, 10, and 11, QK-DEC-136 firmware, and QK-DEC-140/QK-DEC-142/QK-DEC-143/QK-DEC-144/QK-DEC-149/QK-DEC-151 process slices reviewed active dependency closure; tab-separated.
+# QuietKey M21/M22/M23/M24/M25/M26/M27/M28/M29/M30/v2 slices 4, 7, 8, 9, 10, and 11, QK-DEC-136 firmware, and QK-DEC-140/QK-DEC-142/QK-DEC-143/QK-DEC-144/QK-DEC-149/QK-DEC-151/QK-DEC-154 process slices reviewed active dependency closure; tab-separated.
 # kind	name	version	checksum_sha256	provenance_or_checksum_subject	license	purpose
 registry	arbitrary	1.4.2	c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1	crates.io-package	MIT OR Apache-2.0	libfuzzer-sys input bridge
 registry	cc	1.4.4	0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273	crates.io-package	MIT OR Apache-2.0	libFuzzer native build helper
@@ -12,17 +12,17 @@ path	qk-a1-codec	0.0.1	4a0926146ada5d50fb36739b2dde447fb0f3b6d838761f68929b611ec
 path	qk-bbqr	0.0.1	6071e3a64b66493b20d7826a012cdbab35111e1077c873a00dc61bb2c315dcf2	host/qk-bbqr/Cargo.toml	Apache-2.0	M22 BBQr codec/reassembly, M25 finalized-PSBT framing, and M30 transaction framing targets
 path	qk-bip32	0.0.1	f865a5b202692a4045024bcae60eb7bbb31b189f99efd8e83684a7a60c221654	host/qk-bip32/Cargo.toml	Apache-2.0	descriptor parser transitive boundary
 path	qk-card-trace	0.0.1	cad9da03ce93d981bbdc40f8a4a13243116e5848b6dc01bd799c405d0de0545c	host/qk-card-trace/Cargo.toml	Apache-2.0	card-trace parser target
-path	qk-core	0.0.1	719d666a80b60db6ff5f145a46d4cd203d68d2ad669add1f8f771bce6948bac0	host/qk-core/Cargo.toml	Apache-2.0	QK-DEC-144, QK-DEC-145, QK-DEC-149, and QK-DEC-151 trusted-process targets
-path	qk-decoy	0.0.1	f40e16defa420509325a7e3ab065765618e073852b91d3cdb9dea3885ba380b9	host/qk-decoy/Cargo.toml	Apache-2.0	QK-DEC-142 dependency-free bounded calculator target
+path	qk-core	0.0.1	cbfa4ed2b7d5c35ce728ea0e3a437b4d644de036107e420dfadc7d90f7dc9b8b	host/qk-core/Cargo.toml	Apache-2.0	QK-DEC-144, QK-DEC-145, QK-DEC-149, QK-DEC-151, and QK-DEC-154 trusted-process targets and HOST process closure
+path	qk-decoy	0.0.1	498090238b0b06988752fbf155a24852b7cc32800804c34e9bf47d8cfec4e6a1	host/qk-decoy/Cargo.toml	Apache-2.0	QK-DEC-142 calculator target and QK-DEC-154 dependency-free HOST process closure
 path	qk-descriptor	0.0.1	994224903fcd41eb8eabbc301fec72b02663a3a310669861497bcec8473e3adf	host/qk-descriptor/Cargo.toml	Apache-2.0	descriptor-pair parser, M23-M25/M30 workflow fixture boundary, and v2 slice-10 wallet rebind
 path	qk-host-model	0.0.1	54808cf312f17743a2b22f1fa5dc47c75f241659cc1488a8df2625d9b8abcf94	host/qk-host-model/Cargo.toml	Apache-2.0	M23 workflow state-machine transitive boundary
 path	qk-host-sim	0.0.1	bed4ddb42a80b9553ac6c1ac7cc69da39163fcaf4d54bfc5df176bf28e637a5f	host/qk-host-sim/Cargo.toml	Apache-2.0	M23 review-ready, M24 signing/finalization, M25 export, M27 typed screen-flow, M28 watch-only export, M29 manual-keypad ceremony, M30 transaction-export, v2 slice-9 Kit-intake, v2 slice-10 Kit-Restore, and v2 slice-11 Kit-Spend targets
-path	qk-io	0.0.1	a22312c52faf041bc3f9ab0eb69918770df690f5764bf825ff4419ad6d73261c	host/qk-io/Cargo.toml	Apache-2.0	QK-DEC-143 bounded no-secret transport-broker ingress, egress, and session targets
-path	qk-ipc	0.0.1	644f3a8011deda027b1a4aae73f3ff6544e6be1cccc829a86b5e198c9fed8784	host/qk-ipc/Cargo.toml	Apache-2.0	QK-DEC-140 bounded wire and endpoint-state targets
+path	qk-io	0.0.1	17bc50c6a9df8f2ddd94a3768bc3e2ba384b3616dc8c2f59875379cd14fa38ed	host/qk-io/Cargo.toml	Apache-2.0	QK-DEC-143 transport-broker targets and QK-DEC-154 no-secret HOST process closure
+path	qk-ipc	0.0.1	0de2412e32ed463d70ca2fe94a2ddb41b2d5348267b9a3be13d7feb3430cff7c	host/qk-ipc/Cargo.toml	Apache-2.0	QK-DEC-140 wire targets and QK-DEC-154 pure lifecycle and HOST receive-boundary closures
 path	qk-kit	0.0.1	f6677407980fd4f60e03c35366b1ee859030720ffba17f678a85a57f48ec8441	host/qk-kit/Cargo.toml	Apache-2.0	v2 Kit codec, generation, intake, restore, and exact-sweep boundaries through QK-DEC-151
 path	qk-provisioning	0.0.1	3de6c1193471ba8250eedfea274ac3a55ae90b33ac849be29fffd14f675be1f7	host/qk-provisioning/Cargo.toml	Apache-2.0	M26 and v2 slice-4 provisioning, v2 slice-8 setup generation, and shared v2 slice-10 wallet derivation
 path	qk-psbt	0.0.1	0c38d316552e6ae4c036f2546b1ec9f4546df9f2585c02c920f96c4e1a16fd07	host/qk-psbt/Cargo.toml	Apache-2.0	PSBT-v0 parser, M23-M25/M30 host-workflow input boundary, and QK-DEC-149 normal schema-v3 finalization leaf
 path	qk-secp	0.0.1	d57cb9d3488329182aa8901c3779654723a673723c26065c3f1542272d014764	host/qk-secp/Cargo.toml	Apache-2.0	PSBT verification, M24 public-fixture signing, M26 derivation, and v2 slice-10 public-wallet derivation boundary
-path	qk-supervisor	0.0.1	0209bc7cba2c33223c6ed85c50a26a60d1d7e4921aefada133e46efc4025ea74	host/qk-supervisor/Cargo.toml	Apache-2.0	QK-DEC-142 lifecycle and receive-boundary target
+path	qk-supervisor	0.0.1	123fbf210bd7df11288581cd9b248d91f889b2d82c08b33d90b8baa91166f75e	host/qk-supervisor/Cargo.toml	Apache-2.0	QK-DEC-142 and QK-DEC-154 pure lifecycle targets and HOST orchestration closure
 path	qk-update	0.0.1	45ec7b22e0d2834aa5a293768e4d30d4019d0920b75a72220412cc31e5edaf8e	host/qk-update/Cargo.toml	Apache-2.0	QK-DEC-136 firmware package, staging, verification, and mock lifecycle targets
 path	qk-wallet-v2	0.0.1	b84dd4775a45311ebcd6cd17de626947450596a4745ef2758fce9d464d3c56f6	host/qk-wallet-v2/Cargo.toml	Apache-2.0	v2 slice-10 fixed-memory entropy-to-public-wallet derivation, v2 slice-11 purpose-bound exact-sweep signing, and QK-DEC-149 purpose-bound role-A normal signing

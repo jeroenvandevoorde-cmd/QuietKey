@@ -29,6 +29,7 @@ legacy = [
 ipc = ["dep:qk-ipc", "qk-ipc/fuzzing"]
 process-s2-decoy = ["dep:qk-decoy", "qk-decoy/fuzzing"]
 process-s2-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]
+process-s8-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]
 process-s3-io = [
     "dep:qk-bbqr",
     "dep:qk-io",
@@ -321,6 +322,14 @@ test = false
 doc = false
 bench = false
 required-features = ["process-s2-supervisor"]
+
+[[bin]]
+name = "qk_supervisor_process_lifecycle"
+path = "fuzz_targets/qk_supervisor_process_lifecycle.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s8-supervisor"]
 
 [[bin]]
 name = "qk_decoy_calculator"

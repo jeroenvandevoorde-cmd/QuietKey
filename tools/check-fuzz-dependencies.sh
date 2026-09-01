@@ -84,6 +84,11 @@ process_feature_counts=$(awk '
 ' fuzz/Cargo.toml) || fail 'cannot inspect process fuzz feature declarations'
 [ "$process_feature_counts" = '1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1 0 1 0 1 1 1 1 1 0 1 0 1 1 1 1 1 1 0' ] || \
   fail 'process fuzz features are not declared exactly once in canonical form'
+process_s8_feature_count=$(grep -Fxc \
+  'process-s8-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]' \
+  fuzz/Cargo.toml) || fail 'cannot inspect process-s8-supervisor fuzz feature'
+[ "$process_s8_feature_count" = 1 ] || \
+  fail 'process-s8-supervisor fuzz feature is not declared exactly once in canonical form'
 
 if ! awk '
   function flush_bin() {
@@ -94,6 +99,9 @@ if ! awk '
     } else if (name == "qk_supervisor_lifecycle") {
       supervisor++
       if (required != "process-s2-supervisor") bad = 1
+    } else if (name == "qk_supervisor_process_lifecycle") {
+      supervisor_s8++
+      if (required != "process-s8-supervisor") bad = 1
     } else if (name == "qk_io_ingress" || name == "qk_io_egress" || name == "qk_io_session") {
       io++
       if (required != "process-s3-io") bad = 1
@@ -109,7 +117,7 @@ if ! awk '
     } else if (name == "qk_core_kit_intake" || name == "qk_core_kit_restore" || name == "qk_core_kit_spend") {
       core_s7++
       if (required != "process-s7-core") bad = 1
-    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core") {
+    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core") {
       bad = 1
     }
   }
@@ -138,7 +146,7 @@ if ! awk '
   }
   END {
     flush_bin()
-    exit (bad || decoy != 1 || supervisor != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3) ? 1 : 0
+    exit (bad || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3) ? 1 : 0
   }
 ' fuzz/Cargo.toml; then
   fail 'process fuzz target-to-feature mapping is not exact'
@@ -157,6 +165,8 @@ decoy_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s2-decoy fuzz dep
 decoy_tmp=$(mktemp) || fail 'mktemp failed for process-s2-decoy fuzz dependency closure'
 supervisor_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s2-supervisor fuzz dependency closure'
 supervisor_tmp=$(mktemp) || fail 'mktemp failed for process-s2-supervisor fuzz dependency closure'
+supervisor_s8_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s8-supervisor fuzz dependency closure'
+supervisor_s8_tmp=$(mktemp) || fail 'mktemp failed for process-s8-supervisor fuzz dependency closure'
 io_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s3-io fuzz dependency closure'
 io_tmp=$(mktemp) || fail 'mktemp failed for process-s3-io fuzz dependency closure'
 core_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s4-core fuzz dependency closure'
@@ -179,7 +189,8 @@ closure_raw_tmp=$(mktemp) || fail 'mktemp failed for raw union fuzz dependency c
 closure_tmp=$(mktemp) || fail 'mktemp failed for union fuzz dependency closure'
 trap 'rm -f "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
   "$ipc_raw_tmp" "$ipc_tmp" "$decoy_raw_tmp" "$decoy_tmp" \
-  "$supervisor_raw_tmp" "$supervisor_tmp" "$io_raw_tmp" "$io_tmp" "$host_decoy_raw_tmp" \
+  "$supervisor_raw_tmp" "$supervisor_tmp" "$supervisor_s8_raw_tmp" "$supervisor_s8_tmp" \
+  "$io_raw_tmp" "$io_tmp" "$host_decoy_raw_tmp" \
   "$core_raw_tmp" "$core_tmp" "$core_s5_raw_tmp" "$core_s5_tmp" \
   "$core_s6_raw_tmp" "$core_s6_tmp" \
   "$core_s7_raw_tmp" "$core_s7_tmp" \
@@ -410,6 +421,35 @@ qk-supervisor|0.0.1'
   fail 'process-s2-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+    --no-default-features --features process-s8-supervisor --target "$host_target" --edges normal,build \
+    --prefix none --format '{p}' > "$tree_tmp"; then
+  fail 'cannot resolve the locked process-s8-supervisor fuzz dependency closure offline'
+fi
+if ! awk '
+  {
+    line = $0
+    sub(/[[:space:]]+\(\*\)$/, "", line)
+    split(line, fields, " ")
+    name = fields[1]
+    version = fields[2]
+    sub(/^v/, "", version)
+    if (name == "quietkey-fuzz") next
+    kind = (name ~ /^qk-/) ? "path" : "registry"
+    if (name == "" || version == "") exit 1
+    print kind "|" name "|" version
+  }
+' "$tree_tmp" > "$supervisor_s8_raw_tmp"; then
+  fail 'cannot parse process-s8-supervisor fuzz dependency closure'
+fi
+sort -u "$supervisor_s8_raw_tmp" > "$supervisor_s8_tmp" || \
+  fail 'cannot normalize process-s8-supervisor fuzz dependency closure'
+[ -s "$supervisor_s8_tmp" ] || fail 'process-s8-supervisor fuzz dependency closure is empty'
+supervisor_s8_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' \
+  "$supervisor_s8_tmp") || fail 'cannot enumerate process-s8-supervisor path dependencies'
+[ "$supervisor_s8_path_set" = "$expected_supervisor_path_set" ] || \
+  fail 'process-s8-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1'
+
+if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --no-default-features --features process-s3-io --target "$host_target" --edges normal,build \
     --prefix none --format '{p}' > "$tree_tmp"; then
   fail 'cannot resolve the locked process-s3-io fuzz dependency closure offline'
@@ -568,7 +608,8 @@ core_s7_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s7_tmp")
 [ "$core_s7_path_set" = "$expected_core_path_set" ] || \
   fail 'process-s7-core fuzz dependency closure is not the exact eleven-crate qk-core closure'
 
-cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$io_tmp" "$core_tmp" \
+cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
+  "$io_tmp" "$core_tmp" \
   "$core_s5_tmp" "$core_s6_tmp" "$core_s7_tmp" > "$closure_raw_tmp" || \
   fail 'cannot combine fuzz dependency closures'
 sort -u "$closure_raw_tmp" > "$closure_tmp" || fail 'cannot normalize union fuzz dependency closure'

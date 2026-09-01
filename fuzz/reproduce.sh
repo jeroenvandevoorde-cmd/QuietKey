@@ -39,6 +39,7 @@ case "$target" in
   qk_ipc_wire) max_len=4096; seed=140001 ;;
   qk_ipc_endpoint_state) max_len=4096; seed=140002 ;;
   qk_supervisor_lifecycle) max_len=4096; seed=142001 ;;
+  qk_supervisor_process_lifecycle) max_len=4096; seed=154001 ;;
   qk_decoy_calculator) max_len=2048; seed=142002 ;;
   qk_io_ingress) max_len=16384; seed=143001 ;;
   qk_io_egress) max_len=16384; seed=143002 ;;
@@ -75,6 +76,9 @@ case "$target" in
     ;;
   qk_supervisor_lifecycle)
     set -- --no-default-features --features process-s2-supervisor "$target" "$test_case"
+    ;;
+  qk_supervisor_process_lifecycle)
+    set -- --no-default-features --features process-s8-supervisor "$target" "$test_case"
     ;;
   qk_decoy_calculator)
     set -- --no-default-features --features process-s2-decoy "$target" "$test_case"

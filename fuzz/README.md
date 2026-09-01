@@ -153,6 +153,16 @@ left-to-right arithmetic, and a total key/state oracle. Neither target reaches
 a wallet, card, real device, target privilege, production, performance, or Gate
 boundary. Campaign 021 is complete and its retained corpora are hash-registered.
 
+QK-DEC-154 requalifies the pure `qk_supervisor_lifecycle` transition model and
+adds the pure `qk_supervisor_process_lifecycle` model for the fixed bootstrap,
+single-connection, parent-endpoint-close, normal-completion, bounded-reap,
+cleanup, child-loss, connection-loss, no-restart, and absorbing named-outcome
+rules. Neither target creates a process, socket, descriptor, wallet fact, or
+device operation. Live process and syscall behavior remains bounded integration
+test evidence. Campaign 027 and `CORPUS-MANIFEST-PROCESS-S8.tsv` are created
+only after the final source commit is fixed and both qualifying campaigns and
+two-copy minimizations complete.
+
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
 implemented inner response parser, one complete valid ingress transfer, outer
@@ -203,17 +213,18 @@ The exact runner is cargo-fuzz 0.13.2 and the exact compiler channel is
 `nightly-2026-08-25` (`rustc 1.100.0-nightly (e7769602a 2026-08-24)`). The
 runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
-`ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s3-io`,
-`process-s4-core`, `process-s5-core`, and `process-s6-core`
+`ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s8-supervisor`,
+`process-s3-io`, `process-s4-core`, `process-s5-core`, `process-s6-core`, and
+`process-s7-core`
 normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
 `qk-decoy`, `qk-supervisor`, `qk-io`, and `qk-core` are optional and absent from the default
 closure; each target selects only its named non-default feature. `Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the eight closures remain isolated, qk-decoy's host closure is
+proves the ten closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
 qk-ipc, qk-io's host and fuzz closures are exactly qk-io plus qk-ipc and
-qk-bbqr, and qk-core's host, process-s4, process-s5 and process-s6 closures are
+qk-bbqr, and qk-core's host and process-s4 through process-s7 closures are
 exactly qk-a1, qk-bbqr, qk-bip32, qk-core, qk-descriptor, qk-ipc, qk-kit,
 qk-provisioning, qk-psbt, qk-secp and qk-wallet-v2; qk-host-sim and qk-io are
 absent from those core closures, and the normalized union validates against
@@ -267,6 +278,7 @@ fuzz/run-bounded.sh qk_update_lifecycle 100000
 fuzz/run-bounded.sh qk_ipc_wire 100000
 fuzz/run-bounded.sh qk_ipc_endpoint_state 100000
 fuzz/run-bounded.sh qk_supervisor_lifecycle 100000
+fuzz/run-bounded.sh qk_supervisor_process_lifecycle 100000
 fuzz/run-bounded.sh qk_decoy_calculator 100000
 fuzz/run-bounded.sh qk_io_ingress 100000
 fuzz/run-bounded.sh qk_io_egress 100000
@@ -355,3 +367,8 @@ input campaigns for Kit intake, restore and spend. Their agreed retained
 corpora are registered together in `CORPUS-MANIFEST-PROCESS-S7.tsv`; the
 promoted earlier-target fixed points are also reflected in the S4, S5 and S6
 partition manifests under QK-DEC-146.
+The QK-DEC-154 process-slice-8 targets use the isolated pure supervisor
+features. Campaign 027 records the two 100,000-input qualifying runs and their
+agreed minimizations once the final source commit exists; the resulting
+partition is rendered as `CORPUS-MANIFEST-PROCESS-S8.tsv`, with any changed
+requalified slice-2 fixed point promoted under QK-DEC-146.

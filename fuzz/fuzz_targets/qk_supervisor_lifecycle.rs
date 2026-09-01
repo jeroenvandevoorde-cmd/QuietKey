@@ -3,7 +3,7 @@
 use libfuzzer_sys::fuzz_target;
 use qk_supervisor::{
     Child, Device, MockGrantSet, ProcessRole, Supervisor, SupervisorAction, SupervisorError,
-    SupervisorEvent, SupervisorOutcome, SupervisorState, UnixReceiveError,
+    SupervisorEvent, SupervisorOutcome, SupervisorState,
 };
 
 const MAX_PRESENTED_BYTES: usize = 4_096;
@@ -203,21 +203,7 @@ fn drive(data: &[u8]) -> Vec<SupervisorOutcome> {
     outcomes
 }
 
-fn assert_receive_error_names() {
-    for (error, expected) in [
-        (UnixReceiveError::ScratchEmpty, "ScratchEmpty"),
-        (UnixReceiveError::ReceiveFailed, "ReceiveFailed"),
-        (
-            UnixReceiveError::UnexpectedReceiveFlags,
-            "UnexpectedReceiveFlags",
-        ),
-    ] {
-        assert_eq!(error.to_string(), expected);
-    }
-}
-
 fuzz_target!(|data: &[u8]| {
-    assert_receive_error_names();
     let bounded = &data[..data.len().min(MAX_PRESENTED_BYTES)];
     assert_eq!(drive(bounded), drive(bounded));
 });
