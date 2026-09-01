@@ -214,6 +214,14 @@ impl IdentityBackend for PcscIdentityBackend {
                 attempt.push_pass(IdentityOperation::TransmitCplc);
                 response
             }
+            Ok(Err(pcsc::Error::InsufficientBuffer)) => {
+                attempt.reject(
+                    IdentityOperation::TransmitCplc,
+                    IdentityError::CplcResponseLengthMismatch,
+                );
+                finish_disconnect(&mut attempt, card);
+                return attempt;
+            }
             Ok(Err(_)) => {
                 attempt.reject(
                     IdentityOperation::TransmitCplc,
