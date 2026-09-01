@@ -51,11 +51,13 @@ Generic transmit remains mechanically refused as
 Fresh V2 contact order is `J3R180-02`, then `J3R180-03` only after 02 passes,
 then protected reference `J3R180-01` only after both prior sessions pass. Any
 non-PASS identity outcome stops the sequence for Owner disposition. The
-J3R180-02 V2 PASS artifact is registered; J3R180-03 remains stopped until that
-evidence commit is reviewed, and J3R180-01 remains stopped until both earlier
-procedures succeed and are registered. The labeling photographs remain an
-optional, unhashed private-custody fact under QK-DEC-148; no present or future
-step depends on them.
+J3R180-02 and J3R180-03 V2 PASS artifacts are registered. J3R180-01 remains
+stopped until the J3R180-03 evidence commit is checked by the LOA. The Owner
+records that J3R180-03 ran after the LOA check of row 1 but before row 1 was
+registered on `main`; that observation stands, and no further identity session
+may run ahead of its ledger. The labeling photographs remain an optional,
+unhashed private-custody fact under QK-DEC-148; no present or future step
+depends on them.
 
 ## Enrollment evidence boundary
 
@@ -99,7 +101,7 @@ format nor changes any existing F8 run packet.
   sequence and the three-command V2 replacement.
 - `ENROLLMENT-MANIFEST.md`: completed enrollment evidence ledger.
 - `IDENTITY-MANIFEST.md`: registered stopped V1 artifact and the V2 transcript
-  ledger, with row 1 registered and rows 2 and 3 stopped.
+  ledger, with rows 1 and 2 registered and row 3 stopped.
 - `RUN-REGISTER.md` and `EXECUTION-PACKETS.md`: the existing seven future bench
   packets, still blocked until their own Owner rows.
 

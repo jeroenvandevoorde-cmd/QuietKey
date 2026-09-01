@@ -1,6 +1,6 @@
 # F8 Arrival Allowlist Activation Record
 
-QK-F8-IDENT-V1 STOPPED; QK-F8-IDENT-V2 SESSION 1 REGISTERED
+QK-F8-IDENT-V1 STOPPED; QK-F8-IDENT-V2 SESSIONS 1 AND 2 REGISTERED
 
 The earlier state marker `DRAFT - NOT ACTIVE - ZERO APDU COMMANDS AUTHORIZED`
 is retained as a historical G0 comparison fact only and is superseded for the
@@ -13,8 +13,8 @@ The mock registration `QK-F8-G0-EMPTY-V1` and enrollment registration
 `QK-F8-ENROLL-EMPTY-V1` remain empty. QK-DEC-153-SUP-002 registers the exact
 candidate below as `QK-F8-IDENT-V2` only through the private fixed-sequence
 identity adapter. The first session ran only after its row and final tool source
-received the required review. After that registered first V2 session, later
-sessions remain stopped under the evidence-ledger review gates.
+received the required review. The first two V2 sessions are registered; the
+protected final session remains stopped under the evidence-ledger review gate.
 
 No command byte, AID, response, status word, size, timeout, repetition or
 sequence may be inferred from generic J3R180, JCOP, GlobalPlatform, Java Card
@@ -66,11 +66,12 @@ The V2 identity sequence is exact:
    response meets that exact grammar. Its purpose is CPLC data.
    Success is exactly `9F 7F 2A` followed by 42 bytes and then status `9000`.
 
-The first V2 session, on J3R180-02, completed all three commands and is
-registered by exact private transcript identity in `IDENTITY-MANIFEST.md`.
-The J3R180-03 session remains stopped until that evidence commit is reviewed;
-the protected J3R180-01 session remains stopped until both earlier procedures
-succeed and are registered.
+The first two V2 sessions, on J3R180-02 and J3R180-03, completed all three
+commands and are registered by exact private transcript identity in
+`IDENTITY-MANIFEST.md`. The protected J3R180-01 session remains stopped until
+the J3R180-03 evidence commit is checked by the LOA. J3R180-03 is the single
+Owner-recorded ordering departure; no further identity session may run ahead of
+its ledger.
 
 For the first two commands, canonical definite length is short form for value
 lengths 0 through 127 or `81` followed by lengths 128 through 253; indefinite,
