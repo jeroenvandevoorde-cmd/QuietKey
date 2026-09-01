@@ -11,6 +11,8 @@ const KIT_RESTORE: &str = include_str!("../src/kit_restore_v2.rs");
 const KIT_SPEND: &str = include_str!("../src/kit_spend_v2.rs");
 const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
+const PROCESS: &str = include_str!("../src/process.rs");
+const PROCESS_BIN: &str = include_str!("../src/bin/qk-core-host.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
 const SETUP: &str = include_str!("../src/setup_v2.rs");
@@ -28,9 +30,11 @@ fn cargo_section<'a>(source: &'a str, header: &str, next: Option<&str>) -> &'a s
 
 #[test]
 fn direct_product_and_dev_dependencies_are_exact() {
+    let binary = "[[bin]]\nname = \"qk-core-host\"\npath = \"src/bin/qk-core-host.rs\"\nrequired-features = [\"host-runtime\"]";
+    assert_eq!(CARGO.matches(binary).count(), 1);
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
@@ -111,6 +115,7 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
             "pub use kit_spend_v2::{",
             "pub use normal_artifact_v2::{",
             "pub use normal_v2::{",
+            "pub use process::{run_core_host_process, CoreHostProcessError};",
             "pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};",
             "pub use session::{",
             "pub use setup_v2::{",
@@ -126,6 +131,40 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
     );
     assert_eq!(LIB.matches("pub mod ").count(), 1);
     assert!(LIB.contains("#[cfg(feature = \"fuzzing\")]"));
+}
+
+#[test]
+fn host_process_surface_is_feature_locked_and_contains_no_second_protocol_or_logging() {
+    for item in [
+        "mod process;",
+        "pub use process::{run_core_host_process, CoreHostProcessError};",
+    ] {
+        assert!(
+            LIB.contains(&format!("#[cfg(feature = \"host-runtime\")]\n{item}")),
+            "host runtime surface is not feature locked: {item}"
+        );
+    }
+    assert_eq!(LIB.matches("#[cfg(feature = \"host-runtime\")]").count(), 2);
+    assert_eq!(
+        public_methods(PROCESS),
+        ["pub fn run_core_host_process(mode: CoreMode) -> Result<(), CoreHostProcessError> {",]
+    );
+    for forbidden in [
+        "qk_host_sim",
+        "MockInput",
+        "MockOutputWriter",
+        "println!",
+        "eprintln!",
+        "dbg!",
+        "unsafe {",
+        "SCM_RIGHTS",
+        "sendmsg(",
+        "recvmsg(",
+    ] {
+        assert!(!PROCESS.contains(forbidden), "process token {forbidden}");
+        assert!(!PROCESS_BIN.contains(forbidden), "binary token {forbidden}");
+    }
+    assert!(PROCESS.contains("const RECEIVE_BYTES: usize = 1;"));
 }
 
 fn public_methods(source: &str) -> Vec<&str> {

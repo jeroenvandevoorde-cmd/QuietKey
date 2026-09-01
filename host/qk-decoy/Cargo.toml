@@ -6,6 +6,10 @@ license = "Apache-2.0"
 publish = false
 description = "Dependency-free bounded QuietKey calculator decoy reference. HOST only."
 
+[[bin]]
+name = "qk-decoy-host"
+path = "src/bin/qk-decoy-host.rs"
+
 [features]
 fuzzing = []
 

@@ -11,6 +11,8 @@ mod egress;
 mod ingress;
 mod inner;
 mod mock;
+#[cfg(feature = "host-runtime")]
+mod process;
 mod session;
 mod wipe;
 
@@ -18,6 +20,8 @@ use core::fmt;
 
 pub use inner::{parse_request, Artifact, Operation, Request, Sink, Source};
 pub use mock::{MockInput, MockOutputWriter, OutputFault};
+#[cfg(feature = "host-runtime")]
+pub use process::{run_io_host_process, IoHostProcessError};
 pub use session::{BrokerError, BrokerReply, BrokerSession, BrokerState, ReplyStatus};
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]

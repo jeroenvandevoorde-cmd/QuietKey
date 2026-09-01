@@ -31,6 +31,8 @@ mod kit_spend_v2;
 mod normal_artifact_v2;
 #[cfg(feature = "normal-v3")]
 mod normal_v2;
+#[cfg(feature = "host-runtime")]
+mod process;
 mod session;
 mod session_id;
 mod setup_artifact_v2;
@@ -85,6 +87,8 @@ pub use normal_v2::{
     NormalScreenV2, NormalSequenceViewV2, NormalSessionV2, NormalStageV2,
     NormalTransactionResultViewV2, NormalWarningViewV2,
 };
+#[cfg(feature = "host-runtime")]
+pub use process::{run_core_host_process, CoreHostProcessError};
 #[cfg(feature = "kit-v3")]
 pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};
 pub use session::{

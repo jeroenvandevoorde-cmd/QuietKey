@@ -6,9 +6,15 @@ license = "Apache-2.0"
 publish = false
 description = "HOST-only QuietKey trusted-process provisioning and purpose-bound normal shell. Not target or production evidence."
 
+[[bin]]
+name = "qk-core-host"
+path = "src/bin/qk-core-host.rs"
+required-features = ["host-runtime"]
+
 [features]
 default = ["normal-v3", "kit-v3"]
 fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
+host-runtime = ["qk-ipc/host-runtime"]
 normal-v3 = ["qk-psbt/normal-v3", "qk-wallet-v2/normal-v3"]
 kit-v3 = ["normal-v3", "qk-kit/process-v3"]
 

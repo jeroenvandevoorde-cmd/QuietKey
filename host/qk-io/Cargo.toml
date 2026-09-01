@@ -6,8 +6,14 @@ license = "Apache-2.0"
 publish = false
 description = "HOST-only QuietKey no-secret transport-broker reference."
 
+[[bin]]
+name = "qk-io-host"
+path = "src/bin/qk-io-host.rs"
+required-features = ["host-runtime"]
+
 [features]
 fuzzing = ["qk-ipc/fuzzing"]
+host-runtime = ["qk-ipc/host-runtime"]
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }

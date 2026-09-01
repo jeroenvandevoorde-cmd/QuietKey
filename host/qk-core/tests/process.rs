@@ -1,0 +1,99 @@
+#![cfg(feature = "host-runtime")]
+
+use qk_ipc::{IoEvent, IoProtocol, OutboundFrame, StreamDecoder, HEADER_BYTES};
+use std::io::{Read, Write};
+use std::os::fd::OwnedFd;
+use std::os::unix::ffi::OsStringExt;
+use std::os::unix::net::UnixStream;
+use std::process::{Command, ExitStatus, Stdio};
+
+const BINARY: &str = env!("CARGO_BIN_EXE_qk-core-host");
+
+fn encode_control(frame: OutboundFrame) -> [u8; HEADER_BYTES] {
+    let mut bytes = [0u8; HEADER_BYTES];
+    let length = frame.encode(&[], &mut bytes).expect("encode control");
+    assert_eq!(length, HEADER_BYTES);
+    bytes
+}
+
+fn read_frame(stream: &mut UnixStream, decoder: &mut StreamDecoder) -> qk_ipc::ReceivedFrame {
+    let mut byte = [0u8; 1];
+    loop {
+        stream.read_exact(&mut byte).expect("child frame byte");
+        let outcome = decoder.ingest(&byte, false).expect("decode child frame");
+        if outcome.frame_ready() {
+            return decoder.take_frame().expect("take child frame");
+        }
+    }
+}
+
+fn child_command(mode: &str, endpoint: UnixStream) -> std::process::Child {
+    let input = endpoint.try_clone().expect("clone child endpoint");
+    let input: OwnedFd = input.into();
+    let output: OwnedFd = endpoint.into();
+    Command::new(BINARY)
+        .arg(mode)
+        .stdin(Stdio::from(input))
+        .stdout(Stdio::from(output))
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn core child")
+}
+
+fn complete_cycle(mode: &str) -> ExitStatus {
+    let (mut peer, child_endpoint) = UnixStream::pair().expect("connected pair");
+    let mut child = child_command(mode, child_endpoint);
+    let mut protocol = IoProtocol::new();
+    let mut decoder = StreamDecoder::new();
+
+    let opening = read_frame(&mut peer, &mut decoder);
+    assert_eq!(protocol.accept(&opening), Ok(IoEvent::SessionOpen));
+    peer.write_all(&encode_control(protocol.reply().expect("ready reply")))
+        .expect("write ready");
+
+    let closing = read_frame(&mut peer, &mut decoder);
+    assert_eq!(protocol.accept(&closing), Ok(IoEvent::SessionClose));
+    peer.write_all(&encode_control(protocol.reply().expect("closed reply")))
+        .expect("write closed");
+    child.wait().expect("wait child")
+}
+
+#[test]
+fn all_three_exact_modes_complete_real_control_cycles() {
+    for mode in ["setup", "normal", "kit"] {
+        assert!(complete_cycle(mode).success(), "mode {mode}");
+    }
+}
+
+#[test]
+fn missing_unknown_and_extra_arguments_are_invocation_rejections() {
+    let missing = Command::new(BINARY).output().expect("missing argument");
+    assert_eq!(missing.status.code(), Some(64));
+    assert!(missing.stdout.is_empty() && missing.stderr.is_empty());
+    let unknown = Command::new(BINARY)
+        .arg("other")
+        .output()
+        .expect("unknown argument");
+    assert_eq!(unknown.status.code(), Some(64));
+    assert!(unknown.stdout.is_empty() && unknown.stderr.is_empty());
+    let extra = Command::new(BINARY)
+        .args(["setup", "extra"])
+        .output()
+        .expect("extra argument");
+    assert_eq!(extra.status.code(), Some(64));
+    assert!(extra.stdout.is_empty() && extra.stderr.is_empty());
+    let non_utf8 = Command::new(BINARY)
+        .arg(std::ffi::OsString::from_vec(vec![0xff]))
+        .output()
+        .expect("non-UTF-8 argument");
+    assert_eq!(non_utf8.status.code(), Some(64));
+    assert!(non_utf8.stdout.is_empty() && non_utf8.stderr.is_empty());
+}
+
+#[test]
+fn peer_loss_is_fail_closed_runtime_termination() {
+    let (peer, child_endpoint) = UnixStream::pair().expect("connected pair");
+    let mut child = child_command("setup", child_endpoint);
+    drop(peer);
+    assert_eq!(child.wait().expect("wait child").code(), Some(70));
+}

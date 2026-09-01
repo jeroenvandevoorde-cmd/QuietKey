@@ -11,8 +11,10 @@
 #![forbid(unsafe_code)]
 
 mod calculator;
+mod process;
 
 pub use calculator::{
     ApplyOutcome, Calculator, CalculatorPhase, CalculatorRejection, DecoyKey, DisplayText,
     ALL_DECOY_KEYS, DISPLAY_CAPACITY, MAX_DIGIT_GLYPHS,
 };
+pub use process::DecoyHostProcess;

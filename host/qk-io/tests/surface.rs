@@ -7,12 +7,19 @@ const INGRESS: &str = include_str!("../src/ingress.rs");
 const EGRESS: &str = include_str!("../src/egress.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const MOCK: &str = include_str!("../src/mock.rs");
+const PROCESS: &str = include_str!("../src/process.rs");
+const PROCESS_BIN: &str = include_str!("../src/bin/qk-io-host.rs");
 const WIPE: &str = include_str!("../src/wipe.rs");
 const HOST_SIM_CARGO: &str = include_str!("../../qk-host-sim/Cargo.toml");
 const SUPERVISOR_CARGO: &str = include_str!("../../qk-supervisor/Cargo.toml");
 
 #[test]
 fn manifest_depends_only_on_the_two_approved_transport_leaves() {
+    let binary = "[[bin]]\nname = \"qk-io-host\"\npath = \"src/bin/qk-io-host.rs\"\nrequired-features = [\"host-runtime\"]";
+    assert_eq!(CARGO.matches(binary).count(), 1);
+    let features =
+        "[features]\nfuzzing = [\"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\"]";
+    assert_eq!(CARGO.matches(features).count(), 1);
     let dependencies = CARGO
         .split_once("[dependencies]")
         .expect("dependency section")
@@ -55,6 +62,7 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
         [
             "pub use inner::{parse_request, Artifact, Operation, Request, Sink, Source};",
             "pub use mock::{MockInput, MockOutputWriter, OutputFault};",
+            "pub use process::{run_io_host_process, IoHostProcessError};",
             "pub use session::{BrokerError, BrokerReply, BrokerSession, BrokerState, ReplyStatus};",
             "pub use wipe::{reset_wiped_bytes, wiped_bytes};",
             "pub const INNER_VERSION: u8 = 1;",
@@ -71,6 +79,50 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
         ]
     );
     assert!(!LIB.contains("pub mod "));
+}
+
+#[test]
+fn host_process_surface_is_feature_locked_no_secret_and_control_only() {
+    for item in [
+        "mod process;",
+        "pub use process::{run_io_host_process, IoHostProcessError};",
+    ] {
+        assert!(
+            LIB.contains(&format!("#[cfg(feature = \"host-runtime\")]\n{item}")),
+            "host runtime surface is not feature locked: {item}"
+        );
+    }
+    assert_eq!(LIB.matches("#[cfg(feature = \"host-runtime\")]").count(), 2);
+    assert_eq!(
+        public_methods(PROCESS),
+        ["pub fn run_io_host_process() -> Result<(), IoHostProcessError> {",]
+    );
+    for forbidden in [
+        "qk_a1",
+        "qk_card",
+        "qk_descriptor",
+        "qk_host_sim",
+        "qk_kit",
+        "qk_provisioning",
+        "qk_psbt",
+        "qk_secp",
+        "qk_wallet",
+        "SecretKey",
+        "PrivateKey",
+        "wallet_id",
+        "MockInput::",
+        "MockOutputWriter::",
+        "println!",
+        "eprintln!",
+        "dbg!",
+        "unsafe {",
+        "SCM_RIGHTS",
+    ] {
+        assert!(!PROCESS.contains(forbidden), "process token {forbidden}");
+        assert!(!PROCESS_BIN.contains(forbidden), "binary token {forbidden}");
+    }
+    assert!(PROCESS.contains("const RECEIVE_BYTES: usize = 1;"));
+    assert!(PROCESS.contains(".accept(&frame, None, None)"));
 }
 
 fn public_methods(source: &str) -> Vec<&str> {
