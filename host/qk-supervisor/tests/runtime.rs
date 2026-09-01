@@ -292,7 +292,7 @@ fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_con
         &root,
         "eof-observer",
         &format!(
-            "use std::io::Read; use std::os::fd::FromRawFd; fn main() {{ let mut socket = unsafe {{ std::os::unix::net::UnixStream::from_raw_fd(0) }}; let mut byte = [0u8; 1]; while socket.read(&mut byte).unwrap_or(0) != 0 {{}} std::fs::write({eof_seen:?}, b\"EOF\").unwrap(); std::process::exit(70); }}"
+            "use std::io::Read; use std::os::fd::FromRawFd; use std::time::Duration; fn main() {{ std::thread::sleep(Duration::from_millis(100)); let mut socket = unsafe {{ std::os::unix::net::UnixStream::from_raw_fd(0) }}; let mut byte = [0u8; 1]; while socket.read(&mut byte).unwrap_or(0) != 0 {{}} std::fs::write({eof_seen:?}, b\"EOF\").unwrap(); std::process::exit(70); }}"
         ),
     );
     replace_two_and_test_failure(

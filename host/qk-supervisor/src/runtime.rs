@@ -51,7 +51,6 @@ const F_DUPFD_CLOEXEC: c_int = 67;
 const TERMINATION_BOUND: Duration = Duration::from_secs(1);
 const REAP_POLL: Duration = Duration::from_millis(1);
 const DECOY_RUNNING_PROOF: Duration = Duration::from_millis(10);
-const EOF_HANDOFF_BOUND: Duration = Duration::from_millis(10);
 
 extern "C" {
     fn close(descriptor: c_int) -> c_int;
@@ -1194,7 +1193,6 @@ fn wait_for_products(core: &mut ChildProcess, io: &mut ChildProcess) -> Result<(
     let mut first_failure = None;
     let mut first_exit = None;
     let mut loss_deadline = None;
-    let mut handoff_deadline = None;
     loop {
         if core_status.is_none() {
             core_status = match core.try_wait() {
@@ -1210,7 +1208,6 @@ fn wait_for_products(core: &mut ChildProcess, io: &mut ChildProcess) -> Result<(
                 let now = Instant::now();
                 first_exit = Some(crate::Child::Core);
                 loss_deadline = Some(now + TERMINATION_BOUND);
-                handoff_deadline = Some(now + EOF_HANDOFF_BOUND);
             }
             if core_status.is_some_and(|status| !status_success(status)) && first_failure.is_none()
             {
@@ -1231,7 +1228,6 @@ fn wait_for_products(core: &mut ChildProcess, io: &mut ChildProcess) -> Result<(
                 let now = Instant::now();
                 first_exit = Some(crate::Child::Io);
                 loss_deadline = Some(now + TERMINATION_BOUND);
-                handoff_deadline = Some(now + EOF_HANDOFF_BOUND);
             }
             if io_status.is_some_and(|status| !status_success(status)) && first_failure.is_none() {
                 first_failure = Some(crate::Child::Io);
@@ -1246,7 +1242,11 @@ fn wait_for_products(core: &mut ChildProcess, io: &mut ChildProcess) -> Result<(
                 None => Ok(()),
             };
         }
-        if handoff_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        // The first child's exit closes its endpoint. Give the survivor the
+        // complete ratified loss bound to consume that EOF and finish its
+        // closed cleanup path; a short scheduling grace period is not proof
+        // that the path ran. Forced cleanup begins only at the shared bound.
+        if loss_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(ProductLoss {
                 child: first_failure
                     .or(first_exit)
