@@ -8,7 +8,7 @@ Final-source qualification source:
 
 ## Common method
 
-All nine qualifying campaigns used source
+The opening nine qualifying campaigns used source
 `435990f2105b71d334b190de4e8247e396ab75ef`. The fixed tool identities were
 cargo-fuzz 0.13.2; `nightly-2026-08-25`; rustc
 `1.100.0-nightly (e7769602a 2026-08-24)`; AddressSanitizer; release-profile
