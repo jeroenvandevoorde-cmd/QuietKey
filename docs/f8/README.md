@@ -7,10 +7,11 @@ EXPERIMENTAL - HOST BENCH OBSERVATION - FIXED READ-ONLY IDENTITY SEQUENCE
 QK-DEC-105 established the non-mutating F8 groundwork. QK-DEC-147 opened the
 ring-fenced `bench/card-enrollment/` preparation lane for the delivered reader
 and three Owner-supplied J3R180 specimens; enrollment is complete and frozen.
-QK-DEC-153 activates only the fixed read-only `QK-F8-IDENT-V1` sequence. The
-lane creates no card secret, key or applet, authorizes no mutation, changes no
-Gate, and makes no target or card-capability claim. Protocol-Lab retains its
-separate capture and Reader scope; no source moves between the repositories.
+QK-DEC-153-SUP-002 registers only the fixed read-only `QK-F8-IDENT-V2`
+sequence. The lane creates no card secret, key or applet, authorizes no
+mutation, changes no Gate, and makes no target or card-capability claim.
+Protocol-Lab retains its separate capture and Reader scope; no source moves
+between the repositories.
 
 The controlling card behavior is Core Architecture v2 under QK-DEC-121,
 QK-REQ-CARD-001 through QK-REQ-CARD-010, QK-REQ-KIT-010,
@@ -37,16 +38,20 @@ explicit reset, exact ATR and negotiated-protocol capture, and disconnect. It
 permits zero APDU commands. Its three specimen transcripts and public ATRs are
 registered in `ENROLLMENT-MANIFEST.md`.
 
-The only active live-card APDU registration is `QK-F8-IDENT-V1`. After the
-final tool source commit is published, it permits one fixed private adapter to
-issue exactly `80 CA 00 66 00` and, only after its response validates, exactly
-`80 CA 9F 7F 00`. Generic transmit remains mechanically refused as
+The stopped `QK-F8-IDENT-V1` registration authorizes no further session. Its
+single J3R180-02 attempt returned `69 85` to `80 CA 00 66 00`, sent no later
+command and disconnected cleanly; exact private artifact registration remains
+pending. The registered replacement `QK-F8-IDENT-V2`, after the final tool
+source commit is published and reviewed, permits one fixed private adapter to
+issue exactly `00 A4 04 00 00`, then only after validation exactly
+`80 CA 00 66 00`, then only after validation exactly `80 CA 9F 7F 00`.
+Generic transmit remains mechanically refused as
 `ApduTransmitNotAuthorized`; no caller supplies an APDU.
 
-Identity contact order is `J3R180-02`, then `J3R180-03` only after 02 passes,
+Fresh V2 contact order is `J3R180-02`, then `J3R180-03` only after 02 passes,
 then protected reference `J3R180-01` only after both prior sessions pass. Any
 non-PASS identity outcome stops the sequence for Owner disposition. No
-identity-read session or result is registered yet. The labeling photographs
+V2 identity-read session or result is registered yet. The labeling photographs
 remain an optional, unhashed private-custody fact under QK-DEC-148; no present
 or future step depends on them.
 
@@ -63,11 +68,12 @@ redaction or normalization. The tool never persists automatically; the Owner
 redirects output into the private bundle, and `ENROLLMENT-MANIFEST.md` registers
 the later exact byte counts and SHA-256 values.
 
-Serials and all future CPLC, Card Data, raw-transcript and APDU bytes remain
-verbatim in durable private Owner custody and are hash-bound when the identity
-manifest is completed. The repository publishes aliases, exact byte counts,
-SHA-256 values, timestamps, tool and source commits, custody paths, counts and
-each specimen ATR verbatim, but never publishes the CPLC or Card Data bytes.
+Serials and all identity CPLC, Card Data, FCI, raw-transcript and APDU bytes
+remain verbatim in durable private Owner custody and are hash-bound when the
+identity manifest is completed. The repository publishes aliases, exact byte
+counts, SHA-256 values, timestamps, tool and source commits, custody paths,
+counts and each specimen ATR verbatim, but never publishes the FCI, CPLC or
+Card Data bytes.
 The absence of raw private evidence from Git is deliberate, not a license to
 normalize it.
 
@@ -85,10 +91,10 @@ format nor changes any existing F8 run packet.
 - `APPARATUS-REGISTER.md`: supplied host, reader, hub and topology facts.
 - `SPECIMEN-REGISTER.md`: supplied order, physical appearance, assignments,
   custody and completed enrollment order.
-- `NONMUTATING-ALLOWLIST.md`: frozen zero-APDU enrollment registration, active
-  fixed identity registration and exact operation bounds.
-- `ARRIVAL-ALLOWLIST-DRAFT.md`: retained activation record for the two-command
-  candidate and its now-complete source checklist.
+- `NONMUTATING-ALLOWLIST.md`: frozen zero-APDU enrollment registration,
+  stopped V1 identity registration, and exact V2 operation bounds.
+- `ARRIVAL-ALLOWLIST-DRAFT.md`: retained activation record for the stopped V1
+  sequence and the three-command V2 replacement.
 - `ENROLLMENT-MANIFEST.md`: completed enrollment evidence ledger.
 - `IDENTITY-MANIFEST.md`: identity transcript contract and pending three-row
   ledger.
