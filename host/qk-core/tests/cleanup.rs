@@ -4,6 +4,10 @@ const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
+const KIT_ARTIFACT: &str = include_str!("../src/kit_artifact_v2.rs");
+const KIT_INTAKE: &str = include_str!("../src/kit_intake_v2.rs");
+const KIT_RESTORE: &str = include_str!("../src/kit_restore_v2.rs");
+const KIT_SPEND: &str = include_str!("../src/kit_spend_v2.rs");
 const SETUP: &str = include_str!("../src/setup_v2.rs");
 const SETUP_ARTIFACT: &str = include_str!("../src/setup_artifact_v2.rs");
 const WIPE: &str = include_str!("../src/wipe.rs");
@@ -101,6 +105,41 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
     assert!(NORMAL_ARTIFACT.contains("begin_finish_filename_and_geometry_scratch_are_raii_wiped"));
     assert!(NORMAL.contains("impl Drop for NormalSessionV2"));
     assert!(SESSION.contains("normal_response_and_retained_session_identity_wipe_on_interruption"));
+}
+
+#[test]
+fn kit_cleanup_covers_share_payload_transaction_and_delivery_owners() {
+    assert!(KIT_INTAKE.contains("first_frame: WipingArray<FRAME_LEN>"));
+    assert!(KIT_INTAKE.contains("fallback: WipingArray<FALLBACK_SYMBOLS>"));
+    assert!(KIT_INTAKE.contains("impl Drop for ScannerCandidateGuard<'_>"));
+    assert!(KIT_INTAKE.contains("wipe::bytes(self.bytes);"));
+    assert!(KIT_INTAKE.contains("impl Drop for KitIntakeSessionV2"));
+    assert!(KIT_INTAKE.contains("fn clear_all(&mut self) {"));
+    assert!(KIT_INTAKE.contains("wipe::bytes(self.first_frame.as_mut_array());"));
+    assert!(KIT_INTAKE.contains("self.clear_fallback();"));
+
+    assert!(KIT_RESTORE.contains("let surviving_a1 = WipingArray::take(surviving_a1);"));
+    assert!(KIT_RESTORE.contains("let mut capsule = WipingArray::<A1_CAPSULE_BYTES>::zeroed();"));
+    assert!(KIT_RESTORE.contains("let mut scan_back = WipingArray::<A1_CAPSULE_BYTES>::zeroed();"));
+    assert!(KIT_RESTORE.contains("impl Drop for KitRestoreSessionV2"));
+    assert!(KIT_RESTORE.contains("self.payload.take();"));
+    assert!(KIT_RESTORE.contains("self.prepared_replacement.take();"));
+    assert!(KIT_RESTORE.contains("self.prepared_a1.take();"));
+
+    assert!(KIT_SPEND.contains("impl Drop for CallerPsbtGuard<'_>"));
+    assert!(KIT_SPEND.contains("wipe::bytes(self.bytes);"));
+    assert!(KIT_SPEND.contains("impl Drop for KitSpendSessionV2"));
+    assert!(KIT_SPEND.contains("drop(self.payload.take());"));
+    assert!(KIT_SPEND.contains("drop(self.proof.take());"));
+    assert!(KIT_SPEND.contains("wipe::bytes(&mut self.session_identity);"));
+
+    assert!(KIT_ARTIFACT.contains("bytes: WipingVec"));
+    assert!(KIT_ARTIFACT.contains("impl Drop for KitDeliverySessionV2"));
+    assert!(KIT_ARTIFACT.contains("drop(self.transfer.take());"));
+    assert!(KIT_ARTIFACT.contains("impl Drop for KitExportTransferV2"));
+    assert!(KIT_ARTIFACT.contains("drop(self.raw.take());"));
+    assert!(KIT_ARTIFACT.contains("crate::wipe::bytes(&mut self.txid);"));
+    assert!(KIT_ARTIFACT.contains("crate::wipe::bytes(&mut self.wtxid);"));
 }
 
 #[test]

@@ -5,6 +5,10 @@ const LIB: &str = include_str!("../src/lib.rs");
 const CAPABILITY: &str = include_str!("../src/capability.rs");
 const ERROR: &str = include_str!("../src/error.rs");
 const IO_WIRE: &str = include_str!("../src/io_wire.rs");
+const KIT_ARTIFACT: &str = include_str!("../src/kit_artifact_v2.rs");
+const KIT_INTAKE: &str = include_str!("../src/kit_intake_v2.rs");
+const KIT_RESTORE: &str = include_str!("../src/kit_restore_v2.rs");
+const KIT_SPEND: &str = include_str!("../src/kit_spend_v2.rs");
 const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const SESSION: &str = include_str!("../src/session.rs");
@@ -26,11 +30,11 @@ fn cargo_section<'a>(source: &'a str, header: &str, next: Option<&str>) -> &'a s
 fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\"]\nfuzzing = [\"normal-v3\", \"qk-ipc/fuzzing\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\", optional = true }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
@@ -44,7 +48,6 @@ fn direct_product_and_dev_dependencies_are_exact() {
         "qk-host-model",
         "qk-host-sim",
         "qk-io",
-        "qk-kit",
         "qk-secp",
         "qk-supervisor",
         "qk-update",
@@ -57,7 +60,7 @@ fn direct_product_and_dev_dependencies_are_exact() {
 }
 
 #[test]
-fn normal_modules_and_exports_are_feature_locked() {
+fn normal_and_kit_modules_and_exports_are_feature_locked() {
     for item in [
         "mod normal_artifact_v2;",
         "mod normal_v2;",
@@ -70,6 +73,23 @@ fn normal_modules_and_exports_are_feature_locked() {
         );
     }
     assert_eq!(LIB.matches("#[cfg(feature = \"normal-v3\")]").count(), 4);
+    for item in [
+        "mod kit_artifact_v2;",
+        "mod kit_intake_v2;",
+        "mod kit_restore_v2;",
+        "mod kit_spend_v2;",
+        "pub use kit_artifact_v2::{",
+        "pub use kit_intake_v2::{",
+        "pub use kit_restore_v2::{",
+        "pub use kit_spend_v2::{",
+        "pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};",
+    ] {
+        assert!(
+            LIB.contains(&format!("#[cfg(feature = \"kit-v3\")]\n{item}")),
+            "Kit surface is not feature locked: {item}"
+        );
+    }
+    assert_eq!(LIB.matches("#[cfg(feature = \"kit-v3\")]").count(), 9);
 }
 
 #[test]
@@ -85,8 +105,13 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
             "pub use capability::{",
             "pub use error::{CoreError, Interruption, IoRejection};",
             "pub use io_wire::{Operation, Source};",
+            "pub use kit_artifact_v2::{",
+            "pub use kit_intake_v2::{",
+            "pub use kit_restore_v2::{",
+            "pub use kit_spend_v2::{",
             "pub use normal_artifact_v2::{",
             "pub use normal_v2::{",
+            "pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};",
             "pub use session::{",
             "pub use setup_v2::{",
             "pub const INNER_VERSION: u8 = 1;",
@@ -172,6 +197,147 @@ fn every_public_method_entry_is_pinned() {
             "pub fn encode_ingress_begin(source: Source) -> [u8; 11] {",
             "pub fn encode_ingress_read(expected_offset: u32) -> [u8; 12] {",
             "pub fn parse_response<'a>(",
+        ]
+    );
+    assert_eq!(
+        public_methods(KIT_ARTIFACT),
+        [
+            "pub const fn serialized_len(self) -> u32 {",
+            "pub const fn sha256(self) -> [u8; 32] {",
+            "pub const fn total_len(self) -> u32 {",
+            "pub const fn profile(&self) -> NormalProfileV2 {",
+            "pub const fn route(&self) -> KitExportRouteV2 {",
+            "pub const fn raw_transaction(&self) -> KitRawTransactionFactsV2 {",
+            "pub const fn sd_receipt(&self) -> Option<KitSdReceiptV2> {",
+            "pub const fn txid(&self) -> [u8; 32] {",
+            "pub const fn wtxid(&self) -> [u8; 32] {",
+            "pub const fn name(self) -> &'static str {",
+            "pub const fn consumed(&self) -> usize {",
+            "pub const fn outbound(&self) -> Option<&CoreOutbound> {",
+            "pub fn into_outbound(self) -> Option<CoreOutbound> {",
+            "pub const fn result(&self) -> Option<KitExportResultV2> {",
+            "pub fn begin(",
+            "pub fn receive(",
+            "pub const fn result(&self) -> Option<KitExportResultV2> {",
+            "pub fn next_request(&mut self) -> Result<KitExportRequestV2, KitArtifactErrorV2> {",
+            "pub fn accept_response(",
+        ]
+    );
+    assert_eq!(
+        public_methods(KIT_INTAKE),
+        [
+            "pub const fn name(self) -> &'static str {",
+            "pub const fn share_index(self) -> ShareIndex {",
+            "pub const fn wallet_id(self) -> [u8; 32] {",
+            "pub const fn checksum(self) -> [u8; FRAME_CHECKSUM_BYTES] {",
+            "pub const fn committed_symbols(self) -> usize {",
+            "pub const fn pending_row(self) -> Option<u8> {",
+            "pub const fn next_line(self) -> Option<u8> {",
+            "pub const fn next_column(self) -> Option<u8> {",
+            "pub const fn door(self) -> KitDoorV2 {",
+            "pub const fn mode(self) -> KitInputModeV2 {",
+            "pub const fn page(self) -> KitShareOrdinalV2 {",
+            "pub const fn fallback(self) -> KitFallbackProgressV2 {",
+            "pub const fn fallback_table(self) -> &'static [[u8; 8]; 4] {",
+            "pub const fn door(&self) -> KitDoorV2 {",
+            "pub const fn mode(&self) -> KitInputModeV2 {",
+            "pub const fn wallet_id(&self) -> [u8; 32] {",
+            "pub const fn frame_identities(&self) -> [KitFrameIdentityV2; 2] {",
+            "pub fn begin(door: KitDoorV2, mode: KitInputModeV2) -> Self {",
+            "pub fn begin_in_core(",
+            "pub fn screen(&self) -> Option<KitIntakeScreenV2> {",
+            "pub const fn failure(&self) -> Option<KitIntakeErrorV2> {",
+            "pub fn submit_scanner_frame(",
+            "pub fn submit_scanner_ingress(",
+            "pub fn submit_scanner_from_core(",
+            "pub fn apply_fallback_key(",
+            "pub fn apply_fallback_key_from_core(",
+            "pub fn select_mode(",
+            "pub fn reselect_door(",
+            "pub fn reject_foreign_input(",
+            "pub fn interrupt(",
+        ]
+    );
+    assert_eq!(
+        public_methods(KIT_RESTORE),
+        [
+            "pub fn new(digit: u8) -> Result<Self, KitRestoreErrorV2> {",
+            "pub const fn value(self) -> u8 {",
+            "pub const fn stage(self) -> KitRestoreStageV2 {",
+            "pub const fn wallet_id(self) -> [u8; 32] {",
+            "pub const fn input_mode(self) -> KitInputModeV2 {",
+            "pub const fn action(self) -> Option<KitRestoreActionV2> {",
+            "pub const fn assertion_digit(self) -> Option<HumanAssertionDigitV2> {",
+            "pub const fn name(self) -> &'static str {",
+            "pub const fn artifact(&self) -> &KitRestoreArtifactV2 {",
+            "pub const fn posture(&self) -> MandatoryFreshWalletMigrationV2 {",
+            "pub fn begin(",
+            "pub fn fuzz_begin(",
+            "pub fn screen(&self) -> Option<KitRestoreScreenV2> {",
+            "pub const fn frame_identities(&self) -> [KitFrameIdentityV2; 2] {",
+            "pub const fn terminal_error(&self) -> Option<KitRestoreErrorV2> {",
+            "pub const fn is_terminal(&self) -> bool {",
+            "pub fn select_action(",
+            "pub fn select_action_in_core(",
+            "pub fn confirm_card_remains(",
+            "pub fn confirm_card_remains_in_core(",
+            "pub fn prepare_replacement_b(",
+            "pub fn prepare_replacement_b_ingress(",
+            "pub fn prepare_replacement_b_from_core(",
+            "pub fn prepare_a1_reprint(",
+            "pub fn prepare_a1_reprint_in_core(",
+            "pub fn execute_replacement_b<F>(",
+            "pub fn execute_replacement_b_in_core(",
+            "pub fn begin_a1_reprint(",
+            "pub fn begin_a1_reprint_in_core(",
+            "pub fn reject_foreign_operation(",
+            "pub fn interrupt(",
+            "pub fn capsule(&self) -> Option<&[u8; A1_CAPSULE_BYTES]> {",
+            "pub fn complete_scan_back(",
+            "pub fn complete_scan_back_ingress(",
+            "pub fn reject_print(mut self) -> KitRestoreErrorV2 {",
+        ]
+    );
+    assert_eq!(
+        public_methods(KIT_SPEND),
+        [
+            "pub fn new(digit: u8) -> Result<Self, KitSpendErrorV2> {",
+            "pub const fn value(self) -> u8 {",
+            "pub const fn cycle(self) -> u64 {",
+            "pub const fn token(self) -> KitSpendCycleTokenV2 {",
+            "pub const fn review_hash(self) -> ReviewV3Hash {",
+            "pub const fn assertion_digit(self) -> KitSpendAssertionDigitV2 {",
+            "pub const fn name(self) -> &'static str {",
+            "pub const fn profile(self) -> NormalProfileV2 {",
+            "pub const fn old_wallet_id(self) -> [u8; 32] {",
+            "pub const fn replacement_wallet_id(self) -> [u8; 32] {",
+            "pub const fn destination_index(self) -> u32 {",
+            "pub const fn review_hash(self) -> ReviewV3Hash {",
+            "pub const fn raw_transaction_len(self) -> u32 {",
+            "pub const fn raw_transaction_sha256(self) -> [u8; 32] {",
+            "pub const fn txid(self) -> [u8; 32] {",
+            "pub const fn wtxid(self) -> [u8; 32] {",
+            "pub const fn facts(&self) -> KitSpendFinalizedFactsV2 {",
+            "pub const fn completeness(&self) -> CoordinatorCompletenessStatementV2 {",
+            "pub fn begin(",
+            "pub fn fuzz_begin(",
+            "pub const fn profile(&self) -> NormalProfileV2 {",
+            "pub const fn stage(&self) -> KitSpendStageV2 {",
+            "pub const fn review_position(&self) -> Option<KitSpendReviewPositionV2> {",
+            "pub const fn frame_identities(&self) -> [KitFrameIdentityV2; 2] {",
+            "pub const fn failure(&self) -> Option<KitSpendErrorV2> {",
+            "pub fn screen(&self) -> Option<KitSpendScreenV2<'_>> {",
+            "pub fn submit_sweep(",
+            "pub fn submit_sweep_ingress(",
+            "pub fn submit_sweep_from_core(",
+            "pub fn advance_review(&mut self) -> Result<KitSpendScreenV2<'_>, KitSpendErrorV2> {",
+            "pub fn advance_review_in_core(",
+            "pub fn confirm_all_funds(",
+            "pub fn confirm_all_funds_in_core(",
+            "pub fn execute(",
+            "pub fn execute_in_core(",
+            "pub fn reject_foreign_operation(",
+            "pub fn interrupt(&mut self, reason: Interruption) -> Result<(), KitSpendErrorV2> {",
         ]
     );
     assert_eq!(
@@ -359,6 +525,10 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
         CAPABILITY,
         ERROR,
         IO_WIRE,
+        KIT_ARTIFACT,
+        KIT_INTAKE,
+        KIT_RESTORE,
+        KIT_SPEND,
         NORMAL_ARTIFACT,
         NORMAL,
         SESSION,
@@ -375,7 +545,6 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
             "qk_host_model",
             "qk_host_sim",
             "qk_io::",
-            "qk_kit",
             "qk_secp",
             "qk_update",
             "SecretKey",
@@ -407,6 +576,18 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
     assert_eq!(NORMAL.matches("use qk_wallet_v2::{").count(), 1);
     assert_eq!(NORMAL.matches("qk_a1::decrypt(").count(), 1);
     assert_eq!(NORMAL_ARTIFACT.matches("qk_bbqr::").count(), 2);
+    assert_eq!(KIT_ARTIFACT.matches("use qk_bbqr::{").count(), 1);
+    assert_eq!(
+        KIT_ARTIFACT
+            .matches("use qk_psbt::FinalizedNormalV3;")
+            .count(),
+        1
+    );
+    assert_eq!(KIT_INTAKE.matches("use qk_kit::{").count(), 1);
+    assert_eq!(KIT_RESTORE.matches("use qk_kit::{").count(), 1);
+    assert_eq!(KIT_SPEND.matches("use qk_kit::{").count(), 1);
+    assert_eq!(CAPABILITY.matches("use qk_kit::{").count(), 1);
+    assert_eq!(SESSION.matches("use qk_kit::{").count(), 1);
     for source in [
         LIB, CAPABILITY, ERROR, IO_WIRE, SESSION, SESSION_ID, SHA256, WIPE,
     ] {
@@ -452,6 +633,10 @@ fn unsafe_is_confined_to_the_existing_volatile_wipe_module() {
     assert!(!CAPABILITY.contains("unsafe {"));
     assert!(!ERROR.contains("unsafe {"));
     assert!(!IO_WIRE.contains("unsafe {"));
+    assert!(!KIT_ARTIFACT.contains("unsafe {"));
+    assert!(!KIT_INTAKE.contains("unsafe {"));
+    assert!(!KIT_RESTORE.contains("unsafe {"));
+    assert!(!KIT_SPEND.contains("unsafe {"));
     assert!(!NORMAL_ARTIFACT.contains("unsafe {"));
     assert!(!NORMAL.contains("unsafe {"));
     assert!(!SESSION.contains("unsafe {"));
@@ -538,6 +723,26 @@ fn byte_and_session_owners_cannot_clone_format_mutate_or_release_storage() {
             "impl NormalSessionV2",
         ),
         owner_section(
+            KIT_INTAKE,
+            "pub struct KitIntakeSessionV2 {",
+            "impl KitIntakeSessionV2",
+        ),
+        owner_section(
+            KIT_RESTORE,
+            "pub struct KitRestoreSessionV2 {",
+            "impl KitRestoreSessionV2",
+        ),
+        owner_section(
+            KIT_SPEND,
+            "pub struct KitSpendSessionV2 {",
+            "impl KitSpendSessionV2",
+        ),
+        owner_section(
+            KIT_ARTIFACT,
+            "pub struct KitDeliverySessionV2 {",
+            "impl KitDeliverySessionV2",
+        ),
+        owner_section(
             SETUP_ARTIFACT,
             "pub(crate) struct A1PrintArtifactV2 {",
             "impl A1PrintArtifactV2",
@@ -563,4 +768,24 @@ fn byte_and_session_owners_cannot_clone_format_mutate_or_release_storage() {
             assert!(!owner.contains(forbidden), "owner surface {forbidden}");
         }
     }
+}
+
+#[test]
+fn kit_delivery_is_raw_transaction_only_and_has_no_finalized_psbt_surface() {
+    for source in [KIT_ARTIFACT, KIT_SPEND] {
+        for forbidden in [
+            "FinalizedPsbt",
+            "FinalizedPSBT",
+            "finalized_psbt",
+            "PsbtExport",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Kit PSBT export surface {forbidden}"
+            );
+        }
+    }
+    assert!(KIT_ARTIFACT.contains("BbqrFileType::Transaction"));
+    assert!(KIT_ARTIFACT.contains("KitExportActionV2::Sd"));
+    assert!(KIT_ARTIFACT.contains("KitExportActionV2::Bbqr { non_final_part_len }"));
 }
