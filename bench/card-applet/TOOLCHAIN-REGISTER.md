@@ -170,11 +170,11 @@ apparatus and each result was compared with the registered value.
 
 | Tool | Apparatus filename | Bytes | SHA-256 | Verification UTC | File mtime UTC | Result |
 |---|---|---:|---|---|---|---|
-| Temurin 25.0.4.1+1 | `OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz` | 120,256,199 | `e6229d9504f7922053ab31821b9e6bee8761daf7b026a3476d1a027563009880` | `2026-09-01T22:00:03Z` | `2026-09-01T22:05:12Z` | MATCH |
-| ant-javacard v26.05.15 | `ant-javacard-v26.05.15.jar` | 65,577 | `14f5e25c07b184e4ec02ee148892c2ea7ad5d7e9db8b91109524df8f7d000589` | `2026-09-01T22:00:03Z` | `2026-09-01T22:05:12Z` | MATCH |
+| Temurin 25.0.4.1+1 | `OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz` | 120,256,199 | `e6229d9504f7922053ab31821b9e6bee8761daf7b026a3476d1a027563009880` | immediately after 2026-09-01T22:05:12Z, clock reading not captured | `2026-09-01T22:05:12Z` | MATCH |
+| ant-javacard v26.05.15 | `ant-javacard-v26.05.15.jar` | 65,577 | `14f5e25c07b184e4ec02ee148892c2ea7ad5d7e9db8b91109524df8f7d000589` | immediately after 2026-09-01T22:05:12Z, clock reading not captured | `2026-09-01T22:05:12Z` | MATCH |
 | Apache Ant 1.10.17 | `apache-ant-1.10.17-bin.tar.xz` | 5,071,020 | `9553018e2cd5368261c32b2163c802e00de0a1c9707c3cfdd4cf7d6821674b08` | `2026-09-01T22:00:03Z` | `2026-09-01T15:25:51Z` | MATCH |
-| Oracle DevKit 26.0 build 705 | `java_card_devkit_tools-bin-v26.0-b_705-04-MAY-2026.zip` | 1,781,450 | `86443cb1b64c006456e524d91082ba25d5ebb0ee5506c6e4d7088350ce251d9d` | `2026-09-01T22:05:12Z` | `2026-09-01T14:54:13Z` | MATCH |
-| GlobalPlatformPro v25.10.20 | `gp.jar` | 14,840,623 | `c88e0c5093032ec4571571f5397b6174e56bf632667950fa5bb716338534b122` | `2026-09-01T22:05:12Z` | `2026-09-01T15:28:09Z` | MATCH |
+| Oracle DevKit 26.0 build 705 | `java_card_devkit_tools-bin-v26.0-b_705-04-MAY-2026.zip` | 1,781,450 | `86443cb1b64c006456e524d91082ba25d5ebb0ee5506c6e4d7088350ce251d9d` | `2026-09-01T22:00:03Z` | `2026-09-01T14:54:13Z` | MATCH |
+| GlobalPlatformPro v25.10.20 | `gp.jar` | 14,840,623 | `c88e0c5093032ec4571571f5397b6174e56bf632667950fa5bb716338534b122` | `2026-09-01T22:00:03Z` | `2026-09-01T15:28:09Z` | MATCH |
 
 Before any future use, the build procedure must recheck the selected files in
 this private bundle against this register. A mismatch stops rather than
