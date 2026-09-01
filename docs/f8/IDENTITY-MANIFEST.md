@@ -10,6 +10,11 @@ specimen, after the final tool source commit is published, in order
 Owner disposition. This file registers no execution outcome yet and authorizes
 no APDU beyond the exact `QK-F8-IDENT-V1` sequence.
 
+The frozen `ENROLLMENT-MANIFEST.md` statement that no further card contact is
+authorized closes only `QK-F8-ENROLL-EMPTY-V1`; QK-DEC-153 is the later narrow
+authority for these three identity contacts and creates no further enrollment
+session.
+
 The complete raw transcripts, reader and specimen serials, and every Card Data,
 CPLC, request and response byte stay in durable private Owner custody. One
 later Owner-directed evidence commit fills all three rows together with exact

@@ -2,6 +2,10 @@
 
 ACTIVATED AS QK-F8-IDENT-V1
 
+The earlier state marker `DRAFT - NOT ACTIVE - ZERO APDU COMMANDS AUTHORIZED`
+is retained as a historical G0 comparison fact only and is superseded for the
+separate identity adapter by QK-DEC-153.
+
 ## Authority boundary
 
 The mock registration `QK-F8-G0-EMPTY-V1` and enrollment registration
@@ -25,7 +29,10 @@ cannot acquire a command merely because the separate identity path is active.
 | Order | Exact command bytes or bounded mask | Command/data length rule | Purpose | Allowed lifecycle/session position | Exact expected response shape | Allowed status words | Per-command repetitions | Timing capture | Stop condition | Source ID/hash | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 
-NONE - ZERO QK-F8-G0-EMPTY-V1 MOCK APDU COMMANDS.
+NONE - ZERO DRAFT APDU COMMANDS; ZERO ACTIVE APDU COMMANDS.
+
+That retained marker applies only to the empty G0 mock table above. It does not
+describe or authorize the separately fixed `QK-F8-IDENT-V1` adapter.
 
 ## Activated fixed sequence
 
@@ -51,7 +58,7 @@ reordered, repeated, corrected or explored during execution.
 - [x] Exact success grammars frozen by QK-DEC-153.
 - [x] Specimen and apparatus evidence complete and aliases bound.
 - [x] QK-DEC-153 activates the exact registration and three-session order.
-- [x] Fixed adapter, transcript and tests land in the same activation range.
+- [x] Code table and tests change in the same bounded activation range.
 
 No identity session may run before the final tool source commit is published.
 Any unlisted behavior stops and returns to Owner disposition rather than being
