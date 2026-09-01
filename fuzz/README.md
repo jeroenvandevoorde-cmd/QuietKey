@@ -349,8 +349,9 @@ The two completed process-slice-4 campaigns are recorded in
 together in `CORPUS-MANIFEST-PROCESS-S4.tsv` under the source-before-execution
 rule.
 The three QK-DEC-151 process-slice-7 targets use the isolated
-`process-s7-core` feature closure. Campaign 026 is not yet executed: all six
-earlier qk-core targets will be requalified and the three new Kit intake,
-restore, and spend targets will each execute 100,000 inputs before the
-PROCESS-S7 registry is rendered. Existing retained corpora and campaign
-records remain unchanged until those final-code campaigns complete.
+`process-s7-core` feature closure. Campaign 026 records the completed
+requalification of all six earlier qk-core targets and the completed 100,000-
+input campaigns for Kit intake, restore and spend. Their agreed retained
+corpora are registered together in `CORPUS-MANIFEST-PROCESS-S7.tsv`; the
+promoted earlier-target fixed points are also reflected in the S4, S5 and S6
+partition manifests under QK-DEC-146.
