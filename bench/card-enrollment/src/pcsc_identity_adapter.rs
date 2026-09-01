@@ -137,6 +137,12 @@ impl IdentityBackend for PcscIdentityBackend {
             }
         };
         attempt.observed_atr = Some(atr.clone());
+        let observed_protocol = protocol.map(|protocol| match protocol {
+            Protocol::T0 => NegotiatedProtocol::T0,
+            Protocol::T1 => NegotiatedProtocol::T1,
+            Protocol::RAW => NegotiatedProtocol::Raw,
+        });
+        attempt.observed_protocol = observed_protocol;
         if atr.is_empty() {
             attempt.reject(IdentityOperation::CaptureAtr, IdentityError::AtrEmpty);
             finish_disconnect(&mut attempt, card);
@@ -157,7 +163,7 @@ impl IdentityBackend for PcscIdentityBackend {
         }
         attempt.push_pass(IdentityOperation::CaptureAtr);
 
-        let Some(protocol) = protocol else {
+        let Some(protocol) = observed_protocol else {
             attempt.reject(
                 IdentityOperation::CaptureProtocol,
                 IdentityError::ProtocolUnavailable,
@@ -165,12 +171,6 @@ impl IdentityBackend for PcscIdentityBackend {
             finish_disconnect(&mut attempt, card);
             return attempt;
         };
-        let protocol = match protocol {
-            Protocol::T0 => NegotiatedProtocol::T0,
-            Protocol::T1 => NegotiatedProtocol::T1,
-            Protocol::RAW => NegotiatedProtocol::Raw,
-        };
-        attempt.observed_protocol = Some(protocol);
         if protocol != NegotiatedProtocol::T1 {
             attempt.reject(
                 IdentityOperation::CaptureProtocol,

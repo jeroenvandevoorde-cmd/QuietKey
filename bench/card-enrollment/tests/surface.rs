@@ -75,6 +75,15 @@ fn safe_adapter_exposes_only_the_two_private_fixed_transmits() {
     assert!(IDENTITY.contains("fn capture_identity(&mut self, reader_name: &[u8])"));
     assert!(!IDENTITY.contains("apdu: &[u8]"));
     assert!(!IDENTITY_ADAPTER.contains("apdu: &[u8]"));
+    assert!(
+        IDENTITY_ADAPTER
+            .find("attempt.observed_protocol = observed_protocol;")
+            .expect("protocol observation")
+            < IDENTITY_ADAPTER
+                .find("if atr.is_empty()")
+                .expect("ATR rejection precedence"),
+        "the returned protocol must be retained even when ATR validation rejects"
+    );
 }
 
 #[test]
