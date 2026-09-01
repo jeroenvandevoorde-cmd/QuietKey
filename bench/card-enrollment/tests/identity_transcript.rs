@@ -1,5 +1,5 @@
 use qk_card_enrollment::{
-    encode_identity_transcript, EnrollmentMetadata, EnrollmentMode, IdentityEvent,
+    encode_identity_transcript, EnrollmentMetadata, EnrollmentMode, IdentityError, IdentityEvent,
     IdentityExchange, IdentityOperation, IdentityOutcome, IdentityRecord, NegotiatedProtocol,
     CARD_RECOGNITION_COMMAND, CPLC_COMMAND, IDENTITY_ALLOWLIST_ID, IDENTITY_TOOL_VERSION,
     IDENTITY_TRANSCRIPT_VERSION, REGISTERED_J3R180_ATR,
@@ -137,4 +137,69 @@ fn encoding_is_deterministic() {
         encode_identity_transcript(&record()).expect("first"),
         encode_identity_transcript(&record()).expect("second")
     );
+}
+
+#[test]
+fn contradictory_failure_records_never_encode() {
+    let mut wrong_result = record();
+    wrong_result.outcome =
+        IdentityOutcome::Reject(qk_card_enrollment::IdentityError::CardRecognitionTransmitFailed);
+
+    let mut invented_response = record();
+    invented_response.events.truncate(6);
+    invented_response.events[5].outcome =
+        IdentityOutcome::Reject(qk_card_enrollment::IdentityError::CardRecognitionTransmitFailed);
+    invented_response.events.push(IdentityEvent {
+        operation: IdentityOperation::Disconnect,
+        outcome: IdentityOutcome::Pass,
+    });
+    invented_response.exchanges[1] = IdentityExchange::default();
+    invented_response.outcome =
+        IdentityOutcome::Reject(qk_card_enrollment::IdentityError::CardRecognitionTransmitFailed);
+
+    let mut wrong_disconnect = record();
+    wrong_disconnect.disconnected = Some(false);
+
+    for malformed in [wrong_result, invented_response, wrong_disconnect] {
+        assert_eq!(
+            encode_identity_transcript(&malformed),
+            Err(qk_card_enrollment::IdentityError::IdentitySequenceViolation)
+        );
+    }
+}
+
+#[test]
+fn reachable_failure_records_remain_canonical_evidence() {
+    let mut context_failure = record();
+    context_failure.readers.clear();
+    context_failure.events.clear();
+    context_failure.observed_atr = None;
+    context_failure.observed_protocol = None;
+    context_failure.exchanges = core::array::from_fn(|_| IdentityExchange::default());
+    context_failure.disconnected = None;
+    context_failure.outcome = IdentityOutcome::Reject(IdentityError::ContextUnavailable);
+
+    let mut missing_reader = context_failure.clone();
+    missing_reader.readers.push(b"another reader".to_vec());
+    missing_reader.events.push(IdentityEvent {
+        operation: IdentityOperation::EnumerateReaders,
+        outcome: IdentityOutcome::Pass,
+    });
+    missing_reader.outcome = IdentityOutcome::Reject(IdentityError::SelectedReaderMissing);
+
+    let mut wrong_atr = record();
+    wrong_atr.events.truncate(4);
+    wrong_atr.events[3].outcome = IdentityOutcome::Reject(IdentityError::RegisteredAtrMismatch);
+    wrong_atr.events.push(IdentityEvent {
+        operation: IdentityOperation::Disconnect,
+        outcome: IdentityOutcome::Pass,
+    });
+    wrong_atr.observed_atr = Some(vec![0x3b]);
+    wrong_atr.exchanges = core::array::from_fn(|_| IdentityExchange::default());
+    wrong_atr.disconnected = Some(true);
+    wrong_atr.outcome = IdentityOutcome::Reject(IdentityError::RegisteredAtrMismatch);
+
+    for canonical in [context_failure, missing_reader, wrong_atr] {
+        assert!(encode_identity_transcript(&canonical).is_ok());
+    }
 }

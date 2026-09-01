@@ -295,7 +295,7 @@ pub fn run_identity<B: IdentityBackend>(
     record.exchanges = attempt.exchanges;
     record.disconnected = attempt.disconnected;
     record.outcome = attempt.outcome;
-    if validate_attempt(&record).is_err() {
+    if validate_identity_record(&record).is_err() {
         record.outcome = IdentityOutcome::Reject(IdentityError::IdentitySequenceViolation);
     }
     record
@@ -335,81 +335,408 @@ fn validate_reader_name(reader: &[u8]) -> Result<(), IdentityError> {
     Ok(())
 }
 
-fn validate_attempt(record: &IdentityRecord) -> Result<(), IdentityError> {
-    let first = &record.exchanges[0];
-    let second = &record.exchanges[1];
-    if first
-        .request
-        .as_deref()
-        .is_some_and(|request| request != CARD_RECOGNITION_COMMAND)
-        || second
-            .request
-            .as_deref()
-            .is_some_and(|request| request != CPLC_COMMAND)
-        || first.response.is_some() && first.request.is_none()
-        || second.response.is_some() && second.request.is_none()
-        || second.request.is_some()
-            && first
-                .response
-                .as_deref()
-                .is_none_or(|response| validate_card_recognition_response(response).is_err())
-    {
-        return Err(IdentityError::IdentitySequenceViolation);
-    }
-    if record.outcome == IdentityOutcome::Pass {
-        if record.observed_atr.as_deref() != Some(REGISTERED_J3R180_ATR.as_slice())
-            || record.observed_protocol != Some(NegotiatedProtocol::T1)
-            || record.disconnected != Some(true)
-            || first.request.as_deref() != Some(CARD_RECOGNITION_COMMAND.as_slice())
-            || second.request.as_deref() != Some(CPLC_COMMAND.as_slice())
-        {
-            return Err(IdentityError::IdentitySequenceViolation);
-        }
-        validate_card_recognition_response(
-            first
-                .response
-                .as_deref()
-                .ok_or(IdentityError::IdentitySequenceViolation)?,
-        )?;
-        validate_cplc_response(
-            second
-                .response
-                .as_deref()
-                .ok_or(IdentityError::IdentitySequenceViolation)?,
-        )?;
-        let expected = [
-            IdentityOperation::EnumerateReaders,
-            IdentityOperation::ExclusiveConnect,
-            IdentityOperation::Reset,
-            IdentityOperation::CaptureAtr,
-            IdentityOperation::CaptureProtocol,
-            IdentityOperation::TransmitCardRecognition,
-            IdentityOperation::ReceiveCardRecognition,
-            IdentityOperation::TransmitCplc,
-            IdentityOperation::ReceiveCplc,
-            IdentityOperation::Disconnect,
-        ];
-        if record.events.len() != expected.len()
-            || record
-                .events
-                .iter()
-                .zip(expected)
-                .any(|(event, operation)| {
-                    event.operation != operation || event.outcome != IdentityOutcome::Pass
-                })
-        {
-            return Err(IdentityError::IdentitySequenceViolation);
-        }
-    }
-    if record
-        .observed_atr
-        .as_deref()
-        .is_some_and(|atr| atr.is_empty() || atr.len() > MAX_ATR_BYTES)
+pub(crate) fn validate_identity_record(record: &IdentityRecord) -> Result<(), IdentityError> {
+    if record.metadata.inner().mode != EnrollmentMode::Enroll
         || record.events.len() > 10
+        || record.readers.len() > MAX_READERS
     {
-        return Err(IdentityError::IdentitySequenceViolation);
+        return sequence_violation();
+    }
+    let list_bytes = record.readers.iter().try_fold(1usize, |total, reader| {
+        total.checked_add(reader.len())?.checked_add(1)
+    });
+    if list_bytes.is_none_or(|length| length > MAX_READER_LIST_BYTES) {
+        return sequence_violation();
+    }
+
+    if record.events.is_empty() {
+        if !record.readers.is_empty()
+            || record.observed_atr.is_some()
+            || record.observed_protocol.is_some()
+            || record
+                .exchanges
+                .iter()
+                .any(|exchange| exchange.request.is_some() || exchange.response.is_some())
+            || record.disconnected.is_some()
+            || !matches!(
+                record.outcome,
+                IdentityOutcome::Reject(
+                    IdentityError::ContextUnavailable | IdentityError::BoundaryPanicked
+                )
+            )
+        {
+            return sequence_violation();
+        }
+        return Ok(());
+    }
+
+    let enumeration = record.events[0];
+    if enumeration.operation != IdentityOperation::EnumerateReaders {
+        return sequence_violation();
+    }
+    if let IdentityOutcome::Reject(error) = enumeration.outcome {
+        if record.events.len() != 1
+            || record.outcome != enumeration.outcome
+            || record.observed_atr.is_some()
+            || record.observed_protocol.is_some()
+            || record
+                .exchanges
+                .iter()
+                .any(|exchange| exchange.request.is_some() || exchange.response.is_some())
+            || record.disconnected.is_some()
+            || !valid_enumeration_rejection(error, &record.readers)
+        {
+            return sequence_violation();
+        }
+        return Ok(());
+    }
+
+    if record
+        .readers
+        .iter()
+        .any(|reader| validate_reader_name(reader).is_err())
+    {
+        return sequence_violation();
+    }
+    let selected = record
+        .metadata
+        .inner()
+        .selected_reader_name
+        .as_deref()
+        .ok_or(IdentityError::IdentitySequenceViolation)?;
+    let selected_count = record
+        .readers
+        .iter()
+        .filter(|reader| reader.as_slice() == selected)
+        .count();
+    if record.events.len() == 1 {
+        let expected = match selected_count {
+            0 => IdentityError::SelectedReaderMissing,
+            1 => return sequence_violation(),
+            _ => IdentityError::SelectedReaderDuplicate,
+        };
+        if record.outcome != IdentityOutcome::Reject(expected)
+            || record.observed_atr.is_some()
+            || record.observed_protocol.is_some()
+            || record
+                .exchanges
+                .iter()
+                .any(|exchange| exchange.request.is_some() || exchange.response.is_some())
+            || record.disconnected.is_some()
+        {
+            return sequence_violation();
+        }
+        return Ok(());
+    }
+    if selected_count != 1 {
+        return sequence_violation();
+    }
+
+    validate_event_sequence(record)?;
+    validate_observations(record)?;
+    validate_exchanges(record)?;
+    validate_disconnect(record)?;
+
+    let first_rejection = record.events.iter().find_map(|event| match event.outcome {
+        IdentityOutcome::Pass => None,
+        IdentityOutcome::Reject(error) => Some(error),
+    });
+    let expected_outcome = first_rejection.map_or(IdentityOutcome::Pass, IdentityOutcome::Reject);
+    if record.outcome != expected_outcome {
+        return sequence_violation();
     }
     Ok(())
+}
+
+fn validate_event_sequence(record: &IdentityRecord) -> Result<(), IdentityError> {
+    const OPERATIONS: [IdentityOperation; 10] = [
+        IdentityOperation::EnumerateReaders,
+        IdentityOperation::ExclusiveConnect,
+        IdentityOperation::Reset,
+        IdentityOperation::CaptureAtr,
+        IdentityOperation::CaptureProtocol,
+        IdentityOperation::TransmitCardRecognition,
+        IdentityOperation::ReceiveCardRecognition,
+        IdentityOperation::TransmitCplc,
+        IdentityOperation::ReceiveCplc,
+        IdentityOperation::Disconnect,
+    ];
+    let mut expected_index = 0usize;
+    let mut rejected = false;
+    for (index, event) in record.events.iter().enumerate() {
+        if rejected {
+            if index + 1 != record.events.len() || event.operation != IdentityOperation::Disconnect
+            {
+                return sequence_violation();
+            }
+        } else if OPERATIONS.get(expected_index) != Some(&event.operation) {
+            return sequence_violation();
+        }
+        match event.outcome {
+            IdentityOutcome::Pass => {
+                if rejected {
+                    continue;
+                }
+                expected_index += 1;
+            }
+            IdentityOutcome::Reject(error) => {
+                if !valid_operation_rejection(event.operation, error) {
+                    return sequence_violation();
+                }
+                if event.operation == IdentityOperation::ExclusiveConnect
+                    || event.operation == IdentityOperation::Disconnect
+                {
+                    if index + 1 != record.events.len() {
+                        return sequence_violation();
+                    }
+                } else if !rejected
+                    && (record.events.get(index + 1).map(|next| next.operation)
+                        != Some(IdentityOperation::Disconnect)
+                        || index + 2 != record.events.len())
+                {
+                    return sequence_violation();
+                }
+                rejected = true;
+            }
+        }
+    }
+    if !rejected && expected_index != OPERATIONS.len() {
+        return sequence_violation();
+    }
+    Ok(())
+}
+
+fn validate_observations(record: &IdentityRecord) -> Result<(), IdentityError> {
+    let atr_event = event_for(record, IdentityOperation::CaptureAtr);
+    let protocol_event = event_for(record, IdentityOperation::CaptureProtocol);
+    match atr_event.map(|event| event.outcome) {
+        None => {
+            if record.observed_atr.is_some() || record.observed_protocol.is_some() {
+                return sequence_violation();
+            }
+        }
+        Some(IdentityOutcome::Pass) => {
+            if record.observed_atr.as_deref() != Some(REGISTERED_J3R180_ATR.as_slice()) {
+                return sequence_violation();
+            }
+        }
+        Some(IdentityOutcome::Reject(error)) => match error {
+            IdentityError::StatusFailed | IdentityError::BoundaryPanicked => {
+                if record.observed_atr.is_some() || record.observed_protocol.is_some() {
+                    return sequence_violation();
+                }
+            }
+            IdentityError::AtrEmpty => {
+                if record.observed_atr.as_deref() != Some(&[]) {
+                    return sequence_violation();
+                }
+            }
+            IdentityError::AtrTooLong => {
+                if record
+                    .observed_atr
+                    .as_deref()
+                    .is_none_or(|atr| atr.len() <= MAX_ATR_BYTES)
+                {
+                    return sequence_violation();
+                }
+            }
+            IdentityError::RegisteredAtrMismatch => {
+                if record.observed_atr.as_deref().is_none_or(|atr| {
+                    atr.is_empty()
+                        || atr.len() > MAX_ATR_BYTES
+                        || atr == REGISTERED_J3R180_ATR.as_slice()
+                }) {
+                    return sequence_violation();
+                }
+            }
+            _ => return sequence_violation(),
+        },
+    }
+    match protocol_event.map(|event| event.outcome) {
+        None => {}
+        Some(IdentityOutcome::Pass) => {
+            if record.observed_protocol != Some(NegotiatedProtocol::T1) {
+                return sequence_violation();
+            }
+        }
+        Some(IdentityOutcome::Reject(IdentityError::ProtocolUnavailable)) => {
+            if record.observed_protocol.is_some() {
+                return sequence_violation();
+            }
+        }
+        Some(IdentityOutcome::Reject(IdentityError::IdentityProtocolMismatch)) => {
+            if !matches!(
+                record.observed_protocol,
+                Some(NegotiatedProtocol::T0 | NegotiatedProtocol::Raw)
+            ) {
+                return sequence_violation();
+            }
+        }
+        Some(IdentityOutcome::Reject(_)) => return sequence_violation(),
+    }
+    Ok(())
+}
+
+fn validate_exchanges(record: &IdentityRecord) -> Result<(), IdentityError> {
+    let first = &record.exchanges[0];
+    let second = &record.exchanges[1];
+    validate_exchange(
+        event_for(record, IdentityOperation::TransmitCardRecognition),
+        event_for(record, IdentityOperation::ReceiveCardRecognition),
+        first,
+        &CARD_RECOGNITION_COMMAND,
+        validate_card_recognition_response,
+    )?;
+    validate_exchange(
+        event_for(record, IdentityOperation::TransmitCplc),
+        event_for(record, IdentityOperation::ReceiveCplc),
+        second,
+        &CPLC_COMMAND,
+        validate_cplc_response,
+    )?;
+    Ok(())
+}
+
+fn validate_exchange(
+    transmit: Option<&IdentityEvent>,
+    receive: Option<&IdentityEvent>,
+    exchange: &IdentityExchange,
+    command: &[u8; 5],
+    validate_response: fn(&[u8]) -> Result<(), IdentityError>,
+) -> Result<(), IdentityError> {
+    if transmit.is_none() {
+        if exchange.request.is_some() || exchange.response.is_some() || receive.is_some() {
+            return sequence_violation();
+        }
+        return Ok(());
+    }
+    if exchange.request.as_deref() != Some(command.as_slice()) {
+        return sequence_violation();
+    }
+    match transmit.map(|event| event.outcome) {
+        Some(IdentityOutcome::Pass) => {
+            let response = exchange
+                .response
+                .as_deref()
+                .ok_or(IdentityError::IdentitySequenceViolation)?;
+            let receive = receive.ok_or(IdentityError::IdentitySequenceViolation)?;
+            let parsed = validate_response(response);
+            match (receive.outcome, parsed) {
+                (IdentityOutcome::Pass, Ok(())) => {}
+                (IdentityOutcome::Reject(recorded), Err(actual)) if recorded == actual => {}
+                _ => return sequence_violation(),
+            }
+        }
+        Some(IdentityOutcome::Reject(_)) => {
+            if receive.is_some() || exchange.response.is_some() {
+                return sequence_violation();
+            }
+        }
+        None => return sequence_violation(),
+    }
+    Ok(())
+}
+
+fn validate_disconnect(record: &IdentityRecord) -> Result<(), IdentityError> {
+    match event_for(record, IdentityOperation::Disconnect).map(|event| event.outcome) {
+        None if record.disconnected.is_none() => Ok(()),
+        Some(IdentityOutcome::Pass) if record.disconnected == Some(true) => Ok(()),
+        Some(IdentityOutcome::Reject(
+            IdentityError::DisconnectFailed | IdentityError::BoundaryPanicked,
+        )) if record.disconnected == Some(false) => Ok(()),
+        _ => sequence_violation(),
+    }
+}
+
+fn valid_enumeration_rejection(error: IdentityError, readers: &[Vec<u8>]) -> bool {
+    match error {
+        IdentityError::ReaderEnumerationFailed
+        | IdentityError::ReaderListTooLarge
+        | IdentityError::ReaderCountExceeded
+        | IdentityError::BoundaryPanicked
+        | IdentityError::IdentitySequenceViolation => readers.is_empty(),
+        IdentityError::ReaderNameEmpty
+        | IdentityError::ReaderNameTooLong
+        | IdentityError::ReaderNameContainsNul => {
+            readers
+                .iter()
+                .find_map(|reader| validate_reader_name(reader).err())
+                == Some(error)
+        }
+        _ => false,
+    }
+}
+
+fn valid_operation_rejection(operation: IdentityOperation, error: IdentityError) -> bool {
+    match operation {
+        IdentityOperation::EnumerateReaders => false,
+        IdentityOperation::ExclusiveConnect => matches!(
+            error,
+            IdentityError::ConnectFailed | IdentityError::BoundaryPanicked
+        ),
+        IdentityOperation::Reset => {
+            matches!(
+                error,
+                IdentityError::ResetFailed | IdentityError::BoundaryPanicked
+            )
+        }
+        IdentityOperation::CaptureAtr => matches!(
+            error,
+            IdentityError::StatusFailed
+                | IdentityError::AtrEmpty
+                | IdentityError::AtrTooLong
+                | IdentityError::RegisteredAtrMismatch
+                | IdentityError::BoundaryPanicked
+        ),
+        IdentityOperation::CaptureProtocol => matches!(
+            error,
+            IdentityError::ProtocolUnavailable | IdentityError::IdentityProtocolMismatch
+        ),
+        IdentityOperation::TransmitCardRecognition => matches!(
+            error,
+            IdentityError::CardRecognitionTransmitFailed
+                | IdentityError::CardRecognitionResponseTooLong
+                | IdentityError::BoundaryPanicked
+        ),
+        IdentityOperation::ReceiveCardRecognition => matches!(
+            error,
+            IdentityError::CardRecognitionResponseTooLong
+                | IdentityError::CardRecognitionResponseTooShort
+                | IdentityError::CardRecognitionStatusRejected
+                | IdentityError::CardRecognitionOuterTagMismatch
+                | IdentityError::CardRecognitionLengthMalformed
+                | IdentityError::CardRecognitionTrailingByte
+                | IdentityError::CardRecognitionFirstNestedTagMismatch
+        ),
+        IdentityOperation::TransmitCplc => matches!(
+            error,
+            IdentityError::CplcTransmitFailed
+                | IdentityError::CplcResponseLengthMismatch
+                | IdentityError::BoundaryPanicked
+        ),
+        IdentityOperation::ReceiveCplc => matches!(
+            error,
+            IdentityError::CplcResponseLengthMismatch
+                | IdentityError::CplcStatusRejected
+                | IdentityError::CplcTagMismatch
+                | IdentityError::CplcLengthMismatch
+        ),
+        IdentityOperation::Disconnect => matches!(
+            error,
+            IdentityError::DisconnectFailed | IdentityError::BoundaryPanicked
+        ),
+    }
+}
+
+fn event_for(record: &IdentityRecord, operation: IdentityOperation) -> Option<&IdentityEvent> {
+    record
+        .events
+        .iter()
+        .find(|event| event.operation == operation)
+}
+
+fn sequence_violation<T>() -> Result<T, IdentityError> {
+    Err(IdentityError::IdentitySequenceViolation)
 }
 
 pub fn validate_card_recognition_response(response: &[u8]) -> Result<(), IdentityError> {

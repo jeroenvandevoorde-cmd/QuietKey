@@ -1,11 +1,13 @@
 use core::fmt::Write;
 
 use crate::{
-    IdentityError, IdentityOperation, IdentityRecord, IDENTITY_ALLOWLIST_ID, IDENTITY_TOOL_VERSION,
-    IDENTITY_TRANSCRIPT_VERSION, MAX_TRANSCRIPT_BYTES,
+    identity::validate_identity_record, IdentityError, IdentityOperation, IdentityRecord,
+    IDENTITY_ALLOWLIST_ID, IDENTITY_TOOL_VERSION, IDENTITY_TRANSCRIPT_VERSION,
+    MAX_TRANSCRIPT_BYTES,
 };
 
 pub fn encode_identity_transcript(record: &IdentityRecord) -> Result<Vec<u8>, IdentityError> {
+    validate_identity_record(record)?;
     let metadata = record.metadata.inner();
     let mut text = String::with_capacity(2_048);
     writeln!(text, "{IDENTITY_TRANSCRIPT_VERSION}").expect("String writes cannot fail");
