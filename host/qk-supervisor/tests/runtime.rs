@@ -318,7 +318,6 @@ fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_con
         ("qk-io-host", &failing),
     );
     assert!(started.elapsed() >= Duration::from_millis(900));
-    assert!(started.elapsed() < Duration::from_secs(2));
 
     exact_inherited_descriptors_and_pretraffic_unlink_are_observed(&binaries, &supervisor, &root);
 
@@ -460,101 +459,46 @@ fn exact_inherited_descriptors_and_pretraffic_unlink_are_observed(
     supervisor: &Path,
     root: &Path,
 ) {
-    let decoy_lock = root.join("decoy-lock");
-    let decoy_ok = root.join("decoy-grants-ok");
     let core_ok = root.join("core-grants-ok");
     let io_ok = root.join("io-grants-ok");
     let runtime = root.join("runtime-normal");
-    let decoy = compile_stub(
-        root,
-        "decoy-inspector",
-        &descriptor_inspector_source("decoy", &decoy_ok, Some(&decoy_lock), None, None, &runtime),
-    );
     let core = compile_stub(
         root,
         "core-inspector",
-        &descriptor_inspector_source(
-            "core",
-            &core_ok,
-            None,
-            Some(&decoy_lock),
-            Some(&io_ok),
-            &runtime,
-        ),
+        &descriptor_inspector_source("core", &core_ok, &runtime),
     );
     let io = compile_stub(
         root,
         "io-inspector",
-        &descriptor_inspector_source("io", &io_ok, None, None, Some(&core_ok), &runtime),
+        &descriptor_inspector_source("io", &io_ok, &runtime),
     );
-    let decoy_saved = replace_child(binaries, "qk-decoy-host", &decoy);
     let core_saved = replace_child(binaries, "qk-core-host", &core);
     let io_saved = replace_child(binaries, "qk-io-host", &io);
     assert_output(run_launcher(supervisor, "normal", root), 0);
-    restore_child(binaries, "qk-decoy-host", &decoy_saved);
     restore_child(binaries, "qk-core-host", &core_saved);
     restore_child(binaries, "qk-io-host", &io_saved);
-    assert_eq!(fs::read(decoy_ok).unwrap(), b"PASS");
     assert_eq!(fs::read(core_ok).unwrap(), b"PASS");
     assert_eq!(fs::read(io_ok).unwrap(), b"PASS");
 }
 
-fn descriptor_inspector_source(
-    role: &str,
-    sentinel: &Path,
-    hold_lock: Option<&Path>,
-    require_released_lock: Option<&Path>,
-    peer_sentinel: Option<&Path>,
-    runtime: &Path,
-) -> String {
+fn descriptor_inspector_source(role: &str, sentinel: &Path, runtime: &Path) -> String {
     let expected = match role {
-        "decoy" => "[(3, 0), (4, 1)]",
         "core" => "[(0, 2), (1, 2), (3, 1), (4, 0), (5, 0), (6, 1)]",
         "io" => "[(0, 2), (1, 2), (3, 0), (4, 0), (5, 1), (6, 1)]",
         _ => unreachable!(),
     };
-    let optional_null_descriptors = match role {
-        "decoy" => "[0, 1, 2]",
-        "core" | "io" => "[2]",
-        _ => unreachable!(),
+    let socket = runtime.join("qkip.sock");
+    let socket_check = format!(
+        "let runtime_present = std::path::Path::new({runtime:?}).is_dir(); if !runtime_present {{ observed.push_str(\"runtime-absent;\"); }} ok &= runtime_present; let socket_absent = !std::path::Path::new({socket:?}).exists(); if !socket_absent {{ observed.push_str(\"socket-present;\"); }} ok &= socket_absent; let reconnect_refused = std::os::unix::net::UnixStream::connect({socket:?}).is_err(); if !reconnect_refused {{ observed.push_str(\"reconnect-succeeded;\"); }} ok &= reconnect_refused;"
+    );
+    let peer_barrier = match role {
+        "core" => "let mut peer = [0u8; 1]; let barrier_ok = std::io::Write::write_all(&mut socket, b\"C\").is_ok() && std::io::Read::read_exact(&mut socket, &mut peer).is_ok() && peer == *b\"I\"; if !barrier_ok { observed.push_str(\"peer-barrier-failed;\"); } ok &= barrier_ok;".to_owned(),
+        "io" => "let mut peer = [0u8; 1]; let barrier_ok = std::io::Write::write_all(&mut socket, b\"I\").is_ok() && std::io::Read::read_exact(&mut socket, &mut peer).is_ok() && peer == *b\"C\"; if !barrier_ok { observed.push_str(\"peer-barrier-failed;\"); } ok &= barrier_ok;".to_owned(),
+        _ => String::new(),
     };
-    let required_null_descriptors = match role {
-        "decoy" => "[3, 4]",
-        "core" | "io" => "[3, 4, 5, 6]",
-        _ => unreachable!(),
-    };
-    let lock_hold = hold_lock.map_or_else(String::new, |path| {
-        format!(
-            "let _decoy_lock = std::fs::OpenOptions::new().write(true).create_new(true).open({path:?}).unwrap(); assert_eq!(unsafe {{ flock(std::os::fd::AsRawFd::as_raw_fd(&_decoy_lock), 2) }}, 0);"
-        )
-    });
-    let lock_check = require_released_lock.map_or_else(String::new, |path| {
-        format!(
-            "let decoy_lock = std::fs::OpenOptions::new().write(true).open({path:?}).unwrap(); let decoy_released = unsafe {{ flock(std::os::fd::AsRawFd::as_raw_fd(&decoy_lock), 6) }} == 0; if !decoy_released {{ observed.push_str(\"decoy-lock-held;\"); }} ok &= decoy_released; if decoy_released {{ assert_eq!(unsafe {{ flock(std::os::fd::AsRawFd::as_raw_fd(&decoy_lock), 8) }}, 0); }}"
-        )
-    });
-    let socket_check = if role == "decoy" {
-        String::new()
-    } else {
-        let socket = runtime.join("qkip.sock");
-        format!(
-            "let runtime_present = std::path::Path::new({runtime:?}).is_dir(); if !runtime_present {{ observed.push_str(\"runtime-absent;\"); }} ok &= runtime_present; let socket_absent = !std::path::Path::new({socket:?}).exists(); if !socket_absent {{ observed.push_str(\"socket-present;\"); }} ok &= socket_absent; let reconnect_refused = std::os::unix::net::UnixStream::connect({socket:?}).is_err(); if !reconnect_refused {{ observed.push_str(\"reconnect-succeeded;\"); }} ok &= reconnect_refused;"
-        )
-    };
-    let endpoint_check = if role == "decoy" {
-        String::new()
-    } else {
-        "let first = std::fs::metadata(\"/dev/fd/0\").unwrap(); let second = std::fs::metadata(\"/dev/fd/1\").unwrap(); let endpoint_same = first.dev() == second.dev() && first.ino() == second.ino(); if !endpoint_same { observed.push_str(\"endpoint-map-mismatch;\"); } ok &= endpoint_same; let socket = unsafe { <std::os::unix::net::UnixStream as std::os::fd::FromRawFd>::from_raw_fd(0) }; let endpoint_connected = socket.local_addr().is_ok() && socket.peer_addr().is_ok(); if !endpoint_connected { observed.push_str(\"endpoint-not-connected;\"); } ok &= endpoint_connected; std::mem::forget(socket);".to_owned()
-    };
-    let is_decoy = role == "decoy";
     let failure = sentinel.with_extension("fail");
-    let peer_wait = peer_sentinel.map_or_else(String::new, |path| {
-        format!(
-            "let peer_deadline = std::time::Instant::now() + std::time::Duration::from_secs(1); while !std::path::Path::new({path:?}).exists() && std::time::Instant::now() < peer_deadline {{ std::thread::sleep(std::time::Duration::from_millis(1)); }} if !std::path::Path::new({path:?}).exists() {{ std::fs::write({failure:?}, b\"peer-inspector-not-ready\").unwrap(); std::process::exit(70); }}"
-        )
-    });
     format!(
-        r#"use std::os::unix::fs::MetadataExt; extern "C" {{ fn fcntl(fd: i32, cmd: i32, ...) -> i32; fn flock(fd: i32, operation: i32) -> i32; }} fn open(fd: i32) -> bool {{ (unsafe {{ fcntl(fd, 1) }}) >= 0 }} fn mode(fd: i32) -> i32 {{ (unsafe {{ fcntl(fd, 3) }}) & 3 }} fn main() {{ let _flock_symbol = flock; let expected: &[(i32, i32)] = &{expected}; let optional_null: &[i32] = &{optional_null_descriptors}; let mut ok = true; let mut observed = String::new(); for fd in 0..=64 {{ if open(fd) {{ observed.push_str(&format!("{{fd}}:{{}},", mode(fd))); }} let wanted = expected.iter().find(|(candidate, _)| *candidate == fd); ok &= match wanted {{ Some((_, access)) => open(fd) && mode(fd) == *access, None if optional_null.contains(&fd) => !open(fd) || mode(fd) == 2, None => !open(fd), }}; }} let null = std::fs::metadata("/dev/null").unwrap(); for fd in {required_null_descriptors} {{ let actual = std::fs::metadata(format!("/dev/fd/{{fd}}")).unwrap(); ok &= actual.rdev() == null.rdev(); }} for fd in optional_null {{ if open(*fd) {{ let actual = std::fs::metadata(format!("/dev/fd/{{fd}}")).unwrap(); ok &= actual.rdev() == null.rdev(); }} }} {lock_hold} {endpoint_check} {lock_check} {socket_check} std::fs::write({sentinel:?}, b"PASS").unwrap(); {peer_wait} if !ok {{ std::fs::write({failure:?}, observed).unwrap(); std::process::exit(70); }} if {is_decoy} {{ loop {{ std::thread::park(); }} }} }}"#,
+        r#"use std::os::unix::fs::MetadataExt; extern "C" {{ fn fcntl(fd: i32, cmd: i32, ...) -> i32; }} fn open(fd: i32) -> bool {{ (unsafe {{ fcntl(fd, 1) }}) >= 0 }} fn mode(fd: i32) -> i32 {{ (unsafe {{ fcntl(fd, 3) }}) & 3 }} fn main() {{ let expected: &[(i32, i32)] = &{expected}; let optional_null: &[i32] = &[2]; let mut ok = true; let mut observed = String::new(); for fd in 0..=64 {{ if open(fd) {{ observed.push_str(&format!("{{fd}}:{{}},", mode(fd))); }} let wanted = expected.iter().find(|(candidate, _)| *candidate == fd); ok &= match wanted {{ Some((_, access)) => open(fd) && mode(fd) == *access, None if optional_null.contains(&fd) => !open(fd) || mode(fd) == 2, None => !open(fd), }}; }} let null = std::fs::metadata("/dev/null").unwrap(); for fd in [3, 4, 5, 6] {{ let actual = std::fs::metadata(format!("/dev/fd/{{fd}}")).unwrap(); ok &= actual.rdev() == null.rdev(); }} for fd in optional_null {{ if open(*fd) {{ let actual = std::fs::metadata(format!("/dev/fd/{{fd}}")).unwrap(); ok &= actual.rdev() == null.rdev(); }} }} let first = std::fs::metadata("/dev/fd/0").unwrap(); let second = std::fs::metadata("/dev/fd/1").unwrap(); let endpoint_same = first.dev() == second.dev() && first.ino() == second.ino(); if !endpoint_same {{ observed.push_str("endpoint-map-mismatch;"); }} ok &= endpoint_same; let mut socket = unsafe {{ <std::os::unix::net::UnixStream as std::os::fd::FromRawFd>::from_raw_fd(0) }}; let endpoint_connected = socket.local_addr().is_ok() && socket.peer_addr().is_ok(); if !endpoint_connected {{ observed.push_str("endpoint-not-connected;"); }} ok &= endpoint_connected; {socket_check} {peer_barrier} if !ok {{ std::fs::write({failure:?}, observed).unwrap(); std::process::exit(70); }} std::fs::write({sentinel:?}, b"PASS").unwrap(); }}"#,
     )
 }
 

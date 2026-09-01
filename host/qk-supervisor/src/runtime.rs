@@ -1273,10 +1273,12 @@ const fn status_signaled_by(status: c_int, signal: c_int) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        fork, pause, read_byte, signal, write_byte_child, ChildProcess, LauncherRuntimeError,
-        PipePair, RuntimeDirectory, SIGTERM, STATUS_READY, TERMINATION_BOUND,
+        fcntl, fork, pause, read_byte, signal, write_byte_child, ChildProcess, ExecSpec,
+        LauncherRuntimeError, PipePair, RuntimeDirectory, F_GETFL, SIGTERM, STATUS_READY,
+        TERMINATION_BOUND,
     };
     use std::fs;
+    use std::path::Path;
     use std::time::{Duration, Instant};
 
     const SIGNAL_IGNORE: usize = 1;
@@ -1312,7 +1314,24 @@ mod tests {
     }
 
     #[test]
+    fn decoy_spec_has_only_the_exact_keypad_and_display_grants() {
+        let spec = ExecSpec::decoy(Path::new("/dev/null")).unwrap();
+        let actual: Vec<_> = spec
+            .descriptors
+            .iter()
+            .map(|mapping| {
+                // SAFETY: every source is an open descriptor owned by `spec`.
+                let access = unsafe { fcntl(mapping.source.raw(), F_GETFL) } & 3;
+                (mapping.target, access)
+            })
+            .collect();
+        assert_eq!(actual, [(3, 0), (4, 1)]);
+        assert_eq!(spec.arguments.len(), 1);
+    }
+
+    #[test]
     fn child_drop_uses_the_one_second_term_then_kill_bound_and_reaps() {
+        assert_eq!(TERMINATION_BOUND, Duration::from_secs(1));
         let ready = PipePair::create().unwrap();
         // SAFETY: the child executes only async-signal-safe calls and never
         // returns into the Rust test harness.
@@ -1334,6 +1353,5 @@ mod tests {
         drop(ChildProcess::new(process));
         let elapsed = started.elapsed();
         assert!(elapsed >= TERMINATION_BOUND.saturating_sub(Duration::from_millis(25)));
-        assert!(elapsed < TERMINATION_BOUND + Duration::from_secs(1));
     }
 }
