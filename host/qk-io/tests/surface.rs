@@ -7,6 +7,7 @@ const INGRESS: &str = include_str!("../src/ingress.rs");
 const EGRESS: &str = include_str!("../src/egress.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const MOCK: &str = include_str!("../src/mock.rs");
+const DEVICE_PROCESS: &str = include_str!("../src/device_process.rs");
 const PROCESS: &str = include_str!("../src/process.rs");
 const PROCESS_BIN: &str = include_str!("../src/bin/qk-io-host.rs");
 const WIPE: &str = include_str!("../src/wipe.rs");
@@ -14,11 +15,10 @@ const HOST_SIM_CARGO: &str = include_str!("../../qk-host-sim/Cargo.toml");
 const SUPERVISOR_CARGO: &str = include_str!("../../qk-supervisor/Cargo.toml");
 
 #[test]
-fn manifest_depends_only_on_the_two_approved_transport_leaves() {
+fn manifest_depends_only_on_the_three_approved_transport_leaves() {
     let binary = "[[bin]]\nname = \"qk-io-host\"\npath = \"src/bin/qk-io-host.rs\"\nrequired-features = [\"host-runtime\"]";
     assert_eq!(CARGO.matches(binary).count(), 1);
-    let features =
-        "[features]\nfuzzing = [\"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\"]";
+    let features = "[features]\nfuzzing = [\"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"dep:qk-device-wire\"]";
     assert_eq!(CARGO.matches(features).count(), 1);
     let dependencies = CARGO
         .split_once("[dependencies]")
@@ -26,7 +26,7 @@ fn manifest_depends_only_on_the_two_approved_transport_leaves() {
         .1;
     assert_eq!(
         dependencies.trim(),
-        "qk-bbqr = { path = \"../qk-bbqr\" }\nqk-ipc = { path = \"../qk-ipc\" }"
+        "qk-bbqr = { path = \"../qk-bbqr\" }\nqk-device-wire = { path = \"../qk-device-wire\", optional = true }\nqk-ipc = { path = \"../qk-ipc\" }"
     );
     for forbidden in [
         "qk-a1",
@@ -84,6 +84,7 @@ fn crate_root_surface_is_explicit_and_has_no_public_module_escape() {
 #[test]
 fn host_process_surface_is_feature_locked_no_secret_and_control_only() {
     for item in [
+        "mod device_process;",
         "mod process;",
         "pub use process::{run_io_host_process, IoHostProcessError};",
     ] {
@@ -92,7 +93,7 @@ fn host_process_surface_is_feature_locked_no_secret_and_control_only() {
             "host runtime surface is not feature locked: {item}"
         );
     }
-    assert_eq!(LIB.matches("#[cfg(feature = \"host-runtime\")]").count(), 2);
+    assert_eq!(LIB.matches("#[cfg(feature = \"host-runtime\")]").count(), 3);
     assert_eq!(
         public_methods(PROCESS),
         ["pub fn run_io_host_process() -> Result<(), IoHostProcessError> {",]
@@ -122,7 +123,17 @@ fn host_process_surface_is_feature_locked_no_secret_and_control_only() {
         assert!(!PROCESS_BIN.contains(forbidden), "binary token {forbidden}");
     }
     assert!(PROCESS.contains("const RECEIVE_BYTES: usize = 1;"));
-    assert!(PROCESS.contains(".accept(&frame, None, None)"));
+    assert!(PROCESS.contains(".accept(&mut broker, &frame)"));
+    assert!(!PROCESS.contains("MockInput"));
+    assert!(!PROCESS.contains("MockOutputWriter"));
+    assert!(DEVICE_PROCESS.contains("const CAMERA_INPUT_PATH: &str = \"/dev/fd/3\";"));
+    assert!(DEVICE_PROCESS.contains("const MEDIA_INPUT_PATH: &str = \"/dev/fd/4\";"));
+    assert!(DEVICE_PROCESS.contains("const PRINT_OUTPUT_PATH: &str = \"/dev/fd/5\";"));
+    assert!(DEVICE_PROCESS.contains("const MEDIA_OUTPUT_PATH: &str = \"/dev/fd/6\";"));
+    assert!(!DEVICE_PROCESS.contains("MediaBeginAccepted"));
+    assert!(!DEVICE_PROCESS.contains("MediaChunkAccepted"));
+    assert!(!DEVICE_PROCESS.contains("MediaFinished"));
+    assert!(!DEVICE_PROCESS.contains("MediaRejected"));
 }
 
 #[test]
@@ -207,6 +218,7 @@ fn every_public_method_entry_is_pinned() {
     );
     assert!(public_methods(INGRESS).is_empty());
     assert!(public_methods(EGRESS).is_empty());
+    assert!(public_methods(DEVICE_PROCESS).is_empty());
     assert_eq!(
         public_methods(WIPE),
         [
@@ -255,6 +267,39 @@ fn production_sources_have_no_wallet_card_crypto_os_or_logging_capability() {
             assert!(!source.contains(forbidden), "forbidden token {forbidden}");
         }
     }
+    for forbidden in [
+        "qk_a1",
+        "qk_bip32",
+        "qk_card",
+        "qk_descriptor",
+        "qk_host_model",
+        "qk_host_sim",
+        "qk_kit",
+        "qk_provisioning",
+        "qk_psbt",
+        "qk_secp",
+        "qk_update",
+        "qk_wallet",
+        "SecretKey",
+        "PrivateKey",
+        "wallet_id",
+        "UnixStream",
+        "UnixListener",
+        "recvmsg(",
+        "sendmsg(",
+        "Command::new",
+        "std::process",
+        "getrandom",
+        "rand::",
+        "println!",
+        "eprintln!",
+        "dbg!",
+    ] {
+        assert!(
+            !DEVICE_PROCESS.contains(forbidden),
+            "device bridge token {forbidden}"
+        );
+    }
 }
 
 #[test]
@@ -265,6 +310,7 @@ fn unsafe_is_confined_to_the_two_existing_volatile_wipe_functions() {
     assert!(!EGRESS.contains("unsafe"));
     assert!(!SESSION.contains("unsafe"));
     assert!(!MOCK.contains("unsafe"));
+    assert!(!DEVICE_PROCESS.contains("unsafe"));
     assert_eq!(WIPE.matches("#[allow(unsafe_code)]").count(), 2);
     assert_eq!(WIPE.matches("unsafe {").count(), 2);
 }

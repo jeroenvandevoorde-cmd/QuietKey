@@ -7,6 +7,8 @@
 
 #![deny(unsafe_code)]
 
+#[cfg(feature = "host-runtime")]
+mod device_process;
 mod egress;
 mod ingress;
 mod inner;

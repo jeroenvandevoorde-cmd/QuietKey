@@ -1,6 +1,8 @@
 //! Real HOST child boundary for the no-secret qk-io broker process.
 
-use crate::{BrokerError, BrokerSession, BrokerState};
+use crate::device_process::{DeviceProcess, DeviceProcessError};
+use crate::{BrokerError, BrokerSession, BrokerState, InnerError};
+use qk_device_wire::DeviceError;
 use qk_ipc::{inherited_endpoint, receive_once, IpcError, StreamDecoder, UnixReceiveError};
 use std::fmt;
 use std::io::Write;
@@ -13,6 +15,8 @@ const RECEIVE_BYTES: usize = 1;
 pub enum IoHostProcessError {
     Endpoint(UnixReceiveError),
     Broker(BrokerError),
+    Device(DeviceError),
+    Inner(InnerError),
     WriteFailed,
 }
 
@@ -21,6 +25,8 @@ impl fmt::Display for IoHostProcessError {
         match self {
             Self::Endpoint(error) => error.fmt(formatter),
             Self::Broker(error) => error.fmt(formatter),
+            Self::Device(error) => error.fmt(formatter),
+            Self::Inner(error) => error.fmt(formatter),
             Self::WriteFailed => formatter.write_str("WriteFailed"),
         }
     }
@@ -37,6 +43,7 @@ pub fn run_io_host_process() -> Result<(), IoHostProcessError> {
 
 fn run_control_peer(stream: &UnixStream) -> Result<(), IoHostProcessError> {
     let mut broker = BrokerSession::new();
+    let mut devices = DeviceProcess::new();
     let mut decoder = StreamDecoder::new();
     let mut scratch = [0u8; RECEIVE_BYTES];
     loop {
@@ -57,9 +64,13 @@ fn run_control_peer(stream: &UnixStream) -> Result<(), IoHostProcessError> {
         let frame = decoder
             .take_frame()
             .map_err(|error| IoHostProcessError::Broker(broker.receive_failed(error)))?;
-        let reply = broker
-            .accept(&frame, None, None)
-            .map_err(IoHostProcessError::Broker)?;
+        let reply = devices
+            .accept(&mut broker, &frame)
+            .map_err(|error| match error {
+                DeviceProcessError::Broker(error) => IoHostProcessError::Broker(error),
+                DeviceProcessError::Device(error) => IoHostProcessError::Device(error),
+                DeviceProcessError::Inner(error) => IoHostProcessError::Inner(error),
+            })?;
         let mut writer = stream;
         if writer.write_all(reply.frame_bytes()).is_err() {
             let _ = broker.peer_lost();
