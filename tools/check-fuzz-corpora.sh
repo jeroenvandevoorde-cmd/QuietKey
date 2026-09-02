@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..134/QK-DEC-136/QK-DEC-140/QK-DEC-142/QK-DEC-144/QK-DEC-145/QK-DEC-151/QK-DEC-154 corpus registries.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..134/QK-DEC-136/QK-DEC-140/QK-DEC-142/QK-DEC-144/QK-DEC-145/QK-DEC-151/QK-DEC-154/QK-DEC-156 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -226,6 +226,10 @@ process_s7_campaign='fuzz/CAMPAIGN-026.md'
 process_s8_manifest='fuzz/CORPUS-MANIFEST-PROCESS-S8.tsv'
 process_s8_campaign='fuzz/CAMPAIGN-027.md'
 process_s8_target='fuzz/fuzz_targets/qk_supervisor_process_lifecycle.rs'
+process_s9_manifest='fuzz/CORPUS-MANIFEST-PROCESS-S9.tsv'
+process_s9_campaign='fuzz/CAMPAIGN-028.md'
+process_s9_wire_target='fuzz/fuzz_targets/qk_device_wire.rs'
+process_s9_core_target='fuzz/fuzz_targets/qk_core_normal_process.rs'
 m21_targets='qk_psbt qk_descriptor qk_a1 qk_a1_codec qk_card_trace'
 m22_targets='qk_bbqr_codec qk_bbqr_reassembly'
 m23_targets='qk_psbt_m23 qk_host_sim_m23'
@@ -255,6 +259,7 @@ process_s7_targets='qk_core_io_peer qk_core_session qk_core_provisioning_entry q
 process_s7_new_targets='qk_core_kit_intake qk_core_kit_restore qk_core_kit_spend'
 process_s8_targets='qk_supervisor_lifecycle qk_supervisor_process_lifecycle'
 process_s8_new_targets='qk_supervisor_process_lifecycle'
+process_s9_targets='qk_device_wire qk_core_normal_process'
 base_targets="$m21_targets $m22_targets $m23_targets $m24_targets $m25_targets $m26_targets $m27_targets $m28_targets $m29_targets $m30_targets $v2s4_targets $v2s5_targets $v2s6_targets $v2s7_targets $v2s8_targets $v2s9_targets $v2s10_targets $v2s11_targets $firmware_targets $process_s1_targets $process_s2_targets $process_s3_targets $process_s4_targets"
 all_targets="$base_targets $process_s8_new_targets"
 m21_order='qk_psbt,qk_descriptor,qk_a1,qk_a1_codec,qk_card_trace'
@@ -284,6 +289,7 @@ process_s5_order='qk_core_provisioning_entry,qk_core_provisioning_run'
 process_s6_order='qk_core_normal_entry,qk_core_normal_run'
 process_s7_order='qk_core_io_peer,qk_core_session,qk_core_provisioning_entry,qk_core_provisioning_run,qk_core_normal_entry,qk_core_normal_run,qk_core_kit_intake,qk_core_kit_restore,qk_core_kit_spend'
 process_s8_order='qk_supervisor_lifecycle,qk_supervisor_process_lifecycle'
+process_s9_order='qk_device_wire,qk_core_normal_process'
 
 mode=check
 render_source=''
@@ -318,9 +324,10 @@ case "$#" in
       --render-process-s6) mode=render_process_s6 ;;
       --render-process-s7) mode=render_process_s7 ;;
       --render-process-s8) mode=render_process_s8 ;;
+      --render-process-s9) mode=render_process_s9 ;;
       --render-qk-descriptor) mode=render_qk_descriptor ;;
       --render-qk-psbt-v3) mode=render_qk_psbt_v3 ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT]' ;;
+      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT]' ;;
     esac
     render_source=$2
     if [ "$mode" = render_qk_descriptor ] || [ "$mode" = render_qk_psbt_v3 ]; then
@@ -329,7 +336,7 @@ case "$#" in
       validate_source_commit "$render_source"
     fi
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT]' ;;
+  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT]' ;;
 esac
 
 # QK-DEC-151 pre-campaign renderer. Campaign 026 activates this partition in
@@ -362,6 +369,21 @@ if [ "$mode" = render_process_s8 ]; then
   exit 0
 fi
 
+# QK-DEC-156 pre-campaign renderer. Campaign 028 activates this partition in
+# the full checker only after the final-code campaigns and minimizations.
+if [ "$mode" = render_process_s9 ]; then
+  process_s9_entries=$(mktemp) || fail 'mktemp failed for process slice-9 corpus entries'
+  process_s9_expected=$(mktemp) || fail 'mktemp failed for process slice-9 corpus manifest'
+  target_tmp=$(mktemp) || fail 'mktemp failed for process slice-9 target entries'
+  trap 'rm -f "$process_s9_entries" "$process_s9_expected" "$target_tmp"' EXIT HUP INT TERM
+  emit_partition_entries "$process_s9_targets" "$process_s9_entries"
+  render_partition 'QK-PROCESS-S9-CORPUS-MANIFEST-V1' "$render_source" \
+    "$process_s9_targets" "$process_s9_order" "$process_s9_entries" \
+    "$process_s9_expected"
+  sed -n 'p' "$process_s9_expected"
+  exit 0
+fi
+
 firmware_registered=no
 process_s1_registered=no
 process_s2_registered=no
@@ -374,6 +396,8 @@ process_s6_active=no
 process_s7_registered=no
 process_s7_active=no
 process_s8_registered=no
+process_s9_registered=no
+process_s9_active=no
 if [ "$mode" = check ]; then
   for manifest in "$m21_manifest" "$m22_manifest" "$m23_manifest" "$m24_manifest" \
     "$m25_manifest" "$m26_manifest" "$m27_manifest" "$m28_manifest" \
@@ -537,6 +561,39 @@ if [ "$mode" = check ]; then
        [ -e "$process_s8_manifest" ] || [ -L "$process_s8_manifest" ]; then
     fail 'process slice-8 evidence exists before its target is tracked'
   fi
+  process_s9_tracked=0
+  for target_path in "$process_s9_wire_target" "$process_s9_core_target"; do
+    if git ls-files --error-unmatch -- "$target_path" >/dev/null 2>&1; then
+      process_s9_tracked=$((process_s9_tracked + 1))
+      [ -f "$target_path" ] || fail "$target_path is missing or is not a regular file"
+      [ ! -L "$target_path" ] || fail "$target_path must not be a symlink"
+    fi
+  done
+  if [ "$process_s9_tracked" = 2 ]; then
+    [ -f "$process_s9_campaign" ] || fail "$process_s9_campaign is not a regular file"
+    [ ! -L "$process_s9_campaign" ] || fail "$process_s9_campaign must not be a symlink"
+    git ls-files --error-unmatch -- "$process_s9_campaign" >/dev/null 2>&1 || \
+      fail "$process_s9_campaign is untracked"
+    process_s9_active=yes
+    if [ -e "$process_s9_manifest" ] || [ -L "$process_s9_manifest" ]; then
+      [ -f "$process_s9_manifest" ] || fail "$process_s9_manifest is not a regular file"
+      [ ! -L "$process_s9_manifest" ] || fail "$process_s9_manifest must not be a symlink"
+      git ls-files --error-unmatch -- "$process_s9_manifest" >/dev/null 2>&1 || \
+        fail "$process_s9_manifest is untracked"
+      grep -Fqx 'Status: EXECUTED — QUALIFYING RUN COMPLETE.' "$process_s9_campaign" || \
+        fail 'registered process slice-9 corpus requires completed campaign status'
+      process_s9_registered=yes
+    else
+      grep -Fqx 'Status: PLANNED — NOT EXECUTED.' "$process_s9_campaign" || \
+        fail 'process slice-9 corpus manifest is absent without the planned campaign status'
+    fi
+  elif [ "$process_s9_tracked" != 0 ] || \
+       git ls-files --error-unmatch -- "$process_s9_campaign" >/dev/null 2>&1 || \
+       git ls-files --error-unmatch -- "$process_s9_manifest" >/dev/null 2>&1 || \
+       [ -e "$process_s9_campaign" ] || [ -L "$process_s9_campaign" ] || \
+       [ -e "$process_s9_manifest" ] || [ -L "$process_s9_manifest" ]; then
+    fail 'process slice-9 target or evidence set is incomplete'
+  fi
 elif [ "$mode" = render_process_s1 ] || [ "$mode" = render_process_s2 ] ||
      [ "$mode" = render_process_s3 ] || [ "$mode" = render_process_s4 ]; then
   process_s5_active=yes
@@ -591,6 +648,17 @@ else
   done
 fi
 
+if [ "$process_s9_active" = yes ]; then
+  all_targets="$all_targets $process_s9_targets"
+else
+  for target in $process_s9_targets; do
+    if [ -e "fuzz/corpus/$target" ] || [ -L "fuzz/corpus/$target" ] || \
+       [ -e "fuzz/findings/$target" ] || [ -L "fuzz/findings/$target" ]; then
+      fail "unregistered process slice-9 corpus or finding root: $target"
+    fi
+  done
+fi
+
 [ -d fuzz/corpus ] || fail 'fuzz/corpus is missing or is not a directory'
 [ ! -L fuzz/corpus ] || fail 'fuzz/corpus must not be a symlink'
 unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
@@ -621,6 +689,7 @@ unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
   ! -name qk_core_normal_entry ! -name qk_core_normal_run \
   ! -name qk_core_kit_intake ! -name qk_core_kit_restore \
   ! -name qk_core_kit_spend \
+  ! -name qk_device_wire ! -name qk_core_normal_process \
   -print -quit) || \
   fail 'cannot inspect fuzz/corpus roots'
 [ -z "$unexpected" ] || fail "unexpected corpus root entry: $unexpected"
@@ -664,6 +733,7 @@ if [ -d fuzz/findings ]; then
     ! -name qk_core_normal_entry ! -name qk_core_normal_run \
     ! -name qk_core_kit_intake ! -name qk_core_kit_restore \
     ! -name qk_core_kit_spend \
+    ! -name qk_device_wire ! -name qk_core_normal_process \
     -print -quit) || \
     fail 'cannot inspect fuzz/findings roots'
   [ -z "$unexpected" ] || fail "unexpected finding root entry: $unexpected"
@@ -706,6 +776,7 @@ process_s7_entries=$(mktemp) || fail 'mktemp failed for process slice-7 corpus e
 process_s7_new_entries=$(mktemp) || fail 'mktemp failed for new process slice-7 corpus entries'
 process_s8_entries=$(mktemp) || fail 'mktemp failed for process slice-8 corpus entries'
 process_s8_new_entries=$(mktemp) || fail 'mktemp failed for new process slice-8 corpus entries'
+process_s9_entries=$(mktemp) || fail 'mktemp failed for process slice-9 corpus entries'
 m21_expected=$(mktemp) || fail 'mktemp failed for M21 corpus manifest'
 m22_expected=$(mktemp) || fail 'mktemp failed for M22 corpus manifest'
 m23_expected=$(mktemp) || fail 'mktemp failed for M23 corpus manifest'
@@ -733,6 +804,7 @@ process_s5_expected=$(mktemp) || fail 'mktemp failed for process slice-5 corpus 
 process_s6_expected=$(mktemp) || fail 'mktemp failed for process slice-6 corpus manifest'
 process_s7_expected=$(mktemp) || fail 'mktemp failed for process slice-7 corpus manifest'
 process_s8_expected=$(mktemp) || fail 'mktemp failed for process slice-8 corpus manifest'
+process_s9_expected=$(mktemp) || fail 'mktemp failed for process slice-9 corpus manifest'
 m21_paths=$(mktemp) || fail 'mktemp failed for M21 corpus paths'
 m22_paths=$(mktemp) || fail 'mktemp failed for M22 corpus paths'
 m23_paths=$(mktemp) || fail 'mktemp failed for M23 corpus paths'
@@ -760,6 +832,7 @@ process_s5_paths=$(mktemp) || fail 'mktemp failed for process slice-5 corpus pat
 process_s6_paths=$(mktemp) || fail 'mktemp failed for process slice-6 corpus paths'
 process_s7_paths=$(mktemp) || fail 'mktemp failed for process slice-7 corpus paths'
 process_s8_paths=$(mktemp) || fail 'mktemp failed for process slice-8 corpus paths'
+process_s9_paths=$(mktemp) || fail 'mktemp failed for process slice-9 corpus paths'
 all_paths=$(mktemp) || fail 'mktemp failed for combined corpus paths'
 tracked_tmp=$(mktemp) || fail 'mktemp failed for tracked paths'
 target_tmp=$(mktemp) || fail 'mktemp failed for target entries'
@@ -790,6 +863,7 @@ manifest_process_s5_paths=$(mktemp) || fail 'mktemp failed for process slice-5 m
 manifest_process_s6_paths=$(mktemp) || fail 'mktemp failed for process slice-6 manifest paths'
 manifest_process_s7_paths=$(mktemp) || fail 'mktemp failed for process slice-7 manifest paths'
 manifest_process_s8_paths=$(mktemp) || fail 'mktemp failed for process slice-8 manifest paths'
+manifest_process_s9_paths=$(mktemp) || fail 'mktemp failed for process slice-9 manifest paths'
 trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$m23_entries" "$m23_expected" "$m24_entries" "$m24_expected" \
   "$m25_entries" "$m25_expected" "$m26_entries" "$m26_expected" \
@@ -808,6 +882,7 @@ trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$process_s6_entries" "$process_s6_expected" \
   "$process_s7_entries" "$process_s7_new_entries" "$process_s7_expected" \
   "$process_s8_entries" "$process_s8_new_entries" "$process_s8_expected" \
+  "$process_s9_entries" "$process_s9_expected" \
   "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
   "$m26_paths" "$m27_paths" "$m28_paths" "$m29_paths" "$m30_paths" \
   "$v2s4_paths" "$v2s5_paths" "$v2s6_paths" "$v2s7_paths" "$v2s8_paths" \
@@ -815,6 +890,7 @@ trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$process_s1_paths" "$process_s2_paths" "$process_s3_paths" \
   "$process_s4_paths" "$process_s5_paths" "$process_s6_paths" \
   "$process_s7_paths" "$process_s8_paths" \
+  "$process_s9_paths" \
   "$all_paths" "$tracked_tmp" "$target_tmp" "$manifest_m21_paths" \
   "$manifest_m22_paths" "$manifest_m23_paths" "$manifest_m24_paths" \
   "$manifest_m25_paths" "$manifest_m26_paths" "$manifest_m27_paths" \
@@ -826,7 +902,8 @@ trap 'rm -f "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$manifest_process_s1_paths" "$manifest_process_s2_paths" \
   "$manifest_process_s3_paths" "$manifest_process_s4_paths" \
   "$manifest_process_s5_paths" "$manifest_process_s6_paths" \
-  "$manifest_process_s7_paths" "$manifest_process_s8_paths"' EXIT HUP INT TERM
+  "$manifest_process_s7_paths" "$manifest_process_s8_paths" \
+  "$manifest_process_s9_paths"' EXIT HUP INT TERM
 
 emit_partition_entries "$m21_targets" "$m21_entries"
 emit_partition_entries "$m22_targets" "$m22_entries"
@@ -871,6 +948,11 @@ else
 fi
 emit_partition_entries "$process_s8_targets" "$process_s8_entries"
 emit_partition_entries "$process_s8_new_targets" "$process_s8_new_entries"
+if [ "$process_s9_active" = yes ]; then
+  emit_partition_entries "$process_s9_targets" "$process_s9_entries"
+else
+  : > "$process_s9_entries" || fail 'cannot initialize process slice-9 corpus entries'
+fi
 if [ "$process_s5_active" = yes ] && [ "$process_s5_registered" = no ]; then
   planned_count=$(wc -l < "$process_s5_entries" | tr -d ' ')
   planned_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$process_s5_entries")
@@ -888,6 +970,15 @@ if [ "$process_s6_active" = yes ] && [ "$process_s6_registered" = no ]; then
   [ "$planned_count:$planned_bytes:$planned_hash" = \
     '119:478:e191a95ad273833b2aeb2375f42db8aae70c6b6f2eac0edfa3c9bc926936157f' ] || \
     fail 'process slice-6 starting corpora do not match the preregistered bytes'
+fi
+if [ "$process_s9_active" = yes ] && [ "$process_s9_registered" = no ]; then
+  planned_count=$(wc -l < "$process_s9_entries" | tr -d ' ')
+  planned_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$process_s9_entries")
+  planned_hash=$(sha256_file "$process_s9_entries") || \
+    fail 'cannot hash process slice-9 starting corpus entries'
+  [ "$planned_count:$planned_bytes:$planned_hash" = \
+    '14:409:40a72ec84daa6a86b0064d623ca5683817a520ca6204ebc259897a0c32910147' ] || \
+    fail 'process slice-9 starting corpora do not match the preregistered bytes'
 fi
 cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'
 cut -f 5 "$m22_entries" | LC_ALL=C sort > "$m22_paths" || fail 'cannot list M22 corpus paths'
@@ -933,13 +1024,15 @@ cut -f 5 "$process_s7_new_entries" | LC_ALL=C sort > "$process_s7_paths" || \
   fail 'cannot list process slice-7 corpus paths'
 cut -f 5 "$process_s8_new_entries" | LC_ALL=C sort > "$process_s8_paths" || \
   fail 'cannot list process slice-8 corpus paths'
+cut -f 5 "$process_s9_entries" | LC_ALL=C sort > "$process_s9_paths" || \
+  fail 'cannot list process slice-9 corpus paths'
 cat "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
   "$m26_paths" "$m27_paths" "$m28_paths" "$m29_paths" "$m30_paths" \
   "$v2s4_paths" "$v2s5_paths" "$v2s6_paths" "$v2s7_paths" "$v2s8_paths" \
   "$v2s9_paths" "$v2s10_paths" "$v2s11_paths" "$firmware_paths" \
   "$process_s1_paths" "$process_s2_paths" "$process_s3_paths" \
   "$process_s4_paths" "$process_s5_paths" "$process_s6_paths" \
-  "$process_s7_paths" "$process_s8_paths" | \
+  "$process_s7_paths" "$process_s8_paths" "$process_s9_paths" | \
   LC_ALL=C sort > "$all_paths" || \
   fail 'cannot combine corpus paths'
 duplicate=$(uniq -d "$all_paths" | sed -n '1p')
@@ -997,6 +1090,9 @@ case "$mode" in
     fi
     if [ "$process_s8_registered" = yes ]; then
       process_s8_source=$(manifest_source "$process_s8_manifest")
+    fi
+    if [ "$process_s9_registered" = yes ]; then
+      process_s9_source=$(manifest_source "$process_s9_manifest")
     fi
     render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
       "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
@@ -1080,6 +1176,11 @@ case "$mode" in
         "$process_s8_targets" "$process_s8_order" "$process_s8_entries" \
         "$process_s8_expected"
     fi
+    if [ "$process_s9_registered" = yes ]; then
+      render_partition 'QK-PROCESS-S9-CORPUS-MANIFEST-V1' "$process_s9_source" \
+        "$process_s9_targets" "$process_s9_order" "$process_s9_entries" \
+        "$process_s9_expected"
+    fi
     extract_manifest_paths "$m21_manifest" "$m21_order" "$manifest_m21_paths"
     extract_manifest_paths "$m22_manifest" "$m22_order" "$manifest_m22_paths"
     extract_manifest_paths "$m23_manifest" "$m23_order" "$manifest_m23_paths"
@@ -1134,6 +1235,10 @@ case "$mode" in
       extract_manifest_paths "$process_s8_manifest" "$process_s8_order" \
         "$manifest_process_s8_paths"
     fi
+    if [ "$process_s9_registered" = yes ]; then
+      extract_manifest_paths "$process_s9_manifest" "$process_s9_order" \
+        "$manifest_process_s9_paths"
+    fi
     duplicate=$(cat "$manifest_m21_paths" "$manifest_m22_paths" "$manifest_m23_paths" \
       "$manifest_m24_paths" "$manifest_m25_paths" "$manifest_m26_paths" \
       "$manifest_m27_paths" "$manifest_m28_paths" "$manifest_m29_paths" \
@@ -1143,7 +1248,7 @@ case "$mode" in
       "$manifest_firmware_paths" "$manifest_process_s1_paths" \
       "$manifest_process_s2_paths" "$manifest_process_s3_paths" \
       "$manifest_process_s4_paths" "$manifest_process_s5_paths" \
-      "$manifest_process_s6_paths" | \
+      "$manifest_process_s6_paths" "$manifest_process_s9_paths" | \
       LC_ALL=C sort | \
       uniq -d | sed -n '1p')
     [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
@@ -1218,6 +1323,10 @@ case "$mode" in
     if [ "$process_s8_registered" = yes ]; then
       cmp -s "$process_s8_manifest" "$process_s8_expected" || \
         fail "$process_s8_manifest does not match the tracked process slice-8 corpus bytes"
+    fi
+    if [ "$process_s9_registered" = yes ]; then
+      cmp -s "$process_s9_manifest" "$process_s9_expected" || \
+        fail "$process_s9_manifest does not match the tracked process slice-9 corpus bytes"
     fi
     ;;
   render_m21)

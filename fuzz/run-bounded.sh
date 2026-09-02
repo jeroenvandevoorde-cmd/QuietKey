@@ -53,6 +53,8 @@ case "$target" in
   qk_core_kit_intake) max_len=512; seed=151001 ;;
   qk_core_kit_restore) max_len=512; seed=151002 ;;
   qk_core_kit_spend) max_len=512; seed=151003 ;;
+  qk_device_wire) max_len=65536; seed=156001 ;;
+  qk_core_normal_process) max_len=4096; seed=156002 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
 esac
 case "$runs" in ''|*[!0-9]*) printf 'RUNS must be a positive integer\n' >&2; exit 2 ;; esac
@@ -105,6 +107,12 @@ case "$target" in
     ;;
   qk_core_kit_intake|qk_core_kit_restore|qk_core_kit_spend)
     set -- --no-default-features --features process-s7-core "$target" "fuzz/corpus/$target"
+    ;;
+  qk_device_wire)
+    set -- --no-default-features --features process-s9-wire "$target" "fuzz/corpus/$target"
+    ;;
+  qk_core_normal_process)
+    set -- --no-default-features --features process-s9-core "$target" "fuzz/corpus/$target"
     ;;
   *) set -- "$target" "fuzz/corpus/$target" ;;
 esac

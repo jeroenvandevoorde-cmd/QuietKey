@@ -207,6 +207,7 @@ dependencies = [
  "qk-a1",
  "qk-bbqr",
  "qk-descriptor",
+ "qk-device-wire",
  "qk-ipc",
  "qk-kit",
  "qk-provisioning",
@@ -224,6 +225,10 @@ version = "0.0.1"
 dependencies = [
  "qk-bip32",
 ]
+
+[[package]]
+name = "qk-device-wire"
+version = "0.0.1"
 
 [[package]]
 name = "qk-host-model"
@@ -321,6 +326,7 @@ dependencies = [
  "qk-core",
  "qk-decoy",
  "qk-descriptor",
+ "qk-device-wire",
  "qk-host-sim",
  "qk-io",
  "qk-ipc",

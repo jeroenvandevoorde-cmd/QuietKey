@@ -62,6 +62,19 @@ process-s7-core = [
     "qk-core/fuzzing",
     "qk-ipc/fuzzing",
 ]
+process-s9-wire = [
+    "dep:qk-device-wire",
+    "qk-device-wire/fuzzing",
+]
+process-s9-core = [
+    "dep:qk-core",
+    "dep:qk-device-wire",
+    "dep:qk-ipc",
+    "qk-core/fuzzing",
+    "qk-core/normal-process",
+    "qk-device-wire/fuzzing",
+    "qk-ipc/fuzzing",
+]
 
 [dependencies]
 libfuzzer-sys = { version = "=0.4.13" }
@@ -72,6 +85,7 @@ qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1", optional =
 qk-core = { path = "../host/qk-core", version = "=0.0.1", optional = true }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1", optional = true }
 qk-decoy = { path = "../host/qk-decoy", version = "=0.0.1", optional = true }
+qk-device-wire = { path = "../host/qk-device-wire", version = "=0.0.1", optional = true }
 qk-host-sim = { path = "../host/qk-host-sim", version = "=0.0.1", optional = true }
 qk-io = { path = "../host/qk-io", version = "=0.0.1", optional = true }
 qk-ipc = { path = "../host/qk-ipc", version = "=0.0.1", optional = true }
@@ -434,6 +448,22 @@ test = false
 doc = false
 bench = false
 required-features = ["process-s7-core"]
+
+[[bin]]
+name = "qk_device_wire"
+path = "fuzz_targets/qk_device_wire.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s9-wire"]
+
+[[bin]]
+name = "qk_core_normal_process"
+path = "fuzz_targets/qk_core_normal_process.rs"
+test = false
+doc = false
+bench = false
+required-features = ["process-s9-core"]
 
 [profile.release]
 overflow-checks = true

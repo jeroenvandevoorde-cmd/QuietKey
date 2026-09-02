@@ -163,6 +163,24 @@ test evidence. Campaign 027 and `CORPUS-MANIFEST-PROCESS-S8.tsv` are created
 only after the final source commit is fixed and both qualifying campaigns and
 two-copy minimizations complete.
 
+QK-DEC-156 adds the dependency-free pure `qk_device_wire` target for the exact
+QKDV header, all eight capability-bound body families, parser precedence,
+fragmentation, coalescing, sequence, input/output-transfer, outstanding-
+exchange, terminal-state, short-output, and volatile-cleanup rules. Its
+control bytes are separate from candidate bytes, and a registered control
+selector synthesizes the exact 262,169-byte maximum chunk presentation.
+The pure `qk_core_normal_process` target drives the process-only Normal owner
+through hostile card, keypad, QKIP, route, and interruption inputs and through
+the complete registered public A1+B success and card-rejection cases. It locks
+stable named outcomes, terminal absorption, deterministic repetition, exact
+QKDV and QKIP adapters, and the absence of premature signature use. Neither
+target creates a process, socket, descriptor, real device, card operation, or
+hardware claim. Campaign 028 is planned; its fourteen public starting seeds
+are byte-registered now, including one frame for every QKDV capability and a
+two-frame coalesced stream, while `CORPUS-MANIFEST-PROCESS-S9.tsv` is created only
+after the final source commit is fixed and both 100,000-input campaigns and
+two-copy minimizations complete.
+
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
 implemented inner response parser, one complete valid ingress transfer, outer
@@ -215,20 +233,27 @@ runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
 `ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s8-supervisor`,
 `process-s3-io`, `process-s4-core`, `process-s5-core`, `process-s6-core`, and
-`process-s7-core`
+`process-s7-core`, `process-s9-wire`, and `process-s9-core`
 normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
-`qk-decoy`, `qk-supervisor`, `qk-io`, and `qk-core` are optional and absent from the default
-closure; each target selects only its named non-default feature. `Cargo.lock`
+`qk-decoy`, `qk-supervisor`, `qk-io`, `qk-core`, and `qk-device-wire` are
+optional and absent from the default closure; each target selects only its
+named non-default feature. `process-s9-wire` reaches only qk-device-wire;
+`process-s9-core` adds qk-device-wire to the existing qk-core closure.
+`Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the ten closures remain isolated, qk-decoy's host closure is
+proves the twelve fuzz closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
-qk-ipc, qk-io's host and fuzz closures are exactly qk-io plus qk-ipc and
-qk-bbqr, and qk-core's host and process-s4 through process-s7 closures are
-exactly qk-a1, qk-bbqr, qk-bip32, qk-core, qk-descriptor, qk-ipc, qk-kit,
-qk-provisioning, qk-psbt, qk-secp and qk-wallet-v2; qk-host-sim and qk-io are
-absent from those core closures, and the normalized union validates against
-the allowlist.
+qk-ipc, and qk-io's default fuzz closure is exactly qk-io plus qk-ipc and
+qk-bbqr while its HOST runtime closure adds only qk-device-wire. The
+process-s4 through process-s7 closures are exactly qk-a1,
+qk-bbqr, qk-bip32, qk-core, qk-descriptor, qk-ipc, qk-kit, qk-provisioning,
+qk-psbt, qk-secp and qk-wallet-v2. The qk-core HOST runtime and
+`process-s9-core` closure add only qk-device-wire to that set; direct qk-ipc
+fuzzing support is selected only inside the core feature. qk-host-sim and qk-io are absent from
+all core product and fuzz closures. The normalized union validates against the
+allowlist, and the legacy default and named closures remain unchanged in
+membership.
 `tools/check.sh` exempts only
 `fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
 non-top-level dependency tables, patches, replacements, closure isolation, or
@@ -292,6 +317,8 @@ fuzz/run-bounded.sh qk_core_normal_run 100000
 fuzz/run-bounded.sh qk_core_kit_intake 100000
 fuzz/run-bounded.sh qk_core_kit_restore 100000
 fuzz/run-bounded.sh qk_core_kit_spend 100000
+fuzz/run-bounded.sh qk_device_wire 100000
+fuzz/run-bounded.sh qk_core_normal_process 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
@@ -372,3 +399,9 @@ features. Campaign 027 records the two 100,000-input qualifying runs and their
 agreed minimizations once the final source commit exists; the resulting
 partition is rendered as `CORPUS-MANIFEST-PROCESS-S8.tsv`, with any changed
 requalified slice-2 fixed point promoted under QK-DEC-146.
+The QK-DEC-156 process-slice-9 targets use the isolated `process-s9-wire` and
+`process-s9-core` features.
+Campaign 028 preregisters their public seed bytes, campaign parameters, exact
+execution order, two-copy minimization, promotion, registration, and replay
+rules. The manifest `CORPUS-MANIFEST-PROCESS-S9.tsv` remains absent until both
+qualifying campaigns complete against the fixed final source.
