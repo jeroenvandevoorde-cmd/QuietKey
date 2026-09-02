@@ -548,6 +548,7 @@ pub struct InputTransfer {
     total_len: u32,
     next_offset: u32,
     complete: bool,
+    finished: bool,
     terminated: bool,
 }
 
@@ -566,6 +567,7 @@ impl InputTransfer {
             total_len,
             next_offset: 0,
             complete: false,
+            finished: false,
             terminated: false,
         })
     }
@@ -609,9 +611,13 @@ impl InputTransfer {
 
     pub fn finish(&mut self) -> Result<(), DeviceError> {
         self.require_live()?;
+        if self.finished {
+            return Err(self.terminate(DeviceError::UnexpectedFrame));
+        }
         if !self.complete || self.next_offset != self.total_len {
             return Err(self.terminate(DeviceError::TransferIncomplete));
         }
+        self.finished = true;
         Ok(())
     }
 
@@ -680,11 +686,11 @@ impl OutputTransfer {
 
     pub fn accept(&mut self, body: OutputBody<'_>) -> Result<(), DeviceError> {
         self.require_live()?;
-        if let Err(error) = validate_output_body(self.capability, body) {
-            return Err(self.terminate(error));
-        }
         if self.complete {
             return Err(self.terminate(DeviceError::UnexpectedFrame));
+        }
+        if let Err(error) = validate_output_body(self.capability, body) {
+            return Err(self.terminate(error));
         }
         let (offset, chunk) = match body {
             OutputBody::WriteChunk { offset, chunk } => (offset, chunk),
@@ -705,6 +711,9 @@ impl OutputTransfer {
 
     pub fn finish(&mut self, body: OutputBody<'_>) -> Result<(), DeviceError> {
         self.require_live()?;
+        if self.complete {
+            return Err(self.terminate(DeviceError::UnexpectedFrame));
+        }
         if let Err(error) = validate_output_body(self.capability, body) {
             return Err(self.terminate(error));
         }

@@ -291,6 +291,8 @@ fn input_transfer_enforces_offset_final_and_completion() {
         })
         .unwrap();
     transfer.finish().unwrap();
+    assert_eq!(transfer.finish(), Err(DeviceError::UnexpectedFrame));
+    assert_eq!(transfer.finish(), Err(DeviceError::DecoderTerminated));
 
     let mut wrong_final = InputTransfer::begin(
         Capability::MediaInput,
@@ -470,6 +472,20 @@ fn output_transfer_requires_exact_artifact_length_and_finish() {
             total_len: 3,
         })
         .unwrap();
+    assert_eq!(
+        transfer.finish(OutputBody::WriteFinish {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+        }),
+        Err(DeviceError::UnexpectedFrame)
+    );
+    assert_eq!(
+        transfer.finish(OutputBody::WriteFinish {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+        }),
+        Err(DeviceError::DecoderTerminated)
+    );
 
     let mut incomplete = OutputTransfer::begin(
         Capability::MediaOutput,
