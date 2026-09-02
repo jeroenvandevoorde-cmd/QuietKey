@@ -389,6 +389,22 @@ fn keypad_card_input_output_and_reply_bodies_are_exact() {
         })
     ));
 
+    let camera_kit_begin = [2, 142, 0, 0, 0];
+    let frame = encoded(
+        Capability::CameraInput,
+        MessageKind::CameraBegin,
+        1,
+        &camera_kit_begin,
+    );
+    assert!(matches!(
+        frame_body(Capability::CameraInput, &frame),
+        BodyRef::CameraInput(InputBody::Begin {
+            source: Source::CameraKitCandidate,
+            total_len: 142,
+            ..
+        })
+    ));
+
     let filename = b"input.psbt";
     let mut media_begin = vec![4];
     media_begin.extend_from_slice(&25u32.to_le_bytes());
@@ -411,7 +427,9 @@ fn keypad_card_input_output_and_reply_bodies_are_exact() {
 
     let mut output_begin = vec![2];
     output_begin.extend_from_slice(&25u32.to_le_bytes());
-    output_begin.extend_from_slice(&0u16.to_le_bytes());
+    let output_name = b"qk-00000000000000000000000000000000-final.tx";
+    output_begin.extend_from_slice(&(output_name.len() as u16).to_le_bytes());
+    output_begin.extend_from_slice(output_name);
     let frame = encoded(
         Capability::MediaOutput,
         MessageKind::MediaWriteBegin,
@@ -507,5 +525,80 @@ fn chunk_and_filename_rejections_are_named() {
         Capability::MediaInput,
         &raw_frame(6, 1, 1, &bad_name),
         DeviceError::FilenameRejected,
+    );
+
+    for total_len in [141u32, 143] {
+        let mut kit = vec![Source::CameraKitCandidate.wire_value()];
+        kit.extend_from_slice(&total_len.to_le_bytes());
+        assert_parse_error(
+            Capability::CameraInput,
+            &raw_frame(5, 1, 1, &kit),
+            DeviceError::SourceMismatch,
+        );
+    }
+
+    let mut empty_output_name = vec![Artifact::RawTransaction.wire_value()];
+    empty_output_name.extend_from_slice(&1u32.to_le_bytes());
+    empty_output_name.extend_from_slice(&0u16.to_le_bytes());
+    assert_parse_error(
+        Capability::MediaOutput,
+        &raw_frame(8, 1, 1, &empty_output_name),
+        DeviceError::FilenameRejected,
+    );
+}
+
+#[test]
+fn output_reply_lengths_and_offsets_are_bounded() {
+    for kind in [MessageKind::MediaBeginAccepted, MessageKind::MediaFinished] {
+        for total_len in [0u32, 2_097_153] {
+            let mut body = vec![Artifact::RawTransaction.wire_value()];
+            body.extend_from_slice(&total_len.to_le_bytes());
+            assert_parse_error(
+                Capability::MediaInput,
+                &raw_frame(6, kind.wire_value(), 1, &body),
+                DeviceError::ValueOutOfRange,
+            );
+        }
+    }
+
+    for next_offset in [0u32, 2_097_153] {
+        assert_parse_error(
+            Capability::MediaInput,
+            &raw_frame(
+                6,
+                MessageKind::MediaChunkAccepted.wire_value(),
+                1,
+                &next_offset.to_le_bytes(),
+            ),
+            DeviceError::ValueOutOfRange,
+        );
+    }
+
+    for artifact in [Artifact::A1PrintArtifact, Artifact::KitPrintArtifact] {
+        let mut body = vec![artifact.wire_value()];
+        body.extend_from_slice(&1u32.to_le_bytes());
+        let frame = encoded(
+            Capability::MediaInput,
+            MessageKind::MediaBeginAccepted,
+            1,
+            &body,
+        );
+        assert!(matches!(
+            frame_body(Capability::MediaInput, &frame),
+            BodyRef::OutputReply(_)
+        ));
+    }
+
+    let mut unsupported = vec![Artifact::WatchOnlyBsms.wire_value()];
+    unsupported.extend_from_slice(&1u32.to_le_bytes());
+    assert_parse_error(
+        Capability::MediaInput,
+        &raw_frame(
+            6,
+            MessageKind::MediaBeginAccepted.wire_value(),
+            1,
+            &unsupported,
+        ),
+        DeviceError::ArtifactMismatch,
     );
 }

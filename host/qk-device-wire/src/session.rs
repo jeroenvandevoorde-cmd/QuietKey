@@ -1,8 +1,10 @@
 //! Pure sequence, request/response, and transfer state owners.
 
 use crate::{
-    encode_frame, Artifact, BodyRef, Capability, CardResponseBody, DeviceError, InputBody,
-    MessageKind, OutputBody, OutputReplyBody, ReceivedFrame, Source,
+    encode_frame,
+    wire::{parse_output, validate_input_begin, validate_output_body},
+    Artifact, BodyRef, Capability, CardResponseBody, DeviceError, InputBody, MessageKind,
+    OutputBody, OutputReplyBody, ReceivedFrame, Source,
 };
 
 /// Immutable outbound header facts produced only by a valid transition.
@@ -11,6 +13,7 @@ pub struct OutboundFrame {
     capability: Capability,
     kind: MessageKind,
     sequence: u32,
+    output: Option<OutputExpectation>,
 }
 
 impl OutboundFrame {
@@ -27,6 +30,10 @@ impl OutboundFrame {
     }
 
     pub fn encode(self, body: &[u8], output: &mut [u8]) -> Result<usize, DeviceError> {
+        if let Some(expected) = self.output {
+            let actual = parse_output(self.capability, self.kind, body)?;
+            output_request_matches(expected, actual)?;
+        }
         encode_frame(self.capability, self.kind, self.sequence, body, output)
     }
 }
@@ -63,6 +70,7 @@ impl OneWayProtocol {
             capability: self.capability,
             kind,
             sequence,
+            output: None,
         })
     }
 
@@ -121,8 +129,32 @@ pub struct ExchangeProtocol {
     request_capability: Capability,
     response_capability: Capability,
     next_sequence: Option<u32>,
-    outstanding: Option<(u32, MessageKind)>,
+    outstanding: Option<OutstandingExchange>,
     terminated: bool,
+}
+
+#[derive(Clone, Copy)]
+struct OutstandingExchange {
+    sequence: u32,
+    request_kind: MessageKind,
+    output: Option<OutputExpectation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutputExpectation {
+    Begin {
+        artifact: Artifact,
+        total_len: u32,
+    },
+    Chunk {
+        offset: u32,
+        chunk_len: u32,
+        next_offset: u32,
+    },
+    Finish {
+        artifact: Artifact,
+        total_len: u32,
+    },
 }
 
 impl ExchangeProtocol {
@@ -156,15 +188,108 @@ impl ExchangeProtocol {
         if kind.capability() != self.request_capability {
             return Err(self.terminate(DeviceError::CapabilityKindMismatch));
         }
+        if matches!(
+            self.request_capability,
+            Capability::PrintOutput | Capability::MediaOutput
+        ) {
+            return Err(self.terminate(DeviceError::UnexpectedFrame));
+        }
         let sequence = match self.next_sequence {
             Some(sequence) => sequence,
             None => return Err(self.terminate(DeviceError::SequenceExhausted)),
         };
-        self.outstanding = Some((sequence, kind));
+        self.outstanding = Some(OutstandingExchange {
+            sequence,
+            request_kind: kind,
+            output: None,
+        });
         Ok(OutboundFrame {
             capability: self.request_capability,
             kind,
             sequence,
+            output: None,
+        })
+    }
+
+    /// Begin one output request while binding every fact echoed by its reply.
+    pub fn begin_output(&mut self, body: OutputBody<'_>) -> Result<OutboundFrame, DeviceError> {
+        self.require_live()?;
+        if self.outstanding.is_some() {
+            return Err(self.terminate(DeviceError::OutstandingExchange));
+        }
+        if !matches!(
+            self.request_capability,
+            Capability::PrintOutput | Capability::MediaOutput
+        ) {
+            return Err(self.terminate(DeviceError::CapabilityMismatch));
+        }
+        if let Err(error) = validate_output_body(self.request_capability, body) {
+            return Err(self.terminate(error));
+        }
+        let (kind, output) = match body {
+            OutputBody::WriteBegin {
+                artifact,
+                total_len,
+                ..
+            } => (
+                output_kind(
+                    self.request_capability,
+                    MessageKind::PrintWriteBegin,
+                    MessageKind::MediaWriteBegin,
+                )?,
+                OutputExpectation::Begin {
+                    artifact,
+                    total_len,
+                },
+            ),
+            OutputBody::WriteChunk { offset, chunk } => {
+                let chunk_len = u32::try_from(chunk.len())
+                    .map_err(|_| self.terminate(DeviceError::TransferLengthExceeded))?;
+                let next_offset = offset
+                    .checked_add(chunk_len)
+                    .ok_or_else(|| self.terminate(DeviceError::TransferLengthExceeded))?;
+                (
+                    output_kind(
+                        self.request_capability,
+                        MessageKind::PrintWriteChunk,
+                        MessageKind::MediaWriteChunk,
+                    )?,
+                    OutputExpectation::Chunk {
+                        offset,
+                        chunk_len,
+                        next_offset,
+                    },
+                )
+            }
+            OutputBody::WriteFinish {
+                artifact,
+                total_len,
+            } => (
+                output_kind(
+                    self.request_capability,
+                    MessageKind::PrintWriteFinish,
+                    MessageKind::MediaWriteFinish,
+                )?,
+                OutputExpectation::Finish {
+                    artifact,
+                    total_len,
+                },
+            ),
+        };
+        let sequence = match self.next_sequence {
+            Some(sequence) => sequence,
+            None => return Err(self.terminate(DeviceError::SequenceExhausted)),
+        };
+        self.outstanding = Some(OutstandingExchange {
+            sequence,
+            request_kind: kind,
+            output: Some(output),
+        });
+        Ok(OutboundFrame {
+            capability: self.request_capability,
+            kind,
+            sequence,
+            output: Some(output),
         })
     }
 
@@ -175,10 +300,12 @@ impl ExchangeProtocol {
         if header.capability() != self.response_capability {
             return Err(self.terminate(DeviceError::CapabilityMismatch));
         }
-        let (sequence, request_kind) = match self.outstanding {
+        let outstanding = match self.outstanding {
             Some(value) => value,
             None => return Err(self.terminate(DeviceError::NoOutstandingExchange)),
         };
+        let sequence = outstanding.sequence;
+        let request_kind = outstanding.request_kind;
         if header.sequence() != sequence {
             return Err(self.terminate(DeviceError::ResponseSequenceMismatch));
         }
@@ -198,6 +325,11 @@ impl ExchangeProtocol {
                 | BodyRef::OutputReply(OutputReplyBody::Rejected { .. })
         ) {
             return Err(self.terminate(DeviceError::DeviceRejected));
+        }
+        if let Some(expected) = outstanding.output {
+            if let Err(error) = output_reply_matches(expected, body) {
+                return Err(self.terminate(error));
+            }
         }
         self.outstanding = None;
         self.next_sequence = sequence.checked_add(1);
@@ -236,6 +368,113 @@ impl ExchangeProtocol {
         self.outstanding = None;
         self.terminated = true;
         error
+    }
+}
+
+fn output_kind(
+    capability: Capability,
+    print_kind: MessageKind,
+    media_kind: MessageKind,
+) -> Result<MessageKind, DeviceError> {
+    match capability {
+        Capability::PrintOutput => Ok(print_kind),
+        Capability::MediaOutput => Ok(media_kind),
+        _ => Err(DeviceError::CapabilityMismatch),
+    }
+}
+
+fn output_reply_matches(expected: OutputExpectation, body: BodyRef<'_>) -> Result<(), DeviceError> {
+    match (expected, body) {
+        (
+            OutputExpectation::Begin {
+                artifact: expected_artifact,
+                total_len: expected_total,
+            },
+            BodyRef::OutputReply(OutputReplyBody::BeginAccepted {
+                artifact,
+                total_len,
+            }),
+        )
+        | (
+            OutputExpectation::Finish {
+                artifact: expected_artifact,
+                total_len: expected_total,
+            },
+            BodyRef::OutputReply(OutputReplyBody::Finished {
+                artifact,
+                total_len,
+            }),
+        ) => {
+            if artifact == expected_artifact && total_len == expected_total {
+                Ok(())
+            } else {
+                Err(DeviceError::ArtifactMismatch)
+            }
+        }
+        (
+            OutputExpectation::Chunk {
+                next_offset: expected,
+                ..
+            },
+            BodyRef::OutputReply(OutputReplyBody::ChunkAccepted { next_offset }),
+        ) => {
+            if next_offset == expected {
+                Ok(())
+            } else {
+                Err(DeviceError::OffsetMismatch)
+            }
+        }
+        _ => Err(DeviceError::ResponseKindMismatch),
+    }
+}
+
+fn output_request_matches(
+    expected: OutputExpectation,
+    actual: OutputBody<'_>,
+) -> Result<(), DeviceError> {
+    match (expected, actual) {
+        (
+            OutputExpectation::Begin {
+                artifact: expected_artifact,
+                total_len: expected_total,
+            },
+            OutputBody::WriteBegin {
+                artifact,
+                total_len,
+                ..
+            },
+        )
+        | (
+            OutputExpectation::Finish {
+                artifact: expected_artifact,
+                total_len: expected_total,
+            },
+            OutputBody::WriteFinish {
+                artifact,
+                total_len,
+            },
+        ) => {
+            if artifact == expected_artifact && total_len == expected_total {
+                Ok(())
+            } else {
+                Err(DeviceError::ArtifactMismatch)
+            }
+        }
+        (
+            OutputExpectation::Chunk {
+                offset: expected_offset,
+                chunk_len: expected_len,
+                ..
+            },
+            OutputBody::WriteChunk { offset, chunk },
+        ) => {
+            if offset == expected_offset && usize::try_from(expected_len) == Ok(chunk.len()) {
+                Ok(())
+            } else {
+                Err(DeviceError::OffsetMismatch)
+            }
+        }
+        _ => Err(DeviceError::UnexpectedFrame),
     }
 }
 
@@ -314,22 +553,13 @@ pub struct InputTransfer {
 
 impl InputTransfer {
     pub fn begin(capability: Capability, body: InputBody<'_>) -> Result<Self, DeviceError> {
+        validate_input_begin(capability, body)?;
         let (source, total_len) = match body {
             InputBody::Begin {
                 source, total_len, ..
             } => (source, total_len),
             InputBody::Chunk { .. } => return Err(DeviceError::UnexpectedFrame),
         };
-        let valid = match capability {
-            Capability::CameraInput => {
-                matches!(source, Source::CameraA1Candidate | Source::CameraBbqrPsbt)
-            }
-            Capability::MediaInput => source == Source::MediaPsbt,
-            _ => false,
-        };
-        if !valid {
-            return Err(DeviceError::SourceMismatch);
-        }
         Ok(Self {
             capability,
             source,
@@ -417,6 +647,7 @@ pub struct OutputTransfer {
 
 impl OutputTransfer {
     pub fn begin(capability: Capability, body: OutputBody<'_>) -> Result<Self, DeviceError> {
+        validate_output_body(capability, body)?;
         let (artifact, total_len) = match body {
             OutputBody::WriteBegin {
                 artifact,
@@ -443,6 +674,9 @@ impl OutputTransfer {
 
     pub fn accept(&mut self, body: OutputBody<'_>) -> Result<(), DeviceError> {
         self.require_live()?;
+        if let Err(error) = validate_output_body(self.capability, body) {
+            return Err(self.terminate(error));
+        }
         if self.complete {
             return Err(self.terminate(DeviceError::UnexpectedFrame));
         }
@@ -465,6 +699,9 @@ impl OutputTransfer {
 
     pub fn finish(&mut self, body: OutputBody<'_>) -> Result<(), DeviceError> {
         self.require_live()?;
+        if let Err(error) = validate_output_body(self.capability, body) {
+            return Err(self.terminate(error));
+        }
         let (artifact, total_len) = match body {
             OutputBody::WriteFinish {
                 artifact,

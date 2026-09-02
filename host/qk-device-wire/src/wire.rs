@@ -9,6 +9,7 @@ use crate::{
 const MAX_TRANSFER_BYTES: usize = 2_097_152;
 const MAX_BBQR_PART_BYTES: u16 = 2_680;
 const A1_BYTES: u32 = 67;
+const KIT_BYTES: u32 = 142;
 const A1_PRINT_BYTES: u32 = 67;
 const KIT_PRINT_BYTES: u32 = 829;
 const MAX_SIGNATURES: usize = 100;
@@ -1523,8 +1524,9 @@ fn parse_camera_begin(body: &[u8]) -> Result<InputBody<'_>, DeviceError> {
     let total_len = read_u32(&body[1..5]);
     let valid = match source {
         Source::CameraA1Candidate => total_len == A1_BYTES,
+        Source::CameraKitCandidate => total_len == KIT_BYTES,
         Source::CameraBbqrPsbt => (1..=MAX_TRANSFER_BYTES as u32).contains(&total_len),
-        Source::CameraKitCandidate | Source::MediaPsbt => false,
+        Source::MediaPsbt => false,
     };
     if !valid {
         return Err(DeviceError::SourceMismatch);
@@ -1599,7 +1601,7 @@ fn parse_input_chunk(body: &[u8]) -> Result<InputBody<'_>, DeviceError> {
     })
 }
 
-fn parse_output(
+pub(crate) fn parse_output(
     capability: Capability,
     kind: MessageKind,
     body: &[u8],
@@ -1654,7 +1656,7 @@ fn parse_output_begin(capability: Capability, body: &[u8]) -> Result<OutputBody<
             if !matches!(artifact, Artifact::FinalizedPsbt | Artifact::RawTransaction) {
                 return Err(DeviceError::ArtifactMismatch);
             }
-            if !filename.is_empty() && !valid_output_filename(artifact, filename) {
+            if !valid_output_filename(artifact, filename) {
                 return Err(DeviceError::FilenameRejected);
             }
         }
@@ -1723,9 +1725,9 @@ fn parse_output_reply(kind: MessageKind, body: &[u8]) -> Result<OutputReplyBody,
     match kind {
         MessageKind::MediaBeginAccepted => {
             exact_length(body, 5)?;
-            let artifact = parse_normal_artifact(body[0])?;
+            let artifact = parse_output_reply_artifact(body[0])?;
             let total_len = read_u32(&body[1..5]);
-            if total_len == 0 {
+            if !(1..=MAX_TRANSFER_BYTES as u32).contains(&total_len) {
                 return Err(DeviceError::ValueOutOfRange);
             }
             Ok(OutputReplyBody::BeginAccepted {
@@ -1735,15 +1737,17 @@ fn parse_output_reply(kind: MessageKind, body: &[u8]) -> Result<OutputReplyBody,
         }
         MessageKind::MediaChunkAccepted => {
             exact_length(body, 4)?;
-            Ok(OutputReplyBody::ChunkAccepted {
-                next_offset: read_u32(body),
-            })
+            let next_offset = read_u32(body);
+            if !(1..=MAX_TRANSFER_BYTES as u32).contains(&next_offset) {
+                return Err(DeviceError::ValueOutOfRange);
+            }
+            Ok(OutputReplyBody::ChunkAccepted { next_offset })
         }
         MessageKind::MediaFinished => {
             exact_length(body, 5)?;
-            let artifact = parse_normal_artifact(body[0])?;
+            let artifact = parse_output_reply_artifact(body[0])?;
             let total_len = read_u32(&body[1..5]);
-            if total_len == 0 {
+            if !(1..=MAX_TRANSFER_BYTES as u32).contains(&total_len) {
                 return Err(DeviceError::ValueOutOfRange);
             }
             Ok(OutputReplyBody::Finished {
@@ -1770,17 +1774,17 @@ fn parse_output_reply(kind: MessageKind, body: &[u8]) -> Result<OutputReplyBody,
     }
 }
 
-fn parse_normal_artifact(value: u8) -> Result<Artifact, DeviceError> {
-    let artifact = Artifact::parse(value)?;
-    if matches!(artifact, Artifact::FinalizedPsbt | Artifact::RawTransaction) {
-        Ok(artifact)
-    } else {
-        Err(DeviceError::ArtifactMismatch)
-    }
-}
-
 fn valid_io_status(status: u16) -> bool {
     matches!(status, 0x0001..=0x0029 | 0x0101..=0x011e)
+}
+
+fn parse_output_reply_artifact(value: u8) -> Result<Artifact, DeviceError> {
+    let artifact = Artifact::parse(value)?;
+    if artifact == Artifact::WatchOnlyBsms {
+        Err(DeviceError::ArtifactMismatch)
+    } else {
+        Ok(artifact)
+    }
 }
 
 fn valid_input_filename(name: &[u8]) -> bool {
@@ -1805,6 +1809,140 @@ fn valid_output_filename(artifact: Artifact, name: &[u8]) -> bool {
             .iter()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         && &name[35..] == suffix
+}
+
+pub(crate) fn validate_output_body(
+    capability: Capability,
+    body: OutputBody<'_>,
+) -> Result<(), DeviceError> {
+    match body {
+        OutputBody::WriteBegin {
+            artifact,
+            total_len,
+            filename,
+        } => {
+            if total_len == 0 || total_len as usize > MAX_TRANSFER_BYTES {
+                return Err(DeviceError::ValueOutOfRange);
+            }
+            if filename.len() > MAX_FILENAME_BYTES {
+                return Err(DeviceError::FilenameRejected);
+            }
+            match capability {
+                Capability::PrintOutput => {
+                    if !matches!(
+                        (artifact, total_len),
+                        (Artifact::A1PrintArtifact, A1_PRINT_BYTES)
+                            | (Artifact::KitPrintArtifact, KIT_PRINT_BYTES)
+                    ) {
+                        return Err(DeviceError::ArtifactMismatch);
+                    }
+                    if !filename.is_empty() {
+                        return Err(DeviceError::FilenameRejected);
+                    }
+                }
+                Capability::MediaOutput => {
+                    if !matches!(artifact, Artifact::FinalizedPsbt | Artifact::RawTransaction) {
+                        return Err(DeviceError::ArtifactMismatch);
+                    }
+                    if !valid_output_filename(artifact, filename) {
+                        return Err(DeviceError::FilenameRejected);
+                    }
+                }
+                _ => return Err(DeviceError::CapabilityMismatch),
+            }
+        }
+        OutputBody::WriteChunk { offset, chunk } => {
+            if chunk.is_empty() {
+                return Err(DeviceError::ChunkLengthZero);
+            }
+            if chunk.len() > crate::MAX_CHUNK_BYTES {
+                return Err(DeviceError::ChunkLengthExceeded);
+            }
+            let chunk_len =
+                u32::try_from(chunk.len()).map_err(|_| DeviceError::TransferLengthExceeded)?;
+            offset
+                .checked_add(chunk_len)
+                .filter(|end| *end <= MAX_TRANSFER_BYTES as u32)
+                .ok_or(DeviceError::TransferLengthExceeded)?;
+            if !matches!(
+                capability,
+                Capability::PrintOutput | Capability::MediaOutput
+            ) {
+                return Err(DeviceError::CapabilityMismatch);
+            }
+        }
+        OutputBody::WriteFinish {
+            artifact,
+            total_len,
+        } => {
+            if total_len == 0 || total_len as usize > MAX_TRANSFER_BYTES {
+                return Err(DeviceError::ValueOutOfRange);
+            }
+            let valid = match capability {
+                Capability::PrintOutput => matches!(
+                    artifact,
+                    Artifact::A1PrintArtifact | Artifact::KitPrintArtifact
+                ),
+                Capability::MediaOutput => {
+                    matches!(artifact, Artifact::FinalizedPsbt | Artifact::RawTransaction)
+                }
+                _ => return Err(DeviceError::CapabilityMismatch),
+            };
+            if !valid {
+                return Err(DeviceError::ArtifactMismatch);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_input_begin(
+    capability: Capability,
+    body: InputBody<'_>,
+) -> Result<(), DeviceError> {
+    let InputBody::Begin {
+        source,
+        total_len,
+        filename,
+    } = body
+    else {
+        return Err(DeviceError::UnexpectedFrame);
+    };
+    match capability {
+        Capability::CameraInput => {
+            if filename.is_some() {
+                return Err(DeviceError::FilenameRejected);
+            }
+            let valid = match source {
+                Source::CameraA1Candidate => total_len == A1_BYTES,
+                Source::CameraKitCandidate => total_len == KIT_BYTES,
+                Source::CameraBbqrPsbt => (1..=MAX_TRANSFER_BYTES as u32).contains(&total_len),
+                Source::MediaPsbt => false,
+            };
+            if !valid {
+                return Err(DeviceError::SourceMismatch);
+            }
+        }
+        Capability::MediaInput => {
+            if source != Source::MediaPsbt {
+                return Err(DeviceError::SourceMismatch);
+            }
+            if !(1..=MAX_TRANSFER_BYTES as u32).contains(&total_len) {
+                return Err(DeviceError::ValueOutOfRange);
+            }
+            let Some(filename) = filename else {
+                return Err(DeviceError::FilenameRejected);
+            };
+            if filename.is_empty()
+                || filename.len() > MAX_FILENAME_BYTES
+                || !valid_input_filename(filename)
+            {
+                return Err(DeviceError::FilenameRejected);
+            }
+        }
+        _ => return Err(DeviceError::CapabilityMismatch),
+    }
+    Ok(())
 }
 
 fn exact_length(bytes: &[u8], expected: usize) -> Result<(), DeviceError> {

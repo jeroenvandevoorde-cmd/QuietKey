@@ -19,6 +19,19 @@ fn received(
     decoder.take_frame().unwrap()
 }
 
+fn received_next(
+    decoder: &mut StreamDecoder,
+    capability: Capability,
+    kind: MessageKind,
+    sequence: u32,
+    body: &[u8],
+) -> ReceivedFrame {
+    let mut bytes = vec![0; HEADER_BYTES + body.len()];
+    encode_frame(capability, kind, sequence, body, &mut bytes).unwrap();
+    decoder.ingest(&bytes).unwrap();
+    decoder.take_frame().unwrap()
+}
+
 #[test]
 fn one_way_outbound_and_inbound_sequences_are_exact() {
     let mut outbound = OneWayProtocol::new(Capability::Display);
@@ -111,9 +124,17 @@ fn response_without_request_wrong_kind_and_device_rejection_terminate() {
 fn media_exchange_echoes_begin_chunk_and_finish() {
     let mut exchange =
         ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
-    let begin = exchange.begin(MessageKind::MediaWriteBegin).unwrap();
+    let mut replies = StreamDecoder::new(Capability::MediaInput);
+    let begin = exchange
+        .begin_output(OutputBody::WriteBegin {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+            filename: b"qk-00000000000000000000000000000000-final.tx",
+        })
+        .unwrap();
     assert_eq!(begin.sequence(), 1);
-    let reply = received(
+    let reply = received_next(
+        &mut replies,
         Capability::MediaInput,
         MessageKind::MediaBeginAccepted,
         1,
@@ -121,20 +142,126 @@ fn media_exchange_echoes_begin_chunk_and_finish() {
     );
     exchange.accept_response(&reply).unwrap();
 
-    let chunk = exchange.begin(MessageKind::MediaWriteChunk).unwrap();
+    let chunk = exchange
+        .begin_output(OutputBody::WriteChunk {
+            offset: 0,
+            chunk: &[1, 2, 3],
+        })
+        .unwrap();
     assert_eq!(chunk.sequence(), 2);
+    let reply = received_next(
+        &mut replies,
+        Capability::MediaInput,
+        MessageKind::MediaChunkAccepted,
+        2,
+        &[3, 0, 0, 0],
+    );
+    exchange.accept_response(&reply).unwrap();
+
+    let finish = exchange
+        .begin_output(OutputBody::WriteFinish {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+        })
+        .unwrap();
+    assert_eq!(finish.sequence(), 3);
+    let reply = received_next(
+        &mut replies,
+        Capability::MediaInput,
+        MessageKind::MediaFinished,
+        3,
+        &[2, 3, 0, 0, 0],
+    );
+    exchange.accept_response(&reply).unwrap();
+    assert!(!exchange.has_outstanding());
+}
+
+#[test]
+fn output_exchange_rejects_unbound_or_mismatched_echo_facts() {
+    let mut unbound =
+        ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
+    assert_eq!(
+        unbound.begin(MessageKind::MediaWriteBegin),
+        Err(DeviceError::UnexpectedFrame)
+    );
+
+    let mut wrong_artifact =
+        ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
+    wrong_artifact
+        .begin_output(OutputBody::WriteBegin {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+            filename: b"qk-00000000000000000000000000000000-final.tx",
+        })
+        .unwrap();
+    let reply = received(
+        Capability::MediaInput,
+        MessageKind::MediaBeginAccepted,
+        1,
+        &[1, 3, 0, 0, 0],
+    );
+    assert_eq!(
+        wrong_artifact.accept_response(&reply),
+        Err(DeviceError::ArtifactMismatch)
+    );
+
+    let mut wrong_total =
+        ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
+    wrong_total
+        .begin_output(OutputBody::WriteFinish {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+        })
+        .unwrap();
+    let reply = received(
+        Capability::MediaInput,
+        MessageKind::MediaFinished,
+        1,
+        &[2, 4, 0, 0, 0],
+    );
+    assert_eq!(
+        wrong_total.accept_response(&reply),
+        Err(DeviceError::ArtifactMismatch)
+    );
+
+    let mut wrong_offset =
+        ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
+    wrong_offset
+        .begin_output(OutputBody::WriteChunk {
+            offset: 7,
+            chunk: &[1, 2, 3],
+        })
+        .unwrap();
     let reply = received(
         Capability::MediaInput,
         MessageKind::MediaChunkAccepted,
         1,
-        &[3, 0, 0, 0],
+        &[9, 0, 0, 0],
     );
-    // A new response descriptor owner would start at one for a new process;
-    // the exchange identity itself remains the authoritative echo check.
     assert_eq!(
-        exchange.accept_response(&reply),
-        Err(DeviceError::ResponseSequenceMismatch)
+        wrong_offset.accept_response(&reply),
+        Err(DeviceError::OffsetMismatch)
     );
+}
+
+#[test]
+fn print_exchange_accepts_only_the_exact_print_artifact_echo() {
+    let mut exchange =
+        ExchangeProtocol::new(Capability::PrintOutput, Capability::MediaInput).unwrap();
+    exchange
+        .begin_output(OutputBody::WriteBegin {
+            artifact: Artifact::A1PrintArtifact,
+            total_len: 67,
+            filename: b"",
+        })
+        .unwrap();
+    let reply = received(
+        Capability::MediaInput,
+        MessageKind::MediaBeginAccepted,
+        1,
+        &[4, 67, 0, 0, 0],
+    );
+    exchange.accept_response(&reply).unwrap();
 }
 
 #[test]
@@ -143,7 +270,7 @@ fn input_transfer_enforces_offset_final_and_completion() {
         Capability::CameraInput,
         InputBody::Begin {
             source: Source::CameraA1Candidate,
-            total_len: 3,
+            total_len: 67,
             filename: None,
         },
     )
@@ -160,7 +287,7 @@ fn input_transfer_enforces_offset_final_and_completion() {
         .accept(InputBody::Chunk {
             offset: 2,
             final_chunk: true,
-            chunk: &[3],
+            chunk: &[3; 65],
         })
         .unwrap();
     transfer.finish().unwrap();
@@ -200,6 +327,87 @@ fn input_transfer_enforces_offset_final_and_completion() {
         }),
         Err(DeviceError::OffsetMismatch)
     );
+
+    let kit = InputTransfer::begin(
+        Capability::CameraInput,
+        InputBody::Begin {
+            source: Source::CameraKitCandidate,
+            total_len: 142,
+            filename: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(kit.source(), Source::CameraKitCandidate);
+
+    for (source, total_len, expected) in [
+        (Source::CameraA1Candidate, 66, DeviceError::SourceMismatch),
+        (Source::CameraKitCandidate, 143, DeviceError::SourceMismatch),
+        (Source::CameraBbqrPsbt, 0, DeviceError::SourceMismatch),
+        (Source::MediaPsbt, 0, DeviceError::ValueOutOfRange),
+    ] {
+        let capability = if source == Source::MediaPsbt {
+            Capability::MediaInput
+        } else {
+            Capability::CameraInput
+        };
+        let filename = if source == Source::MediaPsbt {
+            Some(b"a.psbt".as_slice())
+        } else {
+            None
+        };
+        assert!(matches!(
+            InputTransfer::begin(
+                capability,
+                InputBody::Begin {
+                    source,
+                    total_len,
+                    filename,
+                },
+            ),
+            Err(error) if error == expected
+        ));
+    }
+}
+
+#[test]
+fn bound_output_header_refuses_different_emitted_facts() {
+    let mut exchange =
+        ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
+    let outbound = exchange
+        .begin_output(OutputBody::WriteBegin {
+            artifact: Artifact::RawTransaction,
+            total_len: 3,
+            filename: b"qk-00000000000000000000000000000000-final.tx",
+        })
+        .unwrap();
+    let name = b"qk-00000000000000000000000000000000-final.psbt";
+    let mut different = vec![Artifact::FinalizedPsbt.wire_value()];
+    different.extend_from_slice(&4u32.to_le_bytes());
+    different.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    different.extend_from_slice(name);
+    let mut encoded = vec![0u8; HEADER_BYTES + different.len()];
+    assert_eq!(
+        outbound.encode(&different, &mut encoded),
+        Err(DeviceError::ArtifactMismatch)
+    );
+
+    let mut exchange =
+        ExchangeProtocol::new(Capability::MediaOutput, Capability::MediaInput).unwrap();
+    let outbound = exchange
+        .begin_output(OutputBody::WriteChunk {
+            offset: 7,
+            chunk: &[1, 2, 3],
+        })
+        .unwrap();
+    let mut different = Vec::new();
+    different.extend_from_slice(&8u32.to_le_bytes());
+    different.extend_from_slice(&2u32.to_le_bytes());
+    different.extend_from_slice(&[1, 2]);
+    let mut encoded = vec![0u8; HEADER_BYTES + different.len()];
+    assert_eq!(
+        outbound.encode(&different, &mut encoded),
+        Err(DeviceError::OffsetMismatch)
+    );
 }
 
 #[test]
@@ -209,7 +417,7 @@ fn output_transfer_requires_exact_artifact_length_and_finish() {
         OutputBody::WriteBegin {
             artifact: Artifact::RawTransaction,
             total_len: 3,
-            filename: b"",
+            filename: b"qk-00000000000000000000000000000000-final.tx",
         },
     )
     .unwrap();
@@ -231,7 +439,7 @@ fn output_transfer_requires_exact_artifact_length_and_finish() {
         OutputBody::WriteBegin {
             artifact: Artifact::RawTransaction,
             total_len: 3,
-            filename: b"",
+            filename: b"qk-00000000000000000000000000000000-final.tx",
         },
     )
     .unwrap();
@@ -248,7 +456,7 @@ fn output_transfer_requires_exact_artifact_length_and_finish() {
         OutputBody::WriteBegin {
             artifact: Artifact::RawTransaction,
             total_len: 1,
-            filename: b"",
+            filename: b"qk-00000000000000000000000000000000-final.tx",
         },
     )
     .unwrap();
