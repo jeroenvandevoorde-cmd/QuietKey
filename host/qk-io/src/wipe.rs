@@ -25,11 +25,13 @@ pub(crate) fn bytes(value: &mut [u8]) {
     WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
+#[cfg(any(test, feature = "host-runtime"))]
 pub(crate) struct WipingArray<const LENGTH: usize> {
     value: [u8; LENGTH],
     dirty: bool,
 }
 
+#[cfg(any(test, feature = "host-runtime"))]
 impl<const LENGTH: usize> WipingArray<LENGTH> {
     pub(crate) const fn zeroed() -> Self {
         Self {
@@ -55,6 +57,7 @@ impl<const LENGTH: usize> WipingArray<LENGTH> {
     }
 }
 
+#[cfg(any(test, feature = "host-runtime"))]
 impl<const LENGTH: usize> Drop for WipingArray<LENGTH> {
     fn drop(&mut self) {
         self.clear();
