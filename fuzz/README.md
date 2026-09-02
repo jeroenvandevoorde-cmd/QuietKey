@@ -175,11 +175,11 @@ the complete registered public A1+B success and card-rejection cases. It locks
 stable named outcomes, terminal absorption, deterministic repetition, exact
 QKDV and QKIP adapters, and the absence of premature signature use. Neither
 target creates a process, socket, descriptor, real device, card operation, or
-hardware claim. Campaign 028 is planned; its fourteen public starting seeds
-are byte-registered now, including one frame for every QKDV capability and a
-two-frame coalesced stream, while `CORPUS-MANIFEST-PROCESS-S9.tsv` is created only
-after the final source commit is fixed and both 100,000-input campaigns and
-two-copy minimizations complete.
+hardware claim. Campaign 028 records fourteen byte-registered public starting
+seeds, including one frame for every QKDV capability and a two-frame coalesced
+stream. Both 100,000-input campaigns completed against the fixed final source;
+their agreeing two-copy minimizations are registered in
+`CORPUS-MANIFEST-PROCESS-S9.tsv`.
 
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
@@ -401,7 +401,7 @@ partition is rendered as `CORPUS-MANIFEST-PROCESS-S8.tsv`, with any changed
 requalified slice-2 fixed point promoted under QK-DEC-146.
 The QK-DEC-156 process-slice-9 targets use the isolated `process-s9-wire` and
 `process-s9-core` features.
-Campaign 028 preregisters their public seed bytes, campaign parameters, exact
+Campaign 028 records their public seed bytes, campaign parameters, exact
 execution order, two-copy minimization, promotion, registration, and replay
-rules. The manifest `CORPUS-MANIFEST-PROCESS-S9.tsv` remains absent until both
-qualifying campaigns complete against the fixed final source.
+results. The resulting `CORPUS-MANIFEST-PROCESS-S9.tsv` registers 386 units
+containing 19,988 bytes against the fixed final source.
