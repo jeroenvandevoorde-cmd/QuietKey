@@ -118,6 +118,12 @@ fn response_without_request_wrong_kind_and_device_rejection_terminate() {
         device.accept_response(&rejected),
         Err(DeviceError::DeviceRejected)
     );
+    assert!(!device.has_outstanding());
+    assert!(device.is_terminated());
+    assert_eq!(
+        device.begin(MessageKind::CardReadNormalFactor),
+        Err(DeviceError::DecoderTerminated)
+    );
 }
 
 #[test]
@@ -140,6 +146,10 @@ fn media_exchange_echoes_begin_chunk_and_finish() {
         1,
         &[2, 3, 0, 0, 0],
     );
+    assert_eq!(
+        reply.header().kind().wire_value(),
+        begin.kind().wire_value() | 0x80
+    );
     exchange.accept_response(&reply).unwrap();
 
     let chunk = exchange
@@ -156,6 +166,10 @@ fn media_exchange_echoes_begin_chunk_and_finish() {
         2,
         &[3, 0, 0, 0],
     );
+    assert_eq!(
+        reply.header().kind().wire_value(),
+        chunk.kind().wire_value() | 0x80
+    );
     exchange.accept_response(&reply).unwrap();
 
     let finish = exchange
@@ -171,6 +185,10 @@ fn media_exchange_echoes_begin_chunk_and_finish() {
         MessageKind::MediaFinished,
         3,
         &[2, 3, 0, 0, 0],
+    );
+    assert_eq!(
+        reply.header().kind().wire_value(),
+        finish.kind().wire_value() | 0x80
     );
     exchange.accept_response(&reply).unwrap();
     assert!(!exchange.has_outstanding());

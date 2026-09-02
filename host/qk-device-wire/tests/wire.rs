@@ -85,6 +85,39 @@ fn constants_and_capability_values_are_exact() {
 }
 
 #[test]
+fn every_message_kind_preallocation_cap_is_exact() {
+    let caps = [
+        (MessageKind::DisplayStage, 1),
+        (MessageKind::DisplayProfile, 1),
+        (MessageKind::DisplayReview, 180),
+        (MessageKind::DisplayResult, 180),
+        (MessageKind::KeypadEvent, 17),
+        (MessageKind::CardProfile, 1),
+        (MessageKind::CardNormalFactor, 11_790),
+        (MessageKind::CardRejected, 3),
+        (MessageKind::CardReadProfile, 0),
+        (MessageKind::CardReadNormalFactor, 0),
+        (MessageKind::CameraBegin, 5),
+        (MessageKind::CameraChunk, 262_153),
+        (MessageKind::MediaReadBegin, 71),
+        (MessageKind::MediaReadChunk, 262_153),
+        (MessageKind::MediaBeginAccepted, 5),
+        (MessageKind::MediaChunkAccepted, 4),
+        (MessageKind::MediaFinished, 5),
+        (MessageKind::MediaRejected, 3),
+        (MessageKind::PrintWriteBegin, 73),
+        (MessageKind::PrintWriteChunk, 262_153),
+        (MessageKind::PrintWriteFinish, 5),
+        (MessageKind::MediaWriteBegin, 73),
+        (MessageKind::MediaWriteChunk, 262_153),
+        (MessageKind::MediaWriteFinish, 5),
+    ];
+    for (kind, expected) in caps {
+        assert_eq!(kind.body_cap(), expected, "{}", kind.wire_value());
+    }
+}
+
+#[test]
 fn canonical_header_round_trip_and_output_atomicity() {
     let frame = encoded(
         Capability::Display,
@@ -158,6 +191,24 @@ fn header_and_complete_frame_precedence_is_exact() {
     frame.push(1);
     frame.push(0);
     assert_parse_error(Capability::Display, &frame, DeviceError::TrailingByte);
+}
+
+#[test]
+fn global_kind_universe_precedes_capability_membership() {
+    for value in [0x00, 0x05, 0x80, 0x84, 0xfe] {
+        assert_parse_error(
+            Capability::Display,
+            &raw_frame(1, value, 1, &[]),
+            DeviceError::KindOutOfRange,
+        );
+    }
+    for value in [0x81, 0x82, 0x83, 0xff] {
+        assert_parse_error(
+            Capability::Display,
+            &raw_frame(1, value, 1, &[]),
+            DeviceError::CapabilityKindMismatch,
+        );
+    }
 }
 
 #[test]
@@ -321,6 +372,13 @@ fn keypad_card_input_output_and_reply_bodies_are_exact() {
         &[6],
         &[7],
     ];
+    assert_eq!(
+        keypad_cases
+            .iter()
+            .map(|body| body.len())
+            .collect::<Vec<_>>(),
+        [2, 2, 1, 17, 3, 1, 1]
+    );
     for body in keypad_cases {
         let frame = encoded(Capability::Keypad, MessageKind::KeypadEvent, 1, body);
         assert!(matches!(
