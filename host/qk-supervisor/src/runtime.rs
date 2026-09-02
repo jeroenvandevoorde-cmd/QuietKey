@@ -11,7 +11,7 @@ use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -36,11 +36,17 @@ const GATE_RELEASE: u8 = 0x47;
 const FIRST_SAFE_SOURCE_FD: c_int = 16;
 const MAX_DESCRIPTOR_SNAPSHOT_ENTRIES: usize = 65_536;
 const PREEXEC_DESCRIPTOR_BOUND: c_int = 65_536;
+const FIRST_NORMAL_DESCRIPTOR: c_int = 7;
+const LAST_NORMAL_DESCRIPTOR: c_int = 14;
 const EBADF: i32 = 9;
 const ESRCH: i32 = 3;
 const F_GETFD: c_int = 1;
 const F_GETFL: c_int = 3;
+const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
+const O_ACCMODE: c_int = 3;
+const O_RDONLY: c_int = 0;
+const O_WRONLY: c_int = 1;
 const SIGKILL: c_int = 9;
 const SIGTERM: c_int = 15;
 const WNOHANG: c_int = 1;
@@ -103,16 +109,49 @@ impl LauncherMode {
     }
 }
 
+/// Exact immutable Normal profile selected by the Owner-side invocation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LauncherProfile {
+    SimpleRecovery,
+    Inheritance,
+    QuantumShelter,
+}
+
+impl LauncherProfile {
+    /// Exact two-byte ASCII child argument.
+    pub const fn argument(self) -> &'static str {
+        match self {
+            Self::SimpleRecovery => "01",
+            Self::Inheritance => "02",
+            Self::QuantumShelter => "03",
+        }
+    }
+
+    fn parse(argument: &str) -> Result<Self, LauncherInvocationError> {
+        match argument {
+            "01" => Ok(Self::SimpleRecovery),
+            "02" => Ok(Self::Inheritance),
+            "03" => Ok(Self::QuantumShelter),
+            _ => Err(LauncherInvocationError::UnknownProfile),
+        }
+    }
+}
+
 /// Exact validated invocation passed from the thin launcher binary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LauncherInvocation {
     mode: LauncherMode,
+    profile: Option<LauncherProfile>,
     runtime_directory: PathBuf,
 }
 
 impl LauncherInvocation {
     pub const fn mode(&self) -> LauncherMode {
         self.mode
+    }
+
+    pub const fn profile(&self) -> Option<LauncherProfile> {
+        self.profile
     }
 
     pub fn runtime_directory(&self) -> &Path {
@@ -127,6 +166,7 @@ pub enum LauncherInvocationError {
     NonUtf8Argument,
     TrailingArgument,
     UnknownMode,
+    UnknownProfile,
     RuntimePathNotAbsolute,
     RuntimePathSymlink,
     RuntimePathExists,
@@ -140,6 +180,7 @@ impl fmt::Display for LauncherInvocationError {
             Self::NonUtf8Argument => "NonUtf8Argument",
             Self::TrailingArgument => "TrailingArgument",
             Self::UnknownMode => "UnknownMode",
+            Self::UnknownProfile => "UnknownProfile",
             Self::RuntimePathNotAbsolute => "RuntimePathNotAbsolute",
             Self::RuntimePathSymlink => "RuntimePathSymlink",
             Self::RuntimePathExists => "RuntimePathExists",
@@ -155,6 +196,10 @@ impl std::error::Error for LauncherInvocationError {}
 pub enum LauncherRuntimeError {
     ExecutableResolutionFailed,
     AmbientDescriptorCloseFailed,
+    InheritedDeviceUnavailable,
+    InheritedDeviceNotPipe,
+    InheritedDeviceDirectionMismatch,
+    InheritedDeviceAliased,
     DecoyGrantFailed,
     DecoySpawnFailed,
     DecoyNotRunning,
@@ -179,6 +224,10 @@ impl fmt::Display for LauncherRuntimeError {
         formatter.write_str(match self {
             Self::ExecutableResolutionFailed => "ExecutableResolutionFailed",
             Self::AmbientDescriptorCloseFailed => "AmbientDescriptorCloseFailed",
+            Self::InheritedDeviceUnavailable => "InheritedDeviceUnavailable",
+            Self::InheritedDeviceNotPipe => "InheritedDeviceNotPipe",
+            Self::InheritedDeviceDirectionMismatch => "InheritedDeviceDirectionMismatch",
+            Self::InheritedDeviceAliased => "InheritedDeviceAliased",
             Self::DecoyGrantFailed => "DecoyGrantFailed",
             Self::DecoySpawnFailed => "DecoySpawnFailed",
             Self::DecoyNotRunning => "DecoyNotRunning",
@@ -202,7 +251,7 @@ impl fmt::Display for LauncherRuntimeError {
 
 impl std::error::Error for LauncherRuntimeError {}
 
-/// Parse exactly MODE and one absent absolute runtime directory.
+/// Parse Setup/Kit as MODE plus path, and Normal as MODE, PROFILE plus path.
 pub fn parse_launcher_arguments<I>(
     arguments: I,
 ) -> Result<LauncherInvocation, LauncherInvocationError>
@@ -213,23 +262,40 @@ where
     let mode = arguments
         .next()
         .ok_or(LauncherInvocationError::MissingArgument)?;
-    let runtime_directory = arguments
-        .next()
-        .ok_or(LauncherInvocationError::MissingArgument)?;
-    if arguments.next().is_some() {
-        return Err(LauncherInvocationError::TrailingArgument);
-    }
     let mode = mode
         .into_string()
         .map_err(|_| LauncherInvocationError::NonUtf8Argument)?;
+    let mode = LauncherMode::parse(&mode)?;
+    let (profile, runtime_directory) = match mode {
+        LauncherMode::Normal => {
+            let profile = arguments
+                .next()
+                .ok_or(LauncherInvocationError::MissingArgument)?
+                .into_string()
+                .map_err(|_| LauncherInvocationError::NonUtf8Argument)?;
+            let runtime = arguments
+                .next()
+                .ok_or(LauncherInvocationError::MissingArgument)?;
+            (Some(LauncherProfile::parse(&profile)?), runtime)
+        }
+        LauncherMode::Setup | LauncherMode::Kit => (
+            None,
+            arguments
+                .next()
+                .ok_or(LauncherInvocationError::MissingArgument)?,
+        ),
+    };
+    if arguments.next().is_some() {
+        return Err(LauncherInvocationError::TrailingArgument);
+    }
     let runtime_directory = runtime_directory
         .into_string()
         .map_err(|_| LauncherInvocationError::NonUtf8Argument)?;
-    let mode = LauncherMode::parse(&mode)?;
     let runtime_directory = PathBuf::from(runtime_directory);
     validate_absent_runtime_path(&runtime_directory)?;
     Ok(LauncherInvocation {
         mode,
+        profile,
         runtime_directory,
     })
 }
@@ -237,11 +303,19 @@ where
 /// Run one complete HOST-only product-process lifecycle.
 pub fn run_host_launcher(
     mode: LauncherMode,
+    profile: Option<LauncherProfile>,
     runtime_directory: &Path,
 ) -> Result<(), LauncherRuntimeError> {
     validate_runtime_again(runtime_directory)?;
     let programs = Programs::resolve()?;
-    close_ambient_descriptors()?;
+    let normal_descriptors = match (mode, profile) {
+        (LauncherMode::Normal, Some(_)) => Some(NormalDescriptors::claim_and_validate()?),
+        (LauncherMode::Normal, None) | (LauncherMode::Setup | LauncherMode::Kit, Some(_)) => {
+            return Err(LauncherRuntimeError::ProductGrantFailed)
+        }
+        (LauncherMode::Setup | LauncherMode::Kit, None) => None,
+    };
+    close_ambient_descriptors(normal_descriptors.as_ref())?;
 
     let decoy_spec = ExecSpec::decoy(&programs.decoy)?;
     let mut decoy = spawn_and_exec(&decoy_spec, false, LauncherRuntimeError::DecoySpawnFailed)?;
@@ -266,8 +340,15 @@ pub fn run_host_launcher(
     let (core_endpoint, io_endpoint) = runtime.connect_once()?;
     expect_advanced(lifecycle.apply(ProcessLifecycleEvent::ConnectionAcceptedAndUnlinked))?;
 
-    let core_spec = ExecSpec::core(&programs.core, mode, &core_endpoint)?;
-    let io_spec = ExecSpec::io(&programs.io, &io_endpoint)?;
+    let core_spec = ExecSpec::core(
+        &programs.core,
+        mode,
+        profile,
+        &core_endpoint,
+        normal_descriptors.as_ref(),
+    )?;
+    let io_spec = ExecSpec::io(&programs.io, &io_endpoint, normal_descriptors.as_ref())?;
+    drop(normal_descriptors);
     drop(core_endpoint);
     drop(io_endpoint);
     let (mut io_child, mut core_child) =
@@ -331,9 +412,66 @@ fn expect_advanced(outcome: ProcessLifecycleOutcome) -> Result<(), LauncherRunti
     }
 }
 
-fn close_ambient_descriptors() -> Result<(), LauncherRuntimeError> {
+struct NormalDescriptors {
+    descriptors: [OwnedDescriptor; 8],
+}
+
+impl NormalDescriptors {
+    fn claim_and_validate() -> Result<Self, LauncherRuntimeError> {
+        let expected = [
+            O_WRONLY, O_RDONLY, O_RDONLY, O_WRONLY, O_RDONLY, O_RDONLY, O_WRONLY, O_WRONLY,
+        ];
+        let mut identities = [(0u64, 0u64); 8];
+        for (index, descriptor) in (FIRST_NORMAL_DESCRIPTOR..=LAST_NORMAL_DESCRIPTOR).enumerate() {
+            let metadata = fs::metadata(format!("/dev/fd/{descriptor}"))
+                .map_err(|_| LauncherRuntimeError::InheritedDeviceUnavailable)?;
+            if !metadata.file_type().is_fifo() {
+                return Err(LauncherRuntimeError::InheritedDeviceNotPipe);
+            }
+            // SAFETY: F_GETFL has no variadic argument and changes no state.
+            let flags = unsafe { fcntl(descriptor, F_GETFL) };
+            if flags < 0 || flags & O_ACCMODE != expected[index] {
+                return Err(LauncherRuntimeError::InheritedDeviceDirectionMismatch);
+            }
+            let identity = (metadata.dev(), metadata.ino());
+            if identities[..index].contains(&identity) {
+                return Err(LauncherRuntimeError::InheritedDeviceAliased);
+            }
+            identities[index] = identity;
+            // SAFETY: F_SETFD accepts the exact close-on-exec flag value.
+            if unsafe { fcntl(descriptor, F_SETFD, FD_CLOEXEC) } != 0 {
+                return Err(LauncherRuntimeError::InheritedDeviceUnavailable);
+            }
+        }
+        Ok(Self {
+            descriptors: std::array::from_fn(|index| {
+                OwnedDescriptor(FIRST_NORMAL_DESCRIPTOR + index as c_int)
+            }),
+        })
+    }
+
+    fn raw(&self, descriptor: c_int) -> Result<c_int, LauncherRuntimeError> {
+        let index = descriptor
+            .checked_sub(FIRST_NORMAL_DESCRIPTOR)
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|index| *index < self.descriptors.len())
+            .ok_or(LauncherRuntimeError::ProductGrantFailed)?;
+        Ok(self.descriptors[index].raw())
+    }
+
+    const fn preserves(&self, descriptor: c_int) -> bool {
+        descriptor >= FIRST_NORMAL_DESCRIPTOR && descriptor <= LAST_NORMAL_DESCRIPTOR
+    }
+}
+
+fn close_ambient_descriptors(
+    normal_descriptors: Option<&NormalDescriptors>,
+) -> Result<(), LauncherRuntimeError> {
     let descriptors = open_descriptor_snapshot()?;
     for descriptor in descriptors {
+        if normal_descriptors.is_some_and(|normal| normal.preserves(descriptor)) {
+            continue;
+        }
         // SAFETY: the snapshot contains only numeric descriptors at or above
         // three. EBADF is expected for the snapshot iterator's own fd, which
         // was closed when collection ended.
@@ -345,6 +483,13 @@ fn close_ambient_descriptors() -> Result<(), LauncherRuntimeError> {
     }
     let verification = open_descriptor_snapshot()?;
     for descriptor in verification {
+        if normal_descriptors.is_some_and(|normal| normal.preserves(descriptor)) {
+            // SAFETY: F_GETFD has no variadic argument and changes no state.
+            if unsafe { fcntl(descriptor, F_GETFD) } & FD_CLOEXEC == 0 {
+                return Err(LauncherRuntimeError::AmbientDescriptorCloseFailed);
+            }
+            continue;
+        }
         // SAFETY: F_GETFD has no variadic argument and changes no state.
         if unsafe { fcntl(descriptor, F_GETFD) } >= 0
             || io::Error::last_os_error().raw_os_error() != Some(EBADF)
@@ -579,30 +724,63 @@ impl ExecSpec {
     fn core(
         path: &Path,
         mode: LauncherMode,
+        profile: Option<LauncherProfile>,
         endpoint: &UnixStream,
+        normal: Option<&NormalDescriptors>,
     ) -> Result<Self, LauncherRuntimeError> {
-        let descriptors = vec![
+        let mut descriptors = vec![
             map_descriptor(endpoint.as_raw_fd(), 0)?,
             map_descriptor(endpoint.as_raw_fd(), 1)?,
             map_mock(false, 2)?,
-            map_mock(false, 3)?,
-            map_mock(true, 4)?,
-            map_mock(true, 5)?,
-            map_mock(false, 6)?,
         ];
-        Self::new(path, &[mode.argument()], descriptors)
+        let child_arguments = match (mode, profile, normal) {
+            (LauncherMode::Normal, Some(profile), Some(normal)) => {
+                descriptors.extend([
+                    map_descriptor(normal.raw(7)?, 3)?,
+                    map_descriptor(normal.raw(8)?, 4)?,
+                    map_descriptor(normal.raw(9)?, 5)?,
+                    map_descriptor(normal.raw(10)?, 6)?,
+                ]);
+                vec![mode.argument(), profile.argument()]
+            }
+            (LauncherMode::Setup | LauncherMode::Kit, None, None) => {
+                descriptors.extend([
+                    map_mock(false, 3)?,
+                    map_mock(true, 4)?,
+                    map_mock(true, 5)?,
+                    map_mock(false, 6)?,
+                ]);
+                vec![mode.argument()]
+            }
+            _ => return Err(LauncherRuntimeError::ProductGrantFailed),
+        };
+        Self::new(path, &child_arguments, descriptors)
     }
 
-    fn io(path: &Path, endpoint: &UnixStream) -> Result<Self, LauncherRuntimeError> {
-        let descriptors = vec![
+    fn io(
+        path: &Path,
+        endpoint: &UnixStream,
+        normal: Option<&NormalDescriptors>,
+    ) -> Result<Self, LauncherRuntimeError> {
+        let mut descriptors = vec![
             map_descriptor(endpoint.as_raw_fd(), 0)?,
             map_descriptor(endpoint.as_raw_fd(), 1)?,
             map_mock(false, 2)?,
-            map_mock(true, 3)?,
-            map_mock(true, 4)?,
-            map_mock(false, 5)?,
-            map_mock(false, 6)?,
         ];
+        match normal {
+            Some(normal) => descriptors.extend([
+                map_descriptor(normal.raw(11)?, 3)?,
+                map_descriptor(normal.raw(12)?, 4)?,
+                map_descriptor(normal.raw(13)?, 5)?,
+                map_descriptor(normal.raw(14)?, 6)?,
+            ]),
+            None => descriptors.extend([
+                map_mock(true, 3)?,
+                map_mock(true, 4)?,
+                map_mock(false, 5)?,
+                map_mock(false, 6)?,
+            ]),
+        }
         Self::new(path, &[], descriptors)
     }
 
@@ -1338,12 +1516,14 @@ mod tests {
         let (_, core_endpoint) = UnixStream::pair().unwrap();
         let core = ExecSpec::core(
             Path::new("/dev/null"),
-            super::LauncherMode::Normal,
+            super::LauncherMode::Setup,
+            None,
             &core_endpoint,
+            None,
         )
         .unwrap();
         let (_, io_endpoint) = UnixStream::pair().unwrap();
-        let io = ExecSpec::io(Path::new("/dev/null"), &io_endpoint).unwrap();
+        let io = ExecSpec::io(Path::new("/dev/null"), &io_endpoint, None).unwrap();
         let grants = |spec: &ExecSpec| {
             spec.descriptors
                 .iter()

@@ -10,7 +10,7 @@ use qk_supervisor::{
 };
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::os::unix::process::CommandExt;
@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 extern "C" {
     fn dup2(source: i32, target: i32) -> i32;
+    fn pipe(descriptors: *mut i32) -> i32;
 }
 
 fn advanced(outcome: ProcessLifecycleOutcome) -> ProcessLifecycleAction {
@@ -187,14 +188,18 @@ fn cleanup_failure_after_reap_terminates_without_reterminating_children() {
 }
 
 #[test]
-fn invocation_parser_accepts_only_two_utf8_arguments_and_an_absent_absolute_path() {
+fn invocation_parser_locks_mode_specific_arguments_profiles_and_absent_absolute_path() {
     let path = short_test_root("parser").join("parser-absent");
     let _ = fs::remove_file(&path);
     let _ = fs::remove_dir(&path);
-    let parsed =
-        parse_launcher_arguments([OsString::from("normal"), path.as_os_str().to_os_string()])
-            .unwrap();
+    let parsed = parse_launcher_arguments([
+        OsString::from("normal"),
+        OsString::from("01"),
+        path.as_os_str().to_os_string(),
+    ])
+    .unwrap();
     assert_eq!(parsed.mode().argument(), "normal");
+    assert_eq!(parsed.profile().unwrap().argument(), "01");
     assert_eq!(parsed.runtime_directory(), path);
 
     for (arguments, error) in [
@@ -202,6 +207,14 @@ fn invocation_parser_accepts_only_two_utf8_arguments_and_an_absent_absolute_path
         (
             vec![OsString::from("setup")],
             LauncherInvocationError::MissingArgument,
+        ),
+        (
+            vec![
+                OsString::from("normal"),
+                OsString::from("04"),
+                path.as_os_str().to_os_string(),
+            ],
+            LauncherInvocationError::UnknownProfile,
         ),
         (
             vec![OsString::from("other"), path.as_os_str().to_os_string()],
@@ -236,7 +249,7 @@ fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_con
     let binaries = build_product_binaries(&root);
     let supervisor = binaries.join("qk-supervisor-host");
 
-    for mode in ["setup", "normal", "kit"] {
+    for mode in ["setup", "kit"] {
         assert_output(run_launcher(&supervisor, mode, &root), 0);
     }
 
@@ -459,12 +472,29 @@ fn run_launcher(supervisor: &Path, mode: &str, root: &Path) -> Output {
     let _ = fs::remove_dir(&runtime);
     let ambient = File::open("/dev/null").unwrap();
     let mut command = Command::new(supervisor);
-    command.arg(mode).arg(&runtime);
+    command.arg(mode);
+    let normal_pipes = if mode == "normal" {
+        command.arg("01");
+        Some(normal_device_pipes())
+    } else {
+        None
+    };
+    command.arg(&runtime);
     // SAFETY: the pre-exec closure invokes only dup2 and reports its error;
     // the low and high targets model ambient inherited descriptors.
     unsafe {
         command.pre_exec(move || {
-            if dup2(ambient.as_raw_fd(), 9) < 0 || dup2(ambient.as_raw_fd(), 256) < 0 {
+            if dup2(ambient.as_raw_fd(), 256) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if let Some((_, sources)) = &normal_pipes {
+                for (index, source) in sources.iter().enumerate() {
+                    if dup2(source.as_raw_fd(), 7 + index as i32) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            } else if dup2(ambient.as_raw_fd(), 9) < 0 {
                 Err(std::io::Error::last_os_error())
             } else {
                 Ok(())
@@ -474,6 +504,32 @@ fn run_launcher(supervisor: &Path, mode: &str, root: &Path) -> Output {
     let output = command.output().unwrap();
     assert!(!runtime.exists());
     output
+}
+
+fn normal_device_pipes() -> (Vec<(File, File)>, Vec<File>) {
+    let mut pairs = Vec::with_capacity(8);
+    for _ in 0..8 {
+        let mut raw = [-1; 2];
+        // SAFETY: `raw` names exactly two writable descriptor slots and each
+        // successful result is transferred into one File owner.
+        assert_eq!(unsafe { pipe(raw.as_mut_ptr()) }, 0);
+        // SAFETY: each descriptor was newly returned by pipe and is owned once.
+        let read = unsafe { File::from_raw_fd(raw[0]) };
+        let write = unsafe { File::from_raw_fd(raw[1]) };
+        pairs.push((read, write));
+    }
+    let sources = pairs
+        .iter()
+        .enumerate()
+        .map(|(index, (read, write))| {
+            if matches!(index, 0 | 3 | 6 | 7) {
+                write.try_clone().unwrap()
+            } else {
+                read.try_clone().unwrap()
+            }
+        })
+        .collect();
+    (pairs, sources)
 }
 
 fn exact_inherited_descriptors_and_pretraffic_unlink_are_observed(
@@ -523,11 +579,11 @@ fn descriptor_inspector_source(role: &str, sentinel: &Path, runtime: &Path) -> S
         ),
         "core" => (
             "[(0, 2), (1, 2), (2, 1), (3, 1), (4, 0), (5, 0), (6, 1)]",
-            "[2, 3, 4, 5, 6]",
+            "[2]",
         ),
         "io" => (
             "[(0, 2), (1, 2), (2, 1), (3, 0), (4, 0), (5, 1), (6, 1)]",
-            "[2, 3, 4, 5, 6]",
+            "[2]",
         ),
         _ => unreachable!(),
     };
@@ -582,6 +638,7 @@ fn every_named_error_has_only_its_fixed_name() {
         LauncherInvocationError::NonUtf8Argument,
         LauncherInvocationError::TrailingArgument,
         LauncherInvocationError::UnknownMode,
+        LauncherInvocationError::UnknownProfile,
         LauncherInvocationError::RuntimePathNotAbsolute,
         LauncherInvocationError::RuntimePathSymlink,
         LauncherInvocationError::RuntimePathExists,

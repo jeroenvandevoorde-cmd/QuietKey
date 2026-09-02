@@ -90,3 +90,33 @@ fn every_child_receives_fresh_write_only_null_stderr_without_changing_other_gran
         );
     }
 }
+
+#[test]
+fn normal_profile_and_inherited_device_surface_is_exact() {
+    for required in [
+        "pub enum LauncherProfile",
+        "\"01\" => Ok(Self::SimpleRecovery)",
+        "\"02\" => Ok(Self::Inheritance)",
+        "\"03\" => Ok(Self::QuantumShelter)",
+        "const FIRST_NORMAL_DESCRIPTOR: c_int = 7;",
+        "const LAST_NORMAL_DESCRIPTOR: c_int = 14;",
+        "InheritedDeviceUnavailable",
+        "InheritedDeviceNotPipe",
+        "InheritedDeviceDirectionMismatch",
+        "InheritedDeviceAliased",
+        "fcntl(descriptor, F_SETFD, FD_CLOEXEC)",
+        "map_descriptor(normal.raw(7)?, 3)?",
+        "map_descriptor(normal.raw(8)?, 4)?",
+        "map_descriptor(normal.raw(9)?, 5)?",
+        "map_descriptor(normal.raw(10)?, 6)?",
+        "map_descriptor(normal.raw(11)?, 3)?",
+        "map_descriptor(normal.raw(12)?, 4)?",
+        "map_descriptor(normal.raw(13)?, 5)?",
+        "map_descriptor(normal.raw(14)?, 6)?",
+        "vec![mode.argument(), profile.argument()]",
+        "drop(normal_descriptors);",
+    ] {
+        assert!(RUNTIME.contains(required), "missing Normal lock {required}");
+    }
+    assert!(LIB.contains("LauncherMode, LauncherProfile, LauncherRuntimeError"));
+}

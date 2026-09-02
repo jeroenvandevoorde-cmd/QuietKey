@@ -19,7 +19,11 @@ fn run() -> ExitCode {
         Ok(invocation) => invocation,
         Err(_) => return ExitCode::from(INVOCATION_REJECTED),
     };
-    match run_host_launcher(invocation.mode(), invocation.runtime_directory()) {
+    match run_host_launcher(
+        invocation.mode(),
+        invocation.profile(),
+        invocation.runtime_directory(),
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::from(RUNTIME_TERMINATED),
     }

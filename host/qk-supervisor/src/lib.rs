@@ -24,5 +24,5 @@ pub use qk_ipc::{
 #[cfg(feature = "host-runtime")]
 pub use runtime::{
     parse_launcher_arguments, run_host_launcher, LauncherInvocation, LauncherInvocationError,
-    LauncherMode, LauncherRuntimeError,
+    LauncherMode, LauncherProfile, LauncherRuntimeError,
 };
