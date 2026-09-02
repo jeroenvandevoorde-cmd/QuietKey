@@ -18,7 +18,8 @@ const SUPERVISOR_CARGO: &str = include_str!("../../qk-supervisor/Cargo.toml");
 fn manifest_depends_only_on_the_three_approved_transport_leaves() {
     let binary = "[[bin]]\nname = \"qk-io-host\"\npath = \"src/bin/qk-io-host.rs\"\nrequired-features = [\"host-runtime\"]";
     assert_eq!(CARGO.matches(binary).count(), 1);
-    let features = "[features]\nfuzzing = [\"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"dep:qk-device-wire\"]";
+    let features =
+        "[features]\nfuzzing = [\"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\"]";
     assert_eq!(CARGO.matches(features).count(), 1);
     let dependencies = CARGO
         .split_once("[dependencies]")
@@ -26,7 +27,7 @@ fn manifest_depends_only_on_the_three_approved_transport_leaves() {
         .1;
     assert_eq!(
         dependencies.trim(),
-        "qk-bbqr = { path = \"../qk-bbqr\" }\nqk-device-wire = { path = \"../qk-device-wire\", optional = true }\nqk-ipc = { path = \"../qk-ipc\" }"
+        "qk-bbqr = { path = \"../qk-bbqr\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }"
     );
     for forbidden in [
         "qk-a1",

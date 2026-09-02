@@ -35,11 +35,11 @@ fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(CARGO.matches(binary).count(), 1);
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\"normal-v3\", \"dep:qk-device-wire\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\"normal-v3\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\", optional = true }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),

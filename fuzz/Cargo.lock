@@ -252,6 +252,7 @@ name = "qk-io"
 version = "0.0.1"
 dependencies = [
  "qk-bbqr",
+ "qk-device-wire",
  "qk-ipc",
 ]
 

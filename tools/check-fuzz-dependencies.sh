@@ -512,10 +512,11 @@ sort -u "$io_raw_tmp" > "$io_tmp" || \
 io_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$io_tmp") || \
   fail 'cannot enumerate process-s3-io path dependencies'
 expected_io_path_set='qk-bbqr|0.0.1
+qk-device-wire|0.0.1
 qk-io|0.0.1
 qk-ipc|0.0.1'
 [ "$io_path_set" = "$expected_io_path_set" ] || \
-  fail 'process-s3-io path dependency closure is not exactly qk-bbqr, qk-io and qk-ipc 0.0.1'
+  fail 'process-s3-io path dependency closure is not the exact four-crate qk-io closure'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --no-default-features --features process-s4-core --target "$host_target" --edges normal,build \
@@ -548,6 +549,7 @@ qk-bbqr|0.0.1
 qk-bip32|0.0.1
 qk-core|0.0.1
 qk-descriptor|0.0.1
+qk-device-wire|0.0.1
 qk-ipc|0.0.1
 qk-kit|0.0.1
 qk-provisioning|0.0.1
@@ -555,7 +557,7 @@ qk-psbt|0.0.1
 qk-secp|0.0.1
 qk-wallet-v2|0.0.1'
 [ "$core_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s4-core path dependency closure is not the exact eleven-crate qk-core closure'
+  fail 'process-s4-core path dependency closure is not the exact twelve-crate qk-core closure'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --no-default-features --features process-s5-core --target "$host_target" --edges normal,build \
@@ -584,7 +586,7 @@ sort -u "$core_s5_raw_tmp" > "$core_s5_tmp" || \
 core_s5_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s5_tmp") || \
   fail 'cannot enumerate process-s5-core path dependencies'
 [ "$core_s5_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s5-core path dependency closure is not the exact eleven-crate qk-core closure'
+  fail 'process-s5-core path dependency closure is not the exact twelve-crate qk-core closure'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --no-default-features --features process-s6-core --target "$host_target" --edges normal,build \
@@ -613,7 +615,7 @@ sort -u "$core_s6_raw_tmp" > "$core_s6_tmp" || \
 core_s6_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s6_tmp") || \
   fail 'cannot enumerate process-s6-core path dependencies'
 [ "$core_s6_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s6-core fuzz dependency closure is not the exact eleven-crate qk-core closure'
+  fail 'process-s6-core fuzz dependency closure is not the exact twelve-crate qk-core closure'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --no-default-features --features process-s7-core --target "$host_target" --edges normal,build \
@@ -642,7 +644,7 @@ sort -u "$core_s7_raw_tmp" > "$core_s7_tmp" || \
 core_s7_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s7_tmp") || \
   fail 'cannot enumerate process-s7-core path dependencies'
 [ "$core_s7_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s7-core fuzz dependency closure is not the exact eleven-crate qk-core closure'
+  fail 'process-s7-core fuzz dependency closure is not the exact twelve-crate qk-core closure'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
     --no-default-features --features process-s9-wire --target "$host_target" --edges normal,build \

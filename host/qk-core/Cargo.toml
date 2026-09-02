@@ -15,7 +15,7 @@ required-features = ["host-runtime"]
 default = ["normal-v3", "kit-v3"]
 fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
 host-runtime = ["qk-ipc/host-runtime", "normal-process"]
-normal-process = ["normal-v3", "dep:qk-device-wire"]
+normal-process = ["normal-v3"]
 normal-v3 = ["qk-psbt/normal-v3", "qk-wallet-v2/normal-v3"]
 kit-v3 = ["normal-v3", "qk-kit/process-v3"]
 
@@ -23,7 +23,7 @@ kit-v3 = ["normal-v3", "qk-kit/process-v3"]
 qk-a1 = { path = "../qk-a1" }
 qk-bbqr = { path = "../qk-bbqr" }
 qk-descriptor = { path = "../qk-descriptor" }
-qk-device-wire = { path = "../qk-device-wire", optional = true }
+qk-device-wire = { path = "../qk-device-wire" }
 qk-ipc = { path = "../qk-ipc" }
 qk-kit = { path = "../qk-kit" }
 qk-psbt = { path = "../qk-psbt" }

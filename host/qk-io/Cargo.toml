@@ -13,9 +13,9 @@ required-features = ["host-runtime"]
 
 [features]
 fuzzing = ["qk-ipc/fuzzing"]
-host-runtime = ["qk-ipc/host-runtime", "dep:qk-device-wire"]
+host-runtime = ["qk-ipc/host-runtime"]
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }
-qk-device-wire = { path = "../qk-device-wire", optional = true }
+qk-device-wire = { path = "../qk-device-wire" }
 qk-ipc = { path = "../qk-ipc" }
