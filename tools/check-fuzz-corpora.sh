@@ -291,52 +291,135 @@ process_s7_order='qk_core_io_peer,qk_core_session,qk_core_provisioning_entry,qk_
 process_s8_order='qk_supervisor_lifecycle,qk_supervisor_process_lifecycle'
 process_s9_order='qk_device_wire,qk_core_normal_process'
 
+usage='usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT]'
+
+# id | report label | manifest version | registration flag | target-source target |
+# manifest-ownership check. This is the single ordered partition registry used
+# by every table-driven render, path-extraction, and comparison pass below.
+partition_ids=''
+while IFS='|' read -r id label version registration target_source manifest_owner; do
+  [ -n "$id" ] || continue
+  partition_ids="${partition_ids}${partition_ids:+ }$id"
+  eval "${id}_label=\$label"
+  eval "${id}_version=\$version"
+  eval "${id}_registration=\$registration"
+  eval "${id}_target_source=\$target_source"
+  eval "${id}_manifest_owner=\$manifest_owner"
+done <<'PARTITIONS'
+m21|M21|QK-M21-CORPUS-MANIFEST-V2|always|qk_descriptor|yes
+m22|M22|QK-M22-CORPUS-MANIFEST-V1|always||yes
+m23|M23|QK-M23-CORPUS-MANIFEST-V2|always|qk_psbt_m23|yes
+m24|M24|QK-M24-CORPUS-MANIFEST-V2|always||yes
+m25|M25|QK-M25-CORPUS-MANIFEST-V1|always||yes
+m26|M26|QK-M26-CORPUS-MANIFEST-V1|always||yes
+m27|M27|QK-M27-CORPUS-MANIFEST-V1|always||yes
+m28|M28|QK-M28-CORPUS-MANIFEST-V1|always||yes
+m29|M29|QK-M29-CORPUS-MANIFEST-V1|always||yes
+m30|M30|QK-M30-CORPUS-MANIFEST-V1|always||yes
+v2s4|v2 slice-4|QK-V2-S4-CORPUS-MANIFEST-V1|always||yes
+v2s5|v2 slice-5|QK-V2-S5-CORPUS-MANIFEST-V1|always||yes
+v2s6|v2 slice-6|QK-V2-S6-CORPUS-MANIFEST-V1|always||yes
+v2s7|v2 slice-7|QK-V2-S7-CORPUS-MANIFEST-V1|always||yes
+v2s8|v2 slice-8|QK-V2-S8-CORPUS-MANIFEST-V1|always||yes
+v2s9|v2 slice-9|QK-V2-S9-CORPUS-MANIFEST-V1|always||yes
+v2s10|v2 slice-10|QK-V2-S10-CORPUS-MANIFEST-V1|always||yes
+v2s11|v2 slice-11|QK-V2-S11-CORPUS-MANIFEST-V1|always||yes
+firmware|firmware|QK-FIRMWARE-V1-CORPUS-MANIFEST-V1|firmware_registered||yes
+process_s1|process slice-1|QK-PROCESS-S1-CORPUS-MANIFEST-V1|process_s1_registered||yes
+process_s2|process slice-2|QK-PROCESS-S2-CORPUS-MANIFEST-V1|process_s2_registered||yes
+process_s3|process slice-3|QK-PROCESS-S3-CORPUS-MANIFEST-V1|process_s3_registered||yes
+process_s4|process slice-4|QK-PROCESS-S4-CORPUS-MANIFEST-V1|process_s4_registered||yes
+process_s5|process slice-5|QK-PROCESS-S5-CORPUS-MANIFEST-V1|process_s5_registered||yes
+process_s6|process slice-6|QK-PROCESS-S6-CORPUS-MANIFEST-V1|process_s6_registered||yes
+process_s7|process slice-7|QK-PROCESS-S7-CORPUS-MANIFEST-V1|process_s7_registered||no
+process_s8|process slice-8|QK-PROCESS-S8-CORPUS-MANIFEST-V1|process_s8_registered||no
+process_s9|process slice-9|QK-PROCESS-S9-CORPUS-MANIFEST-V1|process_s9_registered||yes
+PARTITIONS
+
+partition_values() {
+  partition_id=$1
+  eval "partition_label=\${${partition_id}_label}"
+  eval "partition_version=\${${partition_id}_version}"
+  eval "partition_registration=\${${partition_id}_registration}"
+  eval "partition_target_source=\${${partition_id}_target_source}"
+  eval "partition_manifest_owner=\${${partition_id}_manifest_owner}"
+  eval "partition_manifest=\${${partition_id}_manifest}"
+  eval "partition_targets=\${${partition_id}_targets}"
+  eval "partition_order=\${${partition_id}_order}"
+  eval "partition_entries=\${${partition_id}_entries}"
+  eval "partition_expected=\${${partition_id}_expected}"
+  eval "partition_paths=\${${partition_id}_paths}"
+  eval "partition_manifest_paths=\${manifest_${partition_id}_paths}"
+}
+
+partition_registered() {
+  [ "$partition_registration" = always ] && return 0
+  eval "[ \"\${$partition_registration}\" = yes ]"
+}
+
+select_render_mode() {
+  selected_option=$1
+  mode=''
+  render_partition_id=''
+  render_target_override=''
+  while IFS='|' read -r option option_mode option_partition option_target; do
+    if [ "$selected_option" = "$option" ]; then
+      mode=$option_mode
+      render_partition_id=$option_partition
+      render_target_override=$option_target
+      break
+    fi
+  done <<'RENDER_MODES'
+--render|render_m21|m21|
+--render-qk-descriptor|render_qk_descriptor|m21|qk_descriptor
+--render-qk-psbt-v3|render_qk_psbt_v3|m23|qk_psbt_m23
+--render-m22|render_m22|m22|
+--render-m23|render_m23|m23|
+--render-m24|render_m24|m24|
+--render-m25|render_m25|m25|
+--render-m26|render_m26|m26|
+--render-m27|render_m27|m27|
+--render-m28|render_m28|m28|
+--render-m29|render_m29|m29|
+--render-m30|render_m30|m30|
+--render-v2-s4|render_v2s4|v2s4|
+--render-v2-s5|render_v2s5|v2s5|
+--render-v2-s6|render_v2s6|v2s6|
+--render-v2-s7|render_v2s7|v2s7|
+--render-v2-s8|render_v2s8|v2s8|
+--render-v2-s9|render_v2s9|v2s9|
+--render-v2-s10|render_v2s10|v2s10|
+--render-v2-s11|render_v2s11|v2s11|
+--render-firmware-v1|render_firmware_v1|firmware|
+--render-process-s1|render_process_s1|process_s1|
+--render-process-s2|render_process_s2|process_s2|
+--render-process-s3|render_process_s3|process_s3|
+--render-process-s4|render_process_s4|process_s4|
+--render-process-s5|render_process_s5|process_s5|
+--render-process-s6|render_process_s6|process_s6|
+--render-process-s7|render_process_s7|process_s7|
+--render-process-s8|render_process_s8|process_s8|
+--render-process-s9|render_process_s9|process_s9|
+RENDER_MODES
+  [ -n "$mode" ] || fail "$usage"
+}
+
 mode=check
 render_source=''
+render_partition_id=''
+render_target_override=''
 case "$#" in
   0) ;;
   2)
-    case "$1" in
-      --render) mode=render_m21 ;;
-      --render-m22) mode=render_m22 ;;
-      --render-m23) mode=render_m23 ;;
-      --render-m24) mode=render_m24 ;;
-      --render-m25) mode=render_m25 ;;
-      --render-m26) mode=render_m26 ;;
-      --render-m27) mode=render_m27 ;;
-      --render-m28) mode=render_m28 ;;
-      --render-m29) mode=render_m29 ;;
-      --render-m30) mode=render_m30 ;;
-      --render-v2-s4) mode=render_v2s4 ;;
-      --render-v2-s5) mode=render_v2s5 ;;
-      --render-v2-s6) mode=render_v2s6 ;;
-      --render-v2-s7) mode=render_v2s7 ;;
-      --render-v2-s8) mode=render_v2s8 ;;
-      --render-v2-s9) mode=render_v2s9 ;;
-      --render-v2-s10) mode=render_v2s10 ;;
-      --render-v2-s11) mode=render_v2s11 ;;
-      --render-firmware-v1) mode=render_firmware_v1 ;;
-      --render-process-s1) mode=render_process_s1 ;;
-      --render-process-s2) mode=render_process_s2 ;;
-      --render-process-s3) mode=render_process_s3 ;;
-      --render-process-s4) mode=render_process_s4 ;;
-      --render-process-s5) mode=render_process_s5 ;;
-      --render-process-s6) mode=render_process_s6 ;;
-      --render-process-s7) mode=render_process_s7 ;;
-      --render-process-s8) mode=render_process_s8 ;;
-      --render-process-s9) mode=render_process_s9 ;;
-      --render-qk-descriptor) mode=render_qk_descriptor ;;
-      --render-qk-psbt-v3) mode=render_qk_psbt_v3 ;;
-      *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT]' ;;
-    esac
+    select_render_mode "$1"
     render_source=$2
-    if [ "$mode" = render_qk_descriptor ] || [ "$mode" = render_qk_psbt_v3 ]; then
+    if [ -n "$render_target_override" ]; then
       validate_source_commit "$render_source" target_source
     else
       validate_source_commit "$render_source"
     fi
     ;;
-  *) fail 'usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT]' ;;
+  *) fail "$usage" ;;
 esac
 
 # QK-DEC-151 pre-campaign renderer. Campaign 026 activates this partition in
@@ -1044,437 +1127,85 @@ untracked=$(comm -23 "$all_paths" "$tracked_tmp") || fail 'cannot compare corpus
 
 case "$mode" in
   check)
-    m21_source=$(manifest_source "$m21_manifest")
-    m21_descriptor_source=$(manifest_target_source "$m21_manifest" qk_descriptor)
-    m22_source=$(manifest_source "$m22_manifest")
-    m23_source=$(manifest_source "$m23_manifest")
-    m23_review_v3_source=$(manifest_target_source "$m23_manifest" qk_psbt_m23)
-    m24_source=$(manifest_source "$m24_manifest")
-    m25_source=$(manifest_source "$m25_manifest")
-    m26_source=$(manifest_source "$m26_manifest")
-    m27_source=$(manifest_source "$m27_manifest")
-    m28_source=$(manifest_source "$m28_manifest")
-    m29_source=$(manifest_source "$m29_manifest")
-    m30_source=$(manifest_source "$m30_manifest")
-    v2s4_source=$(manifest_source "$v2s4_manifest")
-    v2s5_source=$(manifest_source "$v2s5_manifest")
-    v2s6_source=$(manifest_source "$v2s6_manifest")
-    v2s7_source=$(manifest_source "$v2s7_manifest")
-    v2s8_source=$(manifest_source "$v2s8_manifest")
-    v2s9_source=$(manifest_source "$v2s9_manifest")
-    v2s10_source=$(manifest_source "$v2s10_manifest")
-    v2s11_source=$(manifest_source "$v2s11_manifest")
-    if [ "$firmware_registered" = yes ]; then
-      firmware_source=$(manifest_source "$firmware_manifest")
-    fi
-    if [ "$process_s1_registered" = yes ]; then
-      process_s1_source=$(manifest_source "$process_s1_manifest")
-    fi
-    if [ "$process_s2_registered" = yes ]; then
-      process_s2_source=$(manifest_source "$process_s2_manifest")
-    fi
-    if [ "$process_s3_registered" = yes ]; then
-      process_s3_source=$(manifest_source "$process_s3_manifest")
-    fi
-    if [ "$process_s4_registered" = yes ]; then
-      process_s4_source=$(manifest_source "$process_s4_manifest")
-    fi
-    if [ "$process_s5_registered" = yes ]; then
-      process_s5_source=$(manifest_source "$process_s5_manifest")
-    fi
-    if [ "$process_s6_registered" = yes ]; then
-      process_s6_source=$(manifest_source "$process_s6_manifest")
-    fi
-    if [ "$process_s7_registered" = yes ]; then
-      process_s7_source=$(manifest_source "$process_s7_manifest")
-    fi
-    if [ "$process_s8_registered" = yes ]; then
-      process_s8_source=$(manifest_source "$process_s8_manifest")
-    fi
-    if [ "$process_s9_registered" = yes ]; then
-      process_s9_source=$(manifest_source "$process_s9_manifest")
-    fi
-    render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
-      "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
-      "$m21_descriptor_source"
-    render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$m22_source" "$m22_targets" \
-      "$m22_order" "$m22_entries" "$m22_expected"
-    render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$m23_source" "$m23_targets" \
-      "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 \
-      "$m23_review_v3_source"
-    render_partition 'QK-M24-CORPUS-MANIFEST-V2' "$m24_source" "$m24_targets" \
-      "$m24_order" "$m24_entries" "$m24_expected"
-    render_partition 'QK-M25-CORPUS-MANIFEST-V1' "$m25_source" "$m25_targets" \
-      "$m25_order" "$m25_entries" "$m25_expected"
-    render_partition 'QK-M26-CORPUS-MANIFEST-V1' "$m26_source" "$m26_targets" \
-      "$m26_order" "$m26_entries" "$m26_expected"
-    render_partition 'QK-M27-CORPUS-MANIFEST-V1' "$m27_source" "$m27_targets" \
-      "$m27_order" "$m27_entries" "$m27_expected"
-    render_partition 'QK-M28-CORPUS-MANIFEST-V1' "$m28_source" "$m28_targets" \
-      "$m28_order" "$m28_entries" "$m28_expected"
-    render_partition 'QK-M29-CORPUS-MANIFEST-V1' "$m29_source" "$m29_targets" \
-      "$m29_order" "$m29_entries" "$m29_expected"
-    render_partition 'QK-M30-CORPUS-MANIFEST-V1' "$m30_source" "$m30_targets" \
-      "$m30_order" "$m30_entries" "$m30_expected"
-    render_partition 'QK-V2-S4-CORPUS-MANIFEST-V1' "$v2s4_source" "$v2s4_targets" \
-      "$v2s4_order" "$v2s4_entries" "$v2s4_expected"
-    render_partition 'QK-V2-S5-CORPUS-MANIFEST-V1' "$v2s5_source" "$v2s5_targets" \
-      "$v2s5_order" "$v2s5_entries" "$v2s5_expected"
-    render_partition 'QK-V2-S6-CORPUS-MANIFEST-V1' "$v2s6_source" "$v2s6_targets" \
-      "$v2s6_order" "$v2s6_entries" "$v2s6_expected"
-    render_partition 'QK-V2-S7-CORPUS-MANIFEST-V1' "$v2s7_source" "$v2s7_targets" \
-      "$v2s7_order" "$v2s7_entries" "$v2s7_expected"
-    render_partition 'QK-V2-S8-CORPUS-MANIFEST-V1' "$v2s8_source" "$v2s8_targets" \
-      "$v2s8_order" "$v2s8_entries" "$v2s8_expected"
-    render_partition 'QK-V2-S9-CORPUS-MANIFEST-V1' "$v2s9_source" "$v2s9_targets" \
-      "$v2s9_order" "$v2s9_entries" "$v2s9_expected"
-    render_partition 'QK-V2-S10-CORPUS-MANIFEST-V1' "$v2s10_source" "$v2s10_targets" \
-      "$v2s10_order" "$v2s10_entries" "$v2s10_expected"
-    render_partition 'QK-V2-S11-CORPUS-MANIFEST-V1' "$v2s11_source" "$v2s11_targets" \
-      "$v2s11_order" "$v2s11_entries" "$v2s11_expected"
-    if [ "$firmware_registered" = yes ]; then
-      render_partition 'QK-FIRMWARE-V1-CORPUS-MANIFEST-V1' "$firmware_source" \
-        "$firmware_targets" "$firmware_order" "$firmware_entries" "$firmware_expected"
-    fi
-    if [ "$process_s1_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S1-CORPUS-MANIFEST-V1' "$process_s1_source" \
-        "$process_s1_targets" "$process_s1_order" "$process_s1_entries" \
-        "$process_s1_expected"
-    fi
-    if [ "$process_s2_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S2-CORPUS-MANIFEST-V1' "$process_s2_source" \
-        "$process_s2_targets" "$process_s2_order" "$process_s2_entries" \
-        "$process_s2_expected"
-    fi
-    if [ "$process_s3_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S3-CORPUS-MANIFEST-V1' "$process_s3_source" \
-        "$process_s3_targets" "$process_s3_order" "$process_s3_entries" \
-        "$process_s3_expected"
-    fi
-    if [ "$process_s4_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S4-CORPUS-MANIFEST-V1' "$process_s4_source" \
-        "$process_s4_targets" "$process_s4_order" "$process_s4_entries" \
-        "$process_s4_expected"
-    fi
-    if [ "$process_s5_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S5-CORPUS-MANIFEST-V1' "$process_s5_source" \
-        "$process_s5_targets" "$process_s5_order" "$process_s5_entries" \
-        "$process_s5_expected"
-    fi
-    if [ "$process_s6_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S6-CORPUS-MANIFEST-V1' "$process_s6_source" \
-        "$process_s6_targets" "$process_s6_order" "$process_s6_entries" \
-        "$process_s6_expected"
-    fi
-    if [ "$process_s7_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S7-CORPUS-MANIFEST-V1' "$process_s7_source" \
-        "$process_s7_targets" "$process_s7_order" "$process_s7_entries" \
-        "$process_s7_expected"
-    fi
-    if [ "$process_s8_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S8-CORPUS-MANIFEST-V1' "$process_s8_source" \
-        "$process_s8_targets" "$process_s8_order" "$process_s8_entries" \
-        "$process_s8_expected"
-    fi
-    if [ "$process_s9_registered" = yes ]; then
-      render_partition 'QK-PROCESS-S9-CORPUS-MANIFEST-V1' "$process_s9_source" \
-        "$process_s9_targets" "$process_s9_order" "$process_s9_entries" \
-        "$process_s9_expected"
-    fi
-    extract_manifest_paths "$m21_manifest" "$m21_order" "$manifest_m21_paths"
-    extract_manifest_paths "$m22_manifest" "$m22_order" "$manifest_m22_paths"
-    extract_manifest_paths "$m23_manifest" "$m23_order" "$manifest_m23_paths"
-    extract_manifest_paths "$m24_manifest" "$m24_order" "$manifest_m24_paths"
-    extract_manifest_paths "$m25_manifest" "$m25_order" "$manifest_m25_paths"
-    extract_manifest_paths "$m26_manifest" "$m26_order" "$manifest_m26_paths"
-    extract_manifest_paths "$m27_manifest" "$m27_order" "$manifest_m27_paths"
-    extract_manifest_paths "$m28_manifest" "$m28_order" "$manifest_m28_paths"
-    extract_manifest_paths "$m29_manifest" "$m29_order" "$manifest_m29_paths"
-    extract_manifest_paths "$m30_manifest" "$m30_order" "$manifest_m30_paths"
-    extract_manifest_paths "$v2s4_manifest" "$v2s4_order" "$manifest_v2s4_paths"
-    extract_manifest_paths "$v2s5_manifest" "$v2s5_order" "$manifest_v2s5_paths"
-    extract_manifest_paths "$v2s6_manifest" "$v2s6_order" "$manifest_v2s6_paths"
-    extract_manifest_paths "$v2s7_manifest" "$v2s7_order" "$manifest_v2s7_paths"
-    extract_manifest_paths "$v2s8_manifest" "$v2s8_order" "$manifest_v2s8_paths"
-    extract_manifest_paths "$v2s9_manifest" "$v2s9_order" "$manifest_v2s9_paths"
-    extract_manifest_paths "$v2s10_manifest" "$v2s10_order" "$manifest_v2s10_paths"
-    extract_manifest_paths "$v2s11_manifest" "$v2s11_order" "$manifest_v2s11_paths"
-    if [ "$firmware_registered" = yes ]; then
-      extract_manifest_paths "$firmware_manifest" "$firmware_order" \
-        "$manifest_firmware_paths"
-    fi
-    if [ "$process_s1_registered" = yes ]; then
-      extract_manifest_paths "$process_s1_manifest" "$process_s1_order" \
-        "$manifest_process_s1_paths"
-    fi
-    if [ "$process_s2_registered" = yes ]; then
-      extract_manifest_paths "$process_s2_manifest" "$process_s2_order" \
-        "$manifest_process_s2_paths"
-    fi
-    if [ "$process_s3_registered" = yes ]; then
-      extract_manifest_paths "$process_s3_manifest" "$process_s3_order" \
-        "$manifest_process_s3_paths"
-    fi
-    if [ "$process_s4_registered" = yes ]; then
-      extract_manifest_paths "$process_s4_manifest" "$process_s4_order" \
-        "$manifest_process_s4_paths"
-    fi
-    if [ "$process_s5_registered" = yes ]; then
-      extract_manifest_paths "$process_s5_manifest" "$process_s5_order" \
-        "$manifest_process_s5_paths"
-    fi
-    if [ "$process_s6_registered" = yes ]; then
-      extract_manifest_paths "$process_s6_manifest" "$process_s6_order" \
-        "$manifest_process_s6_paths"
-    fi
-    if [ "$process_s7_registered" = yes ]; then
-      extract_manifest_paths "$process_s7_manifest" "$process_s7_order" \
-        "$manifest_process_s7_paths"
-    fi
-    if [ "$process_s8_registered" = yes ]; then
-      extract_manifest_paths "$process_s8_manifest" "$process_s8_order" \
-        "$manifest_process_s8_paths"
-    fi
-    if [ "$process_s9_registered" = yes ]; then
-      extract_manifest_paths "$process_s9_manifest" "$process_s9_order" \
-        "$manifest_process_s9_paths"
-    fi
-    duplicate=$(cat "$manifest_m21_paths" "$manifest_m22_paths" "$manifest_m23_paths" \
-      "$manifest_m24_paths" "$manifest_m25_paths" "$manifest_m26_paths" \
-      "$manifest_m27_paths" "$manifest_m28_paths" "$manifest_m29_paths" \
-      "$manifest_m30_paths" "$manifest_v2s4_paths" "$manifest_v2s5_paths" \
-      "$manifest_v2s6_paths" "$manifest_v2s7_paths" "$manifest_v2s8_paths" \
-      "$manifest_v2s9_paths" "$manifest_v2s10_paths" "$manifest_v2s11_paths" \
-      "$manifest_firmware_paths" "$manifest_process_s1_paths" \
-      "$manifest_process_s2_paths" "$manifest_process_s3_paths" \
-      "$manifest_process_s4_paths" "$manifest_process_s5_paths" \
-      "$manifest_process_s6_paths" "$manifest_process_s9_paths" | \
-      LC_ALL=C sort | \
-      uniq -d | sed -n '1p')
+    for partition_id in $partition_ids; do
+      partition_values "$partition_id"
+      partition_registered || continue
+      partition_source_commit=$(manifest_source "$partition_manifest")
+      eval "${partition_id}_source=\$partition_source_commit"
+      if [ -n "$partition_target_source" ]; then
+        partition_target_source_commit=$(
+          manifest_target_source "$partition_manifest" "$partition_target_source"
+        )
+        eval "${partition_id}_target_source_commit=\$partition_target_source_commit"
+      fi
+    done
+
+    for partition_id in $partition_ids; do
+      partition_values "$partition_id"
+      partition_registered || continue
+      eval "partition_source_commit=\${${partition_id}_source}"
+      if [ -n "$partition_target_source" ]; then
+        eval "partition_target_source_commit=\${${partition_id}_target_source_commit}"
+        render_partition "$partition_version" "$partition_source_commit" \
+          "$partition_targets" "$partition_order" "$partition_entries" \
+          "$partition_expected" "$partition_target_source" \
+          "$partition_target_source_commit"
+      else
+        render_partition "$partition_version" "$partition_source_commit" \
+          "$partition_targets" "$partition_order" "$partition_entries" \
+          "$partition_expected"
+      fi
+    done
+
+    manifest_path_files=''
+    for partition_id in $partition_ids; do
+      partition_values "$partition_id"
+      partition_registered || continue
+      extract_manifest_paths "$partition_manifest" "$partition_order" \
+        "$partition_manifest_paths"
+      if [ "$partition_manifest_owner" = yes ]; then
+        manifest_path_files="$manifest_path_files $partition_manifest_paths"
+      fi
+    done
+    # Every registry path is mktemp-produced and therefore contains no shell
+    # metacharacters; field splitting intentionally presents them to cat.
+    # shellcheck disable=SC2086
+    duplicate=$(cat $manifest_path_files | LC_ALL=C sort | uniq -d | sed -n '1p')
     [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
-    cmp -s "$m21_manifest" "$m21_expected" || \
-      fail "$m21_manifest does not match the tracked M21 corpus bytes"
-    cmp -s "$m22_manifest" "$m22_expected" || \
-      fail "$m22_manifest does not match the tracked M22 corpus bytes"
-    cmp -s "$m23_manifest" "$m23_expected" || \
-      fail "$m23_manifest does not match the tracked M23 corpus bytes"
-    cmp -s "$m24_manifest" "$m24_expected" || \
-      fail "$m24_manifest does not match the tracked M24 corpus bytes"
-    cmp -s "$m25_manifest" "$m25_expected" || \
-      fail "$m25_manifest does not match the tracked M25 corpus bytes"
-    cmp -s "$m26_manifest" "$m26_expected" || \
-      fail "$m26_manifest does not match the tracked M26 corpus bytes"
-    cmp -s "$m27_manifest" "$m27_expected" || \
-      fail "$m27_manifest does not match the tracked M27 corpus bytes"
-    cmp -s "$m28_manifest" "$m28_expected" || \
-      fail "$m28_manifest does not match the tracked M28 corpus bytes"
-    cmp -s "$m29_manifest" "$m29_expected" || \
-      fail "$m29_manifest does not match the tracked M29 corpus bytes"
-    cmp -s "$m30_manifest" "$m30_expected" || \
-      fail "$m30_manifest does not match the tracked M30 corpus bytes"
-    cmp -s "$v2s4_manifest" "$v2s4_expected" || \
-      fail "$v2s4_manifest does not match the tracked v2 slice-4 corpus bytes"
-    cmp -s "$v2s5_manifest" "$v2s5_expected" || \
-      fail "$v2s5_manifest does not match the tracked v2 slice-5 corpus bytes"
-    cmp -s "$v2s6_manifest" "$v2s6_expected" || \
-      fail "$v2s6_manifest does not match the tracked v2 slice-6 corpus bytes"
-    cmp -s "$v2s7_manifest" "$v2s7_expected" || \
-      fail "$v2s7_manifest does not match the tracked v2 slice-7 corpus bytes"
-    cmp -s "$v2s8_manifest" "$v2s8_expected" || \
-      fail "$v2s8_manifest does not match the tracked v2 slice-8 corpus bytes"
-    cmp -s "$v2s9_manifest" "$v2s9_expected" || \
-      fail "$v2s9_manifest does not match the tracked v2 slice-9 corpus bytes"
-    cmp -s "$v2s10_manifest" "$v2s10_expected" || \
-      fail "$v2s10_manifest does not match the tracked v2 slice-10 corpus bytes"
-    cmp -s "$v2s11_manifest" "$v2s11_expected" || \
-      fail "$v2s11_manifest does not match the tracked v2 slice-11 corpus bytes"
-    if [ "$firmware_registered" = yes ]; then
-      cmp -s "$firmware_manifest" "$firmware_expected" || \
-        fail "$firmware_manifest does not match the tracked firmware corpus bytes"
+
+    for partition_id in $partition_ids; do
+      partition_values "$partition_id"
+      partition_registered || continue
+      cmp -s "$partition_manifest" "$partition_expected" || \
+        fail "$partition_manifest does not match the tracked $partition_label corpus bytes"
+    done
+    ;;
+  *)
+    partition_values "$render_partition_id"
+    if [ -n "$render_target_override" ]; then
+      partition_source_commit=$(manifest_source "$partition_manifest")
+      partition_target_source_commit=$render_source
+    else
+      partition_source_commit=$render_source
+      if [ -n "$partition_target_source" ]; then
+        partition_target_source_commit=$(
+          manifest_target_source "$partition_manifest" "$partition_target_source"
+        )
+      else
+        partition_target_source_commit=''
+      fi
     fi
-    if [ "$process_s1_registered" = yes ]; then
-      cmp -s "$process_s1_manifest" "$process_s1_expected" || \
-        fail "$process_s1_manifest does not match the tracked process slice-1 corpus bytes"
+    if [ -n "$partition_target_source" ]; then
+      render_partition "$partition_version" "$partition_source_commit" \
+        "$partition_targets" "$partition_order" "$partition_entries" \
+        "$partition_expected" "$partition_target_source" \
+        "$partition_target_source_commit"
+    else
+      render_partition "$partition_version" "$partition_source_commit" \
+        "$partition_targets" "$partition_order" "$partition_entries" \
+        "$partition_expected"
     fi
-    if [ "$process_s2_registered" = yes ]; then
-      cmp -s "$process_s2_manifest" "$process_s2_expected" || \
-        fail "$process_s2_manifest does not match the tracked process slice-2 corpus bytes"
-    fi
-    if [ "$process_s3_registered" = yes ]; then
-      cmp -s "$process_s3_manifest" "$process_s3_expected" || \
-        fail "$process_s3_manifest does not match the tracked process slice-3 corpus bytes"
-    fi
-    if [ "$process_s4_registered" = yes ]; then
-      cmp -s "$process_s4_manifest" "$process_s4_expected" || \
-        fail "$process_s4_manifest does not match the tracked process slice-4 corpus bytes"
-    fi
-    if [ "$process_s5_registered" = yes ]; then
-      cmp -s "$process_s5_manifest" "$process_s5_expected" || \
-        fail "$process_s5_manifest does not match the tracked process slice-5 corpus bytes"
-    fi
-    if [ "$process_s6_registered" = yes ]; then
-      cmp -s "$process_s6_manifest" "$process_s6_expected" || \
-        fail "$process_s6_manifest does not match the tracked process slice-6 corpus bytes"
-    fi
-    if [ "$process_s7_registered" = yes ]; then
-      cmp -s "$process_s7_manifest" "$process_s7_expected" || \
-        fail "$process_s7_manifest does not match the tracked process slice-7 corpus bytes"
-    fi
-    if [ "$process_s8_registered" = yes ]; then
-      cmp -s "$process_s8_manifest" "$process_s8_expected" || \
-        fail "$process_s8_manifest does not match the tracked process slice-8 corpus bytes"
-    fi
-    if [ "$process_s9_registered" = yes ]; then
-      cmp -s "$process_s9_manifest" "$process_s9_expected" || \
-        fail "$process_s9_manifest does not match the tracked process slice-9 corpus bytes"
-    fi
-    ;;
-  render_m21)
-    m21_descriptor_source=$(manifest_target_source "$m21_manifest" qk_descriptor)
-    render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$render_source" "$m21_targets" \
-      "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor \
-      "$m21_descriptor_source"
-    sed -n 'p' "$m21_expected"
-    ;;
-  render_qk_descriptor)
-    m21_source=$(manifest_source "$m21_manifest")
-    render_partition 'QK-M21-CORPUS-MANIFEST-V2' "$m21_source" "$m21_targets" \
-      "$m21_order" "$m21_entries" "$m21_expected" qk_descriptor "$render_source"
-    sed -n 'p' "$m21_expected"
-    ;;
-  render_m22)
-    render_partition 'QK-M22-CORPUS-MANIFEST-V1' "$render_source" "$m22_targets" \
-      "$m22_order" "$m22_entries" "$m22_expected"
-    sed -n 'p' "$m22_expected"
-    ;;
-  render_m23)
-    m23_review_v3_source=$(manifest_target_source "$m23_manifest" qk_psbt_m23)
-    render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$render_source" "$m23_targets" \
-      "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 \
-      "$m23_review_v3_source"
-    sed -n 'p' "$m23_expected"
-    ;;
-  render_qk_psbt_v3)
-    m23_source=$(manifest_source "$m23_manifest")
-    render_partition 'QK-M23-CORPUS-MANIFEST-V2' "$m23_source" "$m23_targets" \
-      "$m23_order" "$m23_entries" "$m23_expected" qk_psbt_m23 "$render_source"
-    sed -n 'p' "$m23_expected"
-    ;;
-  render_m24)
-    render_partition 'QK-M24-CORPUS-MANIFEST-V2' "$render_source" "$m24_targets" \
-      "$m24_order" "$m24_entries" "$m24_expected"
-    sed -n 'p' "$m24_expected"
-    ;;
-  render_m25)
-    render_partition 'QK-M25-CORPUS-MANIFEST-V1' "$render_source" "$m25_targets" \
-      "$m25_order" "$m25_entries" "$m25_expected"
-    sed -n 'p' "$m25_expected"
-    ;;
-  render_m26)
-    render_partition 'QK-M26-CORPUS-MANIFEST-V1' "$render_source" "$m26_targets" \
-      "$m26_order" "$m26_entries" "$m26_expected"
-    sed -n 'p' "$m26_expected"
-    ;;
-  render_m27)
-    render_partition 'QK-M27-CORPUS-MANIFEST-V1' "$render_source" "$m27_targets" \
-      "$m27_order" "$m27_entries" "$m27_expected"
-    sed -n 'p' "$m27_expected"
-    ;;
-  render_m28)
-    render_partition 'QK-M28-CORPUS-MANIFEST-V1' "$render_source" "$m28_targets" \
-      "$m28_order" "$m28_entries" "$m28_expected"
-    sed -n 'p' "$m28_expected"
-    ;;
-  render_m29)
-    render_partition 'QK-M29-CORPUS-MANIFEST-V1' "$render_source" "$m29_targets" \
-      "$m29_order" "$m29_entries" "$m29_expected"
-    sed -n 'p' "$m29_expected"
-    ;;
-  render_m30)
-    render_partition 'QK-M30-CORPUS-MANIFEST-V1' "$render_source" "$m30_targets" \
-      "$m30_order" "$m30_entries" "$m30_expected"
-    sed -n 'p' "$m30_expected"
-    ;;
-  render_v2s4)
-    render_partition 'QK-V2-S4-CORPUS-MANIFEST-V1' "$render_source" "$v2s4_targets" \
-      "$v2s4_order" "$v2s4_entries" "$v2s4_expected"
-    sed -n 'p' "$v2s4_expected"
-    ;;
-  render_v2s5)
-    render_partition 'QK-V2-S5-CORPUS-MANIFEST-V1' "$render_source" "$v2s5_targets" \
-      "$v2s5_order" "$v2s5_entries" "$v2s5_expected"
-    sed -n 'p' "$v2s5_expected"
-    ;;
-  render_v2s6)
-    render_partition 'QK-V2-S6-CORPUS-MANIFEST-V1' "$render_source" "$v2s6_targets" \
-      "$v2s6_order" "$v2s6_entries" "$v2s6_expected"
-    sed -n 'p' "$v2s6_expected"
-    ;;
-  render_v2s7)
-    render_partition 'QK-V2-S7-CORPUS-MANIFEST-V1' "$render_source" "$v2s7_targets" \
-      "$v2s7_order" "$v2s7_entries" "$v2s7_expected"
-    sed -n 'p' "$v2s7_expected"
-    ;;
-  render_v2s8)
-    render_partition 'QK-V2-S8-CORPUS-MANIFEST-V1' "$render_source" "$v2s8_targets" \
-      "$v2s8_order" "$v2s8_entries" "$v2s8_expected"
-    sed -n 'p' "$v2s8_expected"
-    ;;
-  render_v2s9)
-    render_partition 'QK-V2-S9-CORPUS-MANIFEST-V1' "$render_source" "$v2s9_targets" \
-      "$v2s9_order" "$v2s9_entries" "$v2s9_expected"
-    sed -n 'p' "$v2s9_expected"
-    ;;
-  render_v2s10)
-    render_partition 'QK-V2-S10-CORPUS-MANIFEST-V1' "$render_source" "$v2s10_targets" \
-      "$v2s10_order" "$v2s10_entries" "$v2s10_expected"
-    sed -n 'p' "$v2s10_expected"
-    ;;
-  render_v2s11)
-    render_partition 'QK-V2-S11-CORPUS-MANIFEST-V1' "$render_source" "$v2s11_targets" \
-      "$v2s11_order" "$v2s11_entries" "$v2s11_expected"
-    sed -n 'p' "$v2s11_expected"
-    ;;
-  render_firmware_v1)
-    render_partition 'QK-FIRMWARE-V1-CORPUS-MANIFEST-V1' "$render_source" \
-      "$firmware_targets" "$firmware_order" "$firmware_entries" "$firmware_expected"
-    sed -n 'p' "$firmware_expected"
-    ;;
-  render_process_s1)
-    render_partition 'QK-PROCESS-S1-CORPUS-MANIFEST-V1' "$render_source" \
-      "$process_s1_targets" "$process_s1_order" "$process_s1_entries" \
-      "$process_s1_expected"
-    sed -n 'p' "$process_s1_expected"
-    ;;
-  render_process_s2)
-    render_partition 'QK-PROCESS-S2-CORPUS-MANIFEST-V1' "$render_source" \
-      "$process_s2_targets" "$process_s2_order" "$process_s2_entries" \
-      "$process_s2_expected"
-    sed -n 'p' "$process_s2_expected"
-    ;;
-  render_process_s3)
-    render_partition 'QK-PROCESS-S3-CORPUS-MANIFEST-V1' "$render_source" \
-      "$process_s3_targets" "$process_s3_order" "$process_s3_entries" \
-      "$process_s3_expected"
-    sed -n 'p' "$process_s3_expected"
-    ;;
-  render_process_s4)
-    render_partition 'QK-PROCESS-S4-CORPUS-MANIFEST-V1' "$render_source" \
-      "$process_s4_targets" "$process_s4_order" "$process_s4_entries" \
-      "$process_s4_expected"
-    sed -n 'p' "$process_s4_expected"
-    ;;
-  render_process_s5)
-    render_partition 'QK-PROCESS-S5-CORPUS-MANIFEST-V1' "$render_source" \
-      "$process_s5_targets" "$process_s5_order" "$process_s5_entries" \
-      "$process_s5_expected"
-    sed -n 'p' "$process_s5_expected"
-    ;;
-  render_process_s6)
-    render_partition 'QK-PROCESS-S6-CORPUS-MANIFEST-V1' "$render_source" \
-      "$process_s6_targets" "$process_s6_order" "$process_s6_entries" \
-      "$process_s6_expected"
-    sed -n 'p' "$process_s6_expected"
+    sed -n 'p' "$partition_expected"
     ;;
 esac
 
