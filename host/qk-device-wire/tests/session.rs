@@ -367,6 +367,43 @@ fn input_transfer_enforces_offset_final_and_completion() {
             Err(error) if error == expected
         ));
     }
+
+    let mut empty = InputTransfer::begin(
+        Capability::CameraInput,
+        InputBody::Begin {
+            source: Source::CameraBbqrPsbt,
+            total_len: 1,
+            filename: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        empty.accept(InputBody::Chunk {
+            offset: 0,
+            final_chunk: false,
+            chunk: &[],
+        }),
+        Err(DeviceError::ChunkLengthZero)
+    );
+
+    let mut oversized = InputTransfer::begin(
+        Capability::CameraInput,
+        InputBody::Begin {
+            source: Source::CameraBbqrPsbt,
+            total_len: 262_145,
+            filename: None,
+        },
+    )
+    .unwrap();
+    let oversized_chunk = vec![0; 262_145];
+    assert_eq!(
+        oversized.accept(InputBody::Chunk {
+            offset: 0,
+            final_chunk: true,
+            chunk: &oversized_chunk,
+        }),
+        Err(DeviceError::ChunkLengthExceeded)
+    );
 }
 
 #[test]

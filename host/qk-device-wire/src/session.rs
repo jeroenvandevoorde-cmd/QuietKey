@@ -583,6 +583,12 @@ impl InputTransfer {
             } => (offset, final_chunk, chunk),
             InputBody::Begin { .. } => return Err(self.terminate(DeviceError::UnexpectedFrame)),
         };
+        if chunk.is_empty() {
+            return Err(self.terminate(DeviceError::ChunkLengthZero));
+        }
+        if chunk.len() > crate::MAX_CHUNK_BYTES {
+            return Err(self.terminate(DeviceError::ChunkLengthExceeded));
+        }
         if offset != self.next_offset {
             return Err(self.terminate(DeviceError::OffsetMismatch));
         }
