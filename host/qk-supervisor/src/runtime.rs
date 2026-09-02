@@ -1616,6 +1616,7 @@ mod tests {
     const FOREIGN_SOCKET_ENV: &str = "QK_TEST_FOREIGN_SOCKET";
     const FOREIGN_READY_ENV: &str = "QK_TEST_FOREIGN_READY";
     const FOREIGN_OUTPUT_ENV: &str = "QK_TEST_FOREIGN_OUTPUT";
+    const FOREIGN_OUTPUT_READY_ENV: &str = "QK_TEST_FOREIGN_OUTPUT_READY";
     const FOREIGN_RELEASE_ENV: &str = "QK_TEST_FOREIGN_RELEASE";
 
     fn test_path(name: &str) -> std::path::PathBuf {
@@ -1655,6 +1656,8 @@ mod tests {
         };
         let ready = std::env::var_os(FOREIGN_READY_ENV).expect("foreign ready path");
         let output = std::env::var_os(FOREIGN_OUTPUT_ENV).expect("foreign output path");
+        let output_ready =
+            std::env::var_os(FOREIGN_OUTPUT_READY_ENV).expect("foreign output ready path");
         let release = std::env::var_os(FOREIGN_RELEASE_ENV).expect("foreign release path");
         let mut endpoint = UnixStream::connect(socket).expect("foreign connector");
         fs::write(ready, b"ready").expect("foreign ready marker");
@@ -1663,6 +1666,7 @@ mod tests {
             .read_to_end(&mut received)
             .expect("foreign connector read");
         fs::write(output, received).expect("foreign output transcript");
+        fs::write(output_ready, b"ready").expect("foreign output ready marker");
         let deadline = Instant::now() + Duration::from_secs(10);
         while !Path::new(&release).exists() {
             assert!(
@@ -1677,6 +1681,7 @@ mod tests {
         child: Option<CommandChild>,
         ready: std::path::PathBuf,
         output: std::path::PathBuf,
+        output_ready: std::path::PathBuf,
         release: std::path::PathBuf,
     }
 
@@ -1685,6 +1690,7 @@ mod tests {
             socket: &Path,
             ready: std::path::PathBuf,
             output: std::path::PathBuf,
+            output_ready: std::path::PathBuf,
             release: std::path::PathBuf,
         ) -> Result<Self, LauncherRuntimeError> {
             let child = Command::new(
@@ -1696,6 +1702,7 @@ mod tests {
             .env(FOREIGN_SOCKET_ENV, socket)
             .env(FOREIGN_READY_ENV, &ready)
             .env(FOREIGN_OUTPUT_ENV, &output)
+            .env(FOREIGN_OUTPUT_READY_ENV, &output_ready)
             .env(FOREIGN_RELEASE_ENV, &release)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1706,6 +1713,7 @@ mod tests {
                 child: Some(child),
                 ready,
                 output,
+                output_ready,
                 release,
             })
         }
@@ -1733,7 +1741,7 @@ mod tests {
 
         fn wait_until_output_closed(&mut self) -> Result<(), LauncherRuntimeError> {
             let deadline = Instant::now() + Duration::from_secs(10);
-            while !self.output.exists() {
+            while !self.output_ready.exists() {
                 if self
                     .child
                     .as_mut()
@@ -1767,6 +1775,7 @@ mod tests {
             }
             let _ = fs::remove_file(&self.ready);
             let _ = fs::remove_file(&self.output);
+            let _ = fs::remove_file(&self.output_ready);
             let _ = fs::remove_file(&self.release);
         }
     }
@@ -1779,6 +1788,7 @@ mod tests {
             }
             let _ = fs::remove_file(&self.ready);
             let _ = fs::remove_file(&self.output);
+            let _ = fs::remove_file(&self.output_ready);
             let _ = fs::remove_file(&self.release);
         }
     }
@@ -1788,16 +1798,23 @@ mod tests {
         let path = test_path("foreign-peer-runtime");
         let ready = test_path("foreign-peer-ready");
         let output = test_path("foreign-peer-output");
+        let output_ready = test_path("foreign-peer-output-ready");
         let release = test_path("foreign-peer-release");
         let _ = fs::remove_dir_all(&path);
         let _ = fs::remove_file(&ready);
         let _ = fs::remove_file(&output);
+        let _ = fs::remove_file(&output_ready);
         let _ = fs::remove_file(&release);
         let mut runtime = RuntimeDirectory::create(&path).unwrap();
         let mut foreign = None;
         let result = runtime.connect_once_after_listen(|socket| {
-            let mut connector =
-                ForeignConnector::spawn(socket, ready.clone(), output.clone(), release.clone())?;
+            let mut connector = ForeignConnector::spawn(
+                socket,
+                ready.clone(),
+                output.clone(),
+                output_ready.clone(),
+                release.clone(),
+            )?;
             connector.wait_until_connected()?;
             foreign = Some(connector);
             Ok(())
