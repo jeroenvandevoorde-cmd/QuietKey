@@ -322,399 +322,161 @@ command -v cargo >/dev/null 2>&1 || fail 'cargo is required to resolve the fuzz 
 command -v rustc >/dev/null 2>&1 || fail 'rustc is required to identify the fuzz build target'
 host_target=$(rustc -vV | sed -n 's/^host: //p')
 [ -n "$host_target" ] || fail 'cannot identify the fuzz build target'
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --target "$host_target" --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked default fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-  ' "$tree_tmp" > "$default_raw_tmp"; then
-  fail 'cannot parse default fuzz dependency closure'
-fi
-sort -u "$default_raw_tmp" > "$default_tmp" || fail 'cannot normalize default fuzz dependency closure'
-[ -s "$default_tmp" ] || fail 'default fuzz dependency closure is empty'
-if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire") { found = 1 } END { exit found ? 0 : 1 }' \
-    "$default_tmp"; then
-  fail 'a ring-fenced process dependency is reachable from the default fuzz dependency closure'
-fi
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --features ipc --target "$host_target" --edges normal,build --prefix none --format '{p}' \
-    > "$tree_tmp"; then
-  fail 'cannot resolve the locked IPC-feature fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$ipc_raw_tmp"; then
-  fail 'cannot parse IPC-feature fuzz dependency closure'
-fi
-sort -u "$ipc_raw_tmp" > "$ipc_tmp" || fail 'cannot normalize IPC-feature fuzz dependency closure'
-[ -s "$ipc_tmp" ] || fail 'IPC-feature fuzz dependency closure is empty'
-ipc_matches=$(awk -F '|' \
-  '$1 == "path" && $2 == "qk-ipc" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
-  "$ipc_tmp") || fail 'cannot inspect IPC-feature fuzz dependency closure'
-[ "$ipc_matches" = 1 ] || fail 'qk-ipc 0.0.1 is not present exactly once in the IPC-feature fuzz dependency closure'
-if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire") { found = 1 } END { exit found ? 0 : 1 }' \
-    "$ipc_tmp"; then
-  fail 'a process dependency is reachable from the IPC-only fuzz dependency closure'
-fi
+expected_path_set() {
+  case "$1" in
+    decoy) printf '%s\n' 'qk-decoy|0.0.1' ;;
+    supervisor) printf '%s\n' 'qk-ipc|0.0.1' 'qk-supervisor|0.0.1' ;;
+    io) printf '%s\n' \
+      'qk-bbqr|0.0.1' \
+      'qk-device-wire|0.0.1' \
+      'qk-io|0.0.1' \
+      'qk-ipc|0.0.1' ;;
+    core) printf '%s\n' \
+      'qk-a1|0.0.1' \
+      'qk-bbqr|0.0.1' \
+      'qk-bip32|0.0.1' \
+      'qk-core|0.0.1' \
+      'qk-descriptor|0.0.1' \
+      'qk-device-wire|0.0.1' \
+      'qk-ipc|0.0.1' \
+      'qk-kit|0.0.1' \
+      'qk-provisioning|0.0.1' \
+      'qk-psbt|0.0.1' \
+      'qk-secp|0.0.1' \
+      'qk-wallet-v2|0.0.1' ;;
+    wire) printf '%s\n' 'qk-device-wire|0.0.1' ;;
+  esac
+}
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s2-decoy --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s2-decoy fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$decoy_raw_tmp"; then
-  fail 'cannot parse process-s2-decoy fuzz dependency closure'
-fi
-sort -u "$decoy_raw_tmp" > "$decoy_tmp" || \
-  fail 'cannot normalize process-s2-decoy fuzz dependency closure'
-[ -s "$decoy_tmp" ] || fail 'process-s2-decoy fuzz dependency closure is empty'
-decoy_matches=$(awk -F '|' \
-  '$1 == "path" && $2 == "qk-decoy" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
-  "$decoy_tmp") || fail 'cannot inspect process-s2-decoy fuzz dependency closure'
-[ "$decoy_matches" = 1 ] || \
-  fail 'qk-decoy 0.0.1 is not present exactly once in the process-s2-decoy fuzz dependency closure'
-decoy_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$decoy_tmp") || \
-  fail 'cannot enumerate process-s2-decoy path dependencies'
-[ "$decoy_path_set" = 'qk-decoy|0.0.1' ] || \
-  fail 'process-s2-decoy path dependency closure is not exactly qk-decoy 0.0.1'
+assert_exact_path_set() {
+  normalized_output=$1
+  closure_label=$2
+  expected_key=$3
+  mismatch_message=$4
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s2-supervisor --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s2-supervisor fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$supervisor_raw_tmp"; then
-  fail 'cannot parse process-s2-supervisor fuzz dependency closure'
-fi
-sort -u "$supervisor_raw_tmp" > "$supervisor_tmp" || \
-  fail 'cannot normalize process-s2-supervisor fuzz dependency closure'
-[ -s "$supervisor_tmp" ] || fail 'process-s2-supervisor fuzz dependency closure is empty'
-supervisor_matches=$(awk -F '|' \
-  '$1 == "path" && $2 == "qk-supervisor" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
-  "$supervisor_tmp") || fail 'cannot inspect process-s2-supervisor fuzz dependency closure'
-[ "$supervisor_matches" = 1 ] || \
-  fail 'qk-supervisor 0.0.1 is not present exactly once in the process-s2-supervisor fuzz dependency closure'
-ipc_matches=$(awk -F '|' \
-  '$1 == "path" && $2 == "qk-ipc" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
-  "$supervisor_tmp") || fail 'cannot inspect process-s2-supervisor qk-ipc dependency'
-[ "$ipc_matches" = 1 ] || \
-  fail 'qk-ipc 0.0.1 is not present exactly once in the process-s2-supervisor fuzz dependency closure'
-supervisor_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$supervisor_tmp") || \
-  fail 'cannot enumerate process-s2-supervisor path dependencies'
-expected_supervisor_path_set='qk-ipc|0.0.1
-qk-supervisor|0.0.1'
-[ "$supervisor_path_set" = "$expected_supervisor_path_set" ] || \
-  fail 'process-s2-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1'
+  actual_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' \
+    "$normalized_output") || fail "cannot enumerate $closure_label path dependencies"
+  wanted_path_set=$(expected_path_set "$expected_key")
+  [ "$actual_path_set" = "$wanted_path_set" ] || fail "$mismatch_message"
+}
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s8-supervisor --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s8-supervisor fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$supervisor_s8_raw_tmp"; then
-  fail 'cannot parse process-s8-supervisor fuzz dependency closure'
-fi
-sort -u "$supervisor_s8_raw_tmp" > "$supervisor_s8_tmp" || \
-  fail 'cannot normalize process-s8-supervisor fuzz dependency closure'
-[ -s "$supervisor_s8_tmp" ] || fail 'process-s8-supervisor fuzz dependency closure is empty'
-supervisor_s8_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' \
-  "$supervisor_s8_tmp") || fail 'cannot enumerate process-s8-supervisor path dependencies'
-[ "$supervisor_s8_path_set" = "$expected_supervisor_path_set" ] || \
-  fail 'process-s8-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1'
+check_fuzz_closure() {
+  closure_id=$1
+  closure_label=$2
+  feature=$3
+  raw_output=$4
+  normalized_output=$5
+  assertion=$6
+  expected_key=$7
+  mismatch_message=$8
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s3-io --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s3-io fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$io_raw_tmp"; then
-  fail 'cannot parse process-s3-io fuzz dependency closure'
-fi
-sort -u "$io_raw_tmp" > "$io_tmp" || \
-  fail 'cannot normalize process-s3-io fuzz dependency closure'
-[ -s "$io_tmp" ] || fail 'process-s3-io fuzz dependency closure is empty'
-io_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$io_tmp") || \
-  fail 'cannot enumerate process-s3-io path dependencies'
-expected_io_path_set='qk-bbqr|0.0.1
-qk-device-wire|0.0.1
-qk-io|0.0.1
-qk-ipc|0.0.1'
-[ "$io_path_set" = "$expected_io_path_set" ] || \
-  fail 'process-s3-io path dependency closure is not the exact four-crate qk-io closure'
+  case "$closure_id" in
+    default)
+      if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+          --target "$host_target" --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
+        fail "cannot resolve the locked $closure_label fuzz dependency closure offline"
+      fi
+      ;;
+    ipc)
+      if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+          --features "$feature" --target "$host_target" --edges normal,build --prefix none \
+          --format '{p}' > "$tree_tmp"; then
+        fail "cannot resolve the locked $closure_label fuzz dependency closure offline"
+      fi
+      ;;
+    *)
+      if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
+          --no-default-features --features "$feature" --target "$host_target" \
+          --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
+        fail "cannot resolve the locked $closure_label fuzz dependency closure offline"
+      fi
+      ;;
+  esac
+  if ! awk '
+    {
+      line = $0
+      sub(/[[:space:]]+\(\*\)$/, "", line)
+      split(line, fields, " ")
+      name = fields[1]
+      version = fields[2]
+      sub(/^v/, "", version)
+      if (name == "quietkey-fuzz") next
+      kind = (name ~ /^qk-/) ? "path" : "registry"
+      if (name == "" || version == "") exit 1
+      print kind "|" name "|" version
+    }
+  ' "$tree_tmp" > "$raw_output"; then
+    fail "cannot parse $closure_label fuzz dependency closure"
+  fi
+  sort -u "$raw_output" > "$normalized_output" || \
+    fail "cannot normalize $closure_label fuzz dependency closure"
+  [ -s "$normalized_output" ] || fail "$closure_label fuzz dependency closure is empty"
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s4-core --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s4-core fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$core_raw_tmp"; then
-  fail 'cannot parse process-s4-core fuzz dependency closure'
-fi
-sort -u "$core_raw_tmp" > "$core_tmp" || \
-  fail 'cannot normalize process-s4-core fuzz dependency closure'
-[ -s "$core_tmp" ] || fail 'process-s4-core fuzz dependency closure is empty'
-core_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_tmp") || \
-  fail 'cannot enumerate process-s4-core path dependencies'
-expected_core_path_set='qk-a1|0.0.1
-qk-bbqr|0.0.1
-qk-bip32|0.0.1
-qk-core|0.0.1
-qk-descriptor|0.0.1
-qk-device-wire|0.0.1
-qk-ipc|0.0.1
-qk-kit|0.0.1
-qk-provisioning|0.0.1
-qk-psbt|0.0.1
-qk-secp|0.0.1
-qk-wallet-v2|0.0.1'
-[ "$core_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s4-core path dependency closure is not the exact twelve-crate qk-core closure'
+  case "$assertion" in
+    default)
+      if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire") { found = 1 } END { exit found ? 0 : 1 }' \
+          "$normalized_output"; then
+        fail 'a ring-fenced process dependency is reachable from the default fuzz dependency closure'
+      fi
+      ;;
+    ipc)
+      ipc_matches=$(awk -F '|' \
+        '$1 == "path" && $2 == "qk-ipc" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
+        "$normalized_output") || fail 'cannot inspect IPC-feature fuzz dependency closure'
+      [ "$ipc_matches" = 1 ] || \
+        fail 'qk-ipc 0.0.1 is not present exactly once in the IPC-feature fuzz dependency closure'
+      if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire") { found = 1 } END { exit found ? 0 : 1 }' \
+          "$normalized_output"; then
+        fail 'a process dependency is reachable from the IPC-only fuzz dependency closure'
+      fi
+      ;;
+    decoy)
+      decoy_matches=$(awk -F '|' \
+        '$1 == "path" && $2 == "qk-decoy" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
+        "$normalized_output") || fail 'cannot inspect process-s2-decoy fuzz dependency closure'
+      [ "$decoy_matches" = 1 ] || \
+        fail 'qk-decoy 0.0.1 is not present exactly once in the process-s2-decoy fuzz dependency closure'
+      assert_exact_path_set "$normalized_output" "$closure_label" "$expected_key" "$mismatch_message"
+      ;;
+    supervisor)
+      supervisor_matches=$(awk -F '|' \
+        '$1 == "path" && $2 == "qk-supervisor" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
+        "$normalized_output") || fail 'cannot inspect process-s2-supervisor fuzz dependency closure'
+      [ "$supervisor_matches" = 1 ] || \
+        fail 'qk-supervisor 0.0.1 is not present exactly once in the process-s2-supervisor fuzz dependency closure'
+      ipc_matches=$(awk -F '|' \
+        '$1 == "path" && $2 == "qk-ipc" && $3 == "0.0.1" { count++ } END { print count + 0 }' \
+        "$normalized_output") || fail 'cannot inspect process-s2-supervisor qk-ipc dependency'
+      [ "$ipc_matches" = 1 ] || \
+        fail 'qk-ipc 0.0.1 is not present exactly once in the process-s2-supervisor fuzz dependency closure'
+      assert_exact_path_set "$normalized_output" "$closure_label" "$expected_key" "$mismatch_message"
+      ;;
+    exact)
+      assert_exact_path_set "$normalized_output" "$closure_label" "$expected_key" "$mismatch_message"
+      ;;
+  esac
+}
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s5-core --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s5-core fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$core_s5_raw_tmp"; then
-  fail 'cannot parse process-s5-core fuzz dependency closure'
-fi
-sort -u "$core_s5_raw_tmp" > "$core_s5_tmp" || \
-  fail 'cannot normalize process-s5-core fuzz dependency closure'
-[ -s "$core_s5_tmp" ] || fail 'process-s5-core fuzz dependency closure is empty'
-core_s5_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s5_tmp") || \
-  fail 'cannot enumerate process-s5-core path dependencies'
-[ "$core_s5_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s5-core path dependency closure is not the exact twelve-crate qk-core closure'
-
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s6-core --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s6-core fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$core_s6_raw_tmp"; then
-  fail 'cannot parse process-s6-core fuzz dependency closure'
-fi
-sort -u "$core_s6_raw_tmp" > "$core_s6_tmp" || \
-  fail 'cannot normalize process-s6-core fuzz dependency closure'
-[ -s "$core_s6_tmp" ] || fail 'process-s6-core fuzz dependency closure is empty'
-core_s6_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s6_tmp") || \
-  fail 'cannot enumerate process-s6-core path dependencies'
-[ "$core_s6_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s6-core fuzz dependency closure is not the exact twelve-crate qk-core closure'
-
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s7-core --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s7-core fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$core_s7_raw_tmp"; then
-  fail 'cannot parse process-s7-core fuzz dependency closure'
-fi
-sort -u "$core_s7_raw_tmp" > "$core_s7_tmp" || \
-  fail 'cannot normalize process-s7-core fuzz dependency closure'
-[ -s "$core_s7_tmp" ] || fail 'process-s7-core fuzz dependency closure is empty'
-core_s7_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$core_s7_tmp") || \
-  fail 'cannot enumerate process-s7-core path dependencies'
-[ "$core_s7_path_set" = "$expected_core_path_set" ] || \
-  fail 'process-s7-core fuzz dependency closure is not the exact twelve-crate qk-core closure'
-
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s9-wire --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s9-wire fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$process_s9_wire_raw_tmp"; then
-  fail 'cannot parse process-s9-wire fuzz dependency closure'
-fi
-sort -u "$process_s9_wire_raw_tmp" > "$process_s9_wire_tmp" || \
-  fail 'cannot normalize process-s9-wire fuzz dependency closure'
-[ -s "$process_s9_wire_tmp" ] || fail 'process-s9-wire fuzz dependency closure is empty'
-process_s9_wire_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$process_s9_wire_tmp") || \
-  fail 'cannot enumerate process-s9-wire path dependencies'
-[ "$process_s9_wire_path_set" = 'qk-device-wire|0.0.1' ] || \
-  fail 'process-s9-wire path dependency closure is not exactly qk-device-wire'
-
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path fuzz/Cargo.toml --locked --offline \
-    --no-default-features --features process-s9-core --target "$host_target" --edges normal,build \
-    --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked process-s9-core fuzz dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "quietkey-fuzz") next
-    kind = (name ~ /^qk-/) ? "path" : "registry"
-    if (name == "" || version == "") exit 1
-    print kind "|" name "|" version
-  }
-' "$tree_tmp" > "$process_s9_core_raw_tmp"; then
-  fail 'cannot parse process-s9-core fuzz dependency closure'
-fi
-sort -u "$process_s9_core_raw_tmp" > "$process_s9_core_tmp" || \
-  fail 'cannot normalize process-s9-core fuzz dependency closure'
-[ -s "$process_s9_core_tmp" ] || fail 'process-s9-core fuzz dependency closure is empty'
-process_s9_core_path_set=$(awk -F '|' '$1 == "path" { print $2 "|" $3 }' "$process_s9_core_tmp") || \
-  fail 'cannot enumerate process-s9-core path dependencies'
-expected_process_s9_path_set='qk-a1|0.0.1
-qk-bbqr|0.0.1
-qk-bip32|0.0.1
-qk-core|0.0.1
-qk-descriptor|0.0.1
-qk-device-wire|0.0.1
-qk-ipc|0.0.1
-qk-kit|0.0.1
-qk-provisioning|0.0.1
-qk-psbt|0.0.1
-qk-secp|0.0.1
-qk-wallet-v2|0.0.1'
-[ "$process_s9_core_path_set" = "$expected_process_s9_path_set" ] || \
-  fail 'process-s9-core path dependency closure is not the exact twelve-crate qk-core plus qk-device-wire closure'
+# id | diagnostic label | feature | raw file | normalized file | assertion | expected set | mismatch diagnostic
+while IFS='|' read -r closure_id closure_label feature raw_output normalized_output \
+    assertion expected_key mismatch_message; do
+  check_fuzz_closure "$closure_id" "$closure_label" "$feature" "$raw_output" \
+    "$normalized_output" "$assertion" "$expected_key" "$mismatch_message"
+done <<EOF
+default|default|-|$default_raw_tmp|$default_tmp|default|-|-
+ipc|IPC-feature|ipc|$ipc_raw_tmp|$ipc_tmp|ipc|-|-
+process-s2-decoy|process-s2-decoy|process-s2-decoy|$decoy_raw_tmp|$decoy_tmp|decoy|decoy|process-s2-decoy path dependency closure is not exactly qk-decoy 0.0.1
+process-s2-supervisor|process-s2-supervisor|process-s2-supervisor|$supervisor_raw_tmp|$supervisor_tmp|supervisor|supervisor|process-s2-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
+process-s8-supervisor|process-s8-supervisor|process-s8-supervisor|$supervisor_s8_raw_tmp|$supervisor_s8_tmp|exact|supervisor|process-s8-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
+process-s3-io|process-s3-io|process-s3-io|$io_raw_tmp|$io_tmp|exact|io|process-s3-io path dependency closure is not the exact four-crate qk-io closure
+process-s4-core|process-s4-core|process-s4-core|$core_raw_tmp|$core_tmp|exact|core|process-s4-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s5-core|process-s5-core|process-s5-core|$core_s5_raw_tmp|$core_s5_tmp|exact|core|process-s5-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s6-core|process-s6-core|process-s6-core|$core_s6_raw_tmp|$core_s6_tmp|exact|core|process-s6-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s7-core|process-s7-core|process-s7-core|$core_s7_raw_tmp|$core_s7_tmp|exact|core|process-s7-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s9-wire|process-s9-wire|process-s9-wire|$process_s9_wire_raw_tmp|$process_s9_wire_tmp|exact|wire|process-s9-wire path dependency closure is not exactly qk-device-wire
+process-s9-core|process-s9-core|process-s9-core|$process_s9_core_raw_tmp|$process_s9_core_tmp|exact|core|process-s9-core path dependency closure is not the exact twelve-crate qk-core plus qk-device-wire closure
+EOF
 
 cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
   "$io_tmp" "$core_tmp" \
@@ -740,122 +502,57 @@ if grep -E '^(quietkey-fuzz|libfuzzer-sys) v' "$tree_tmp" >/dev/null 2>&1; then
   fail 'ring-fenced fuzz packages are reachable from the host workspace'
 fi
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package qk-decoy \
-    --locked --offline --target "$host_target" --edges normal,build --prefix none \
-    --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked qk-decoy host dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "" || version == "") exit 1
-    print name "|" version
-  }
-' "$tree_tmp" > "$host_decoy_raw_tmp"; then
-  fail 'cannot parse qk-decoy host dependency closure'
-fi
-sort -u "$host_decoy_raw_tmp" > "$host_decoy_tmp" || \
-  fail 'cannot normalize qk-decoy host dependency closure'
-[ "$(cat "$host_decoy_tmp")" = 'qk-decoy|0.0.1' ] || \
-  fail 'qk-decoy host dependency closure is not dependency-free'
+check_product_closure() {
+  package=$1
+  feature=$2
+  closure_label=$3
+  raw_output=$4
+  normalized_output=$5
+  expected_key=$6
+  mismatch_message=$7
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package qk-supervisor \
-    --locked --offline --target "$host_target" --edges normal,build --prefix none \
-    --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked qk-supervisor host dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "" || version == "") exit 1
-    print name "|" version
-  }
-' "$tree_tmp" > "$host_supervisor_raw_tmp"; then
-  fail 'cannot parse qk-supervisor host dependency closure'
-fi
-sort -u "$host_supervisor_raw_tmp" > "$host_supervisor_tmp" || \
-  fail 'cannot normalize qk-supervisor host dependency closure'
-if ! printf '%s\n' 'qk-ipc|0.0.1' 'qk-supervisor|0.0.1' | \
-    cmp -s - "$host_supervisor_tmp"; then
-  fail 'qk-supervisor host dependency closure is not exactly qk-supervisor plus qk-ipc'
-fi
+  if [ "$feature" = '-' ]; then
+    if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package "$package" \
+        --locked --offline --target "$host_target" --edges normal,build --prefix none \
+        --format '{p}' > "$tree_tmp"; then
+      fail "cannot resolve the locked $closure_label host dependency closure offline"
+    fi
+  elif ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package "$package" \
+      --features "$feature" --locked --offline --target "$host_target" \
+      --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
+    fail "cannot resolve the locked $closure_label host dependency closure offline"
+  fi
+  if ! awk '
+    {
+      line = $0
+      sub(/[[:space:]]+\(\*\)$/, "", line)
+      split(line, fields, " ")
+      name = fields[1]
+      version = fields[2]
+      sub(/^v/, "", version)
+      if (name == "" || version == "") exit 1
+      print name "|" version
+    }
+  ' "$tree_tmp" > "$raw_output"; then
+    fail "cannot parse $closure_label host dependency closure"
+  fi
+  sort -u "$raw_output" > "$normalized_output" || \
+    fail "cannot normalize $closure_label host dependency closure"
+  wanted_path_set=$(expected_path_set "$expected_key")
+  [ "$(cat "$normalized_output")" = "$wanted_path_set" ] || fail "$mismatch_message"
+}
 
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package qk-io \
-    --features qk-io/host-runtime --locked --offline --target "$host_target" \
-    --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked qk-io host dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "" || version == "") exit 1
-    print name "|" version
-  }
-' "$tree_tmp" > "$host_io_raw_tmp"; then
-  fail 'cannot parse qk-io host dependency closure'
-fi
-sort -u "$host_io_raw_tmp" > "$host_io_tmp" || \
-  fail 'cannot normalize qk-io host dependency closure'
-if ! printf '%s\n' \
-    'qk-bbqr|0.0.1' \
-    'qk-device-wire|0.0.1' \
-    'qk-io|0.0.1' \
-    'qk-ipc|0.0.1' | \
-    cmp -s - "$host_io_tmp"; then
-  fail 'qk-io host-runtime dependency closure is not the exact four-crate qk-io closure'
-fi
-
-if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package qk-core \
-    --features qk-core/host-runtime --locked --offline --target "$host_target" \
-    --edges normal,build --prefix none --format '{p}' > "$tree_tmp"; then
-  fail 'cannot resolve the locked qk-core host dependency closure offline'
-fi
-if ! awk '
-  {
-    line = $0
-    sub(/[[:space:]]+\(\*\)$/, "", line)
-    split(line, fields, " ")
-    name = fields[1]
-    version = fields[2]
-    sub(/^v/, "", version)
-    if (name == "" || version == "") exit 1
-    print name "|" version
-  }
-' "$tree_tmp" > "$host_core_raw_tmp"; then
-  fail 'cannot parse qk-core host dependency closure'
-fi
-sort -u "$host_core_raw_tmp" > "$host_core_tmp" || \
-  fail 'cannot normalize qk-core host dependency closure'
-if ! printf '%s\n' \
-    'qk-a1|0.0.1' \
-    'qk-bbqr|0.0.1' \
-    'qk-bip32|0.0.1' \
-    'qk-core|0.0.1' \
-    'qk-descriptor|0.0.1' \
-    'qk-device-wire|0.0.1' \
-    'qk-ipc|0.0.1' \
-    'qk-kit|0.0.1' \
-    'qk-provisioning|0.0.1' \
-    'qk-psbt|0.0.1' \
-    'qk-secp|0.0.1' \
-    'qk-wallet-v2|0.0.1' | cmp -s - "$host_core_tmp"; then
-  fail 'qk-core host-runtime dependency closure is not the exact twelve-crate qk-core closure'
-fi
+# package | feature | diagnostic label | raw file | normalized file | expected set | mismatch diagnostic
+while IFS='|' read -r package feature closure_label raw_output normalized_output \
+    expected_key mismatch_message; do
+  check_product_closure "$package" "$feature" "$closure_label" "$raw_output" \
+    "$normalized_output" "$expected_key" "$mismatch_message"
+done <<EOF
+qk-decoy|-|qk-decoy|$host_decoy_raw_tmp|$host_decoy_tmp|decoy|qk-decoy host dependency closure is not dependency-free
+qk-supervisor|-|qk-supervisor|$host_supervisor_raw_tmp|$host_supervisor_tmp|supervisor|qk-supervisor host dependency closure is not exactly qk-supervisor plus qk-ipc
+qk-io|qk-io/host-runtime|qk-io|$host_io_raw_tmp|$host_io_tmp|io|qk-io host-runtime dependency closure is not the exact four-crate qk-io closure
+qk-core|qk-core/host-runtime|qk-core|$host_core_raw_tmp|$host_core_tmp|core|qk-core host-runtime dependency closure is not the exact twelve-crate qk-core closure
+EOF
 
 while IFS="$tab" read -r kind name version checksum subject license purpose; do
   case "$kind" in ''|'#'*) continue ;; esac
