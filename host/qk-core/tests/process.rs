@@ -28,12 +28,16 @@ fn read_frame(stream: &mut UnixStream, decoder: &mut StreamDecoder) -> qk_ipc::R
     }
 }
 
-fn child_command(mode: &str, endpoint: UnixStream) -> std::process::Child {
+fn child_command(mode: &str, profile: Option<&str>, endpoint: UnixStream) -> std::process::Child {
     let input = endpoint.try_clone().expect("clone child endpoint");
     let input: OwnedFd = input.into();
     let output: OwnedFd = endpoint.into();
-    Command::new(BINARY)
-        .arg(mode)
+    let mut command = Command::new(BINARY);
+    command.arg(mode);
+    if let Some(profile) = profile {
+        command.arg(profile);
+    }
+    command
         .stdin(Stdio::from(input))
         .stdout(Stdio::from(output))
         .stderr(Stdio::null())
@@ -43,7 +47,7 @@ fn child_command(mode: &str, endpoint: UnixStream) -> std::process::Child {
 
 fn complete_cycle(mode: &str) -> ExitStatus {
     let (mut peer, child_endpoint) = UnixStream::pair().expect("connected pair");
-    let mut child = child_command(mode, child_endpoint);
+    let mut child = child_command(mode, None, child_endpoint);
     let mut protocol = IoProtocol::new();
     let mut decoder = StreamDecoder::new();
 
@@ -60,8 +64,8 @@ fn complete_cycle(mode: &str) -> ExitStatus {
 }
 
 #[test]
-fn all_three_exact_modes_complete_real_control_cycles() {
-    for mode in ["setup", "normal", "kit"] {
+fn setup_and_kit_exact_modes_complete_real_control_cycles() {
+    for mode in ["setup", "kit"] {
         assert!(complete_cycle(mode).success(), "mode {mode}");
     }
 }
@@ -89,6 +93,31 @@ fn missing_unknown_and_extra_arguments_are_invocation_rejections() {
         .expect("non-UTF-8 argument");
     assert_eq!(non_utf8.status.code(), Some(64));
     assert!(non_utf8.stdout.is_empty() && non_utf8.stderr.is_empty());
+
+    for arguments in [
+        vec!["normal"],
+        vec!["normal", "00"],
+        vec!["normal", "01", "extra"],
+    ] {
+        let rejected = Command::new(BINARY)
+            .args(arguments)
+            .output()
+            .expect("rejected Normal invocation");
+        assert_eq!(rejected.status.code(), Some(64));
+        assert!(rejected.stdout.is_empty() && rejected.stderr.is_empty());
+    }
+}
+
+#[test]
+fn exact_normal_profiles_pass_invocation_and_fail_closed_without_device_grants() {
+    for profile in ["01", "02", "03"] {
+        let output = Command::new(BINARY)
+            .args(["normal", profile])
+            .output()
+            .expect("normal invocation");
+        assert_eq!(output.status.code(), Some(70));
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    }
 }
 
 #[test]
@@ -127,7 +156,7 @@ fn binary_has_the_exact_silent_unwind_boundary_and_closed_status_set() {
 #[test]
 fn peer_loss_is_fail_closed_runtime_termination() {
     let (peer, child_endpoint) = UnixStream::pair().expect("connected pair");
-    let mut child = child_command("setup", child_endpoint);
+    let mut child = child_command("setup", None, child_endpoint);
     drop(peer);
     assert_eq!(child.wait().expect("wait child").code(), Some(70));
 }

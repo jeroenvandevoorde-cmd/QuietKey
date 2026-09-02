@@ -2,7 +2,10 @@
 
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
+const CAPABILITY: &str = include_str!("../src/capability.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
+const NORMAL_PROCESS: &str = include_str!("../src/normal_process_v2.rs");
+const PROCESS: &str = include_str!("../src/process.rs");
 const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
 const KIT_ARTIFACT: &str = include_str!("../src/kit_artifact_v2.rs");
 const KIT_INTAKE: &str = include_str!("../src/kit_intake_v2.rs");
@@ -27,6 +30,35 @@ fn volatile_wipe_owns_the_complete_allocation_and_fences_each_clear() {
     assert!(WIPE.contains("value_owner_clears_nested_values_before_outer_allocation"));
     assert!(WIPE.contains("value_owner_clears_during_caught_unwind"));
     assert!(WIPE.contains("fixed_owner_clears_plaintext_on_caught_unwind"));
+}
+
+#[test]
+fn normal_runtime_releases_factor_and_outbound_owners_at_the_last_use() {
+    let factor_read = PROCESS
+        .find("let factor = devices.read_normal_factor()?;")
+        .expect("factor read");
+    let factor_drop = PROCESS[factor_read..]
+        .find("drop(factor);")
+        .map(|offset| factor_read + offset)
+        .expect("factor drop");
+    let qkip_drive = PROCESS[factor_read..]
+        .find("drive_qkip(&stream, &mut controller, opening)?;")
+        .map(|offset| factor_read + offset)
+        .expect("QKIP drive");
+    assert!(factor_read < factor_drop && factor_drop < qkip_drive);
+
+    let outbound_write = PROCESS
+        .find(".write_all(outbound.frame_bytes())")
+        .expect("outbound write");
+    let outbound_drop = PROCESS[outbound_write..]
+        .find("drop(outbound);")
+        .map(|offset| outbound_write + offset)
+        .expect("outbound drop");
+    let broker_read = PROCESS[outbound_write..]
+        .find("receive_normal_qkip(stream, controller, before)?;")
+        .map(|offset| outbound_write + offset)
+        .expect("broker read");
+    assert!(outbound_write < outbound_drop && outbound_drop < broker_read);
 }
 
 #[test]
@@ -134,6 +166,26 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
     assert!(NORMAL_ARTIFACT.contains("begin_finish_filename_and_geometry_scratch_are_raii_wiped"));
     assert!(NORMAL.contains("impl Drop for NormalSessionV2"));
     assert!(SESSION.contains("normal_response_and_retained_session_identity_wipe_on_interruption"));
+    assert!(CAPABILITY.contains("der: WipingVec"));
+    assert!(CAPABILITY.contains("signatures: WipingValueVec<NormalCardBSignatureV2>"));
+    assert!(NORMAL_PROCESS.contains("let mut a2 = WipingArray::<A2_BYTES>::zeroed();"));
+    assert!(NORMAL_PROCESS.contains("let mut scratch = WipingArray::<MAX_DER_BYTES>::zeroed();"));
+    assert!(!NORMAL_PROCESS.contains("let mut a2: [u8; A2_BYTES]"));
+    assert!(!NORMAL_PROCESS.contains("let mut scratch = [0u8; MAX_DER_BYTES];"));
+    for owner in [
+        "let mut bytes = WipingArray::<DEVICE_HEADER_BYTES>::zeroed();",
+        "let mut body = WipingArray::<MAX_DISPLAY_BODY_BYTES>::zeroed();",
+        "WipingArray::<{ DEVICE_HEADER_BYTES + MAX_DISPLAY_BODY_BYTES }>::zeroed();",
+        "let mut byte = WipingArray::<1>::zeroed();",
+        "let mut scratch = WipingArray::<RECEIVE_BYTES>::zeroed();",
+    ] {
+        assert!(
+            PROCESS.contains(owner),
+            "missing runtime fixed owner {owner}"
+        );
+    }
+    assert!(NORMAL_PROCESS.contains("impl Drop for NormalProcessControllerV2"));
+    assert!(NORMAL_PROCESS.contains("drop(self.session.take());"));
 }
 
 #[test]

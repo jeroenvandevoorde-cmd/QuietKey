@@ -19,6 +19,8 @@ use crate::session::{CoreMode, CoreOutbound, CoreReceiveEvent, CoreSession};
 use crate::wipe::{WipingArray, WipingValueVec};
 use core::fmt;
 use qk_descriptor::parse_descriptor_pair_v2;
+#[cfg(feature = "normal-process")]
+use qk_psbt::ValidatedNormalV3Parts;
 use qk_psbt::{
     build_validated_normal_v3, finalize_validated_normal_v3, DirectRbf, FeeWarning, InputSource,
     NormalFinalizationErrorV3, NormalSubmittedSignatureV3, OwnedS0, RecipientType, ReviewNetwork,
@@ -31,6 +33,11 @@ use qk_wallet_v2::{
 const ROLE_B_XPUB_START: usize = 180;
 const ROLE_B_XPUB_END: usize = 291;
 const A1_CAPSULE_BYTES: usize = 67;
+#[cfg(feature = "normal-process")]
+const HALF_CURVE_ORDER: [u8; 32] = [
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
+];
 
 /// Exact normal-flow state order visible to the HOST screen owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +60,51 @@ pub enum NormalStageV2 {
     AwaitingExportAction,
     TransactionResult,
     CompletedWiped,
+}
+
+#[cfg(feature = "normal-process")]
+const PROCESS_STAGE_TRACE_CAPACITY: usize = 8;
+
+/// Fixed process-only trace of stages traversed inside one leaf call.
+#[cfg(feature = "normal-process")]
+struct ProcessStageTraceV2 {
+    stages: [Option<NormalStageV2>; PROCESS_STAGE_TRACE_CAPACITY],
+    len: usize,
+}
+
+#[cfg(feature = "normal-process")]
+impl ProcessStageTraceV2 {
+    const fn starting() -> Self {
+        let mut value = Self {
+            stages: [None; PROCESS_STAGE_TRACE_CAPACITY],
+            len: 0,
+        };
+        value.stages[0] = Some(NormalStageV2::NormalStart);
+        value.len = 1;
+        value
+    }
+
+    fn record(&mut self, stage: NormalStageV2) {
+        if let Some(slot) = self.stages.get_mut(self.len) {
+            *slot = Some(stage);
+            self.len = self.len.saturating_add(1);
+        }
+    }
+
+    fn take(&mut self) -> [Option<NormalStageV2>; PROCESS_STAGE_TRACE_CAPACITY] {
+        let stages = self.stages;
+        self.stages = [None; PROCESS_STAGE_TRACE_CAPACITY];
+        self.len = 0;
+        stages
+    }
+}
+
+#[cfg(feature = "normal-process")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProcessSignatureRejectionV2 {
+    Malformed,
+    HighS,
+    KeyMismatch,
 }
 
 /// Exact review cursor. Output and input positions are transaction-order
@@ -528,6 +580,10 @@ pub struct NormalSessionV2 {
     result: Option<NormalExportResultV2>,
     close_pending: bool,
     terminal_error: Option<NormalErrorV2>,
+    #[cfg(feature = "normal-process")]
+    process_stage_trace: ProcessStageTraceV2,
+    #[cfg(feature = "normal-process")]
+    process_signature_rejection: Option<ProcessSignatureRejectionV2>,
 }
 
 impl NormalSessionV2 {
@@ -577,6 +633,10 @@ impl NormalSessionV2 {
             result: None,
             close_pending: false,
             terminal_error: None,
+            #[cfg(feature = "normal-process")]
+            process_stage_trace: ProcessStageTraceV2::starting(),
+            #[cfg(feature = "normal-process")]
+            process_signature_rejection: None,
         }
     }
 
@@ -625,6 +685,20 @@ impl NormalSessionV2 {
             stage => NormalScreenV2::Stage(stage),
         };
         Some(screen)
+    }
+
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn take_process_stage_trace(
+        &mut self,
+    ) -> [Option<NormalStageV2>; PROCESS_STAGE_TRACE_CAPACITY] {
+        self.process_stage_trace.take()
+    }
+
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn take_process_signature_rejection(
+        &mut self,
+    ) -> Option<ProcessSignatureRejectionV2> {
+        self.process_signature_rejection.take()
     }
 
     /// Consume one QKIP frame and automatically request only the next exact
@@ -704,6 +778,8 @@ impl NormalSessionV2 {
                 self.close_pending = false;
                 self.cleanup_owned();
                 self.stage = NormalStageV2::CompletedWiped;
+                #[cfg(feature = "normal-process")]
+                self.process_stage_trace.record(self.stage);
                 NormalProgressV2 {
                     stage: self.stage,
                     outbound: None,
@@ -1211,6 +1287,18 @@ impl NormalSessionV2 {
         drop(seed_a);
         self.advance(NormalStageV2::CardBSigning, None)?;
         let (parts, role_a_owner) = signed.into_finalization_parts();
+        #[cfg(feature = "normal-process")]
+        if let Err(process_rejection) = validate_bound_card_signature_records(&parts, &card) {
+            drop(parts);
+            drop(role_a_owner);
+            drop(card);
+            let error = self.fail(
+                NormalErrorV2::CardDataRejected,
+                Interruption::OperationFailed,
+            );
+            self.process_signature_rejection = Some(process_rejection);
+            return Err(error);
+        }
         let mut role_a =
             WipingValueVec::try_with_capacity(role_a_owner.inputs().len()).map_err(|_| {
                 self.fail(
@@ -1582,6 +1670,8 @@ impl NormalSessionV2 {
                     self.fail(NormalErrorV2::Core(error), Interruption::CapabilityFailed)
                 })?;
         }
+        #[cfg(feature = "normal-process")]
+        self.process_stage_trace.record(stage);
         Ok(self.progress(outbound))
     }
 
@@ -1679,6 +1769,113 @@ fn card_binding_matches(card: &NormalCardBDataV2) -> Result<bool, ()> {
     Ok(descriptors.iter().all(|descriptor| {
         descriptor.get(ROLE_B_XPUB_START..ROLE_B_XPUB_END) == Some(card.account_xpub().as_slice())
     }))
+}
+
+#[cfg(feature = "normal-process")]
+fn validate_bound_card_signature_records(
+    proof: &ValidatedNormalV3Parts,
+    card: &NormalCardBDataV2,
+) -> Result<(), ProcessSignatureRejectionV2> {
+    let plans = proof.input_signing_plans();
+    let mut prior = None;
+    for signature in card.signatures() {
+        let Some(claimed_key) = signature.role_b_pubkey() else {
+            // The frozen typed HOST tests predate the process-wire binding.
+            // Every QKDV NormalFactor record uses the bound constructor.
+            continue;
+        };
+        match classify_card_signature_der(signature.der_signature()) {
+            CardSignatureDerClassV2::Malformed => {
+                return Err(ProcessSignatureRejectionV2::Malformed)
+            }
+            CardSignatureDerClassV2::HighS => return Err(ProcessSignatureRejectionV2::HighS),
+            CardSignatureDerClassV2::LowS => {}
+        }
+        if prior.is_some_and(|prior| signature.input_index() <= prior) {
+            return Err(ProcessSignatureRejectionV2::Malformed);
+        }
+        prior = Some(signature.input_index());
+        let position = usize::try_from(signature.input_index())
+            .map_err(|_| ProcessSignatureRejectionV2::Malformed)?;
+        let plan = plans
+            .get(position)
+            .filter(|plan| plan.input_index() == signature.input_index())
+            .ok_or(ProcessSignatureRejectionV2::Malformed)?;
+        let role_b = plan
+            .role_public_keys()
+            .get(1)
+            .ok_or(ProcessSignatureRejectionV2::Malformed)?;
+        if role_b != &claimed_key {
+            return Err(ProcessSignatureRejectionV2::KeyMismatch);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(feature = "normal-process")]
+pub(crate) enum CardSignatureDerClassV2 {
+    Malformed,
+    LowS,
+    HighS,
+}
+
+#[cfg(feature = "normal-process")]
+pub(crate) fn classify_card_signature_der(der: &[u8]) -> CardSignatureDerClassV2 {
+    let Some((&0x30, rest)) = der.split_first() else {
+        return CardSignatureDerClassV2::Malformed;
+    };
+    let Some((&sequence_len, sequence)) = rest.split_first() else {
+        return CardSignatureDerClassV2::Malformed;
+    };
+    if usize::from(sequence_len) != sequence.len() {
+        return CardSignatureDerClassV2::Malformed;
+    }
+    let Some((r, after_r)) = parse_card_der_integer(sequence) else {
+        return CardSignatureDerClassV2::Malformed;
+    };
+    if r.is_empty() {
+        return CardSignatureDerClassV2::Malformed;
+    }
+    let Some((s, trailing)) = parse_card_der_integer(after_r) else {
+        return CardSignatureDerClassV2::Malformed;
+    };
+    if !trailing.is_empty() {
+        return CardSignatureDerClassV2::Malformed;
+    }
+    let magnitude = s.strip_prefix(&[0]).unwrap_or(s);
+    if magnitude.len() > HALF_CURVE_ORDER.len() {
+        return CardSignatureDerClassV2::HighS;
+    }
+    if magnitude.len() < HALF_CURVE_ORDER.len() {
+        return CardSignatureDerClassV2::LowS;
+    }
+    if magnitude > HALF_CURVE_ORDER.as_slice() {
+        CardSignatureDerClassV2::HighS
+    } else {
+        CardSignatureDerClassV2::LowS
+    }
+}
+
+#[cfg(feature = "normal-process")]
+fn parse_card_der_integer(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (&0x02, rest) = bytes.split_first()? else {
+        return None;
+    };
+    let (&length, rest) = rest.split_first()?;
+    let length = usize::from(length);
+    if length == 0 || rest.len() < length {
+        return None;
+    }
+    let (value, trailing) = rest.split_at(length);
+    let first = *value.first()?;
+    if first & 0x80 != 0 {
+        return None;
+    }
+    if first == 0 && value.get(1).is_some_and(|next| next & 0x80 == 0) {
+        return None;
+    }
+    Some((value, trailing))
 }
 
 const fn validate_a1_candidate(source: Source, length: usize) -> Result<(), NormalErrorV2> {

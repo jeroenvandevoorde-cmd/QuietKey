@@ -220,12 +220,36 @@ impl NormalCardMockErrorV2 {
 /// retained allocation, including spare capacity, is cleared on drop.
 pub struct NormalCardBSignatureV2 {
     input_index: u32,
+    #[cfg(feature = "normal-process")]
+    role_b_pubkey: Option<[u8; 33]>,
     der: WipingVec,
 }
 
 impl NormalCardBSignatureV2 {
     pub fn try_new(
         input_index: u32,
+        der_signature: &mut [u8],
+    ) -> Result<Self, NormalCardMockErrorV2> {
+        Self::try_new_inner(
+            input_index,
+            #[cfg(feature = "normal-process")]
+            None,
+            der_signature,
+        )
+    }
+
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn try_new_bound(
+        input_index: u32,
+        role_b_pubkey: [u8; 33],
+        der_signature: &mut [u8],
+    ) -> Result<Self, NormalCardMockErrorV2> {
+        Self::try_new_inner(input_index, Some(role_b_pubkey), der_signature)
+    }
+
+    fn try_new_inner(
+        input_index: u32,
+        #[cfg(feature = "normal-process")] role_b_pubkey: Option<[u8; 33]>,
         der_signature: &mut [u8],
     ) -> Result<Self, NormalCardMockErrorV2> {
         if der_signature.len() > MAX_DER_SIGNATURE_BYTES {
@@ -235,7 +259,12 @@ impl NormalCardBSignatureV2 {
         let copied = WipingVec::try_copy(der_signature);
         wipe::bytes(der_signature);
         let der = copied.map_err(|_| NormalCardMockErrorV2::CardDataUnavailable)?;
-        Ok(Self { input_index, der })
+        Ok(Self {
+            input_index,
+            #[cfg(feature = "normal-process")]
+            role_b_pubkey,
+            der,
+        })
     }
 
     pub const fn input_index(&self) -> u32 {
@@ -244,6 +273,11 @@ impl NormalCardBSignatureV2 {
 
     pub fn der_signature(&self) -> &[u8] {
         self.der.as_slice()
+    }
+
+    #[cfg(feature = "normal-process")]
+    pub(crate) const fn role_b_pubkey(&self) -> Option<[u8; 33]> {
+        self.role_b_pubkey
     }
 }
 

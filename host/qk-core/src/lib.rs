@@ -29,6 +29,8 @@ mod kit_restore_v2;
 mod kit_spend_v2;
 #[cfg(feature = "normal-v3")]
 mod normal_artifact_v2;
+#[cfg(feature = "normal-process")]
+mod normal_process_v2;
 #[cfg(feature = "normal-v3")]
 mod normal_v2;
 #[cfg(feature = "host-runtime")]
@@ -78,6 +80,10 @@ pub use normal_artifact_v2::{
     NormalExportProgressV2, NormalExportRequestV2, NormalExportResultV2, NormalExportRouteV2,
     NormalProfileV2, NormalRouteExposureV2, NormalSdReceiptV2,
 };
+#[cfg(feature = "normal-process")]
+pub use normal_process_v2::{
+    NormalProcessControllerV2, NormalProcessErrorV2, NormalProcessEventV2, NormalProcessStageV2,
+};
 #[cfg(feature = "normal-v3")]
 pub use normal_v2::{
     NormalApprovalIdentityV2, NormalApprovalTokenV2, NormalArithmeticViewV2, NormalChangeViewV2,
@@ -88,7 +94,7 @@ pub use normal_v2::{
     NormalTransactionResultViewV2, NormalWarningViewV2,
 };
 #[cfg(feature = "host-runtime")]
-pub use process::{run_core_host_process, CoreHostProcessError};
+pub use process::{run_core_host_process, run_normal_core_host_process, CoreHostProcessError};
 #[cfg(feature = "kit-v3")]
 pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};
 pub use session::{
