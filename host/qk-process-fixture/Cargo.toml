@@ -1,0 +1,20 @@
+[package]
+name = "qk-process-fixture"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+autobins = false
+description = "Ring-fenced HOST-only Normal process fixture and bounded subprocess harness."
+
+[[bin]]
+name = "qk-normal-process-harness"
+path = "src/bin/qk-normal-process-harness.rs"
+
+[[bin]]
+name = "qk-normal-fixture-driver"
+path = "src/bin/qk-normal-fixture-driver.rs"
+
+[dependencies]
+qk-bbqr = { path = "../qk-bbqr" }
+qk-device-wire = { path = "../qk-device-wire" }
