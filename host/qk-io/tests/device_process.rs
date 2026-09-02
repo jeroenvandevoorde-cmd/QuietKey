@@ -51,9 +51,10 @@ fn bridge_retains_the_exact_one_use_and_cleanup_mechanisms() {
         "used_sources",
         "used_artifacts",
         "DeviceError::UnexpectedFrame",
+        "WipingArray::<DEVICE_READ_BYTES>::zeroed()",
         "WipingVec::try_zeroed",
         "WipingVec::try_from_slice",
-        "crate::wipe::bytes(&mut scratch)",
+        "scratch.clear()",
         "crate::wipe::bytes(&mut finish)",
     ] {
         assert!(

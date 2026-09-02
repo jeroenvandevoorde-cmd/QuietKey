@@ -1,9 +1,12 @@
 //! Real HOST child boundary for the no-secret qk-io broker process.
 
 use crate::device_process::{DeviceProcess, DeviceProcessError};
+use crate::wipe::WipingArray;
 use crate::{BrokerError, BrokerSession, BrokerState, InnerError};
 use qk_device_wire::DeviceError;
-use qk_ipc::{inherited_endpoint, receive_once, IpcError, StreamDecoder, UnixReceiveError};
+use qk_ipc::{
+    inherited_endpoint, receive_once, IpcError, StreamDecoder, UnixReceiveError, UnixReceiveOutcome,
+};
 use std::fmt;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
@@ -45,9 +48,9 @@ fn run_control_peer(stream: &UnixStream) -> Result<(), IoHostProcessError> {
     let mut broker = BrokerSession::new();
     let mut devices = DeviceProcess::new();
     let mut decoder = StreamDecoder::new();
-    let mut scratch = [0u8; RECEIVE_BYTES];
+    let mut scratch = WipingArray::<RECEIVE_BYTES>::zeroed();
     loop {
-        let outcome = match receive_once(stream, &mut decoder, &mut scratch) {
+        let outcome = match receive_control_once(stream, &mut decoder, &mut scratch) {
             Ok(outcome) => outcome,
             Err(UnixReceiveError::Ipc(error)) => {
                 latch_receive_failure(&mut broker, error);
@@ -82,10 +85,51 @@ fn run_control_peer(stream: &UnixStream) -> Result<(), IoHostProcessError> {
     }
 }
 
+fn receive_control_once(
+    stream: &UnixStream,
+    decoder: &mut StreamDecoder,
+    scratch: &mut WipingArray<RECEIVE_BYTES>,
+) -> Result<UnixReceiveOutcome, UnixReceiveError> {
+    let result = receive_once(stream, decoder, scratch.as_mut_slice());
+    scratch.clear();
+    result
+}
+
 fn latch_receive_failure(broker: &mut BrokerSession, error: IpcError) {
     if error == IpcError::PeerLost {
         let _ = broker.peer_lost();
     } else {
         let _ = broker.receive_failed(error);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{receive_control_once, StreamDecoder, UnixStream, WipingArray, RECEIVE_BYTES};
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+    use std::io::Write;
+
+    #[test]
+    fn control_receive_clears_the_complete_scratch_on_success() {
+        let (stream, mut peer) = UnixStream::pair().unwrap();
+        peer.write_all(&[0x51]).unwrap();
+        let mut decoder = StreamDecoder::new();
+        let mut scratch = WipingArray::<RECEIVE_BYTES>::zeroed();
+        reset_wiped_bytes();
+        let outcome = receive_control_once(&stream, &mut decoder, &mut scratch).unwrap();
+        assert_eq!(outcome.received(), RECEIVE_BYTES);
+        assert_eq!(wiped_bytes(), RECEIVE_BYTES);
+    }
+
+    #[test]
+    fn control_receive_clears_the_complete_scratch_on_peer_loss() {
+        let (stream, peer) = UnixStream::pair().unwrap();
+        drop(peer);
+        let mut decoder = StreamDecoder::new();
+        let mut scratch = WipingArray::<RECEIVE_BYTES>::zeroed();
+        reset_wiped_bytes();
+        assert!(receive_control_once(&stream, &mut decoder, &mut scratch).is_err());
+        assert_eq!(wiped_bytes(), RECEIVE_BYTES);
     }
 }

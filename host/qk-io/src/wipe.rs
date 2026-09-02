@@ -25,6 +25,42 @@ pub(crate) fn bytes(value: &mut [u8]) {
     WIPED_BYTES.with(|count| count.set(count.get().saturating_add(byte_count)));
 }
 
+pub(crate) struct WipingArray<const LENGTH: usize> {
+    value: [u8; LENGTH],
+    dirty: bool,
+}
+
+impl<const LENGTH: usize> WipingArray<LENGTH> {
+    pub(crate) const fn zeroed() -> Self {
+        Self {
+            value: [0; LENGTH],
+            dirty: false,
+        }
+    }
+
+    pub(crate) fn as_slice(&self) -> &[u8] {
+        &self.value
+    }
+
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.dirty = true;
+        &mut self.value
+    }
+
+    pub(crate) fn clear(&mut self) {
+        if self.dirty {
+            bytes(&mut self.value);
+            self.dirty = false;
+        }
+    }
+}
+
+impl<const LENGTH: usize> Drop for WipingArray<LENGTH> {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
 #[allow(unsafe_code)]
 #[inline(never)]
 fn allocation(pointer: *mut u8, byte_count: usize) {
@@ -100,7 +136,7 @@ pub fn wiped_bytes() -> usize {
 #[cfg(test)]
 #[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
-    use super::{bytes, reset_wiped_bytes, wiped_bytes, WipingVec};
+    use super::{bytes, reset_wiped_bytes, wiped_bytes, WipingArray, WipingVec};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
@@ -110,6 +146,31 @@ mod tests {
         bytes(&mut value);
         assert_eq!(value, [0; 32]);
         assert_eq!(wiped_bytes(), 32);
+    }
+
+    #[test]
+    fn fixed_owner_clears_exactly_once_after_explicit_cleanup() {
+        let mut owner = WipingArray::<19>::zeroed();
+        owner.as_mut_slice().fill(0xa5);
+        reset_wiped_bytes();
+        owner.clear();
+        assert_eq!(owner.as_slice(), [0; 19]);
+        assert_eq!(wiped_bytes(), 19);
+        drop(owner);
+        assert_eq!(wiped_bytes(), 19);
+    }
+
+    #[test]
+    fn fixed_owner_clears_exactly_once_during_caught_unwind() {
+        let mut owner = WipingArray::<23>::zeroed();
+        owner.as_mut_slice().fill(0x5a);
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _owner = owner;
+            panic!("test-only caught unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), 23);
     }
 
     #[test]

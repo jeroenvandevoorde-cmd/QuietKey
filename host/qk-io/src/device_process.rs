@@ -5,7 +5,7 @@
 //! Output descriptors are strictly one-way: successful OS delivery is the
 //! device-side result and no reverse QKDV channel is invented here.
 
-use crate::wipe::WipingVec;
+use crate::wipe::{WipingArray, WipingVec};
 use crate::{
     parse_request, Artifact, BrokerError, BrokerReply, BrokerSession, BrokerState, InnerError,
     MockInput, MockOutputWriter, Operation, ReplyStatus, Request, Sink, Source, MAX_CHUNK_BYTES,
@@ -16,7 +16,7 @@ use qk_device_wire::{
     BodyRef, Capability, DeviceError, InputBody, InputTransfer, MessageKind, OneWayProtocol,
     OutputBody, OutputTransfer, StreamDecoder, HEADER_BYTES,
 };
-use qk_ipc::ReceivedFrame;
+use qk_ipc::{IoEvent, IoProtocol, ReceivedFrame};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
@@ -161,22 +161,22 @@ fn read_frame_from<R: Read>(
     reader: &mut R,
     decoder: &mut StreamDecoder,
 ) -> Result<qk_device_wire::ReceivedFrame, DeviceError> {
-    let mut scratch = [0u8; DEVICE_READ_BYTES];
+    let mut scratch = WipingArray::<DEVICE_READ_BYTES>::zeroed();
     loop {
-        let received = reader
-            .read(&mut scratch)
-            .map_err(|_| DeviceError::PeerLost)?;
-        if received == 0 {
-            return Err(decoder.finish());
-        }
-        let outcome = match decoder.ingest(&scratch[..received]) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                crate::wipe::bytes(&mut scratch);
-                return Err(error);
+        let received = match reader.read(scratch.as_mut_slice()) {
+            Ok(received) => received,
+            Err(_) => {
+                scratch.clear();
+                return Err(DeviceError::PeerLost);
             }
         };
-        crate::wipe::bytes(&mut scratch);
+        if received == 0 {
+            scratch.clear();
+            return Err(decoder.finish());
+        }
+        let outcome = decoder.ingest(&scratch.as_slice()[..received]);
+        scratch.clear();
+        let outcome = outcome?;
         if outcome.frame_ready() {
             return decoder.take_frame();
         }
@@ -209,6 +209,7 @@ fn write_frame_to<W: Write>(
 }
 
 pub(crate) struct DeviceProcess {
+    outer: IoProtocol,
     camera: InputEndpoint,
     media_input: InputEndpoint,
     print: OutputEndpoint,
@@ -221,6 +222,7 @@ pub(crate) struct DeviceProcess {
 impl DeviceProcess {
     pub(crate) fn new() -> Self {
         Self {
+            outer: IoProtocol::new(),
             camera: InputEndpoint::new(Capability::CameraInput, CAMERA_INPUT_PATH),
             media_input: InputEndpoint::new(Capability::MediaInput, MEDIA_INPUT_PATH),
             print: OutputEndpoint::new(Capability::PrintOutput, PRINT_OUTPUT_PATH),
@@ -236,13 +238,23 @@ impl DeviceProcess {
         broker: &mut BrokerSession,
         frame: &ReceivedFrame,
     ) -> Result<BrokerReply, DeviceProcessError> {
-        let parsed = parse_request(frame.payload()).ok();
+        let event = self
+            .outer
+            .accept(frame)
+            .map_err(|error| DeviceProcessError::Broker(BrokerError::Ipc(error)))?;
+        let parsed = if event == IoEvent::OperationRequest {
+            parse_request(frame.payload()).ok()
+        } else {
+            None
+        };
         if let Some(Request::IngressBegin { source, aux }) = parsed {
             if broker.state() == BrokerState::Idle && aux.is_empty() {
                 let mut input = self.read_input(source)?;
-                return broker
+                let reply = broker
                     .accept(frame, Some(&mut input), None)
-                    .map_err(DeviceProcessError::Broker);
+                    .map_err(DeviceProcessError::Broker)?;
+                self.complete_outer_reply()?;
+                return Ok(reply);
             }
         }
 
@@ -255,6 +267,7 @@ impl DeviceProcess {
                         self.write_output(pending, &writer)?;
                         self.pending_egress = None;
                     }
+                    self.complete_outer_reply()?;
                     return Ok(reply);
                 }
             }
@@ -269,7 +282,15 @@ impl DeviceProcess {
         } else if reply.status() == ReplyStatus::Success(Operation::EgressFinish) {
             self.pending_egress = None;
         }
+        self.complete_outer_reply()?;
         Ok(reply)
+    }
+
+    fn complete_outer_reply(&mut self) -> Result<(), DeviceProcessError> {
+        self.outer
+            .reply()
+            .map(|_| ())
+            .map_err(|error| DeviceProcessError::Broker(BrokerError::Ipc(error)))
     }
 
     fn read_input(&mut self, source: Source) -> Result<MockInput, DeviceProcessError> {
@@ -522,14 +543,94 @@ const fn device_artifact(artifact: Artifact) -> qk_device_wire::Artifact {
 mod tests {
     use super::{
         collect_input, emit_output, media_record, read_frame_from, write_frame_to,
-        DeviceFrameReader, DeviceFrameWriter,
+        DeviceFrameReader, DeviceFrameWriter, DeviceProcess, DeviceProcessError, DEVICE_READ_BYTES,
     };
     use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+    use crate::{
+        Artifact as InnerArtifact, BrokerError, BrokerSession, BrokerState, Operation, ReplyStatus,
+        Sink, Source as InnerSource, INNER_HEADER_BYTES, INNER_VERSION,
+    };
     use qk_device_wire::{
         encode_frame, parse_frame, Artifact, BodyRef, Capability, DeviceError, MessageKind,
         OneWayProtocol, OutputBody, Source, StreamDecoder, HEADER_BYTES,
     };
-    use std::io::Cursor;
+    use qk_ipc::{
+        CoreEvent, CoreProtocol, Direction, IpcError, MessageKind as IpcMessageKind,
+        StreamDecoder as IpcStreamDecoder, HEADER_BYTES as IPC_HEADER_BYTES,
+    };
+    use std::io::{self, Cursor, Read};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    const IPC_SESSION: [u8; 16] = [0x51; 16];
+
+    fn inner_request(operation: Operation, body: &[u8]) -> Vec<u8> {
+        let mut request = Vec::with_capacity(INNER_HEADER_BYTES + body.len());
+        request.extend_from_slice(&[INNER_VERSION, operation.wire_value(), 0, 0]);
+        request.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        request.extend_from_slice(body);
+        request
+    }
+
+    fn ingress_begin() -> Vec<u8> {
+        inner_request(
+            Operation::IngressBegin,
+            &[InnerSource::CameraA1Candidate.wire_value(), 0, 0],
+        )
+    }
+
+    fn egress_begin() -> Vec<u8> {
+        let mut body = vec![
+            Sink::Print.wire_value(),
+            InnerArtifact::A1PrintArtifact.wire_value(),
+        ];
+        body.extend_from_slice(&1u32.to_le_bytes());
+        body.extend_from_slice(&0u16.to_le_bytes());
+        inner_request(Operation::EgressBegin, &body)
+    }
+
+    fn ipc_received(bytes: &[u8]) -> qk_ipc::ReceivedFrame {
+        let mut decoder = IpcStreamDecoder::new();
+        let outcome = decoder.ingest(bytes, false).unwrap();
+        assert_eq!(outcome.consumed(), bytes.len());
+        assert!(outcome.frame_ready());
+        decoder.take_frame().unwrap()
+    }
+
+    fn outbound_bytes(outbound: &qk_ipc::OutboundFrame, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; IPC_HEADER_BYTES + payload.len()];
+        let length = outbound.encode(payload, &mut bytes).unwrap();
+        bytes.truncate(length);
+        bytes
+    }
+
+    fn operation_bytes(session: [u8; 16], exchange: u32, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; IPC_HEADER_BYTES + payload.len()];
+        let length = qk_ipc::encode_frame(
+            Direction::CoreToIo,
+            IpcMessageKind::OperationRequest,
+            session,
+            exchange,
+            payload,
+            &mut bytes,
+        )
+        .unwrap();
+        bytes.truncate(length);
+        bytes
+    }
+
+    fn open_session(
+        devices: &mut DeviceProcess,
+        broker: &mut BrokerSession,
+        core: &mut CoreProtocol,
+    ) {
+        let bytes = outbound_bytes(&core.begin().unwrap(), &[]);
+        let reply = devices.accept(broker, &ipc_received(&bytes)).unwrap();
+        assert_eq!(reply.status(), ReplyStatus::Control);
+        assert_eq!(
+            core.accept(&ipc_received(reply.frame_bytes())),
+            Ok(CoreEvent::SessionReady)
+        );
+    }
 
     struct TestReader {
         bytes: Cursor<Vec<u8>>,
@@ -713,5 +814,148 @@ mod tests {
         )
         .unwrap();
         assert_eq!(wiped_bytes(), HEADER_BYTES + body.len());
+    }
+
+    #[test]
+    fn device_reader_clears_one_scratch_byte_for_every_successful_read() {
+        let body = [
+            Source::CameraA1Candidate.wire_value(),
+            crate::A1_CANDIDATE_BYTES as u8,
+            0,
+            0,
+            0,
+        ];
+        let encoded = frame(Capability::CameraInput, MessageKind::CameraBegin, 1, &body);
+        let mut reader = Cursor::new(encoded.clone());
+        let mut decoder = StreamDecoder::new(Capability::CameraInput);
+        reset_wiped_bytes();
+        read_frame_from(&mut reader, &mut decoder).unwrap();
+        assert_eq!(wiped_bytes(), encoded.len());
+    }
+
+    struct ErrorAfterWrite;
+
+    impl Read for ErrorAfterWrite {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            buffer[0] = 0xa5;
+            Err(io::Error::other("test-only read failure"))
+        }
+    }
+
+    #[test]
+    fn device_reader_clears_its_scratch_on_read_failure() {
+        let mut reader = ErrorAfterWrite;
+        let mut decoder = StreamDecoder::new(Capability::CameraInput);
+        reset_wiped_bytes();
+        assert!(matches!(
+            read_frame_from(&mut reader, &mut decoder),
+            Err(DeviceError::PeerLost)
+        ));
+        assert_eq!(wiped_bytes(), DEVICE_READ_BYTES);
+    }
+
+    #[test]
+    fn device_reader_clears_its_scratch_on_end_of_stream() {
+        let mut reader = Cursor::new(Vec::<u8>::new());
+        let mut decoder = StreamDecoder::new(Capability::CameraInput);
+        reset_wiped_bytes();
+        assert!(matches!(
+            read_frame_from(&mut reader, &mut decoder),
+            Err(DeviceError::PeerLost)
+        ));
+        assert_eq!(wiped_bytes(), DEVICE_READ_BYTES);
+    }
+
+    struct PanicAfterWrite;
+
+    impl Read for PanicAfterWrite {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            buffer[0] = 0x5a;
+            panic!("test-only caught reader unwind");
+        }
+    }
+
+    #[test]
+    fn device_reader_clears_its_scratch_during_caught_unwind() {
+        let mut reader = PanicAfterWrite;
+        let mut decoder = StreamDecoder::new(Capability::CameraInput);
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = read_frame_from(&mut reader, &mut decoder);
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), DEVICE_READ_BYTES);
+    }
+
+    #[test]
+    fn outer_qkip_rejects_preopen_ingress_without_touching_a_device() {
+        let mut devices = DeviceProcess::new();
+        let mut broker = BrokerSession::new();
+        let bytes = operation_bytes(IPC_SESSION, 1, &ingress_begin());
+        let error = match devices.accept(&mut broker, &ipc_received(&bytes)) {
+            Ok(_) => panic!("pre-open ingress accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            DeviceProcessError::Broker(BrokerError::Ipc(IpcError::UnexpectedMessageKind))
+        );
+        assert_eq!(devices.used_sources, 0);
+        assert!(devices.camera.file.is_none());
+        assert!(devices.media_input.file.is_none());
+    }
+
+    #[test]
+    fn wrong_session_ingress_is_rejected_before_device_selection() {
+        let mut devices = DeviceProcess::new();
+        let mut broker = BrokerSession::new();
+        let mut core = CoreProtocol::new(IPC_SESSION);
+        open_session(&mut devices, &mut broker, &mut core);
+
+        let bytes = operation_bytes([0x52; 16], 2, &ingress_begin());
+        let error = match devices.accept(&mut broker, &ipc_received(&bytes)) {
+            Ok(_) => panic!("wrong-session ingress accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            DeviceProcessError::Broker(BrokerError::Ipc(IpcError::SessionIdMismatch))
+        );
+        assert_eq!(devices.used_sources, 0);
+        assert!(devices.camera.file.is_none());
+        assert!(devices.media_input.file.is_none());
+    }
+
+    #[test]
+    fn valid_exchange_advances_both_outer_owners_and_replay_precedes_devices() {
+        let mut devices = DeviceProcess::new();
+        let mut broker = BrokerSession::new();
+        let mut core = CoreProtocol::new(IPC_SESSION);
+        open_session(&mut devices, &mut broker, &mut core);
+
+        let request = core.request().unwrap();
+        let bytes = outbound_bytes(&request, &egress_begin());
+        let reply = devices.accept(&mut broker, &ipc_received(&bytes)).unwrap();
+        assert_eq!(reply.status(), ReplyStatus::Success(Operation::EgressBegin));
+        assert_eq!(
+            core.accept(&ipc_received(reply.frame_bytes())),
+            Ok(CoreEvent::OperationResponse)
+        );
+        assert_eq!(broker.state(), BrokerState::EgressReceiving);
+        assert!(devices.pending_egress.is_some());
+
+        let error = match devices.accept(&mut broker, &ipc_received(&bytes)) {
+            Ok(_) => panic!("replayed exchange accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            DeviceProcessError::Broker(BrokerError::Ipc(IpcError::ExchangeIdReuse))
+        );
+        assert_eq!(devices.used_sources, 0);
+        assert!(devices.camera.file.is_none());
+        assert!(devices.media_input.file.is_none());
+        assert!(devices.print.file.is_none());
+        assert!(devices.media_output.file.is_none());
     }
 }
