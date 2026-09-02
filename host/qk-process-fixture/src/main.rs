@@ -141,7 +141,7 @@ impl Negative {
     pub const fn expected_error_name(self) -> &'static str {
         match self {
             Self::HostileQkdv => "MagicMismatch",
-            Self::IngressCap => "TransferLengthExceeded",
+            Self::IngressCap => "SourceMismatch",
             Self::ProfileMismatch => "CardProfileMismatch",
             Self::EarlyHold => "ApprovalUnavailable",
             Self::WrongWallet => "CardBindingMismatch",
@@ -343,7 +343,7 @@ mod tests {
     fn negative_cases_pin_their_named_outcomes() {
         for (negative, name) in [
             (Negative::HostileQkdv, "MagicMismatch"),
-            (Negative::IngressCap, "TransferLengthExceeded"),
+            (Negative::IngressCap, "SourceMismatch"),
             (Negative::ProfileMismatch, "CardProfileMismatch"),
             (Negative::EarlyHold, "ApprovalUnavailable"),
             (Negative::WrongWallet, "CardBindingMismatch"),

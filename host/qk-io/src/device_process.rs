@@ -753,6 +753,23 @@ mod tests {
     }
 
     #[test]
+    fn collect_input_rejects_over_ceiling_camera_begin_as_source_mismatch() {
+        let mut bytes = vec![0u8; HEADER_BYTES + 5];
+        bytes[0..4].copy_from_slice(b"QKDV");
+        bytes[4] = 1;
+        bytes[5] = Capability::CameraInput.wire_value();
+        bytes[6] = MessageKind::CameraBegin.wire_value();
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&5u32.to_le_bytes());
+        bytes[16] = Source::CameraBbqrPsbt.wire_value();
+        bytes[17..21].copy_from_slice(&2_097_153u32.to_le_bytes());
+        let mut reader = TestReader::new(Capability::CameraInput, bytes);
+
+        let result = collect_input(&mut reader, Source::CameraBbqrPsbt);
+        assert!(matches!(result, Err(DeviceError::SourceMismatch)));
+    }
+
+    #[test]
     fn sd_output_is_one_way_begin_chunks_finish_with_contiguous_sequences() {
         let payload = vec![0x6cu8; crate::MAX_CHUNK_BYTES + 3];
         let name = b"qk-11111111111111111111111111111111-final.tx";
