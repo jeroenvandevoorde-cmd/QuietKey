@@ -1157,20 +1157,21 @@ case "$mode" in
       fi
     done
 
-    manifest_path_files=''
     for partition_id in $partition_ids; do
       partition_values "$partition_id"
       partition_registered || continue
       extract_manifest_paths "$partition_manifest" "$partition_order" \
         "$partition_manifest_paths"
+    done
+    set --
+    for partition_id in $partition_ids; do
+      partition_values "$partition_id"
+      partition_registered || continue
       if [ "$partition_manifest_owner" = yes ]; then
-        manifest_path_files="$manifest_path_files $partition_manifest_paths"
+        set -- "$@" "$partition_manifest_paths"
       fi
     done
-    # Every registry path is mktemp-produced and therefore contains no shell
-    # metacharacters; field splitting intentionally presents them to cat.
-    # shellcheck disable=SC2086
-    duplicate=$(cat $manifest_path_files | LC_ALL=C sort | uniq -d | sed -n '1p')
+    duplicate=$(cat "$@" | LC_ALL=C sort | uniq -d | sed -n '1p')
     [ -z "$duplicate" ] || fail "manifest path is owned by both partitions: $duplicate"
 
     for partition_id in $partition_ids; do

@@ -365,11 +365,13 @@ check_fuzz_closure() {
   closure_id=$1
   closure_label=$2
   feature=$3
-  raw_output=$4
-  normalized_output=$5
+  raw_output_name=$4
+  normalized_output_name=$5
   assertion=$6
   expected_key=$7
   mismatch_message=$8
+  eval "raw_output=\${$raw_output_name}"
+  eval "normalized_output=\${$normalized_output_name}"
 
   case "$closure_id" in
     default)
@@ -463,19 +465,19 @@ while IFS='|' read -r closure_id closure_label feature raw_output normalized_out
     assertion expected_key mismatch_message; do
   check_fuzz_closure "$closure_id" "$closure_label" "$feature" "$raw_output" \
     "$normalized_output" "$assertion" "$expected_key" "$mismatch_message"
-done <<EOF
-default|default|-|$default_raw_tmp|$default_tmp|default|-|-
-ipc|IPC-feature|ipc|$ipc_raw_tmp|$ipc_tmp|ipc|-|-
-process-s2-decoy|process-s2-decoy|process-s2-decoy|$decoy_raw_tmp|$decoy_tmp|decoy|decoy|process-s2-decoy path dependency closure is not exactly qk-decoy 0.0.1
-process-s2-supervisor|process-s2-supervisor|process-s2-supervisor|$supervisor_raw_tmp|$supervisor_tmp|supervisor|supervisor|process-s2-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
-process-s8-supervisor|process-s8-supervisor|process-s8-supervisor|$supervisor_s8_raw_tmp|$supervisor_s8_tmp|exact|supervisor|process-s8-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
-process-s3-io|process-s3-io|process-s3-io|$io_raw_tmp|$io_tmp|exact|io|process-s3-io path dependency closure is not the exact four-crate qk-io closure
-process-s4-core|process-s4-core|process-s4-core|$core_raw_tmp|$core_tmp|exact|core|process-s4-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s5-core|process-s5-core|process-s5-core|$core_s5_raw_tmp|$core_s5_tmp|exact|core|process-s5-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s6-core|process-s6-core|process-s6-core|$core_s6_raw_tmp|$core_s6_tmp|exact|core|process-s6-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s7-core|process-s7-core|process-s7-core|$core_s7_raw_tmp|$core_s7_tmp|exact|core|process-s7-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s9-wire|process-s9-wire|process-s9-wire|$process_s9_wire_raw_tmp|$process_s9_wire_tmp|exact|wire|process-s9-wire path dependency closure is not exactly qk-device-wire
-process-s9-core|process-s9-core|process-s9-core|$process_s9_core_raw_tmp|$process_s9_core_tmp|exact|core|process-s9-core path dependency closure is not the exact twelve-crate qk-core plus qk-device-wire closure
+done <<'EOF'
+default|default|-|default_raw_tmp|default_tmp|default|-|-
+ipc|IPC-feature|ipc|ipc_raw_tmp|ipc_tmp|ipc|-|-
+process-s2-decoy|process-s2-decoy|process-s2-decoy|decoy_raw_tmp|decoy_tmp|decoy|decoy|process-s2-decoy path dependency closure is not exactly qk-decoy 0.0.1
+process-s2-supervisor|process-s2-supervisor|process-s2-supervisor|supervisor_raw_tmp|supervisor_tmp|supervisor|supervisor|process-s2-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
+process-s8-supervisor|process-s8-supervisor|process-s8-supervisor|supervisor_s8_raw_tmp|supervisor_s8_tmp|exact|supervisor|process-s8-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
+process-s3-io|process-s3-io|process-s3-io|io_raw_tmp|io_tmp|exact|io|process-s3-io path dependency closure is not the exact four-crate qk-io closure
+process-s4-core|process-s4-core|process-s4-core|core_raw_tmp|core_tmp|exact|core|process-s4-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s5-core|process-s5-core|process-s5-core|core_s5_raw_tmp|core_s5_tmp|exact|core|process-s5-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s6-core|process-s6-core|process-s6-core|core_s6_raw_tmp|core_s6_tmp|exact|core|process-s6-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s7-core|process-s7-core|process-s7-core|core_s7_raw_tmp|core_s7_tmp|exact|core|process-s7-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s9-wire|process-s9-wire|process-s9-wire|process_s9_wire_raw_tmp|process_s9_wire_tmp|exact|wire|process-s9-wire path dependency closure is not exactly qk-device-wire
+process-s9-core|process-s9-core|process-s9-core|process_s9_core_raw_tmp|process_s9_core_tmp|exact|core|process-s9-core path dependency closure is not the exact twelve-crate qk-core plus qk-device-wire closure
 EOF
 
 cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
@@ -506,10 +508,12 @@ check_product_closure() {
   package=$1
   feature=$2
   closure_label=$3
-  raw_output=$4
-  normalized_output=$5
+  raw_output_name=$4
+  normalized_output_name=$5
   expected_key=$6
   mismatch_message=$7
+  eval "raw_output=\${$raw_output_name}"
+  eval "normalized_output=\${$normalized_output_name}"
 
   if [ "$feature" = '-' ]; then
     if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path host/Cargo.toml --package "$package" \
@@ -547,11 +551,11 @@ while IFS='|' read -r package feature closure_label raw_output normalized_output
     expected_key mismatch_message; do
   check_product_closure "$package" "$feature" "$closure_label" "$raw_output" \
     "$normalized_output" "$expected_key" "$mismatch_message"
-done <<EOF
-qk-decoy|-|qk-decoy|$host_decoy_raw_tmp|$host_decoy_tmp|decoy|qk-decoy host dependency closure is not dependency-free
-qk-supervisor|-|qk-supervisor|$host_supervisor_raw_tmp|$host_supervisor_tmp|supervisor|qk-supervisor host dependency closure is not exactly qk-supervisor plus qk-ipc
-qk-io|qk-io/host-runtime|qk-io|$host_io_raw_tmp|$host_io_tmp|io|qk-io host-runtime dependency closure is not the exact four-crate qk-io closure
-qk-core|qk-core/host-runtime|qk-core|$host_core_raw_tmp|$host_core_tmp|core|qk-core host-runtime dependency closure is not the exact twelve-crate qk-core closure
+done <<'EOF'
+qk-decoy|-|qk-decoy|host_decoy_raw_tmp|host_decoy_tmp|decoy|qk-decoy host dependency closure is not dependency-free
+qk-supervisor|-|qk-supervisor|host_supervisor_raw_tmp|host_supervisor_tmp|supervisor|qk-supervisor host dependency closure is not exactly qk-supervisor plus qk-ipc
+qk-io|qk-io/host-runtime|qk-io|host_io_raw_tmp|host_io_tmp|io|qk-io host-runtime dependency closure is not the exact four-crate qk-io closure
+qk-core|qk-core/host-runtime|qk-core|host_core_raw_tmp|host_core_tmp|core|qk-core host-runtime dependency closure is not the exact twelve-crate qk-core closure
 EOF
 
 while IFS="$tab" read -r kind name version checksum subject license purpose; do
