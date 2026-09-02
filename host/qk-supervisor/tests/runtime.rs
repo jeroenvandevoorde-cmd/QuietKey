@@ -4,9 +4,9 @@
 ))]
 
 use qk_supervisor::{
-    parse_launcher_arguments, Child, LauncherInvocationError, MockGrantSet, ProcessLifecycle,
-    ProcessLifecycleAction, ProcessLifecycleError, ProcessLifecycleEvent, ProcessLifecycleOutcome,
-    ProcessLifecycleState,
+    parse_launcher_arguments, Child, LauncherInvocationError, LauncherRuntimeError, MockGrantSet,
+    ProcessLifecycle, ProcessLifecycleAction, ProcessLifecycleError, ProcessLifecycleEvent,
+    ProcessLifecycleOutcome, ProcessLifecycleState,
 };
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -30,6 +30,18 @@ fn advanced(outcome: ProcessLifecycleOutcome) -> ProcessLifecycleAction {
             panic!("unexpected process failure: {error}")
         }
     }
+}
+
+#[test]
+fn peer_credential_rejection_names_are_stable() {
+    assert_eq!(
+        LauncherRuntimeError::SocketPeerCredentialUnavailable.to_string(),
+        "SocketPeerCredentialUnavailable"
+    );
+    assert_eq!(
+        LauncherRuntimeError::SocketPeerCredentialMismatch.to_string(),
+        "SocketPeerCredentialMismatch"
+    );
 }
 
 #[test]

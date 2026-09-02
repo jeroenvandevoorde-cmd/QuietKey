@@ -47,6 +47,14 @@ const FD_CLOEXEC: c_int = 1;
 const O_ACCMODE: c_int = 3;
 const O_RDONLY: c_int = 0;
 const O_WRONLY: c_int = 1;
+#[cfg(target_os = "linux")]
+const SOL_SOCKET: c_int = 1;
+#[cfg(target_os = "linux")]
+const SO_PEERCRED: c_int = 17;
+#[cfg(target_os = "macos")]
+const SOL_LOCAL: c_int = 0;
+#[cfg(target_os = "macos")]
+const LOCAL_PEERPID: c_int = 2;
 const SIGKILL: c_int = 9;
 const SIGTERM: c_int = 15;
 const WNOHANG: c_int = 1;
@@ -68,6 +76,17 @@ extern "C" {
     ) -> c_int;
     fn fcntl(descriptor: c_int, command: c_int, ...) -> c_int;
     fn fork() -> c_int;
+    fn geteuid() -> u32;
+    #[cfg(target_os = "macos")]
+    fn getpeereid(descriptor: c_int, effective_user: *mut u32, effective_group: *mut u32) -> c_int;
+    fn getpid() -> c_int;
+    fn getsockopt(
+        descriptor: c_int,
+        level: c_int,
+        option: c_int,
+        value: *mut c_void,
+        length: *mut u32,
+    ) -> c_int;
     fn kill(process: c_int, signal: c_int) -> c_int;
     fn pipe(descriptors: *mut c_int) -> c_int;
     #[cfg(test)]
@@ -210,6 +229,8 @@ pub enum LauncherRuntimeError {
     SocketPermissionMismatch,
     SocketConnectFailed,
     SocketAcceptFailed,
+    SocketPeerCredentialUnavailable,
+    SocketPeerCredentialMismatch,
     SocketUnlinkFailed,
     ProductGrantFailed,
     ProductSpawnFailed,
@@ -238,6 +259,8 @@ impl fmt::Display for LauncherRuntimeError {
             Self::SocketPermissionMismatch => "SocketPermissionMismatch",
             Self::SocketConnectFailed => "SocketConnectFailed",
             Self::SocketAcceptFailed => "SocketAcceptFailed",
+            Self::SocketPeerCredentialUnavailable => "SocketPeerCredentialUnavailable",
+            Self::SocketPeerCredentialMismatch => "SocketPeerCredentialMismatch",
             Self::SocketUnlinkFailed => "SocketUnlinkFailed",
             Self::ProductGrantFailed => "ProductGrantFailed",
             Self::ProductSpawnFailed => "ProductSpawnFailed",
@@ -596,6 +619,24 @@ impl RuntimeDirectory {
     }
 
     fn connect_once(&mut self) -> Result<(UnixStream, UnixStream), LauncherRuntimeError> {
+        let listener = self.listen_once()?;
+        self.connect_and_accept(listener)
+    }
+
+    #[cfg(test)]
+    fn connect_once_after_listen<F>(
+        &mut self,
+        after_listen: F,
+    ) -> Result<(UnixStream, UnixStream), LauncherRuntimeError>
+    where
+        F: FnOnce(&Path) -> Result<(), LauncherRuntimeError>,
+    {
+        let listener = self.listen_once()?;
+        after_listen(&self.socket)?;
+        self.connect_and_accept(listener)
+    }
+
+    fn listen_once(&self) -> Result<UnixListener, LauncherRuntimeError> {
         let _mask = UmaskGuard::set(0o177);
         let listener =
             UnixListener::bind(&self.socket).map_err(|_| LauncherRuntimeError::SocketBindFailed)?;
@@ -610,11 +651,19 @@ impl RuntimeDirectory {
         if mode != 0o600 {
             return Err(LauncherRuntimeError::SocketPermissionMismatch);
         }
+        Ok(listener)
+    }
+
+    fn connect_and_accept(
+        &mut self,
+        listener: UnixListener,
+    ) -> Result<(UnixStream, UnixStream), LauncherRuntimeError> {
         let core = UnixStream::connect(&self.socket)
             .map_err(|_| LauncherRuntimeError::SocketConnectFailed)?;
         let (io, _) = listener
             .accept()
             .map_err(|_| LauncherRuntimeError::SocketAcceptFailed)?;
+        verify_supervisor_connector(&io)?;
         drop(listener);
         fs::remove_file(&self.socket).map_err(|_| LauncherRuntimeError::SocketUnlinkFailed)?;
         Ok((core, io))
@@ -653,6 +702,104 @@ impl Drop for RuntimeDirectory {
             let _ = fs::remove_dir(&self.directory);
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PeerCredential {
+    process: c_int,
+    effective_user: u32,
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct LinuxPeerCredential {
+    process: c_int,
+    user: u32,
+    group: u32,
+}
+
+fn verify_supervisor_connector(endpoint: &UnixStream) -> Result<(), LauncherRuntimeError> {
+    let actual = peer_credential(endpoint)?;
+    // SAFETY: both calls return immutable credentials for the current process.
+    let expected = unsafe {
+        PeerCredential {
+            process: getpid(),
+            effective_user: geteuid(),
+        }
+    };
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(LauncherRuntimeError::SocketPeerCredentialMismatch)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn peer_credential(endpoint: &UnixStream) -> Result<PeerCredential, LauncherRuntimeError> {
+    let mut credential = LinuxPeerCredential {
+        process: 0,
+        user: 0,
+        group: 0,
+    };
+    let mut length = u32::try_from(core::mem::size_of::<LinuxPeerCredential>())
+        .map_err(|_| LauncherRuntimeError::SocketPeerCredentialUnavailable)?;
+    // SAFETY: `credential` and `length` are writable for their exact declared
+    // sizes, and `endpoint` remains open for the complete query.
+    let result = unsafe {
+        getsockopt(
+            endpoint.as_raw_fd(),
+            SOL_SOCKET,
+            SO_PEERCRED,
+            (&mut credential as *mut LinuxPeerCredential).cast(),
+            &mut length,
+        )
+    };
+    if result != 0 || length as usize != core::mem::size_of::<LinuxPeerCredential>() {
+        return Err(LauncherRuntimeError::SocketPeerCredentialUnavailable);
+    }
+    Ok(PeerCredential {
+        process: credential.process,
+        effective_user: credential.user,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn peer_credential(endpoint: &UnixStream) -> Result<PeerCredential, LauncherRuntimeError> {
+    let mut process = 0;
+    let mut process_length = u32::try_from(core::mem::size_of::<c_int>())
+        .map_err(|_| LauncherRuntimeError::SocketPeerCredentialUnavailable)?;
+    // SAFETY: `process` and `process_length` are writable for their exact
+    // declared sizes, and `endpoint` remains open for the complete query.
+    let process_result = unsafe {
+        getsockopt(
+            endpoint.as_raw_fd(),
+            SOL_LOCAL,
+            LOCAL_PEERPID,
+            (&mut process as *mut c_int).cast(),
+            &mut process_length,
+        )
+    };
+    let mut effective_user = 0;
+    let mut effective_group = 0;
+    // SAFETY: both credential outputs are live writable integers and the
+    // endpoint remains open for the complete query.
+    let user_result = unsafe {
+        getpeereid(
+            endpoint.as_raw_fd(),
+            &mut effective_user,
+            &mut effective_group,
+        )
+    };
+    if process_result != 0
+        || process_length as usize != core::mem::size_of::<c_int>()
+        || user_result != 0
+    {
+        return Err(LauncherRuntimeError::SocketPeerCredentialUnavailable);
+    }
+    Ok(PeerCredential {
+        process,
+        effective_user,
+    })
 }
 
 struct UmaskGuard(Mode);
@@ -1461,9 +1608,13 @@ mod tests {
     use std::fs;
     use std::os::unix::net::UnixStream;
     use std::path::Path;
+    use std::process::{Child as CommandChild, Command, Stdio};
     use std::time::{Duration, Instant};
 
     const SIGNAL_IGNORE: usize = 1;
+    const FOREIGN_SOCKET_ENV: &str = "QK_TEST_FOREIGN_SOCKET";
+    const FOREIGN_READY_ENV: &str = "QK_TEST_FOREIGN_READY";
+    const FOREIGN_RELEASE_ENV: &str = "QK_TEST_FOREIGN_RELEASE";
 
     fn test_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("qk-supervisor-{name}-{}", std::process::id()))
@@ -1493,6 +1644,135 @@ mod tests {
         drop(runtime);
         assert!(path.is_dir());
         fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn foreign_same_uid_connector_helper() {
+        let Some(socket) = std::env::var_os(FOREIGN_SOCKET_ENV) else {
+            return;
+        };
+        let ready = std::env::var_os(FOREIGN_READY_ENV).expect("foreign ready path");
+        let release = std::env::var_os(FOREIGN_RELEASE_ENV).expect("foreign release path");
+        let _endpoint = UnixStream::connect(socket).expect("foreign connector");
+        fs::write(ready, b"ready").expect("foreign ready marker");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !Path::new(&release).exists() {
+            assert!(
+                Instant::now() < deadline,
+                "foreign connector release timeout"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    struct ForeignConnector {
+        child: Option<CommandChild>,
+        ready: std::path::PathBuf,
+        release: std::path::PathBuf,
+    }
+
+    impl ForeignConnector {
+        fn spawn(
+            socket: &Path,
+            ready: std::path::PathBuf,
+            release: std::path::PathBuf,
+        ) -> Result<Self, LauncherRuntimeError> {
+            let child = Command::new(
+                std::env::current_exe().map_err(|_| LauncherRuntimeError::SocketConnectFailed)?,
+            )
+            .arg("--exact")
+            .arg("runtime::tests::foreign_same_uid_connector_helper")
+            .arg("--nocapture")
+            .env(FOREIGN_SOCKET_ENV, socket)
+            .env(FOREIGN_READY_ENV, &ready)
+            .env(FOREIGN_RELEASE_ENV, &release)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| LauncherRuntimeError::SocketConnectFailed)?;
+            Ok(Self {
+                child: Some(child),
+                ready,
+                release,
+            })
+        }
+
+        fn wait_until_connected(&mut self) -> Result<(), LauncherRuntimeError> {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !self.ready.exists() {
+                if self
+                    .child
+                    .as_mut()
+                    .ok_or(LauncherRuntimeError::SocketConnectFailed)?
+                    .try_wait()
+                    .map_err(|_| LauncherRuntimeError::SocketConnectFailed)?
+                    .is_some()
+                {
+                    return Err(LauncherRuntimeError::SocketConnectFailed);
+                }
+                if Instant::now() >= deadline {
+                    return Err(LauncherRuntimeError::SocketConnectFailed);
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Ok(())
+        }
+
+        fn release_and_wait(mut self) {
+            fs::write(&self.release, b"release").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let status = self.child.as_mut().unwrap().try_wait().unwrap();
+                if let Some(status) = status {
+                    assert!(status.success());
+                    self.child = None;
+                    break;
+                }
+                assert!(Instant::now() < deadline, "foreign connector exit timeout");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            let _ = fs::remove_file(&self.ready);
+            let _ = fs::remove_file(&self.release);
+        }
+    }
+
+    impl Drop for ForeignConnector {
+        fn drop(&mut self) {
+            if let Some(child) = self.child.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let _ = fs::remove_file(&self.ready);
+            let _ = fs::remove_file(&self.release);
+        }
+    }
+
+    #[test]
+    fn foreign_same_uid_connector_is_rejected_before_unlink_or_product_start() {
+        let path = test_path("foreign-peer-runtime");
+        let ready = test_path("foreign-peer-ready");
+        let release = test_path("foreign-peer-release");
+        let _ = fs::remove_dir_all(&path);
+        let _ = fs::remove_file(&ready);
+        let _ = fs::remove_file(&release);
+        let mut runtime = RuntimeDirectory::create(&path).unwrap();
+        let mut foreign = None;
+        let result = runtime.connect_once_after_listen(|socket| {
+            let mut connector = ForeignConnector::spawn(socket, ready.clone(), release.clone())?;
+            connector.wait_until_connected()?;
+            foreign = Some(connector);
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(LauncherRuntimeError::SocketPeerCredentialMismatch)
+        ));
+        assert!(!runtime.products_started);
+        assert!(path.join(super::SOCKET_NAME).exists());
+        foreign.unwrap().release_and_wait();
+        drop(runtime);
+        assert!(!path.exists());
     }
 
     #[test]

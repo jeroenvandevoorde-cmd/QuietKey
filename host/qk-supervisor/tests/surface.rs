@@ -61,6 +61,37 @@ fn supervisor_sources_are_entirely_safe() {
 }
 
 #[test]
+fn connector_credentials_are_platform_exact_and_checked_before_unlink() {
+    for required in [
+        "const SO_PEERCRED: c_int = 17;",
+        "const LOCAL_PEERPID: c_int = 2;",
+        "fn getpeereid(",
+        "fn getpid() -> c_int;",
+        "fn geteuid() -> u32;",
+        "SocketPeerCredentialUnavailable",
+        "SocketPeerCredentialMismatch",
+        "process: getpid(),",
+        "effective_user: geteuid(),",
+        "fn connect_once_after_listen<F>(",
+    ] {
+        assert!(RUNTIME.contains(required), "missing peer lock {required}");
+    }
+    let connection = RUNTIME
+        .split_once("fn connect_and_accept(")
+        .expect("connection function")
+        .1;
+    let accepted = connection.find(".accept()").expect("single accept");
+    let verified = connection
+        .find("verify_supervisor_connector(&io)?;")
+        .expect("credential verification");
+    let unlinked = connection
+        .find("fs::remove_file(&self.socket)")
+        .expect("socket unlink");
+    assert!(accepted < verified);
+    assert!(verified < unlinked);
+}
+
+#[test]
 fn every_child_receives_fresh_write_only_null_stderr_without_changing_other_grants() {
     assert_eq!(RUNTIME.matches("map_mock(false, 2)").count(), 3);
     assert!(RUNTIME.contains("options.read(readable).write(!readable);"));
