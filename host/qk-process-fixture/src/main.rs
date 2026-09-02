@@ -138,6 +138,18 @@ impl Negative {
         }
     }
 
+    pub const fn expected_error_name(self) -> &'static str {
+        match self {
+            Self::HostileQkdv => "MagicMismatch",
+            Self::IngressCap => "TransferLengthExceeded",
+            Self::ProfileMismatch => "CardProfileMismatch",
+            Self::EarlyHold => "ApprovalUnavailable",
+            Self::WrongWallet => "CardBindingMismatch",
+            Self::WrongKey => "CardSignatureKeyMismatch",
+            Self::HighS => "CardSignatureHighS",
+        }
+    }
+
     pub fn parse(value: &str) -> Result<Self, FixtureError> {
         match value {
             "hostile-qkdv" => Ok(Self::HostileQkdv),
@@ -325,5 +337,20 @@ mod tests {
             assert_eq!(parse_driver_arguments(cycle.driver_arguments()), Ok(cycle));
         }
         assert_eq!(parse_driver_arguments([]), Err(FixtureError::Invocation));
+    }
+
+    #[test]
+    fn negative_cases_pin_their_named_outcomes() {
+        for (negative, name) in [
+            (Negative::HostileQkdv, "MagicMismatch"),
+            (Negative::IngressCap, "TransferLengthExceeded"),
+            (Negative::ProfileMismatch, "CardProfileMismatch"),
+            (Negative::EarlyHold, "ApprovalUnavailable"),
+            (Negative::WrongWallet, "CardBindingMismatch"),
+            (Negative::WrongKey, "CardSignatureKeyMismatch"),
+            (Negative::HighS, "CardSignatureHighS"),
+        ] {
+            assert_eq!(negative.expected_error_name(), name);
+        }
     }
 }

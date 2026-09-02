@@ -31,6 +31,24 @@ const BBQR_PART_BYTES: usize = 60;
 const EXPORT_PART_BYTES: u16 = 60;
 const EXPORT_NONCE: [u8; 16] = [0x51; 16];
 const REVIEW_COUNT: usize = 13;
+const EXPECTED_DISPLAY_STAGES: [NormalStage; 14] = [
+    NormalStage::NormalStart,
+    NormalStage::Transport,
+    NormalStage::PsbtIntake,
+    NormalStage::FactorB,
+    NormalStage::A1Intake,
+    NormalStage::FactorA1,
+    NormalStage::Validation,
+    NormalStage::ApprovalHeld,
+    NormalStage::Revalidation,
+    NormalStage::TerminalASigning,
+    NormalStage::CardBSigning,
+    NormalStage::Finalization,
+    NormalStage::AwaitingExportAction,
+    NormalStage::CompletedWiped,
+];
+const EXPECTED_PSBT_FILENAME: &[u8] = b"qk-51515151515151515151515151515151-final.psbt";
+const EXPECTED_TRANSACTION_FILENAME: &[u8] = b"qk-51515151515151515151515151515151-final.tx";
 // Canonical schema-v3 review hash for the registered S0 with InputSource::Qr.
 // A byte-only constructor changed only byte 2 of the registered 682-byte
 // `canonical_review_v3_hex` from MicroSd 01 to Qr 02, then computed SHA-256
@@ -74,7 +92,9 @@ pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
         &[served_profile.wire()],
     )?;
     if spec.negative == Some(Negative::ProfileMismatch) {
-        return Ok(());
+        require_empty_eof(&mut card_requests)?;
+        verify_negative_outputs()?;
+        return verify_negative_checkpoint(spec, 0, 0, false, false);
     }
 
     let factor_request = read_frame(&mut card_requests, &mut request_decoder)?;
@@ -99,67 +119,93 @@ pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
     let mut display_decoder = StreamDecoder::new(Capability::Display);
     let mut keypad_protocol = OneWayProtocol::new(Capability::Keypad);
     let mut review_index = 0usize;
+    let mut stage_index = 0usize;
     let mut saw_result = false;
-    let mut saw_start = false;
+    let mut saw_profile = false;
 
     loop {
         let frame = match read_frame(&mut display, &mut display_decoder) {
             Ok(frame) => frame,
-            Err(FixtureError::UnexpectedEof) if spec.negative.is_some() => return Ok(()),
+            Err(FixtureError::UnexpectedEof) if spec.negative.is_some() => {
+                verify_negative_outputs()?;
+                return verify_negative_checkpoint(
+                    spec,
+                    stage_index,
+                    review_index,
+                    saw_profile,
+                    saw_result,
+                );
+            }
             Err(error) => return Err(error),
         };
         let body = frame.parsed_body().map_err(|_| FixtureError::Wire)?;
         match body {
-            BodyRef::Display(DisplayBody::Stage(stage)) => match stage {
-                NormalStage::NormalStart => saw_start = true,
-                NormalStage::Transport => {
-                    if !saw_start {
-                        return Err(FixtureError::FactMismatch);
-                    }
-                    let source = match spec.ingress {
-                        Ingress::Camera => Source::CameraBbqrPsbt,
-                        Ingress::Media => Source::MediaPsbt,
-                    };
-                    write_keypad(
-                        &mut keypad,
-                        &mut keypad_protocol,
-                        &[0x02, source.wire_value()],
-                    )?;
+            BodyRef::Display(DisplayBody::Stage(stage)) => {
+                if EXPECTED_DISPLAY_STAGES.get(stage_index) != Some(&stage) {
+                    return Err(FixtureError::FactMismatch);
                 }
-                NormalStage::AwaitingExportAction => {
-                    let mut event = [0u8; 17];
-                    let event_len = match spec.route {
-                        Route::Sd => {
-                            event[0] = 0x04;
-                            event[1..].copy_from_slice(&EXPORT_NONCE);
-                            event.len()
+                stage_index = stage_index
+                    .checked_add(1)
+                    .ok_or(FixtureError::FactMismatch)?;
+                match stage {
+                    NormalStage::NormalStart => {}
+                    NormalStage::Transport => {
+                        if !saw_profile {
+                            return Err(FixtureError::FactMismatch);
                         }
-                        Route::Bbqr => {
-                            event[0] = 0x05;
-                            event[1..3].copy_from_slice(&EXPORT_PART_BYTES.to_le_bytes());
-                            3
-                        }
-                    };
-                    write_keypad(
-                        &mut keypad,
-                        &mut keypad_protocol,
-                        event.get(..event_len).ok_or(FixtureError::Fixture)?,
-                    )?;
-                    wipe_bytes(&mut event);
-                }
-                NormalStage::CompletedWiped => {
-                    if spec.negative.is_some() || review_index != REVIEW_COUNT || !saw_result {
-                        return Err(FixtureError::FactMismatch);
+                        let source = match spec.ingress {
+                            Ingress::Camera => Source::CameraBbqrPsbt,
+                            Ingress::Media => Source::MediaPsbt,
+                        };
+                        write_keypad(
+                            &mut keypad,
+                            &mut keypad_protocol,
+                            &[0x02, source.wire_value()],
+                        )?;
                     }
-                    verify_device_outputs(spec)?;
-                    return Ok(());
+                    NormalStage::AwaitingExportAction => {
+                        let mut event = [0u8; 17];
+                        let event_len = match spec.route {
+                            Route::Sd => {
+                                event[0] = 0x04;
+                                event[1..].copy_from_slice(&EXPORT_NONCE);
+                                event.len()
+                            }
+                            Route::Bbqr => {
+                                event[0] = 0x05;
+                                event[1..3].copy_from_slice(&EXPORT_PART_BYTES.to_le_bytes());
+                                3
+                            }
+                        };
+                        write_keypad(
+                            &mut keypad,
+                            &mut keypad_protocol,
+                            event.get(..event_len).ok_or(FixtureError::Fixture)?,
+                        )?;
+                        wipe_bytes(&mut event);
+                    }
+                    NormalStage::CompletedWiped => {
+                        if spec.negative.is_some()
+                            || stage_index != EXPECTED_DISPLAY_STAGES.len()
+                            || review_index != REVIEW_COUNT
+                            || !saw_result
+                        {
+                            return Err(FixtureError::FactMismatch);
+                        }
+                        verify_device_outputs(spec)?;
+                        return Ok(());
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             BodyRef::Display(DisplayBody::Profile(profile)) => {
+                if saw_profile || stage_index != 1 {
+                    return Err(FixtureError::FactMismatch);
+                }
                 if profile != wire_profile(spec.profile) {
                     return Err(FixtureError::FactMismatch);
                 }
+                saw_profile = true;
                 if spec.negative == Some(Negative::EarlyHold) {
                     write_keypad(&mut keypad, &mut keypad_protocol, &[0x03])?;
                 } else {
@@ -644,6 +690,7 @@ fn verify_device_outputs(spec: CycleSpec) -> Result<(), FixtureError> {
                     &mut media_output,
                     &mut decoder,
                     Artifact::FinalizedPsbt,
+                    EXPECTED_PSBT_FILENAME,
                     expected.as_slice(),
                 )?;
                 let expected = hex_field(SIGNING, "raw_transaction_hex")?;
@@ -651,6 +698,7 @@ fn verify_device_outputs(spec: CycleSpec) -> Result<(), FixtureError> {
                     &mut media_output,
                     &mut decoder,
                     Artifact::RawTransaction,
+                    EXPECTED_TRANSACTION_FILENAME,
                     expected.as_slice(),
                 )?;
             }
@@ -660,6 +708,7 @@ fn verify_device_outputs(spec: CycleSpec) -> Result<(), FixtureError> {
                     &mut media_output,
                     &mut decoder,
                     Artifact::RawTransaction,
+                    EXPECTED_TRANSACTION_FILENAME,
                     expected.as_slice(),
                 )?;
             }
@@ -683,10 +732,46 @@ fn require_empty_eof(reader: &mut File) -> Result<(), FixtureError> {
     }
 }
 
+fn verify_negative_outputs() -> Result<(), FixtureError> {
+    let mut media_output = open_fd(MEDIA_OUTPUT_FD, true)?;
+    let mut print_output = open_fd(PRINT_OUTPUT_FD, true)?;
+    require_empty_eof(&mut media_output)?;
+    require_empty_eof(&mut print_output)
+}
+
+fn verify_negative_checkpoint(
+    spec: CycleSpec,
+    stage_index: usize,
+    review_index: usize,
+    saw_profile: bool,
+    saw_result: bool,
+) -> Result<(), FixtureError> {
+    let negative = spec.negative.ok_or(FixtureError::FactMismatch)?;
+    let (expected_stages, expected_reviews, expected_profile) = match negative {
+        Negative::ProfileMismatch => (0, 0, false),
+        Negative::EarlyHold => (1, 0, true),
+        Negative::HostileQkdv | Negative::IngressCap => (3, 0, true),
+        Negative::WrongWallet => (4, 0, true),
+        Negative::WrongKey | Negative::HighS => (7, REVIEW_COUNT, true),
+    };
+    let named = negative.expected_error_name();
+    if named.is_empty()
+        || stage_index != expected_stages
+        || review_index != expected_reviews
+        || saw_profile != expected_profile
+        || saw_result
+    {
+        Err(FixtureError::FactMismatch)
+    } else {
+        Ok(())
+    }
+}
+
 fn collect_output(
     reader: &mut File,
     decoder: &mut StreamDecoder,
     expected_artifact: Artifact,
+    expected_filename: &[u8],
     expected: &[u8],
 ) -> Result<(), FixtureError> {
     let begin = read_frame(reader, decoder)?;
@@ -699,7 +784,7 @@ fn collect_output(
             artifact,
             total_len,
             filename,
-        } if !filename.is_empty() => (artifact, total_len),
+        } if filename == expected_filename => (artifact, total_len),
         _ => return Err(FixtureError::FactMismatch),
     };
     if artifact != expected_artifact || total_len as usize != expected.len() {
@@ -929,6 +1014,43 @@ mod tests {
                 MEDIA_OUTPUT_FD,
             ],
             [3, 4, 5, 6, 7, 8, 9, 10]
+        );
+    }
+
+    #[test]
+    fn negative_checkpoints_and_fixed_nonce_filenames_are_exact() {
+        for (negative, stage_count, review_count, saw_profile) in [
+            (Negative::ProfileMismatch, 0, 0, false),
+            (Negative::EarlyHold, 1, 0, true),
+            (Negative::HostileQkdv, 3, 0, true),
+            (Negative::IngressCap, 3, 0, true),
+            (Negative::WrongWallet, 4, 0, true),
+            (Negative::WrongKey, 7, REVIEW_COUNT, true),
+            (Negative::HighS, 7, REVIEW_COUNT, true),
+        ] {
+            let spec = CycleSpec::negative(negative);
+            assert_eq!(
+                verify_negative_checkpoint(spec, stage_count, review_count, saw_profile, false),
+                Ok(())
+            );
+            assert_eq!(
+                verify_negative_checkpoint(
+                    spec,
+                    stage_count.saturating_add(1),
+                    review_count,
+                    saw_profile,
+                    false,
+                ),
+                Err(FixtureError::FactMismatch)
+            );
+        }
+        assert_eq!(
+            EXPECTED_PSBT_FILENAME,
+            b"qk-51515151515151515151515151515151-final.psbt"
+        );
+        assert_eq!(
+            EXPECTED_TRANSACTION_FILENAME,
+            b"qk-51515151515151515151515151515151-final.tx"
         );
     }
 }

@@ -53,6 +53,25 @@ fn harness_locks_timeout_tree_kill_reap_and_exact_matrix() {
 }
 
 #[test]
+fn driver_locks_stages_named_negative_checkpoints_and_exact_sd_names() {
+    let common = source("src/main.rs");
+    let driver = source("src/scenario.rs");
+    for required in [
+        "EXPECTED_DISPLAY_STAGES",
+        "verify_negative_checkpoint",
+        "expected_error_name",
+        "EXPECTED_PSBT_FILENAME",
+        "EXPECTED_TRANSACTION_FILENAME",
+        "verify_negative_outputs",
+    ] {
+        assert!(
+            common.contains(required) || driver.contains(required),
+            "missing strengthened process oracle {required}"
+        );
+    }
+}
+
+#[test]
 fn exact_supervisor_and_driver_descriptor_topologies_are_source_pinned() {
     let harness = source("src/bin/qk-normal-process-harness.rs");
     for mapping in [
