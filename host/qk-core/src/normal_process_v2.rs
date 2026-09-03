@@ -12,7 +12,8 @@ use crate::capability::{
 };
 use crate::normal_artifact_v2::NormalProfileV2;
 use crate::normal_v2::{
-    NormalErrorV2, NormalScreenV2, NormalSessionV2, NormalStageV2, ProcessSignatureRejectionV2,
+    NormalCardBSigningRequestV2, NormalErrorV2, NormalScreenV2, NormalSessionV2, NormalStageV2,
+    ProcessSignatureRejectionV2,
 };
 use crate::wipe::WipingArray;
 use crate::{CoreOutbound, Interruption, NormalExportActionV2, Source};
@@ -44,8 +45,11 @@ pub enum NormalProcessStageV2 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NormalProcessErrorV2 {
     CardProfileMismatch,
+    CardSignatureBindingMismatch,
     CardSignatureKeyMismatch,
+    CardSignatureMalformed,
     CardSignatureHighS,
+    CardSignatureInvalid,
     Normal(NormalErrorV2),
 }
 
@@ -53,8 +57,11 @@ impl NormalProcessErrorV2 {
     pub const fn name(self) -> &'static str {
         match self {
             Self::CardProfileMismatch => "CardProfileMismatch",
+            Self::CardSignatureBindingMismatch => "CardSignatureBindingMismatch",
             Self::CardSignatureKeyMismatch => "CardSignatureKeyMismatch",
+            Self::CardSignatureMalformed => "CardSignatureMalformed",
             Self::CardSignatureHighS => "CardSignatureHighS",
+            Self::CardSignatureInvalid => "CardSignatureInvalid",
             Self::Normal(error) => error.name(),
         }
     }
@@ -166,6 +173,13 @@ impl NormalProcessControllerV2 {
 
     pub fn screen(&self) -> Option<NormalScreenV2<'_>> {
         self.session.as_ref().and_then(NormalSessionV2::screen)
+    }
+
+    /// Return only the current immutable post-revalidation card request.
+    pub fn card_b_signing_request(&self) -> Option<NormalCardBSigningRequestV2> {
+        self.session
+            .as_ref()
+            .and_then(NormalSessionV2::process_card_b_signing_request)
     }
 
     /// Bind the card-served profile fact before any Normal owner exists.
@@ -293,7 +307,7 @@ impl NormalProcessControllerV2 {
             (NormalStageV2::FinalApproval, NormalProcessEventV2::HoldCompleted) => self
                 .apply_session(|session| {
                     let token = session.begin_approval_hold()?;
-                    session.complete_approval_hold(token)
+                    session.complete_process_approval_hold(token)
                 }),
             (
                 NormalStageV2::AwaitingExportAction,
@@ -320,6 +334,31 @@ impl NormalProcessControllerV2 {
             }
             _ => return Err(self.latch_session_error(NormalErrorV2::InvalidTransition)),
         };
+        self.accept_progress(result)
+    }
+
+    /// Consume one card reply only for the currently exposed signing request.
+    /// The DER input is cleared whether binding, normalization, verification,
+    /// retention, or finalization succeeds or fails.
+    pub fn accept_card_b_signature(
+        &mut self,
+        review_hash: [u8; 32],
+        input_index: u32,
+        role_b_pubkey: [u8; 33],
+        der_signature: &mut [u8],
+    ) -> Result<Option<CoreOutbound>, NormalProcessErrorV2> {
+        if let Err(error) = self.require_normal() {
+            crate::wipe::bytes(der_signature);
+            return Err(error);
+        }
+        let result = self.apply_session(|session| {
+            session.accept_process_card_b_signature(
+                review_hash,
+                input_index,
+                role_b_pubkey,
+                der_signature,
+            )
+        });
         self.accept_progress(result)
     }
 
@@ -401,11 +440,20 @@ impl NormalProcessControllerV2 {
             .as_mut()
             .and_then(NormalSessionV2::take_process_signature_rejection)
         {
+            Some(ProcessSignatureRejectionV2::BindingMismatch) => {
+                NormalProcessErrorV2::CardSignatureBindingMismatch
+            }
             Some(ProcessSignatureRejectionV2::HighS) => NormalProcessErrorV2::CardSignatureHighS,
             Some(ProcessSignatureRejectionV2::KeyMismatch) => {
                 NormalProcessErrorV2::CardSignatureKeyMismatch
             }
-            Some(ProcessSignatureRejectionV2::Malformed) | None => Self::normal_error(error),
+            Some(ProcessSignatureRejectionV2::Malformed) => {
+                NormalProcessErrorV2::CardSignatureMalformed
+            }
+            Some(ProcessSignatureRejectionV2::Invalid) => {
+                NormalProcessErrorV2::CardSignatureInvalid
+            }
+            None => Self::normal_error(error),
         };
         self.stage = NormalProcessStageV2::Terminated;
         self.terminal_error = Some(process_error);

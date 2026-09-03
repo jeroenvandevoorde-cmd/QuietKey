@@ -35,11 +35,11 @@ fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(CARGO.matches(binary).count(), 1);
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\"normal-v3\"]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\n    \"normal-v3\",\n    \"dep:qk-secp\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-secp = { path = \"../qk-secp\", optional = true }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
@@ -53,7 +53,6 @@ fn direct_product_and_dev_dependencies_are_exact() {
         "qk-host-model",
         "qk-host-sim",
         "qk-io",
-        "qk-secp",
         "qk-supervisor",
         "qk-update",
     ] {
@@ -78,12 +77,16 @@ fn normal_and_kit_modules_and_exports_are_feature_locked() {
         );
     }
     assert_eq!(LIB.matches("#[cfg(feature = \"normal-v3\")]").count(), 4);
-    for item in ["mod normal_process_v2;", "pub use normal_process_v2::{"] {
+    for item in [
+        "mod normal_process_v2;",
+        "pub use normal_process_v2::{",
+        "pub use normal_v2::NormalCardBSigningRequestV2;",
+    ] {
         assert!(LIB.contains(&format!("#[cfg(feature = \"normal-process\")]\n{item}")));
     }
     assert_eq!(
         LIB.matches("#[cfg(feature = \"normal-process\")]").count(),
-        2
+        3
     );
     for item in [
         "mod kit_artifact_v2;",
@@ -123,6 +126,7 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
             "pub use kit_spend_v2::{",
             "pub use normal_artifact_v2::{",
             "pub use normal_process_v2::{",
+            "pub use normal_v2::NormalCardBSigningRequestV2;",
             "pub use normal_v2::{",
             "pub use process::{run_core_host_process, run_normal_core_host_process, CoreHostProcessError};",
             "pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};",
@@ -565,6 +569,13 @@ fn every_public_method_entry_is_pinned() {
             "pub const fn stage(&self) -> NormalStageV2 {",
             "pub const fn outbound(&self) -> Option<&CoreOutbound> {",
             "pub fn into_outbound(self) -> Option<CoreOutbound> {",
+            "pub const fn wallet_id(&self) -> &[u8; 32] {",
+            "pub const fn review_hash(&self) -> &ReviewV3Hash {",
+            "pub const fn input_index(&self) -> u32 {",
+            "pub const fn branch(&self) -> u32 {",
+            "pub const fn child_index(&self) -> u32 {",
+            "pub const fn digest(&self) -> &[u8; 32] {",
+            "pub const fn role_b_pubkey(&self) -> &[u8; 33] {",
             "pub const fn consumed(&self) -> usize {",
             "pub const fn stage(&self) -> NormalStageV2 {",
             "pub const fn outbound(&self) -> Option<&CoreOutbound> {",
@@ -605,12 +616,14 @@ fn every_public_method_entry_is_pinned() {
             "pub const fn fuzz_last_normal_stage(&self) -> Option<NormalStageV2> {",
             "pub fn fuzz_take_display_stage(&mut self) -> Option<NormalStageV2> {",
             "pub fn screen(&self) -> Option<NormalScreenV2<'_>> {",
+            "pub fn card_b_signing_request(&self) -> Option<NormalCardBSigningRequestV2> {",
             "pub fn accept_profile(&mut self, profile_wire: u8) -> Result<(), NormalProcessErrorV2> {",
             "pub fn accept_normal_factor(",
             "pub fn reject_card(&mut self, request_kind: u8, status: u16) -> NormalProcessErrorV2 {",
             "pub fn receive_qkip(",
             "pub fn advance_automatic(&mut self) -> Result<Option<CoreOutbound>, NormalProcessErrorV2> {",
             "pub fn handle_event(",
+            "pub fn accept_card_b_signature(",
         ]
     );
     assert_eq!(
@@ -719,7 +732,6 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
             "qk_host_model",
             "qk_host_sim",
             "qk_io::",
-            "qk_secp",
             "qk_update",
             "SecretKey",
             "PrivateKey",
@@ -742,6 +754,48 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
         ] {
             assert!(!source.contains(forbidden), "forbidden token {forbidden}");
         }
+    }
+    for source in [
+        LIB,
+        CAPABILITY,
+        ERROR,
+        IO_WIRE,
+        KIT_ARTIFACT,
+        KIT_INTAKE,
+        KIT_RESTORE,
+        KIT_SPEND,
+        NORMAL_ARTIFACT,
+        NORMAL_PROCESS,
+        SESSION,
+        SESSION_ID,
+        SETUP,
+        SETUP_ARTIFACT,
+        SHA256,
+        WIPE,
+    ] {
+        assert!(!source.contains("qk_secp"), "qk-secp escaped Normal owner");
+    }
+    for required in [
+        "qk_secp::normalize_card_signature_der(",
+        "qk_secp::signature_parse_der(",
+        "qk_secp::pubkey_parse_compressed(",
+        "qk_secp::ecdsa_verify(",
+    ] {
+        assert!(
+            NORMAL.contains(required),
+            "missing card verifier {required}"
+        );
+    }
+    for forbidden in [
+        "qk_secp::secret_key_import(",
+        "qk_secp::ecdsa_sign_rfc6979(",
+        "qk_secp::provisioning_pubkey_create(",
+        "qk_secp::provisioning_secret_tweak_add(",
+    ] {
+        assert!(
+            !NORMAL.contains(forbidden),
+            "forbidden qk-secp use {forbidden}"
+        );
     }
     assert_eq!(SETUP.matches("use qk_provisioning::{").count(), 1);
     assert_eq!(SETUP_ARTIFACT.matches("use qk_provisioning::{").count(), 2);
@@ -896,6 +950,11 @@ fn byte_and_session_owners_cannot_clone_format_mutate_or_release_storage() {
             NORMAL,
             "pub struct NormalSessionV2 {",
             "impl NormalSessionV2",
+        ),
+        owner_section(
+            NORMAL,
+            "pub struct NormalCardBSigningRequestV2 {",
+            "impl NormalCardBSigningRequestV2",
         ),
         owner_section(
             NORMAL_PROCESS,

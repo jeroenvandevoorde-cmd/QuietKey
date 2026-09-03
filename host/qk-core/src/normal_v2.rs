@@ -16,6 +16,8 @@ use crate::normal_artifact_v2::{
     NormalExportResultV2, NormalExportTransferV2, NormalProfileV2,
 };
 use crate::session::{CoreMode, CoreOutbound, CoreReceiveEvent, CoreSession};
+#[cfg(feature = "normal-process")]
+use crate::wipe;
 use crate::wipe::{WipingArray, WipingValueVec};
 use core::fmt;
 use qk_descriptor::parse_descriptor_pair_v2;
@@ -104,7 +106,9 @@ impl ProcessStageTraceV2 {
 pub(crate) enum ProcessSignatureRejectionV2 {
     Malformed,
     HighS,
+    BindingMismatch,
     KeyMismatch,
+    Invalid,
 }
 
 /// Exact review cursor. Output and input positions are transaction-order
@@ -540,6 +544,91 @@ pub struct NormalReceiveOutcomeV2 {
     progress: NormalProgressV2,
 }
 
+/// Immutable facts for exactly one role-B card signing request.
+///
+/// This process-only value contains no scalar, A2, Seed-A, or signature. Its
+/// fields are copied only from the post-hold, freshly revalidated signing plan.
+#[cfg(feature = "normal-process")]
+pub struct NormalCardBSigningRequestV2 {
+    wallet_id: [u8; 32],
+    review_hash: ReviewV3Hash,
+    input_index: u32,
+    branch: u32,
+    child_index: u32,
+    digest: [u8; 32],
+    role_b_pubkey: [u8; 33],
+}
+
+#[cfg(feature = "normal-process")]
+impl NormalCardBSigningRequestV2 {
+    pub const fn wallet_id(&self) -> &[u8; 32] {
+        &self.wallet_id
+    }
+
+    pub const fn review_hash(&self) -> &ReviewV3Hash {
+        &self.review_hash
+    }
+
+    pub const fn input_index(&self) -> u32 {
+        self.input_index
+    }
+
+    pub const fn branch(&self) -> u32 {
+        self.branch
+    }
+
+    pub const fn child_index(&self) -> u32 {
+        self.child_index
+    }
+
+    pub const fn digest(&self) -> &[u8; 32] {
+        &self.digest
+    }
+
+    pub const fn role_b_pubkey(&self) -> &[u8; 33] {
+        &self.role_b_pubkey
+    }
+}
+
+#[cfg(feature = "normal-process")]
+impl Drop for NormalCardBSigningRequestV2 {
+    fn drop(&mut self) {
+        wipe::bytes(&mut self.wallet_id);
+        wipe::bytes(&mut self.review_hash);
+        wipe::words32(core::slice::from_mut(&mut self.input_index));
+        wipe::words32(core::slice::from_mut(&mut self.branch));
+        wipe::words32(core::slice::from_mut(&mut self.child_index));
+        wipe::bytes(&mut self.digest);
+        wipe::bytes(&mut self.role_b_pubkey);
+    }
+}
+
+/// One low-S role-B signature that passed exact request binding and
+/// libsecp256k1 verification before it became retained finalization input.
+#[cfg(feature = "normal-process")]
+struct NormalVerifiedCardBSignatureV2 {
+    input_index: u32,
+    der: WipingArray<72>,
+    len: usize,
+}
+
+#[cfg(feature = "normal-process")]
+impl NormalVerifiedCardBSignatureV2 {
+    fn der(&self) -> &[u8] {
+        self.der.as_array().get(..self.len).unwrap_or_default()
+    }
+}
+
+/// Move-only post-hold owner retained while qk-core requests role-B
+/// signatures one at a time.
+#[cfg(feature = "normal-process")]
+struct NormalProcessSigningStateV2 {
+    parts: ValidatedNormalV3Parts,
+    role_a: qk_wallet_v2::WalletNormalRoleASignaturesV3,
+    role_b: WipingValueVec<NormalVerifiedCardBSignatureV2>,
+    cursor: usize,
+}
+
 impl NormalReceiveOutcomeV2 {
     pub const fn consumed(&self) -> usize {
         self.consumed
@@ -584,6 +673,8 @@ pub struct NormalSessionV2 {
     process_stage_trace: ProcessStageTraceV2,
     #[cfg(feature = "normal-process")]
     process_signature_rejection: Option<ProcessSignatureRejectionV2>,
+    #[cfg(feature = "normal-process")]
+    process_signing: Option<NormalProcessSigningStateV2>,
 }
 
 impl NormalSessionV2 {
@@ -637,6 +728,8 @@ impl NormalSessionV2 {
             process_stage_trace: ProcessStageTraceV2::starting(),
             #[cfg(feature = "normal-process")]
             process_signature_rejection: None,
+            #[cfg(feature = "normal-process")]
+            process_signing: None,
         }
     }
 
@@ -1049,6 +1142,114 @@ impl NormalSessionV2 {
         &mut self,
         token: NormalApprovalTokenV2,
     ) -> Result<NormalProgressV2, NormalErrorV2> {
+        let review_hash = self.complete_hold_and_revalidate(token)?;
+        self.sign_and_finalize(review_hash)
+    }
+
+    /// Complete the process-path hold and pause after role-A signing so the
+    /// caller can request each role-B signature from the card one at a time.
+    /// The default non-process completion API remains all-in-one.
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn complete_process_approval_hold(
+        &mut self,
+        token: NormalApprovalTokenV2,
+    ) -> Result<NormalProgressV2, NormalErrorV2> {
+        let review_hash = self.complete_hold_and_revalidate(token)?;
+        self.begin_process_signing(review_hash)
+    }
+
+    /// Return only the current post-revalidation role-B request. No request is
+    /// observable before CardBSigning or after its response is consumed.
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn process_card_b_signing_request(&self) -> Option<NormalCardBSigningRequestV2> {
+        if self.stage != NormalStageV2::CardBSigning {
+            return None;
+        }
+        let state = self.process_signing.as_ref()?;
+        let plan = state.parts.input_signing_plans().get(state.cursor)?;
+        if plan
+            .existing_role_signatures()
+            .get(1)
+            .copied()
+            .unwrap_or(true)
+        {
+            return None;
+        }
+        Some(NormalCardBSigningRequestV2 {
+            wallet_id: state.parts.wallet_id(),
+            review_hash: state.parts.review_hash(),
+            input_index: plan.input_index(),
+            branch: plan.branch(),
+            child_index: plan.child_index(),
+            digest: *plan.digest(),
+            role_b_pubkey: *plan.role_public_keys().get(1)?,
+        })
+    }
+
+    /// Bind, normalize, and verify one exact card reply before retaining its
+    /// low-S DER owner. The caller's response buffer is cleared on every path.
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn accept_process_card_b_signature(
+        &mut self,
+        review_hash: ReviewV3Hash,
+        input_index: u32,
+        role_b_pubkey: [u8; 33],
+        der_signature: &mut [u8],
+    ) -> Result<NormalProgressV2, NormalErrorV2> {
+        let input = ProcessSignatureInputGuard(der_signature);
+        self.require_active()?;
+        let Some(request) = self.process_card_b_signing_request() else {
+            return Err(self.fail(
+                NormalErrorV2::InvalidTransition,
+                Interruption::OperationFailed,
+            ));
+        };
+        let verified = verify_process_card_b_signature(
+            &request,
+            review_hash,
+            input_index,
+            role_b_pubkey,
+            input.as_slice(),
+        );
+        drop(request);
+        drop(input);
+        let verified = match verified {
+            Ok(value) => value,
+            Err(rejection) => {
+                let error = self.fail(
+                    NormalErrorV2::InvalidMockSignature,
+                    Interruption::OperationFailed,
+                );
+                self.process_signature_rejection = Some(rejection);
+                return Err(error);
+            }
+        };
+        let Some(state) = self.process_signing.as_mut() else {
+            drop(verified);
+            return Err(self.fail(
+                NormalErrorV2::InvalidTransition,
+                Interruption::OperationFailed,
+            ));
+        };
+        if state.role_b.try_push(verified).is_err() {
+            return Err(self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            ));
+        }
+        state.cursor = state.cursor.saturating_add(1);
+        advance_process_signing_cursor(state);
+        if self.process_card_b_signing_request().is_some() {
+            Ok(self.progress(None))
+        } else {
+            self.finish_process_signing()
+        }
+    }
+
+    fn complete_hold_and_revalidate(
+        &mut self,
+        token: NormalApprovalTokenV2,
+    ) -> Result<ReviewV3Hash, NormalErrorV2> {
         self.require_active()?;
         if self.stage != NormalStageV2::FinalApproval {
             let error = if self.approval.is_some() {
@@ -1101,7 +1302,7 @@ impl NormalSessionV2 {
                 Interruption::OperationFailed,
             ));
         }
-        self.sign_and_finalize(review_hash)
+        Ok(review_hash)
     }
 
     /// Select exactly one post-finalization carrier. No second route, retry,
@@ -1240,6 +1441,184 @@ impl NormalSessionV2 {
                 ))
             }
         }
+    }
+
+    #[cfg(feature = "normal-process")]
+    fn begin_process_signing(
+        &mut self,
+        approved_review_hash: ReviewV3Hash,
+    ) -> Result<NormalProgressV2, NormalErrorV2> {
+        self.advance(NormalStageV2::TerminalASigning, None)?;
+        let Some(proof) = self.proof.take() else {
+            return Err(self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            ));
+        };
+        let (Some(seed_a), Some(card)) = (self.seed_a.take(), self.card.take()) else {
+            drop(proof);
+            return Err(self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            ));
+        };
+        let signed = match sign_validated_normal_role_a_v3(
+            seed_a.as_array(),
+            card.descriptors(),
+            &card.wallet_id(),
+            proof,
+        ) {
+            Ok(value) => value,
+            Err(NormalRoleASigningErrorV3::RecoveredWalletMismatch) => {
+                drop(seed_a);
+                drop(card);
+                return Err(self.fail(
+                    NormalErrorV2::RecoveredWalletMismatch,
+                    Interruption::OperationFailed,
+                ));
+            }
+            Err(_) => {
+                drop(seed_a);
+                drop(card);
+                return Err(self.fail(
+                    NormalErrorV2::SigningRejected,
+                    Interruption::OperationFailed,
+                ));
+            }
+        };
+        drop(seed_a);
+        drop(card);
+        self.advance(NormalStageV2::CardBSigning, None)?;
+        let (parts, role_a) = signed.into_finalization_parts();
+        if parts.review_hash() != approved_review_hash {
+            drop(parts);
+            drop(role_a);
+            return Err(self.fail(
+                NormalErrorV2::ReviewIdentityMismatch,
+                Interruption::OperationFailed,
+            ));
+        }
+        let role_b = WipingValueVec::try_with_capacity(parts.input_count()).map_err(|_| {
+            self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            )
+        })?;
+        let mut state = NormalProcessSigningStateV2 {
+            parts,
+            role_a,
+            role_b,
+            cursor: 0,
+        };
+        advance_process_signing_cursor(&mut state);
+        self.process_signing = Some(state);
+        if self.process_card_b_signing_request().is_some() {
+            Ok(self.progress(None))
+        } else {
+            self.finish_process_signing()
+        }
+    }
+
+    #[cfg(feature = "normal-process")]
+    fn finish_process_signing(&mut self) -> Result<NormalProgressV2, NormalErrorV2> {
+        let Some(state) = self.process_signing.take() else {
+            return Err(self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            ));
+        };
+        let NormalProcessSigningStateV2 {
+            parts,
+            role_a,
+            role_b,
+            cursor: _,
+        } = state;
+        let approved_review_hash = parts.review_hash();
+        let mut submitted_a =
+            WipingValueVec::try_with_capacity(role_a.inputs().len()).map_err(|_| {
+                self.fail(
+                    NormalErrorV2::SigningRejected,
+                    Interruption::OperationFailed,
+                )
+            })?;
+        for input in role_a.inputs() {
+            if let Some(signature) = input.role_a() {
+                submitted_a
+                    .try_push(NormalSubmittedSignatureV3::new(
+                        input.input_index(),
+                        signature.der(),
+                    ))
+                    .map_err(|_| {
+                        self.fail(
+                            NormalErrorV2::SigningRejected,
+                            Interruption::OperationFailed,
+                        )
+                    })?;
+            }
+        }
+        let mut submitted_b = WipingValueVec::try_with_capacity(role_b.len()).map_err(|_| {
+            self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            )
+        })?;
+        for signature in role_b.as_slice() {
+            submitted_b
+                .try_push(NormalSubmittedSignatureV3::new(
+                    signature.input_index,
+                    signature.der(),
+                ))
+                .map_err(|_| {
+                    self.fail(
+                        NormalErrorV2::SigningRejected,
+                        Interruption::OperationFailed,
+                    )
+                })?;
+        }
+        self.advance(NormalStageV2::Finalization, None)?;
+        let finalized = match finalize_validated_normal_v3(
+            parts,
+            submitted_a.as_slice(),
+            submitted_b.as_slice(),
+        ) {
+            Ok(value) => value,
+            Err(NormalFinalizationErrorV3::InvalidMockSignature) => {
+                drop(submitted_a);
+                drop(submitted_b);
+                drop(role_a);
+                drop(role_b);
+                return Err(self.fail(
+                    NormalErrorV2::InvalidMockSignature,
+                    Interruption::OperationFailed,
+                ));
+            }
+            Err(_) => {
+                drop(submitted_a);
+                drop(submitted_b);
+                drop(role_a);
+                drop(role_b);
+                return Err(self.fail(
+                    NormalErrorV2::FinalizationRejected,
+                    Interruption::OperationFailed,
+                ));
+            }
+        };
+        drop(submitted_a);
+        drop(submitted_b);
+        drop(role_a);
+        drop(role_b);
+        if finalized.review_hash() != approved_review_hash {
+            drop(finalized);
+            return Err(self.fail(
+                NormalErrorV2::ReviewIdentityMismatch,
+                Interruption::OperationFailed,
+            ));
+        }
+        let artifacts = NormalExportArtifactsV2::bind_finalized(self.profile, &finalized)
+            .map_err(|error| self.fail(map_artifact_error(error), Interruption::OperationFailed))?;
+        drop(finalized);
+        self.artifacts = Some(artifacts);
+        self.advance(NormalStageV2::AwaitingExportAction, None)
     }
 
     fn sign_and_finalize(
@@ -1742,6 +2121,8 @@ impl NormalSessionV2 {
         drop(self.card.take());
         drop(self.seed_a.take());
         drop(self.proof.take());
+        #[cfg(feature = "normal-process")]
+        drop(self.process_signing.take());
         self.review_position = None;
         self.pending_hold = None;
         self.approval = None;
@@ -1758,6 +2139,80 @@ impl Drop for NormalSessionV2 {
             self.core.terminate_normal(Interruption::OperationFailed);
         }
     }
+}
+
+#[cfg(feature = "normal-process")]
+fn advance_process_signing_cursor(state: &mut NormalProcessSigningStateV2) {
+    while let Some(plan) = state.parts.input_signing_plans().get(state.cursor) {
+        if !plan
+            .existing_role_signatures()
+            .get(1)
+            .copied()
+            .unwrap_or(true)
+        {
+            break;
+        }
+        state.cursor = state.cursor.saturating_add(1);
+    }
+}
+
+#[cfg(feature = "normal-process")]
+struct ProcessSignatureInputGuard<'a>(&'a mut [u8]);
+
+#[cfg(feature = "normal-process")]
+impl ProcessSignatureInputGuard<'_> {
+    fn as_slice(&self) -> &[u8] {
+        self.0
+    }
+}
+
+#[cfg(feature = "normal-process")]
+impl Drop for ProcessSignatureInputGuard<'_> {
+    fn drop(&mut self) {
+        wipe::bytes(self.0);
+    }
+}
+
+#[cfg(feature = "normal-process")]
+fn verify_process_card_b_signature(
+    request: &NormalCardBSigningRequestV2,
+    review_hash: ReviewV3Hash,
+    input_index: u32,
+    role_b_pubkey: [u8; 33],
+    der_signature: &[u8],
+) -> Result<NormalVerifiedCardBSignatureV2, ProcessSignatureRejectionV2> {
+    if review_hash != *request.review_hash() || input_index != request.input_index() {
+        return Err(ProcessSignatureRejectionV2::BindingMismatch);
+    }
+    if role_b_pubkey != *request.role_b_pubkey() {
+        return Err(ProcessSignatureRejectionV2::KeyMismatch);
+    }
+    let mut normalized = WipingArray::<72>::zeroed();
+    let len = match qk_secp::normalize_card_signature_der(der_signature, normalized.as_mut_array())
+    {
+        Ok(len) => len,
+        Err(qk_secp::SecpError::DerLengthOutOfBounds)
+        | Err(qk_secp::SecpError::SignatureParseFailed) => {
+            return Err(ProcessSignatureRejectionV2::Malformed)
+        }
+        Err(_) => return Err(ProcessSignatureRejectionV2::Invalid),
+    };
+    let signature = qk_secp::signature_parse_der(
+        normalized
+            .as_array()
+            .get(..len)
+            .ok_or(ProcessSignatureRejectionV2::Invalid)?,
+    )
+    .map_err(|_| ProcessSignatureRejectionV2::Invalid)?;
+    let public_key = qk_secp::pubkey_parse_compressed(request.role_b_pubkey())
+        .map_err(|_| ProcessSignatureRejectionV2::Invalid)?;
+    qk_secp::ecdsa_verify(&signature, request.digest(), &public_key)
+        .map_err(|_| ProcessSignatureRejectionV2::Invalid)?;
+    Ok(NormalVerifiedCardBSignatureV2 {
+        input_index,
+        der: normalized,
+        len,
+    })
 }
 
 fn card_binding_matches(card: &NormalCardBDataV2) -> Result<bool, ()> {

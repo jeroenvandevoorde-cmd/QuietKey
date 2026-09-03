@@ -2,6 +2,7 @@
 
 #![cfg(all(feature = "normal-process", feature = "fuzzing"))]
 
+use qk_core::fuzz::{reset_wiped_bytes, wiped_bytes};
 use qk_core::{
     KeypadKey, NormalErrorV2, NormalProcessControllerV2, NormalProcessErrorV2,
     NormalProcessEventV2, NormalProcessStageV2, NormalStageV2, Source,
@@ -20,9 +21,12 @@ const NAMESPACE: [u8; 12] = [0x56; 12];
 #[derive(Clone, Copy)]
 enum SignatureCase {
     Valid,
+    WrongReviewHash,
+    WrongInputIndex,
     WrongKey,
     HighS,
     MalformedDer,
+    Invalid,
 }
 
 fn fields(source: &'static str) -> BTreeMap<&'static str, &'static str> {
@@ -43,6 +47,10 @@ fn hex_vec(text: &str) -> Vec<u8> {
         .collect()
 }
 
+fn hex_array<const N: usize>(text: &str) -> [u8; N] {
+    hex_vec(text).try_into().expect("exact fixture width")
+}
+
 fn media_record(payload: &[u8]) -> Vec<u8> {
     let name = b"normal-v2.psbt";
     let mut record = Vec::with_capacity(1 + name.len() + 4 + payload.len());
@@ -55,17 +63,49 @@ fn media_record(payload: &[u8]) -> Vec<u8> {
 
 fn signature_der(case: SignatureCase, valid: &[u8]) -> Vec<u8> {
     match case {
-        SignatureCase::Valid | SignatureCase::WrongKey => valid.to_vec(),
-        SignatureCase::HighS => {
-            let mut der = vec![0u8; 40];
-            der[0..6].copy_from_slice(&[0x30, 0x26, 0x02, 0x01, 0x01, 0x02]);
-            der[6] = 0x21;
-            der[7] = 0;
-            der[8..].fill(0xff);
-            der
-        }
+        SignatureCase::Valid
+        | SignatureCase::WrongReviewHash
+        | SignatureCase::WrongInputIndex
+        | SignatureCase::WrongKey => valid.to_vec(),
+        SignatureCase::HighS => hex_vec("3046022100ccbfad55e5be35282e8927ef2694257e694a7738513c3fc3e396495227809769022100bf61fc4abd1a78f9fa367c00a6442598aebf994ca058bf34e8a747b94a49ad0a"),
         SignatureCase::MalformedDer => vec![0u8; 8],
+        SignatureCase::Invalid => {
+            let mut invalid = valid.to_vec();
+            if let Some(byte) = invalid.last_mut() {
+                *byte ^= 1;
+            }
+            invalid
+        }
     }
+}
+
+fn submit_card_signature(
+    controller: &mut NormalProcessControllerV2,
+    case: SignatureCase,
+) -> Result<Option<qk_core::CoreOutbound>, NormalProcessErrorV2> {
+    let signing = fields(SIGNING);
+    let request = controller
+        .card_b_signing_request()
+        .expect("post-revalidation request");
+    let mut review_hash = *request.review_hash();
+    if matches!(case, SignatureCase::WrongReviewHash) {
+        review_hash[0] ^= 1;
+    }
+    let input_index = if matches!(case, SignatureCase::WrongInputIndex) {
+        request.input_index().saturating_add(1)
+    } else {
+        request.input_index()
+    };
+    let mut role_b_pubkey = *request.role_b_pubkey();
+    if matches!(case, SignatureCase::WrongKey) {
+        role_b_pubkey[1] ^= 1;
+    }
+    let mut der = signature_der(case, &hex_vec(signing["role_b_der_hex"]));
+    drop(request);
+    let result =
+        controller.accept_card_b_signature(review_hash, input_index, role_b_pubkey, &mut der);
+    assert!(der.iter().all(|byte| *byte == 0));
+    result
 }
 
 fn factor_body(case: SignatureCase) -> Vec<u8> {
@@ -256,7 +296,14 @@ fn complete_controller_emits_only_the_exact_stage_frame_sequence() {
     let (mut controller, mut broker) = reach_final_approval(SignatureCase::Valid);
     assert!(controller
         .handle_event(NormalProcessEventV2::HoldCompleted)
-        .expect("revalidate sign finalize")
+        .expect("revalidate and request card signature")
+        .is_none());
+    assert_eq!(
+        controller.stage(),
+        NormalProcessStageV2::Normal(NormalStageV2::CardBSigning)
+    );
+    assert!(submit_card_signature(&mut controller, SignatureCase::Valid)
+        .expect("verified card signature finalizes")
         .is_none());
     finish_sd_export(&mut controller, &mut broker);
     let close = controller
@@ -289,27 +336,84 @@ fn complete_controller_emits_only_the_exact_stage_frame_sequence() {
 }
 
 #[test]
-fn signature_records_are_first_inspected_only_at_card_b_signing() {
+fn post_revalidation_request_is_exact_move_only_and_wiped_on_drop() {
+    const REQUEST_BYTES: usize = 32 + 32 + 4 + 4 + 4 + 32 + 33;
+
+    let signing = fields(SIGNING);
+    let provision = fields(PROVISIONING);
+    let (mut controller, _) = reach_final_approval(SignatureCase::Valid);
+    assert!(controller.card_b_signing_request().is_none());
+    controller
+        .handle_event(NormalProcessEventV2::HoldCompleted)
+        .expect("hold reaches card signing");
+
+    reset_wiped_bytes();
+    let request = controller
+        .card_b_signing_request()
+        .expect("one post-revalidation role-B request");
+    assert_eq!(
+        request.wallet_id(),
+        &hex_array::<32>(provision["wallet_id"])
+    );
+    assert_eq!(
+        request.review_hash(),
+        &hex_array::<32>(signing["review_hash_hex"])
+    );
+    assert_eq!(request.input_index(), 0);
+    assert_eq!(request.branch(), 0);
+    assert_eq!(request.child_index(), 0);
+    assert_eq!(
+        request.digest(),
+        &hex_array::<32>(signing["bip143_digest_hex"])
+    );
+    assert_eq!(
+        request.role_b_pubkey(),
+        &hex_array::<33>(signing["role_b_route_public_key_hex"])
+    );
+    assert_eq!(wiped_bytes(), 0);
+    drop(request);
+    assert_eq!(wiped_bytes(), REQUEST_BYTES);
+}
+
+#[test]
+fn card_signatures_are_accepted_only_after_revalidation_and_verified_before_finalization() {
     for (case, expected) in [
+        (
+            SignatureCase::WrongReviewHash,
+            NormalProcessErrorV2::CardSignatureBindingMismatch,
+        ),
+        (
+            SignatureCase::WrongInputIndex,
+            NormalProcessErrorV2::CardSignatureBindingMismatch,
+        ),
         (
             SignatureCase::WrongKey,
             NormalProcessErrorV2::CardSignatureKeyMismatch,
         ),
         (
-            SignatureCase::HighS,
-            NormalProcessErrorV2::CardSignatureHighS,
+            SignatureCase::MalformedDer,
+            NormalProcessErrorV2::CardSignatureMalformed,
         ),
         (
-            SignatureCase::MalformedDer,
-            NormalProcessErrorV2::Normal(NormalErrorV2::CardDataRejected),
+            SignatureCase::Invalid,
+            NormalProcessErrorV2::CardSignatureInvalid,
         ),
     ] {
         let (mut controller, _) = reach_final_approval(case);
+        assert!(controller.card_b_signing_request().is_none());
+        assert!(controller
+            .handle_event(NormalProcessEventV2::HoldCompleted)
+            .expect("hold reaches card signing")
+            .is_none());
         assert!(matches!(
-            controller.handle_event(NormalProcessEventV2::HoldCompleted),
+            submit_card_signature(&mut controller, case),
             Err(actual) if actual == expected
         ));
         assert_eq!(controller.terminal_error(), Some(expected));
+        assert_eq!(
+            controller.terminal_error().map(|error| error.name()),
+            Some(expected.name())
+        );
         assert_eq!(
             controller.fuzz_last_normal_stage(),
             Some(NormalStageV2::CardBSigning)
@@ -317,6 +421,42 @@ fn signature_records_are_first_inspected_only_at_card_b_signing() {
         assert!(drain_stages(&mut controller)
             .ends_with(&[NormalStageV2::TerminalASigning, NormalStageV2::CardBSigning,]));
     }
+
+    let (mut high_s, _) = reach_final_approval(SignatureCase::HighS);
+    high_s
+        .handle_event(NormalProcessEventV2::HoldCompleted)
+        .expect("hold reaches card signing");
+    assert!(submit_card_signature(&mut high_s, SignatureCase::HighS)
+        .expect("valid high-S card response is normalized and verified")
+        .is_none());
+    assert_eq!(
+        high_s.stage(),
+        NormalProcessStageV2::Normal(NormalStageV2::AwaitingExportAction)
+    );
+    assert!(high_s.card_b_signing_request().is_none());
+}
+
+#[test]
+fn signature_reply_buffer_is_wiped_before_request_and_after_termination() {
+    let (mut controller, _) = reach_final_approval(SignatureCase::Valid);
+    let mut early = [0xa5; 72];
+    assert!(matches!(
+        controller.accept_card_b_signature([0; 32], 0, [0; 33], &mut early),
+        Err(NormalProcessErrorV2::Normal(
+            NormalErrorV2::InvalidTransition
+        ))
+    ));
+    assert_eq!(early, [0; 72]);
+    assert_eq!(controller.stage(), NormalProcessStageV2::Terminated);
+
+    let mut after_termination = [0x5a; 8];
+    assert!(matches!(
+        controller.accept_card_b_signature([0; 32], 0, [0; 33], &mut after_termination,),
+        Err(NormalProcessErrorV2::Normal(
+            NormalErrorV2::InvalidTransition
+        ))
+    ));
+    assert_eq!(after_termination, [0; 8]);
 }
 
 #[test]
@@ -347,5 +487,8 @@ fn profile_mismatch_and_early_hold_are_named_and_absorbing() {
     assert!(controller
         .handle_event(NormalProcessEventV2::HoldCompleted)
         .expect("valid hold")
+        .is_none());
+    assert!(submit_card_signature(&mut controller, SignatureCase::Valid)
+        .expect("valid signature")
         .is_none());
 }

@@ -148,6 +148,7 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
         "drop(self.card.take());",
         "drop(self.seed_a.take());",
         "drop(self.proof.take());",
+        "drop(self.process_signing.take());",
         "self.pending_hold = None;",
         "self.approval = None;",
         "drop(self.artifacts.take());",
@@ -158,8 +159,10 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
     }
     assert_eq!(
         NORMAL.matches("WipingValueVec::try_with_capacity(").count(),
-        2
+        5
     );
+    assert!(NORMAL.contains("impl Drop for NormalCardBSigningRequestV2"));
+    assert!(NORMAL.contains("impl Drop for ProcessSignatureInputGuard<'_>"));
     assert!(NORMAL.contains("let mut seed = WipingArray::<32>::zeroed();"));
     assert!(!NORMAL.contains("let mut seed = [0u8; 32];"));
     assert!(NORMAL_ARTIFACT.contains("WipingArray::<MAX_FRAME_TEXT_BYTES>::zeroed()"));

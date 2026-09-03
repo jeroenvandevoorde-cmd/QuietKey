@@ -84,6 +84,8 @@ pub use normal_artifact_v2::{
 pub use normal_process_v2::{
     NormalProcessControllerV2, NormalProcessErrorV2, NormalProcessEventV2, NormalProcessStageV2,
 };
+#[cfg(feature = "normal-process")]
+pub use normal_v2::NormalCardBSigningRequestV2;
 #[cfg(feature = "normal-v3")]
 pub use normal_v2::{
     NormalApprovalIdentityV2, NormalApprovalTokenV2, NormalArithmeticViewV2, NormalChangeViewV2,

@@ -15,7 +15,11 @@ required-features = ["host-runtime"]
 default = ["normal-v3", "kit-v3"]
 fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
 host-runtime = ["qk-ipc/host-runtime", "normal-process"]
-normal-process = ["normal-v3"]
+normal-process = [
+    "normal-v3",
+    "dep:qk-secp",
+    "qk-secp/card-signature-normalization",
+]
 normal-v3 = ["qk-psbt/normal-v3", "qk-wallet-v2/normal-v3"]
 kit-v3 = ["normal-v3", "qk-kit/process-v3"]
 
@@ -28,6 +32,7 @@ qk-ipc = { path = "../qk-ipc" }
 qk-kit = { path = "../qk-kit" }
 qk-psbt = { path = "../qk-psbt" }
 qk-provisioning = { path = "../qk-provisioning" }
+qk-secp = { path = "../qk-secp", optional = true }
 qk-wallet-v2 = { path = "../qk-wallet-v2" }
 
 [dev-dependencies]
