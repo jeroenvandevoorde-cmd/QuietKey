@@ -17,6 +17,8 @@ fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
 host-runtime = ["qk-ipc/host-runtime", "normal-process"]
 normal-process = [
     "normal-v3",
+    "dep:qk-bip32",
+    "dep:qk-card-protocol",
     "dep:qk-secp",
     "qk-secp/card-signature-normalization",
 ]
@@ -26,6 +28,8 @@ kit-v3 = ["normal-v3", "qk-kit/process-v3"]
 [dependencies]
 qk-a1 = { path = "../qk-a1" }
 qk-bbqr = { path = "../qk-bbqr" }
+qk-bip32 = { path = "../qk-bip32", optional = true }
+qk-card-protocol = { path = "../qk-card-protocol", optional = true }
 qk-descriptor = { path = "../qk-descriptor" }
 qk-device-wire = { path = "../qk-device-wire" }
 qk-ipc = { path = "../qk-ipc" }

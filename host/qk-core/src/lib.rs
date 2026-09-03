@@ -4,8 +4,9 @@
 //! and exposes only typed mock Display, Keypad, and CardSlot capabilities. It
 //! orchestrates the ratified v2 provisioning flow and one purpose-bound normal
 //! A1+B review, approval, signing, finalization, and export flow through the
-//! approved leaf crates. Transported bytes remain hostile input. No APDU,
-//! real-device, process-containment, target, production, or Gate claim exists.
+//! approved leaf crates and byte-complete HOST card protocol. Transported bytes
+//! remain hostile input. No real-device, process-containment, target,
+//! production, or Gate claim exists.
 
 #![deny(unsafe_code)]
 #![deny(
@@ -17,6 +18,8 @@
 )]
 
 mod capability;
+#[cfg(feature = "normal-process")]
+mod card_process_v1;
 mod error;
 mod io_wire;
 #[cfg(feature = "kit-v3")]
@@ -47,6 +50,10 @@ pub use capability::{
     CardBPublicBindingV2, CardInstanceV2, CardMockErrorV2, CardPresence, CoreDeviceGrants,
     CoreScreen, KeypadKey, MockCardSlot, MockDisplay, MockKeypad, NormalCardBDataV2,
     NormalCardBSignatureV2, NormalCardMockErrorV2,
+};
+#[cfg(feature = "normal-process")]
+pub use card_process_v1::{
+    bind_normal_card_v1, verify_provisioned_card_v1, CardInfoV1, CardProcessErrorV1,
 };
 pub use error::{CoreError, Interruption, IoRejection};
 pub use io_wire::{Operation, Source};

@@ -34,18 +34,18 @@ fn volatile_wipe_owns_the_complete_allocation_and_fences_each_clear() {
 
 #[test]
 fn normal_runtime_releases_factor_and_outbound_owners_at_the_last_use() {
-    let factor_read = PROCESS
-        .find("let factor = devices.read_normal_factor()?;")
-        .expect("factor read");
-    let factor_drop = PROCESS[factor_read..]
-        .find("drop(factor);")
-        .map(|offset| factor_read + offset)
-        .expect("factor drop");
-    let qkip_drive = PROCESS[factor_read..]
+    let card_read = PROCESS
+        .find("let card = devices.bind_normal_card(controller.selected_profile())?;")
+        .expect("bound card read");
+    let card_move = PROCESS[card_read..]
+        .find(".accept_bound_card(card)")
+        .map(|offset| card_read + offset)
+        .expect("bound card move");
+    let qkip_drive = PROCESS[card_read..]
         .find("drive_qkip(&stream, &mut controller, opening)?;")
-        .map(|offset| factor_read + offset)
+        .map(|offset| card_read + offset)
         .expect("QKIP drive");
-    assert!(factor_read < factor_drop && factor_drop < qkip_drive);
+    assert!(card_read < card_move && card_move < qkip_drive);
 
     let outbound_write = PROCESS
         .find(".write_all(outbound.frame_bytes())")
@@ -176,7 +176,12 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
     assert!(!NORMAL_PROCESS.contains("let mut a2: [u8; A2_BYTES]"));
     assert!(!NORMAL_PROCESS.contains("let mut scratch = [0u8; MAX_DER_BYTES];"));
     for owner in [
-        "let mut bytes = WipingArray::<DEVICE_HEADER_BYTES>::zeroed();",
+        "WipingArray::<{ DEVICE_HEADER_BYTES + MAX_REQUEST_BYTES }>::zeroed();",
+        "let mut command = WipingArray::<MAX_REQUEST_BYTES>::zeroed();",
+        "let mut session_id = WipingArray::<16>::zeroed();",
+        "let mut receive = WipingArray::<DESCRIPTOR_BYTES>::zeroed();",
+        "let mut change = WipingArray::<DESCRIPTOR_BYTES>::zeroed();",
+        "let mut signature = WipingArray::<72>::zeroed();",
         "let mut body = WipingArray::<MAX_DISPLAY_BODY_BYTES>::zeroed();",
         "WipingArray::<{ DEVICE_HEADER_BYTES + MAX_DISPLAY_BODY_BYTES }>::zeroed();",
         "let mut byte = WipingArray::<1>::zeroed();",
@@ -187,6 +192,10 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
             "missing runtime fixed owner {owner}"
         );
     }
+    assert!(PROCESS.contains("drop(self.card_session.take());"));
+    assert!(PROCESS.contains("struct CardProtocolSession {"));
+    assert!(PROCESS.contains("session_id: SessionId,"));
+    assert!(PROCESS.contains("tracker: SessionTracker,"));
     assert!(NORMAL_PROCESS.contains("impl Drop for NormalProcessControllerV2"));
     assert!(NORMAL_PROCESS.contains("drop(self.session.take());"));
 }

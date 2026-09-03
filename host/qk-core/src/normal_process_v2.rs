@@ -93,7 +93,7 @@ pub enum NormalProcessEventV2 {
     SessionTimeout,
 }
 
-/// Pure one-use controller for the test-only QKDV card seam.
+/// Pure one-use controller for the HOST Normal process.
 ///
 /// This type deliberately implements no Clone, Copy, Debug, Display,
 /// serializer, logger, or byte-export trait.
@@ -194,15 +194,25 @@ impl NormalProcessControllerV2 {
         Ok(())
     }
 
-    /// Parse one complete NormalFactor body and construct the existing Normal
-    /// owner. The returned QKIP frame is its sole session-open request.
+    /// Parse one complete legacy fixture NormalFactor body and construct the
+    /// existing Normal owner. Active HOST runtime reaches the same owner only
+    /// through `accept_bound_card` after raw card-protocol verification.
     pub fn accept_normal_factor(
         &mut self,
         body: &[u8],
     ) -> Result<CoreOutbound, NormalProcessErrorV2> {
-        self.require_stage(NormalProcessStageV2::AwaitingNormalFactor)?;
         let card =
             parse_normal_factor(body).map_err(|error| self.fail(Self::normal_error(error)))?;
+        self.accept_bound_card(card)
+    }
+
+    /// Construct the existing Normal owner from card-protocol facts that have
+    /// already passed the qk-core descriptor, wallet, profile, and xpub bind.
+    pub(crate) fn accept_bound_card(
+        &mut self,
+        card: NormalCardBDataV2,
+    ) -> Result<CoreOutbound, NormalProcessErrorV2> {
+        self.require_stage(NormalProcessStageV2::AwaitingNormalFactor)?;
         let grants = CoreDeviceGrants::validate(
             Some(MockDisplay::new()),
             Some(MockKeypad::new()),

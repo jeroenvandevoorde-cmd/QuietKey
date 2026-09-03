@@ -3,6 +3,7 @@
 const CARGO: &str = include_str!("../Cargo.toml");
 const LIB: &str = include_str!("../src/lib.rs");
 const CAPABILITY: &str = include_str!("../src/capability.rs");
+const CARD_PROCESS: &str = include_str!("../src/card_process_v1.rs");
 const ERROR: &str = include_str!("../src/error.rs");
 const IO_WIRE: &str = include_str!("../src/io_wire.rs");
 const KIT_ARTIFACT: &str = include_str!("../src/kit_artifact_v2.rs");
@@ -35,11 +36,11 @@ fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(CARGO.matches(binary).count(), 1);
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\n    \"normal-v3\",\n    \"dep:qk-secp\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\n    \"normal-v3\",\n    \"dep:qk-bip32\",\n    \"dep:qk-card-protocol\",\n    \"dep:qk-secp\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-secp = { path = \"../qk-secp\", optional = true }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-bip32 = { path = \"../qk-bip32\", optional = true }\nqk-card-protocol = { path = \"../qk-card-protocol\", optional = true }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-secp = { path = \"../qk-secp\", optional = true }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
@@ -47,7 +48,6 @@ fn direct_product_and_dev_dependencies_are_exact() {
     );
     let product = cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]"));
     for forbidden in [
-        "qk-bip32",
         "qk-card-trace",
         "qk-decoy",
         "qk-host-model",
@@ -78,7 +78,9 @@ fn normal_and_kit_modules_and_exports_are_feature_locked() {
     }
     assert_eq!(LIB.matches("#[cfg(feature = \"normal-v3\")]").count(), 4);
     for item in [
+        "mod card_process_v1;",
         "mod normal_process_v2;",
+        "pub use card_process_v1::{",
         "pub use normal_process_v2::{",
         "pub use normal_v2::NormalCardBSigningRequestV2;",
     ] {
@@ -86,7 +88,7 @@ fn normal_and_kit_modules_and_exports_are_feature_locked() {
     }
     assert_eq!(
         LIB.matches("#[cfg(feature = \"normal-process\")]").count(),
-        3
+        5
     );
     for item in [
         "mod kit_artifact_v2;",
@@ -118,6 +120,7 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
         public_lines,
         [
             "pub use capability::{",
+            "pub use card_process_v1::{",
             "pub use error::{CoreError, Interruption, IoRejection};",
             "pub use io_wire::{Operation, Source};",
             "pub use kit_artifact_v2::{",
@@ -181,6 +184,25 @@ fn host_process_surface_is_feature_locked_and_contains_no_second_protocol_or_log
         assert!(!PROCESS_BIN.contains(forbidden), "binary token {forbidden}");
     }
     assert!(PROCESS.contains("const RECEIVE_BYTES: usize = 1;"));
+    assert!(PROCESS.contains(".begin(MessageKind::CardApduRequest)"));
+    assert!(!PROCESS.contains("read_card_profile"));
+    assert!(!PROCESS.contains("read_normal_factor"));
+    assert!(!PROCESS.contains("MessageKind::CardReadProfile"));
+    assert!(!PROCESS.contains("MessageKind::CardReadNormalFactor"));
+    let active_loop = PROCESS
+        .split_once("drive_qkip(&stream, &mut controller, opening)?;")
+        .expect("normal opening")
+        .1;
+    let signing = active_loop
+        .find("NormalStageV2::CardBSigning")
+        .expect("card signing branch");
+    let display = active_loop
+        .find("devices.display_updates(&mut controller)?;")
+        .expect("stage display path");
+    let keypad = active_loop
+        .find("let event = devices.read_keypad_event()?;")
+        .expect("keypad path");
+    assert!(display < signing && signing < keypad);
 }
 
 #[test]
@@ -264,6 +286,18 @@ fn every_public_method_entry_is_pinned() {
             "pub fn keypad_mut(&mut self) -> &mut MockKeypad {",
             "pub const fn card_slot(&self) -> &MockCardSlot {",
             "pub fn card_slot_mut(&mut self) -> &mut MockCardSlot {",
+        ]
+    );
+    assert_eq!(
+        public_methods(CARD_PROCESS),
+        [
+            "pub const fn name(self) -> &'static str {",
+            "pub fn try_from_response(response: ResponseRef<'_>) -> Result<Self, CardProcessErrorV1> {",
+            "pub const fn profile(&self) -> u8 {",
+            "pub const fn wallet_id(&self) -> [u8; 32] {",
+            "pub const fn account_xpub(&self) -> [u8; RAW_XPUB_BYTES] {",
+            "pub fn bind_normal_card_v1(",
+            "pub fn verify_provisioned_card_v1(",
         ]
     );
     assert_eq!(
@@ -754,6 +788,36 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
         ] {
             assert!(!source.contains(forbidden), "forbidden token {forbidden}");
         }
+    }
+    assert!(CARD_PROCESS.contains("use qk_bip32::decode_mainnet_xpub;"));
+    for forbidden in [
+        "qk_card_trace",
+        "qk_host_model",
+        "qk_host_sim",
+        "qk_io::",
+        "qk_update",
+        "SecretKey",
+        "PrivateKey",
+        "SigningKey",
+        "send_apdu",
+        "transmit_apdu",
+        "ApduCommand",
+        "UnixStream",
+        "UnixListener",
+        "TcpStream",
+        "UdpSocket",
+        "recvmsg(",
+        "sendmsg(",
+        "Command::new",
+        "std::process",
+        "println!",
+        "eprintln!",
+        "dbg!",
+    ] {
+        assert!(
+            !CARD_PROCESS.contains(forbidden),
+            "card process token {forbidden}"
+        );
     }
     for source in [
         LIB,
