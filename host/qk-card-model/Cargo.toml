@@ -1,0 +1,15 @@
+[package]
+name = "qk-card-model"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Test-only HOST model of the byte-complete QuietKey Key Card B protocol. No Java Card simulator, target, production, RNG, or Gate claim."
+
+[dependencies]
+qk-card-protocol = { path = "../qk-card-protocol" }
+qk-secp = { path = "../qk-secp", features = ["card-signature-normalization"] }
+
+[features]
+default = []
+fuzzing = []
