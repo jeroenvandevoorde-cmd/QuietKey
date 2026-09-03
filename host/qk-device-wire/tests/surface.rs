@@ -29,6 +29,8 @@ fn dependency_free_manifest_and_host_only_surface_are_pinned() {
     assert!(LIB.contains("HOST REFERENCE ONLY"));
     assert!(LIB.contains("pub const HEADER_BYTES: usize = 16;"));
     assert!(LIB.contains("pub const MAX_BODY_BYTES: usize = 2_097_152;"));
+    assert!(LIB.contains("pub const MAX_CARD_APDU_REQUEST_BODY_BYTES: usize = 221;"));
+    assert!(LIB.contains("pub const MAX_CARD_APDU_RESPONSE_BODY_BYTES: usize = 218;"));
 }
 
 #[test]

@@ -4,6 +4,7 @@ use qk_device_wire::{
     encode_frame, parse_body, parse_frame, Artifact, BodyRef, Capability, CardRequestBody,
     CardResponseBody, DeviceError, DisplayBody, InputBody, MessageKind, NormalStage, OutputBody,
     Profile, RecipientOwnership, ReviewBody, Route, Source, HEADER_BYTES, MAGIC, MAX_BODY_BYTES,
+    MAX_CARD_APDU_REQUEST_BODY_BYTES, MAX_CARD_APDU_RESPONSE_BODY_BYTES,
     MAX_CARD_FACTOR_BODY_BYTES, MAX_CHUNK_BODY_BYTES, MAX_DISPLAY_BODY_BYTES, MAX_FRAME_BYTES,
     MAX_KEYPAD_BODY_BYTES, MAX_OUTPUT_BEGIN_BODY_BYTES, VERSION,
 };
@@ -68,6 +69,8 @@ fn constants_and_capability_values_are_exact() {
     assert_eq!(MAX_DISPLAY_BODY_BYTES, 180);
     assert_eq!(MAX_KEYPAD_BODY_BYTES, 17);
     assert_eq!(MAX_CARD_FACTOR_BODY_BYTES, 11_790);
+    assert_eq!(MAX_CARD_APDU_REQUEST_BODY_BYTES, 221);
+    assert_eq!(MAX_CARD_APDU_RESPONSE_BODY_BYTES, 218);
     assert_eq!(MAX_CHUNK_BODY_BYTES, 262_153);
     assert_eq!(MAX_OUTPUT_BEGIN_BODY_BYTES, 73);
     let values = [
@@ -94,9 +97,11 @@ fn every_message_kind_preallocation_cap_is_exact() {
         (MessageKind::KeypadEvent, 17),
         (MessageKind::CardProfile, 1),
         (MessageKind::CardNormalFactor, 11_790),
+        (MessageKind::CardApduResponse, 218),
         (MessageKind::CardRejected, 3),
         (MessageKind::CardReadProfile, 0),
         (MessageKind::CardReadNormalFactor, 0),
+        (MessageKind::CardApduRequest, 221),
         (MessageKind::CameraBegin, 5),
         (MessageKind::CameraChunk, 262_153),
         (MessageKind::MediaReadBegin, 71),
@@ -115,6 +120,52 @@ fn every_message_kind_preallocation_cap_is_exact() {
     for (kind, expected) in caps {
         assert_eq!(kind.body_cap(), expected, "{}", kind.wire_value());
     }
+}
+
+#[test]
+fn card_apdu_qkdv_bodies_are_borrowed_and_bounded() {
+    let request_body = [0x80, 0x20, 0x00, 0x00, 0x00];
+    let request = encoded(
+        Capability::CardRequest,
+        MessageKind::CardApduRequest,
+        1,
+        &request_body,
+    );
+    match parse_frame(Capability::CardRequest, &request)
+        .unwrap()
+        .parsed_body()
+        .unwrap()
+    {
+        BodyRef::CardApduRequest(body) => assert_eq!(body, request_body),
+        _ => panic!("wrong request body"),
+    }
+
+    let response_body = [0x01, 0x90, 0x00];
+    let response = encoded(
+        Capability::CardResponse,
+        MessageKind::CardApduResponse,
+        1,
+        &response_body,
+    );
+    match parse_frame(Capability::CardResponse, &response)
+        .unwrap()
+        .parsed_body()
+        .unwrap()
+    {
+        BodyRef::CardApduResponse(body) => assert_eq!(body, response_body),
+        _ => panic!("wrong response body"),
+    }
+
+    assert_parse_error(
+        Capability::CardRequest,
+        &raw_frame(4, 3, 1, &[0; 222]),
+        DeviceError::BodyLengthExceeded,
+    );
+    assert_parse_error(
+        Capability::CardResponse,
+        &raw_frame(3, 0x83, 1, &[0; 219]),
+        DeviceError::BodyLengthExceeded,
+    );
 }
 
 #[test]

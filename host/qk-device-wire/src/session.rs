@@ -490,6 +490,7 @@ fn response_kind_matches(request: MessageKind, response: MessageKind) -> bool {
             response,
             MessageKind::CardNormalFactor | MessageKind::CardRejected
         ),
+        MessageKind::CardApduRequest => response == MessageKind::CardApduResponse,
         MessageKind::PrintWriteBegin | MessageKind::MediaWriteBegin => matches!(
             response,
             MessageKind::MediaBeginAccepted | MessageKind::MediaRejected

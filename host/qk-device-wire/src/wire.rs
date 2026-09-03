@@ -1,9 +1,10 @@
 //! Exact QKDV header, complete-frame codec, and borrowed body grammars.
 
 use crate::{
-    DeviceError, HEADER_BYTES, MAGIC, MAX_BODY_BYTES, MAX_CARD_FACTOR_BODY_BYTES,
-    MAX_CHUNK_BODY_BYTES, MAX_DISPLAY_BODY_BYTES, MAX_FILENAME_BYTES, MAX_FRAME_BYTES,
-    MAX_KEYPAD_BODY_BYTES, MAX_OUTPUT_BEGIN_BODY_BYTES, VERSION,
+    DeviceError, HEADER_BYTES, MAGIC, MAX_BODY_BYTES, MAX_CARD_APDU_REQUEST_BODY_BYTES,
+    MAX_CARD_APDU_RESPONSE_BODY_BYTES, MAX_CARD_FACTOR_BODY_BYTES, MAX_CHUNK_BODY_BYTES,
+    MAX_DISPLAY_BODY_BYTES, MAX_FILENAME_BYTES, MAX_FRAME_BYTES, MAX_KEYPAD_BODY_BYTES,
+    MAX_OUTPUT_BEGIN_BODY_BYTES, VERSION,
 };
 
 const MAX_TRANSFER_BYTES: usize = 2_097_152;
@@ -75,9 +76,11 @@ pub enum MessageKind {
     KeypadEvent,
     CardProfile,
     CardNormalFactor,
+    CardApduResponse,
     CardRejected,
     CardReadProfile,
     CardReadNormalFactor,
+    CardApduRequest,
     CameraBegin,
     CameraChunk,
     MediaReadBegin,
@@ -102,10 +105,13 @@ impl MessageKind {
             | Self::DisplayReview
             | Self::DisplayResult => Capability::Display,
             Self::KeypadEvent => Capability::Keypad,
-            Self::CardProfile | Self::CardNormalFactor | Self::CardRejected => {
-                Capability::CardResponse
+            Self::CardProfile
+            | Self::CardNormalFactor
+            | Self::CardApduResponse
+            | Self::CardRejected => Capability::CardResponse,
+            Self::CardReadProfile | Self::CardReadNormalFactor | Self::CardApduRequest => {
+                Capability::CardRequest
             }
-            Self::CardReadProfile | Self::CardReadNormalFactor => Capability::CardRequest,
             Self::CameraBegin | Self::CameraChunk => Capability::CameraInput,
             Self::MediaReadBegin
             | Self::MediaReadChunk
@@ -137,11 +143,14 @@ impl MessageKind {
             | Self::MediaReadChunk
             | Self::PrintWriteChunk
             | Self::MediaWriteChunk => 0x02,
-            Self::DisplayReview | Self::PrintWriteFinish | Self::MediaWriteFinish => 0x03,
+            Self::DisplayReview
+            | Self::CardApduRequest
+            | Self::PrintWriteFinish
+            | Self::MediaWriteFinish => 0x03,
             Self::DisplayResult => 0x04,
             Self::CardProfile | Self::MediaBeginAccepted => 0x81,
             Self::CardNormalFactor | Self::MediaChunkAccepted => 0x82,
-            Self::MediaFinished => 0x83,
+            Self::CardApduResponse | Self::MediaFinished => 0x83,
             Self::CardRejected | Self::MediaRejected => 0xff,
         }
     }
@@ -153,8 +162,10 @@ impl MessageKind {
             Self::KeypadEvent => MAX_KEYPAD_BODY_BYTES,
             Self::CardProfile => 1,
             Self::CardNormalFactor => MAX_CARD_FACTOR_BODY_BYTES,
+            Self::CardApduResponse => MAX_CARD_APDU_RESPONSE_BODY_BYTES,
             Self::CardRejected | Self::MediaRejected => 3,
             Self::CardReadProfile | Self::CardReadNormalFactor => 0,
+            Self::CardApduRequest => MAX_CARD_APDU_REQUEST_BODY_BYTES,
             Self::CameraBegin => 5,
             Self::MediaReadBegin => 71,
             Self::CameraChunk | Self::MediaReadChunk => MAX_CHUNK_BODY_BYTES,
@@ -178,9 +189,11 @@ impl MessageKind {
             (Capability::Keypad, 0x01) => Ok(Self::KeypadEvent),
             (Capability::CardResponse, 0x81) => Ok(Self::CardProfile),
             (Capability::CardResponse, 0x82) => Ok(Self::CardNormalFactor),
+            (Capability::CardResponse, 0x83) => Ok(Self::CardApduResponse),
             (Capability::CardResponse, 0xff) => Ok(Self::CardRejected),
             (Capability::CardRequest, 0x01) => Ok(Self::CardReadProfile),
             (Capability::CardRequest, 0x02) => Ok(Self::CardReadNormalFactor),
+            (Capability::CardRequest, 0x03) => Ok(Self::CardApduRequest),
             (Capability::CameraInput, 0x01) => Ok(Self::CameraBegin),
             (Capability::CameraInput, 0x02) => Ok(Self::CameraChunk),
             (Capability::MediaInput, 0x01) => Ok(Self::MediaReadBegin),
@@ -1022,6 +1035,8 @@ pub enum BodyRef<'a> {
     Keypad(KeypadBody),
     CardRequest(CardRequestBody),
     CardResponse(CardResponseBody<'a>),
+    CardApduRequest(&'a [u8]),
+    CardApduResponse(&'a [u8]),
     CameraInput(InputBody<'a>),
     MediaInput(InputBody<'a>),
     OutputReply(OutputReplyBody),
@@ -1060,6 +1075,7 @@ pub fn parse_body<'a>(frame: &FrameRef<'a>) -> Result<BodyRef<'a>, DeviceError> 
             exact_length(body, 0)?;
             Ok(BodyRef::CardRequest(CardRequestBody::ReadNormalFactor))
         }
+        MessageKind::CardApduRequest => Ok(BodyRef::CardApduRequest(body)),
         MessageKind::CardProfile => {
             exact_length(body, 1)?;
             Ok(BodyRef::CardResponse(CardResponseBody::Profile(
@@ -1069,6 +1085,7 @@ pub fn parse_body<'a>(frame: &FrameRef<'a>) -> Result<BodyRef<'a>, DeviceError> 
         MessageKind::CardNormalFactor => Ok(BodyRef::CardResponse(CardResponseBody::NormalFactor(
             parse_normal_factor(body)?,
         ))),
+        MessageKind::CardApduResponse => Ok(BodyRef::CardApduResponse(body)),
         MessageKind::CardRejected => Ok(BodyRef::CardResponse(parse_card_rejection(body)?)),
         MessageKind::CameraBegin => Ok(BodyRef::CameraInput(parse_camera_begin(body)?)),
         MessageKind::CameraChunk => Ok(BodyRef::CameraInput(parse_input_chunk(body)?)),

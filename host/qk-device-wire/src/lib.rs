@@ -52,6 +52,10 @@ pub const MAX_DISPLAY_BODY_BYTES: usize = 180;
 pub const MAX_KEYPAD_BODY_BYTES: usize = 17;
 /// Exact maximum card NormalFactor body cap.
 pub const MAX_CARD_FACTOR_BODY_BYTES: usize = 11_790;
+/// Exact raw proprietary APDU command cap.
+pub const MAX_CARD_APDU_REQUEST_BODY_BYTES: usize = 221;
+/// Exact raw proprietary APDU response-plus-status cap.
+pub const MAX_CARD_APDU_RESPONSE_BODY_BYTES: usize = 218;
 /// Exact maximum filename bytes.
 pub const MAX_FILENAME_BYTES: usize = 64;
 

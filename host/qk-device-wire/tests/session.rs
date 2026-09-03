@@ -88,6 +88,22 @@ fn card_exchange_requires_one_matching_response() {
 }
 
 #[test]
+fn raw_card_apdu_exchange_requires_kind_83_at_the_same_sequence() {
+    let mut exchange =
+        ExchangeProtocol::new(Capability::CardRequest, Capability::CardResponse).unwrap();
+    let request = exchange.begin(MessageKind::CardApduRequest).unwrap();
+    assert_eq!(request.sequence(), 1);
+    let response = received(
+        Capability::CardResponse,
+        MessageKind::CardApduResponse,
+        1,
+        &[0x90, 0x00],
+    );
+    exchange.accept_response(&response).unwrap();
+    assert!(!exchange.has_outstanding());
+}
+
+#[test]
 fn response_without_request_wrong_kind_and_device_rejection_terminate() {
     let profile = received(Capability::CardResponse, MessageKind::CardProfile, 1, &[1]);
     let mut absent =
