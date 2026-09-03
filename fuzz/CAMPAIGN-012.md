@@ -3,7 +3,7 @@
 Status: EXECUTED — QUALIFYING RUN COMPLETE.
 
 Fuzz-target source commit:
-`ecf9a46d4c4068045003366643571eb0b8ea90db`.
+`ecf9a462c18f074dcd3ad774e6a4593ed534a8a3`.
 Qualifying-run tree and committed-seed source:
 `3d432255ebb516fc91824c0c98f970f8aacb8fc4`.
 
@@ -51,7 +51,7 @@ That fixed-point set became the persistent corpus. Its manifest entry block
 has SHA-256
 `d9f1992935d139e317b0f575139ecb9ba3e05038a065d7355993e8c30156bd58`.
 `CORPUS-MANIFEST-V2-S6.tsv` is 16,925 bytes/96 LF with SHA-256
-`f3038487c04d8bf051b668e5fe0a453430fc704dfed3349f73a27d8d2ee98d77`;
+`22193d78a89b00baa59e71774af523a35cd168a00a746ab23b1f822c64bc5446`;
 its aggregate is 89 files/1,573 bytes with the same entry-block SHA-256. The
 complete path, byte-count, and content-hash check passed.
 
