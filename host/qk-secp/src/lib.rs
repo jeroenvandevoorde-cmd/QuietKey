@@ -16,8 +16,10 @@
 //! compressed keys are `[u8; 33]` with an 02/03 prefix, digests and
 //! tweaks are `[u8; 32]`, DER input is copied into a bounded
 //! `[u8; 72]` container with length 8..=72 before any FFI call, and
-//! the opaque 64-byte C objects never escape. High-S signatures are
-//! not normalized and verification rejects them. Every upstream 0/1
+//! the opaque 64-byte C objects never escape. The default verification
+//! surface preserves high-S signatures and verification rejects them;
+//! the non-default `card-signature-normalization` feature adds one
+//! normalization-only card boundary. Every upstream 0/1
 //! return code is mapped explicitly and any other code fails closed.
 //! Error values carry fixed text only, never attacker bytes.
 //!
@@ -332,6 +334,34 @@ pub fn signature_serialize_der(
     };
     destination.copy_from_slice(source);
     *output = committed;
+    Ok(len)
+}
+
+/// Normalize one strictly parsed card signature and serialize it as bounded
+/// low-S DER.
+///
+/// This purpose-bound seam exists only for card signatures. It performs no
+/// signing or verification, changes `output` only after every native step
+/// succeeds, and zeroes every byte after the returned DER length.
+#[cfg(feature = "card-signature-normalization")]
+pub fn normalize_card_signature_der(
+    input: &[u8],
+    output: &mut [u8; 72],
+) -> Result<usize, SecpError> {
+    let parsed = signature_parse_der(input)?;
+    let (normalize_code, normalized_obj) = ffi::signature_normalize(&parsed.obj);
+    // Both ordinary statuses are successful: zero means the input was
+    // already low-S; one means normalization changed S.
+    let _was_high = map_status(normalize_code)?;
+    let normalized = Signature {
+        obj: normalized_obj,
+    };
+    let mut candidate = [0u8; DER_MAX_BYTES];
+    let len = signature_serialize_der(&normalized, &mut candidate)?;
+    if len > LOW_S_DER_MAX_BYTES {
+        return Err(SecpError::SignatureSerializeFailed);
+    }
+    *output = candidate;
     Ok(len)
 }
 

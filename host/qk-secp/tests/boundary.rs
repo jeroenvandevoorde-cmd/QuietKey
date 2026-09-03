@@ -14,6 +14,9 @@ use qk_secp::{
     signature_parse_der, signature_serialize_der, PublicKey, SecpError, Signature,
 };
 
+#[cfg(feature = "card-signature-normalization")]
+use qk_secp::normalize_card_signature_der;
+
 const LIB_SRC: &str = include_str!("../src/lib.rs");
 const FFI_SRC: &str = include_str!("../src/ffi.rs");
 const BUILD_SRC: &str = include_str!("../build.rs");
@@ -186,7 +189,7 @@ fn extern_declarations_are_exactly_the_approved_surface() {
 }
 
 #[test]
-fn public_function_surface_is_exactly_the_approved_ten() {
+fn public_function_surface_is_exactly_the_approved_eleven() {
     let approved = [
         "pub fn pubkey_parse_compressed",
         "pub fn pubkey_serialize_compressed",
@@ -198,6 +201,7 @@ fn public_function_surface_is_exactly_the_approved_ten() {
         "pub fn ecdsa_sign_rfc6979",
         "pub fn provisioning_pubkey_create",
         "pub fn provisioning_secret_tweak_add",
+        "pub fn normalize_card_signature_der",
     ];
     for decl in approved {
         assert_eq!(standalone_count(LIB_SRC, decl), 1, "missing {decl}");
@@ -205,7 +209,7 @@ fn public_function_surface_is_exactly_the_approved_ten() {
     assert_eq!(
         LIB_SRC.matches("pub fn ").count(),
         approved.len(),
-        "lib.rs must expose exactly the ten approved public functions"
+        "lib.rs must contain exactly the eleven approved public functions"
     );
     assert_eq!(FFI_SRC.matches("pub fn ").count(), 0);
     let kw = ["uns", "afe"].concat();
@@ -286,6 +290,76 @@ fn signing_surface_is_bound_to_normalize_serialize_parse_verify_order() {
         ecdsa_sign_rfc6979;
     let _: fn(&Signature, &mut [u8; 72]) -> Result<usize, SecpError> = signature_serialize_der;
     let _: fn(&[u8; 32]) -> Result<[u8; 33], SecpError> = provisioning_pubkey_create;
+    #[cfg(feature = "card-signature-normalization")]
+    let _: fn(&[u8], &mut [u8; 72]) -> Result<usize, SecpError> = normalize_card_signature_der;
+}
+
+#[cfg(feature = "card-signature-normalization")]
+fn decode_hex(input: &str) -> Vec<u8> {
+    input
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| hex_nibble(pair[0]) * 16 + hex_nibble(pair[1]))
+        .collect()
+}
+
+#[cfg(feature = "card-signature-normalization")]
+#[test]
+fn card_signature_normalization_matches_known_high_and_low_s_pair() {
+    let low = decode_hex("3044022052c219de14dd91a57e30e18b5f6f86e052846934a6ecb8b7fdbe27cb8f8ea53f0220198e6799a6f2fe7ba0aa55a0bbdaa6fc37b613ecdddf25d28ef5733a78e304d1");
+    let high = decode_hex("3045022052c219de14dd91a57e30e18b5f6f86e052846934a6ecb8b7fdbe27cb8f8ea53f022100e6719866590d01845f55aa5f4425590282f8c8f9d1697a6930dceb5257533c70");
+
+    for input in [&low, &high] {
+        let mut output = [0xa5u8; 72];
+        let length = normalize_card_signature_der(input, &mut output)
+            .expect("registered card signature must normalize");
+        assert_eq!(length, low.len());
+        assert_eq!(&output[..length], low.as_slice());
+        assert!(output[length..].iter().all(|byte| *byte == 0));
+    }
+}
+
+#[cfg(feature = "card-signature-normalization")]
+#[test]
+fn card_signature_normalization_is_failure_atomic_and_strict() {
+    for (input, expected) in [
+        (&[0x30u8; 7][..], SecpError::DerLengthOutOfBounds),
+        (&[0x30u8; 73][..], SecpError::DerLengthOutOfBounds),
+        (&[0xaau8; 8][..], SecpError::SignatureParseFailed),
+    ] {
+        let sentinel = [0x3cu8; 72];
+        let mut output = sentinel;
+        assert_eq!(
+            normalize_card_signature_der(input, &mut output),
+            Err(expected)
+        );
+        assert_eq!(output, sentinel);
+    }
+}
+
+#[cfg(feature = "card-signature-normalization")]
+#[test]
+fn normalized_card_signature_verifies_in_a_sign_verify_round_trip() {
+    let mut source = [0u8; 32];
+    source[31] = 1;
+    let secret = secret_key_import(&mut source).expect("fixture scalar must import");
+    let public_key = parse_g();
+    let digest = [0x42u8; 32];
+    let signature = ecdsa_sign_rfc6979(&secret, &digest, &public_key)
+        .expect("fixture signature must be produced");
+    let mut signed_der = [0u8; 72];
+    let signed_len = signature_serialize_der(&signature, &mut signed_der)
+        .expect("fixture signature must serialize");
+    let mut normalized_der = [0xa5u8; 72];
+    let normalized_len =
+        normalize_card_signature_der(&signed_der[..signed_len], &mut normalized_der)
+            .expect("fixture signature must normalize");
+    let reparsed = signature_parse_der(&normalized_der[..normalized_len])
+        .expect("normalized signature must parse");
+    assert_eq!(ecdsa_verify(&reparsed, &digest, &public_key), Ok(()));
+    assert!(normalized_der[normalized_len..]
+        .iter()
+        .all(|byte| *byte == 0));
 }
 
 #[test]
