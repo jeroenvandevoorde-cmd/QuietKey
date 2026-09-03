@@ -1,0 +1,12 @@
+[package]
+name = "qk-card-protocol"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Dependency-free HOST reference for the bounded QuietKey Key Card protocol."
+
+[features]
+fuzzing = []
+
+[dependencies]
