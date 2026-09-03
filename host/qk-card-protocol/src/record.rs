@@ -71,7 +71,7 @@ impl fmt::Display for RecordError {
 impl std::error::Error for RecordError {}
 
 /// Borrowed, structurally validated raw mainnet account xprv.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct XprvRef<'a> {
     bytes: &'a [u8; RAW_XPRV_BYTES],
 }
@@ -94,8 +94,14 @@ impl<'a> XprvRef<'a> {
     }
 }
 
+impl fmt::Debug for XprvRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("XprvRef(REDACTED)")
+    }
+}
+
 /// Borrowed, fully structurally validated immutable record.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct RecordRef<'a> {
     bytes: &'a [u8; RECORD_BYTES],
     profile: Profile,
@@ -144,6 +150,12 @@ impl<'a> RecordRef<'a> {
 
     pub fn change_descriptor(self) -> &'a [u8; DESCRIPTOR_BYTES] {
         array_ref(&self.bytes[RECORD_CHANGE_D_OFFSET..RECORD_BYTES]).expect("fixed record field")
+    }
+}
+
+impl fmt::Debug for RecordRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RecordRef(REDACTED)")
     }
 }
 

@@ -481,7 +481,7 @@ impl fmt::Display for ResponseError {
 impl std::error::Error for ResponseError {}
 
 /// Exact post-OPEN session envelope borrowed from hostile input.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct EnvelopeRef<'a> {
     session_id: &'a [u8; 16],
     sequence: u32,
@@ -504,8 +504,14 @@ impl<'a> EnvelopeRef<'a> {
     }
 }
 
+impl fmt::Debug for EnvelopeRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("EnvelopeRef(REDACTED)")
+    }
+}
+
 /// Allocation-free typed view of an accepted command.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum CommandRef<'a> {
     Select,
     OpenSession {
@@ -551,8 +557,14 @@ pub enum CommandRef<'a> {
     },
 }
 
+impl fmt::Debug for CommandRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("CommandRef(REDACTED)")
+    }
+}
+
 /// Allocation-free typed view of an accepted response.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ResponseRef<'a> {
     Rejected(ProtocolError),
     Select,
@@ -602,6 +614,12 @@ pub enum ResponseRef<'a> {
     Abort {
         envelope: EnvelopeRef<'a>,
     },
+}
+
+impl fmt::Debug for ResponseRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ResponseRef(REDACTED)")
+    }
 }
 
 impl<'a> CommandRef<'a> {
@@ -1214,7 +1232,7 @@ pub fn encode_export_a2(
 }
 
 /// Fields for one SIGN_DIGEST request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct SignRequest<'a> {
     pub wallet_id: &'a [u8; 32],
     pub review_hash: &'a [u8; 32],
@@ -1222,6 +1240,12 @@ pub struct SignRequest<'a> {
     pub branch: u8,
     pub child_index: u32,
     pub digest: &'a [u8; 32],
+}
+
+impl fmt::Debug for SignRequest<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SignRequest(REDACTED)")
+    }
 }
 
 pub fn encode_sign_digest(

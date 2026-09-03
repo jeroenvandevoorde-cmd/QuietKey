@@ -85,6 +85,56 @@ fn source_has_no_io_persistence_crypto_or_allocation_surface() {
     assert!(!SESSION.contains("impl Clone for SessionTracker"));
     assert!(!SESSION.contains("impl Copy for SessionTracker"));
     assert!(!SESSION.contains("impl Debug for SessionTracker"));
+    for secret_view in [
+        "pub struct EnvelopeRef<'a>",
+        "pub enum CommandRef<'a>",
+        "pub enum ResponseRef<'a>",
+        "pub struct SignRequest<'a>",
+    ] {
+        let prefix = APDU
+            .split_once(secret_view)
+            .expect("secret-bearing APDU view exists")
+            .0;
+        let derive = prefix
+            .rsplit_once("#[derive(")
+            .expect("secret-bearing APDU view has derives")
+            .1
+            .split_once(")]")
+            .expect("derive closes")
+            .0;
+        assert!(!derive.contains("Debug"), "Debug exposed by {secret_view}");
+    }
+    for redacted in [
+        "EnvelopeRef(REDACTED)",
+        "CommandRef(REDACTED)",
+        "ResponseRef(REDACTED)",
+        "SignRequest(REDACTED)",
+    ] {
+        assert!(
+            APDU.contains(redacted),
+            "missing redacted Debug: {redacted}"
+        );
+    }
+    for secret_view in ["pub struct XprvRef<'a>", "pub struct RecordRef<'a>"] {
+        let prefix = RECORD
+            .split_once(secret_view)
+            .expect("secret-bearing record view exists")
+            .0;
+        let derive = prefix
+            .rsplit_once("#[derive(")
+            .expect("secret-bearing record view has derives")
+            .1
+            .split_once(")]")
+            .expect("derive closes")
+            .0;
+        assert!(!derive.contains("Debug"), "Debug exposed by {secret_view}");
+    }
+    for redacted in ["XprvRef(REDACTED)", "RecordRef(REDACTED)"] {
+        assert!(
+            RECORD.contains(redacted),
+            "missing redacted Debug: {redacted}"
+        );
+    }
     assert_eq!(
         WIPE.matches("unsafe { ptr::write_volatile(byte, 0) }")
             .count(),
