@@ -13,13 +13,17 @@ const A1_BYTES: u32 = 67;
 const KIT_BYTES: u32 = 142;
 const A1_PRINT_BYTES: u32 = 67;
 const KIT_PRINT_BYTES: u32 = 829;
+#[cfg(feature = "legacy-normal-factor-fixture")]
 const MAX_SIGNATURES: usize = 100;
+#[cfg(feature = "legacy-normal-factor-fixture")]
 const MIN_DER_BYTES: usize = 8;
+#[cfg(feature = "legacy-normal-factor-fixture")]
 const MAX_DER_BYTES: usize = 72;
 const DESCRIPTOR_BYTES: usize = 306;
 const WALLET_ID_BYTES: usize = 32;
 const ACCOUNT_XPUB_BYTES: usize = 111;
 const A2_BYTES: usize = 32;
+#[cfg(feature = "legacy-normal-factor-fixture")]
 const CARD_FACTOR_PREFIX_BYTES: usize =
     2 * DESCRIPTOR_BYTES + WALLET_ID_BYTES + ACCOUNT_XPUB_BYTES + A2_BYTES + 2;
 const FEE_POLICY: &[u8] = b"QK-FEE-POLICY-V2";
@@ -1072,7 +1076,11 @@ pub fn parse_body<'a>(frame: &FrameRef<'a>) -> Result<BodyRef<'a>, DeviceError> 
             Ok(BodyRef::CardRequest(CardRequestBody::ReadProfile))
         }
         MessageKind::CardReadNormalFactor => {
+            #[cfg(not(feature = "legacy-normal-factor-fixture"))]
+            return Err(DeviceError::LegacyNormalFactorRejected);
+            #[cfg(feature = "legacy-normal-factor-fixture")]
             exact_length(body, 0)?;
+            #[cfg(feature = "legacy-normal-factor-fixture")]
             Ok(BodyRef::CardRequest(CardRequestBody::ReadNormalFactor))
         }
         MessageKind::CardApduRequest => Ok(BodyRef::CardApduRequest(body)),
@@ -1082,9 +1090,14 @@ pub fn parse_body<'a>(frame: &FrameRef<'a>) -> Result<BodyRef<'a>, DeviceError> 
                 Profile::parse(body[0])?,
             )))
         }
-        MessageKind::CardNormalFactor => Ok(BodyRef::CardResponse(CardResponseBody::NormalFactor(
-            parse_normal_factor(body)?,
-        ))),
+        MessageKind::CardNormalFactor => {
+            #[cfg(not(feature = "legacy-normal-factor-fixture"))]
+            return Err(DeviceError::LegacyNormalFactorRejected);
+            #[cfg(feature = "legacy-normal-factor-fixture")]
+            Ok(BodyRef::CardResponse(CardResponseBody::NormalFactor(
+                parse_normal_factor(body)?,
+            )))
+        }
         MessageKind::CardApduResponse => Ok(BodyRef::CardApduResponse(body)),
         MessageKind::CardRejected => Ok(BodyRef::CardResponse(parse_card_rejection(body)?)),
         MessageKind::CameraBegin => Ok(BodyRef::CameraInput(parse_camera_begin(body)?)),
@@ -1484,6 +1497,7 @@ fn parse_card_rejection(body: &[u8]) -> Result<CardResponseBody<'_>, DeviceError
     })
 }
 
+#[cfg(feature = "legacy-normal-factor-fixture")]
 fn parse_normal_factor(body: &[u8]) -> Result<NormalFactorRef<'_>, DeviceError> {
     if body.len() < CARD_FACTOR_PREFIX_BYTES {
         return Err(DeviceError::BodyLengthMismatch);

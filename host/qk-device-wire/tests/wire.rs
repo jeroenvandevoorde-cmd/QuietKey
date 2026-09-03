@@ -1,9 +1,11 @@
 #![allow(clippy::panic, clippy::unwrap_used)]
 
+#[cfg(feature = "legacy-normal-factor-fixture")]
+use qk_device_wire::CardResponseBody;
 use qk_device_wire::{
     encode_frame, parse_body, parse_frame, Artifact, BodyRef, Capability, CardRequestBody,
-    CardResponseBody, DeviceError, DisplayBody, InputBody, MessageKind, NormalStage, OutputBody,
-    Profile, RecipientOwnership, ReviewBody, Route, Source, HEADER_BYTES, MAGIC, MAX_BODY_BYTES,
+    DeviceError, DisplayBody, InputBody, MessageKind, NormalStage, OutputBody, Profile,
+    RecipientOwnership, ReviewBody, Route, Source, HEADER_BYTES, MAGIC, MAX_BODY_BYTES,
     MAX_CARD_APDU_REQUEST_BODY_BYTES, MAX_CARD_APDU_RESPONSE_BODY_BYTES,
     MAX_CARD_FACTOR_BODY_BYTES, MAX_CHUNK_BODY_BYTES, MAX_DISPLAY_BODY_BYTES, MAX_FRAME_BYTES,
     MAX_KEYPAD_BODY_BYTES, MAX_OUTPUT_BEGIN_BODY_BYTES, VERSION,
@@ -37,6 +39,7 @@ fn assert_parse_error(capability: Capability, bytes: &[u8], expected: DeviceErro
     }
 }
 
+#[cfg(feature = "legacy-normal-factor-fixture")]
 fn normal_factor(count: u16) -> Vec<u8> {
     let mut body = vec![0x11; 789];
     body[787..789].copy_from_slice(&count.to_le_bytes());
@@ -445,41 +448,58 @@ fn keypad_card_input_output_and_reply_bodies_are_exact() {
         DeviceError::ValueOutOfRange,
     );
 
-    for (kind, expected) in [
-        (MessageKind::CardReadProfile, CardRequestBody::ReadProfile),
-        (
+    let frame = encoded(
+        Capability::CardRequest,
+        MessageKind::CardReadProfile,
+        1,
+        &[],
+    );
+    assert!(matches!(
+        parse_frame(Capability::CardRequest, &frame)
+            .unwrap()
+            .parsed_body()
+            .unwrap(),
+        BodyRef::CardRequest(CardRequestBody::ReadProfile)
+    ));
+
+    #[cfg(feature = "legacy-normal-factor-fixture")]
+    {
+        let frame = encoded(
+            Capability::CardRequest,
             MessageKind::CardReadNormalFactor,
-            CardRequestBody::ReadNormalFactor,
-        ),
-    ] {
-        let frame = encoded(Capability::CardRequest, kind, 1, &[]);
+            1,
+            &[],
+        );
         assert!(matches!(
             parse_frame(Capability::CardRequest, &frame)
                 .unwrap()
                 .parsed_body()
                 .unwrap(),
-            BodyRef::CardRequest(actual) if actual == expected
+            BodyRef::CardRequest(CardRequestBody::ReadNormalFactor)
         ));
     }
 
-    let factor = normal_factor(2);
-    let frame = encoded(
-        Capability::CardResponse,
-        MessageKind::CardNormalFactor,
-        1,
-        &factor,
-    );
-    match parse_frame(Capability::CardResponse, &frame)
-        .unwrap()
-        .parsed_body()
-        .unwrap()
+    #[cfg(feature = "legacy-normal-factor-fixture")]
     {
-        BodyRef::CardResponse(CardResponseBody::NormalFactor(factor)) => {
-            assert_eq!(factor.signature_count(), 2);
-            assert_eq!(factor.signatures().len(), 2);
-            assert_eq!(factor.signatures().next().unwrap().input_index(), 0);
+        let factor = normal_factor(2);
+        let frame = encoded(
+            Capability::CardResponse,
+            MessageKind::CardNormalFactor,
+            1,
+            &factor,
+        );
+        match parse_frame(Capability::CardResponse, &frame)
+            .unwrap()
+            .parsed_body()
+            .unwrap()
+        {
+            BodyRef::CardResponse(CardResponseBody::NormalFactor(factor)) => {
+                assert_eq!(factor.signature_count(), 2);
+                assert_eq!(factor.signatures().len(), 2);
+                assert_eq!(factor.signatures().next().unwrap().input_index(), 0);
+            }
+            _ => panic!("wrong factor shape"),
         }
-        _ => panic!("wrong factor shape"),
     }
 
     let camera_begin = [1, 67, 0, 0, 0];
@@ -575,6 +595,7 @@ fn frame_body<'a>(capability: Capability, frame: &'a [u8]) -> BodyRef<'a> {
 }
 
 #[test]
+#[cfg(feature = "legacy-normal-factor-fixture")]
 fn factor_count_index_der_and_cap_errors_are_distinct() {
     let mut too_many = normal_factor(0);
     too_many[787..789].copy_from_slice(&101u16.to_le_bytes());
@@ -608,6 +629,29 @@ fn factor_count_index_der_and_cap_errors_are_distinct() {
         &raw_frame(3, 0x82, 1, &over_cap),
         DeviceError::BodyLengthExceeded,
     );
+}
+
+#[test]
+#[cfg(not(feature = "legacy-normal-factor-fixture"))]
+fn legacy_normal_factor_decoder_grammars_reject_by_name() {
+    for (capability, kind, body) in [
+        (
+            Capability::CardRequest,
+            MessageKind::CardReadNormalFactor,
+            &[][..],
+        ),
+        (
+            Capability::CardResponse,
+            MessageKind::CardNormalFactor,
+            &[0u8; 1][..],
+        ),
+    ] {
+        assert_parse_error(
+            capability,
+            &raw_frame(capability.wire_value(), kind.wire_value(), 1, body),
+            DeviceError::LegacyNormalFactorRejected,
+        );
+    }
 }
 
 #[test]

@@ -89,6 +89,7 @@ fn parser_precedence_and_closed_names_are_source_pinned() {
         "FinalFlagMismatch",
         "TransferIncomplete",
         "DeviceRejected",
+        "LegacyNormalFactorRejected",
     ] {
         assert!(LIB.contains(name));
     }

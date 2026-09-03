@@ -108,6 +108,7 @@ pub enum DeviceError {
     FilenameRejected,
     ArtifactMismatch,
     DeviceRejected,
+    LegacyNormalFactorRejected,
 }
 
 impl DeviceError {
@@ -156,6 +157,7 @@ impl DeviceError {
             Self::FilenameRejected => "FilenameRejected",
             Self::ArtifactMismatch => "ArtifactMismatch",
             Self::DeviceRejected => "DeviceRejected",
+            Self::LegacyNormalFactorRejected => "LegacyNormalFactorRejected",
         }
     }
 }
