@@ -368,6 +368,7 @@ expected_path_set() {
       'qk-a1|0.0.1' \
       'qk-bbqr|0.0.1' \
       'qk-bip32|0.0.1' \
+      'qk-card-protocol|0.0.1' \
       'qk-core|0.0.1' \
       'qk-descriptor|0.0.1' \
       'qk-device-wire|0.0.1' \
@@ -523,10 +524,10 @@ process-s2-decoy|process-s2-decoy|process-s2-decoy|decoy_raw_tmp|decoy_tmp|decoy
 process-s2-supervisor|process-s2-supervisor|process-s2-supervisor|supervisor_raw_tmp|supervisor_tmp|supervisor|supervisor|process-s2-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
 process-s8-supervisor|process-s8-supervisor|process-s8-supervisor|supervisor_s8_raw_tmp|supervisor_s8_tmp|exact|supervisor|process-s8-supervisor path dependency closure is not exactly qk-ipc and qk-supervisor 0.0.1
 process-s3-io|process-s3-io|process-s3-io|io_raw_tmp|io_tmp|exact|io|process-s3-io path dependency closure is not the exact four-crate qk-io closure
-process-s4-core|process-s4-core|process-s4-core|core_raw_tmp|core_tmp|exact|core|process-s4-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s5-core|process-s5-core|process-s5-core|core_s5_raw_tmp|core_s5_tmp|exact|core|process-s5-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s6-core|process-s6-core|process-s6-core|core_s6_raw_tmp|core_s6_tmp|exact|core|process-s6-core path dependency closure is not the exact twelve-crate qk-core closure
-process-s7-core|process-s7-core|process-s7-core|core_s7_raw_tmp|core_s7_tmp|exact|core|process-s7-core path dependency closure is not the exact twelve-crate qk-core closure
+process-s4-core|process-s4-core|process-s4-core|core_raw_tmp|core_tmp|exact|core|process-s4-core path dependency closure is not the exact thirteen-crate qk-core closure
+process-s5-core|process-s5-core|process-s5-core|core_s5_raw_tmp|core_s5_tmp|exact|core|process-s5-core path dependency closure is not the exact thirteen-crate qk-core closure
+process-s6-core|process-s6-core|process-s6-core|core_s6_raw_tmp|core_s6_tmp|exact|core|process-s6-core path dependency closure is not the exact thirteen-crate qk-core closure
+process-s7-core|process-s7-core|process-s7-core|core_s7_raw_tmp|core_s7_tmp|exact|core|process-s7-core path dependency closure is not the exact thirteen-crate qk-core closure
 process-s9-wire|process-s9-wire|process-s9-wire|process_s9_wire_raw_tmp|process_s9_wire_tmp|exact|wire|process-s9-wire path dependency closure is not exactly qk-device-wire
 process-s9-core|process-s9-core|process-s9-core|process_s9_core_raw_tmp|process_s9_core_tmp|exact|core_normal|process-s9-core path dependency closure is not the exact thirteen-crate qk-core normal-process closure
 card-s1-protocol|card-s1-protocol|card-s1-protocol|card_protocol_raw_tmp|card_protocol_tmp|exact|card_protocol|card-s1-protocol path dependency closure is not exactly qk-card-protocol
