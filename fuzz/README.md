@@ -198,9 +198,15 @@ absent from every product closure. The requalified core target parses
 the registered INFO, descriptor, A2, and signature response facts through
 `qk-card-protocol`, enters through one doc-hidden fuzz-only bound-card seam,
 and requires the default decoder to reject the retired NormalFactor kind.
-Campaign 029 remains planned until
-the final source is fixed; no card, device, process, socket, descriptor, or
-hardware action occurs in these pure targets.
+Campaign 029 completed at qualification source
+`8d2e4ff9443b7b050348c19b0df8229ede17ea9a`. Its two-copy-agreed fixed
+points are `qk_card_protocol` 96 files/5,257 bytes, `qk_card_model` 56
+files/45,446 bytes, `qk_device_wire` 324 files/19,738 bytes, and
+`qk_core_normal_process` 86 files/1,597 bytes. The card-slice-1 and
+re-rendered process-slice-9 manifests register those roots. The final replay
+covered all 52 registered roots and 7,834 executed units with zero failures
+and zero artifacts; no card, device, process, socket, descriptor, or hardware
+action occurred in these pure targets.
 
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
