@@ -8,5 +8,6 @@ description = "Dependency-free HOST reference for the bounded QuietKey Key Card 
 
 [features]
 fuzzing = []
+model-raw-apdu = []
 
 [dependencies]

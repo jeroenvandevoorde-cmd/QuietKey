@@ -3,7 +3,8 @@
 use crate::{crypto, wipe, EXTENDED_KEY_BYTES, MAX_DER_BYTES, RECORD_BYTES};
 use core::fmt;
 use qk_card_protocol::{
-    CommandRef, EnvelopeRef, Lifecycle as ModelLifecycle, Media, Mode as ModelMode, ProtocolError,
+    A2Purpose, DescriptorSelector, EnvelopeRef, Lifecycle as ModelLifecycle, Media,
+    Mode as ModelMode, ProtocolError, RawCommandRef,
 };
 
 const MAX_COMMANDS: u16 = qk_card_protocol::MAX_EXCHANGES;
@@ -282,7 +283,7 @@ impl CardModel {
         output: &mut [u8; qk_card_protocol::MAX_RESPONSE_BYTES],
     ) -> Result<usize, ProtocolError> {
         output.fill(0);
-        let command = match qk_card_protocol::parse_command(media, command_bytes) {
+        let command = match qk_card_protocol::parse_structural_command(media, command_bytes) {
             Ok(command) => command,
             Err(error) => {
                 self.deselect();
@@ -291,8 +292,8 @@ impl CardModel {
             }
         };
         let (accounted_request, accounting_overflow) = match command {
-            CommandRef::Select => (None, false),
-            CommandRef::OpenSession { .. } => (Some(command_bytes.len()), false),
+            RawCommandRef::Select => (None, false),
+            RawCommandRef::OpenSession { .. } => (Some(command_bytes.len()), false),
             _ => match self.session.as_ref() {
                 Some(session) => match session.aggregate_bytes.checked_add(command_bytes.len()) {
                     Some(value) => (Some(value), false),
@@ -487,6 +488,7 @@ impl CardModel {
         nonce: [u8; 12],
     ) -> Result<(), ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
         let mode = self.mode()?;
         if !matches!(mode, ModelMode::Setup | ModelMode::KitRestore) {
             return self.reject(ModelError::ModeOrOperationRejected);
@@ -522,6 +524,8 @@ impl CardModel {
         bytes: &[u8],
     ) -> Result<u16, ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
+        self.require_provisioning_mode()?;
         const STEPS: [(usize, usize); 5] =
             [(0, 192), (192, 192), (384, 192), (576, 192), (768, 13)];
         let (expected_offset, expected_len) = match &self.storage {
@@ -553,6 +557,8 @@ impl CardModel {
 
     pub fn abort(&mut self, id: &[u8; 16], sequence: u32) -> Result<(), ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
+        self.require_provisioning_mode()?;
         if !matches!(self.storage, Storage::Staging(_)) {
             return self.reject(ModelError::LifecycleRejected);
         }
@@ -565,6 +571,8 @@ impl CardModel {
 
     pub fn commit(&mut self, id: &[u8; 16], sequence: u32) -> Result<(), ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
+        self.require_provisioning_mode()?;
         let staging_complete = match &self.storage {
             Storage::Staging(staging) => staging.filled == RECORD_BYTES,
             _ => return self.reject(ModelError::LifecycleRejected),
@@ -638,6 +646,7 @@ impl CardModel {
         output: &mut [u8; 192],
     ) -> Result<usize, ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
         let step = self
             .session
             .as_ref()
@@ -681,6 +690,7 @@ impl CardModel {
         output: &mut [u8; 32],
     ) -> Result<(), ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
         let Some(session) = &self.session else {
             return self.reject(ModelError::SessionStateRejected);
         };
@@ -718,6 +728,7 @@ impl CardModel {
         digest: &[u8; 32],
     ) -> Result<SignReply, ModelError> {
         self.advance(id, sequence)?;
+        self.reject_retired_non_info()?;
         let Some(session) = &self.session else {
             return self.reject(ModelError::SessionStateRejected);
         };
@@ -835,6 +846,22 @@ impl CardModel {
             .ok_or(ModelError::SessionStateRejected)
     }
 
+    fn require_provisioning_mode(&mut self) -> Result<(), ModelError> {
+        if matches!(self.mode()?, ModelMode::Setup | ModelMode::KitRestore) {
+            Ok(())
+        } else {
+            self.reject(ModelError::ModeOrOperationRejected)
+        }
+    }
+
+    fn reject_retired_non_info(&mut self) -> Result<(), ModelError> {
+        if matches!(self.storage, Storage::RetiredError) {
+            self.reject(ModelError::LifecycleRejected)
+        } else {
+            Ok(())
+        }
+    }
+
     fn allowed_mask(&self) -> u16 {
         let Some(session) = &self.session else {
             return 0;
@@ -870,6 +897,36 @@ impl CardModel {
         session.next_sequence = session.next_sequence.saturating_add(1);
         session.command_count = session.command_count.saturating_add(1);
         Ok(())
+    }
+
+    fn precheck_open(&mut self) -> Result<(), ModelError> {
+        if !self.selected || self.session.is_some() {
+            self.reject(ModelError::SessionStateRejected)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn precheck_envelope(&mut self, envelope: EnvelopeRef<'_>) -> Result<(), ModelError> {
+        let error = match self.session.as_ref() {
+            None => Some(ModelError::SessionStateRejected),
+            Some(session) if session.command_count >= MAX_COMMANDS => {
+                Some(ModelError::SessionStateRejected)
+            }
+            Some(session) if &session.id != envelope.session_id() => {
+                Some(ModelError::SessionIdMismatch)
+            }
+            Some(session) if session.next_sequence != envelope.sequence() => {
+                Some(ModelError::SequenceRejected)
+            }
+            Some(_) if envelope.sequence() == u32::MAX => Some(ModelError::SessionStateRejected),
+            Some(_) => None,
+        };
+        if let Some(error) = error {
+            self.reject(error)
+        } else {
+            Ok(())
+        }
     }
 
     fn check_persistent_fault(&mut self) -> Result<(), ModelError> {
@@ -919,19 +976,25 @@ impl CardModel {
 
     fn execute_command(
         &mut self,
-        command: CommandRef<'_>,
+        command: RawCommandRef<'_>,
         output: &mut [u8; qk_card_protocol::MAX_RESPONSE_BYTES],
     ) -> Result<usize, ProtocolError> {
         match command {
-            CommandRef::Select => {
+            RawCommandRef::Select => {
                 self.select(true).map_err(protocol_error)?;
                 encode_success(None, &[], output)
             }
-            CommandRef::OpenSession { mode, session_id } => {
+            RawCommandRef::OpenSession { mode, session_id } => {
+                self.precheck_open().map_err(protocol_error)?;
+                let mode = ModelMode::from_byte(mode)
+                    .ok_or(ModelError::ModeOrOperationRejected)
+                    .or_else(|error| self.reject(error))
+                    .map_err(protocol_error)?;
                 self.open(1, mode, *session_id).map_err(protocol_error)?;
                 encode_success(Some(EnvelopeRef::new(session_id, 0)), &[], output)
             }
-            CommandRef::GetInfo { envelope } => {
+            RawCommandRef::GetInfo { envelope } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 let info = self
                     .info(envelope.session_id(), envelope.sequence())
                     .map_err(protocol_error)?;
@@ -949,42 +1012,48 @@ impl CardModel {
                     .copy_from_slice(&info.allowed_operations.to_be_bytes());
                 encode_success(Some(envelope), tail.as_slice(), output)
             }
-            CommandRef::ReadDChunk {
+            RawCommandRef::ReadDChunk {
                 envelope,
                 selector,
                 offset,
             } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 let mut descriptor = wipe::WipingArray::<192>::zeroed();
                 let len = self
                     .read_descriptor(
                         envelope.session_id(),
                         envelope.sequence(),
-                        selector.byte(),
+                        selector,
                         offset,
                         descriptor.as_mut_array(),
                     )
                     .map_err(protocol_error)?;
+                let selector = DescriptorSelector::from_byte(selector)
+                    .ok_or(ProtocolError::InternalIntegrityFailure)?;
                 let mut tail = wipe::WipingArray::<195>::zeroed();
                 tail.as_mut_slice()[0] = selector.byte();
                 tail.as_mut_slice()[1..3].copy_from_slice(&offset.to_be_bytes());
                 tail.as_mut_slice()[3..3 + len].copy_from_slice(&descriptor.as_slice()[..len]);
                 encode_success(Some(envelope), &tail.as_slice()[..3 + len], output)
             }
-            CommandRef::ExportA2 { envelope, purpose } => {
+            RawCommandRef::ExportA2 { envelope, purpose } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 let mut a2 = wipe::WipingArray::<32>::zeroed();
                 self.export_a2(
                     envelope.session_id(),
                     envelope.sequence(),
-                    purpose.byte(),
+                    purpose,
                     a2.as_mut_array(),
                 )
                 .map_err(protocol_error)?;
+                let purpose =
+                    A2Purpose::from_byte(purpose).ok_or(ProtocolError::InternalIntegrityFailure)?;
                 let mut tail = wipe::WipingArray::<33>::zeroed();
                 tail.as_mut_slice()[0] = purpose.byte();
                 tail.as_mut_slice()[1..].copy_from_slice(a2.as_slice());
                 encode_success(Some(envelope), tail.as_slice(), output)
             }
-            CommandRef::SignDigest {
+            RawCommandRef::SignDigest {
                 envelope,
                 wallet_id,
                 review_hash,
@@ -993,6 +1062,7 @@ impl CardModel {
                 child_index,
                 digest,
             } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 let reply = self
                     .sign_digest(
                         envelope.session_id(),
@@ -1014,11 +1084,12 @@ impl CardModel {
                 tail.as_mut_slice()[70..end].copy_from_slice(reply.der());
                 encode_success(Some(envelope), &tail.as_slice()[..end], output)
             }
-            CommandRef::BeginProvision {
+            RawCommandRef::BeginProvision {
                 envelope,
                 ordinal,
                 provisioning_nonce,
             } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 self.begin_provision(
                     envelope.session_id(),
                     envelope.sequence(),
@@ -1028,22 +1099,25 @@ impl CardModel {
                 .map_err(protocol_error)?;
                 encode_success(Some(envelope), &[], output)
             }
-            CommandRef::WriteChunk {
+            RawCommandRef::WriteChunk {
                 envelope,
                 offset,
                 bytes,
             } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 let next = self
                     .write_chunk(envelope.session_id(), envelope.sequence(), offset, bytes)
                     .map_err(protocol_error)?;
                 encode_success(Some(envelope), &next.to_be_bytes(), output)
             }
-            CommandRef::Commit { envelope } => {
+            RawCommandRef::Commit { envelope } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 self.commit(envelope.session_id(), envelope.sequence())
                     .map_err(protocol_error)?;
                 encode_success(Some(envelope), &[], output)
             }
-            CommandRef::Abort { envelope } => {
+            RawCommandRef::Abort { envelope } => {
+                self.precheck_envelope(envelope).map_err(protocol_error)?;
                 self.abort(envelope.session_id(), envelope.sequence())
                     .map_err(protocol_error)?;
                 encode_success(Some(envelope), &[], output)
@@ -1081,20 +1155,23 @@ fn encode_success(
         .map_err(|_| ProtocolError::InternalIntegrityFailure)
 }
 
-fn fixed_success_response_bytes(command: &CommandRef<'_>) -> Option<usize> {
+fn fixed_success_response_bytes(command: &RawCommandRef<'_>) -> Option<usize> {
     match command {
-        CommandRef::Select => None,
-        CommandRef::OpenSession { .. }
-        | CommandRef::BeginProvision { .. }
-        | CommandRef::Commit { .. }
-        | CommandRef::Abort { .. } => Some(ENVELOPED_RESPONSE_BYTES),
-        CommandRef::GetInfo { .. } => Some(ENVELOPED_RESPONSE_BYTES + 137),
-        CommandRef::ReadDChunk { offset, .. } => {
-            let descriptor_bytes = if *offset == 0 { 192 } else { 114 };
+        RawCommandRef::Select => None,
+        RawCommandRef::OpenSession { .. }
+        | RawCommandRef::BeginProvision { .. }
+        | RawCommandRef::Commit { .. }
+        | RawCommandRef::Abort { .. } => Some(ENVELOPED_RESPONSE_BYTES),
+        RawCommandRef::GetInfo { .. } => Some(ENVELOPED_RESPONSE_BYTES + 137),
+        RawCommandRef::ReadDChunk { offset, .. } => {
+            let descriptor_bytes = match *offset {
+                192 => 114,
+                _ => 192,
+            };
             Some(ENVELOPED_RESPONSE_BYTES + 3 + descriptor_bytes)
         }
-        CommandRef::ExportA2 { .. } => Some(ENVELOPED_RESPONSE_BYTES + 33),
-        CommandRef::SignDigest { .. } => None,
-        CommandRef::WriteChunk { .. } => Some(ENVELOPED_RESPONSE_BYTES + 2),
+        RawCommandRef::ExportA2 { .. } => Some(ENVELOPED_RESPONSE_BYTES + 33),
+        RawCommandRef::SignDigest { .. } => Some(ENVELOPED_RESPONSE_BYTES + 70 + MAX_DER_BYTES),
+        RawCommandRef::WriteChunk { .. } => Some(ENVELOPED_RESPONSE_BYTES + 2),
     }
 }

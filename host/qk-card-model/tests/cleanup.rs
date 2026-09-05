@@ -4,6 +4,8 @@
 const FIXTURE: &str = include_str!("../../qk-card-protocol/tests/fixtures/card_protocol_v1.txt");
 #[cfg(feature = "fuzzing")]
 const FIXTURE_NONCE: [u8; 12] = *b"QKV2S4NONCE1";
+#[cfg(feature = "fuzzing")]
+static WIPE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(feature = "fuzzing")]
 fn fixture_record(profile: qk_card_model::ModelProfile) -> [u8; qk_card_model::RECORD_BYTES] {
@@ -29,6 +31,7 @@ fn fixture_record(profile: qk_card_model::ModelProfile) -> [u8; qk_card_model::R
 #[test]
 fn staging_and_session_owners_are_wiped_on_abort() {
     use qk_card_model::{CardModel, ModelMode, ModelProfile};
+    let _guard = WIPE_TEST_LOCK.lock().expect("wipe test lock");
     let id = [0x31; 16];
     let nonce = FIXTURE_NONCE;
     let record = fixture_record(ModelProfile::SimpleRecovery);
@@ -92,6 +95,145 @@ fn aggregate_cap_is_accepted_exactly_and_rejected_one_byte_over() {
 
 #[cfg(feature = "fuzzing")]
 #[test]
+fn signature_response_cap_precedes_later_semantic_rejections() {
+    use qk_card_model::{CardModel, ModelMode, ModelProfile, RESPONSE_BYTES};
+    use qk_card_protocol::{
+        encode_open_session, encode_read_d_chunk, encode_select, encode_sign_digest,
+        DescriptorSelector, EnvelopeRef, Media, Mode, ProtocolError, SignRequest,
+        MAX_AGGREGATE_BYTES,
+    };
+    const SETUP: [u8; 16] = [0x73; 16];
+    const NORMAL: [u8; 16] = [0x74; 16];
+    let record = fixture_record(ModelProfile::SimpleRecovery);
+    fn opened(record: &[u8; qk_card_model::RECORD_BYTES], mode: Mode) -> CardModel {
+        let mut model = CardModel::new();
+        model.select(true).expect("select");
+        model.open(1, ModelMode::Setup, SETUP).expect("open");
+        model
+            .begin_provision(&SETUP, 1, 1, FIXTURE_NONCE)
+            .expect("begin");
+        for (index, (offset, width)) in [(0, 192), (192, 192), (384, 192), (576, 192), (768, 13)]
+            .into_iter()
+            .enumerate()
+        {
+            model
+                .write_chunk(
+                    &SETUP,
+                    2 + index as u32,
+                    offset as u16,
+                    &record[offset..offset + width],
+                )
+                .expect("write");
+        }
+        model.commit(&SETUP, 7).expect("commit");
+        let mut request = [0u8; 221];
+        let mut response = [0u8; RESPONSE_BYTES];
+        let len = encode_select(&mut request).expect("select");
+        model
+            .process_apdu(Media::ContactT1, &request[..len], &mut response)
+            .expect("select");
+        let len = encode_open_session(mode, &NORMAL, &mut request).expect("open");
+        model
+            .process_apdu(Media::ContactT1, &request[..len], &mut response)
+            .expect("open");
+        model
+    }
+
+    let wallet_id: [u8; 32] = record[23..55].try_into().expect("wallet id");
+    let mut valid = [0u8; 221];
+    let len = encode_sign_digest(
+        EnvelopeRef::new(&NORMAL, 1),
+        SignRequest {
+            wallet_id: &wallet_id,
+            review_hash: &[0x75; 32],
+            input_index: 0,
+            branch: 0,
+            child_index: 0,
+            digest: &[0x76; 32],
+        },
+        &mut valid,
+    )
+    .expect("sign request");
+    assert_eq!(len, 132);
+    const MAXIMUM_RESPONSE_BYTES: usize = 165;
+    for mut invalid in [
+        {
+            let mut bytes = valid;
+            bytes[26] ^= 1;
+            bytes
+        },
+        {
+            let mut bytes = valid;
+            bytes[94] = 2;
+            bytes[95..99].copy_from_slice(&65_536u32.to_be_bytes());
+            bytes
+        },
+    ] {
+        let mut model = opened(&record, Mode::Normal);
+        let mut response = [0u8; RESPONSE_BYTES];
+        model.set_aggregate_bytes_for_test(MAX_AGGREGATE_BYTES - len - MAXIMUM_RESPONSE_BYTES + 1);
+        assert_eq!(
+            model.process_apdu(Media::ContactT1, &invalid[..len], &mut response),
+            Err(ProtocolError::SessionStateRejected)
+        );
+        assert_eq!(&response[..2], &[0x6f, 0x03]);
+        assert!(response[2..].iter().all(|byte| *byte == 0));
+        invalid.fill(0);
+    }
+
+    let mut exact = opened(&record, Mode::Normal);
+    let mut response = [0u8; RESPONSE_BYTES];
+    exact.set_aggregate_bytes_for_test(MAX_AGGREGATE_BYTES - len - MAXIMUM_RESPONSE_BYTES);
+    assert!(exact
+        .process_apdu(Media::ContactT1, &valid[..len], &mut response)
+        .is_ok());
+
+    let mut invalid_read = [0u8; 221];
+    let read_len = encode_read_d_chunk(
+        EnvelopeRef::new(&NORMAL, 1),
+        DescriptorSelector::Receive,
+        0,
+        &mut invalid_read,
+    )
+    .expect("read request");
+    invalid_read[27..29].copy_from_slice(&1u16.to_be_bytes());
+    let mut invalid_offset = opened(&record, Mode::Setup);
+    let mut response = [0u8; RESPONSE_BYTES];
+    invalid_offset.set_aggregate_bytes_for_test(MAX_AGGREGATE_BYTES - read_len - 218 + 1);
+    assert_eq!(
+        invalid_offset.process_apdu(Media::ContactT1, &invalid_read[..read_len], &mut response,),
+        Err(ProtocolError::SessionStateRejected)
+    );
+    assert_eq!(&response[..2], &[0x6f, 0x03]);
+
+    let mut final_chunk = opened(&record, Mode::Setup);
+    let mut request = [0u8; 221];
+    let first_len = encode_read_d_chunk(
+        EnvelopeRef::new(&NORMAL, 1),
+        DescriptorSelector::Receive,
+        0,
+        &mut request,
+    )
+    .expect("first read");
+    final_chunk
+        .process_apdu(Media::ContactT1, &request[..first_len], &mut response)
+        .expect("first read response");
+    let final_len = encode_read_d_chunk(
+        EnvelopeRef::new(&NORMAL, 2),
+        DescriptorSelector::Receive,
+        192,
+        &mut request,
+    )
+    .expect("final read");
+    final_chunk.set_aggregate_bytes_for_test(MAX_AGGREGATE_BYTES - final_len - 140);
+    assert_eq!(
+        final_chunk.process_apdu(Media::ContactT1, &request[..final_len], &mut response),
+        Ok(140)
+    );
+}
+
+#[cfg(feature = "fuzzing")]
+#[test]
 fn caught_unwind_wipes_volatile_session_and_response() {
     use qk_card_model::{CardModel, FaultPoint, RESPONSE_BYTES};
     use qk_card_protocol::{
@@ -99,6 +241,7 @@ fn caught_unwind_wipes_volatile_session_and_response() {
         ProtocolError,
     };
     const SESSION: [u8; 16] = [0x81; 16];
+    let _guard = WIPE_TEST_LOCK.lock().expect("wipe test lock");
     let mut model = CardModel::new();
     let mut request = [0u8; 221];
     let mut response = [0xa5u8; RESPONSE_BYTES];
@@ -229,6 +372,7 @@ fn interior_crypto_unwind_wipes_all_scratch_and_session_state() {
         ProtocolError, SignRequest,
     };
     const SETUP: [u8; 16] = [0xa1; 16];
+    let _guard = WIPE_TEST_LOCK.lock().expect("wipe test lock");
     const NORMAL: [u8; 16] = [0xa2; 16];
     const NONCE: [u8; 12] = FIXTURE_NONCE;
     let record = fixture_record(ModelProfile::SimpleRecovery);

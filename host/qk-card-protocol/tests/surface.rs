@@ -30,6 +30,7 @@ fn public_root_surface_is_exact() {
         public_lines,
         [
             "pub use apdu::{",
+            "pub use apdu::{parse_structural_command, RawCommandRef};",
             "pub use record::{",
             "pub use session::{allowed_operations, Lifecycle, SessionTracker};",
             "pub use wipe::{reset_wiped_bytes, wiped_bytes};",
@@ -53,6 +54,9 @@ fn public_root_surface_is_exact() {
     );
     assert!(!LIB.contains("pub mod "));
     assert!(LIB.contains("#[cfg(feature = \"fuzzing\")]\n#[doc(hidden)]\npub use wipe"));
+    assert!(LIB.contains(
+        "#[cfg(feature = \"model-raw-apdu\")]\n#[doc(hidden)]\npub use apdu::{parse_structural_command, RawCommandRef};"
+    ));
 }
 
 #[test]
@@ -88,6 +92,7 @@ fn source_has_no_io_persistence_crypto_or_allocation_surface() {
     for secret_view in [
         "pub struct EnvelopeRef<'a>",
         "pub enum CommandRef<'a>",
+        "pub enum RawCommandRef<'a>",
         "pub enum ResponseRef<'a>",
         "pub struct SignRequest<'a>",
     ] {
@@ -107,6 +112,7 @@ fn source_has_no_io_persistence_crypto_or_allocation_surface() {
     for redacted in [
         "EnvelopeRef(REDACTED)",
         "CommandRef(REDACTED)",
+        "RawCommandRef(REDACTED)",
         "ResponseRef(REDACTED)",
         "SignRequest(REDACTED)",
     ] {

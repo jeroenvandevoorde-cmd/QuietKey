@@ -563,6 +563,63 @@ impl fmt::Debug for CommandRef<'_> {
     }
 }
 
+/// Structurally valid APDU whose semantic fields remain unclassified.
+///
+/// This is a test-model seam. Product callers use [`parse_command`], which
+/// additionally applies the stateless semantic checks.
+#[doc(hidden)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum RawCommandRef<'a> {
+    Select,
+    OpenSession {
+        mode: u8,
+        session_id: &'a [u8; 16],
+    },
+    GetInfo {
+        envelope: EnvelopeRef<'a>,
+    },
+    ReadDChunk {
+        envelope: EnvelopeRef<'a>,
+        selector: u8,
+        offset: u16,
+    },
+    ExportA2 {
+        envelope: EnvelopeRef<'a>,
+        purpose: u8,
+    },
+    SignDigest {
+        envelope: EnvelopeRef<'a>,
+        wallet_id: &'a [u8; 32],
+        review_hash: &'a [u8; 32],
+        input_index: u32,
+        branch: u8,
+        child_index: u32,
+        digest: &'a [u8; 32],
+    },
+    BeginProvision {
+        envelope: EnvelopeRef<'a>,
+        ordinal: u8,
+        provisioning_nonce: &'a [u8; 12],
+    },
+    WriteChunk {
+        envelope: EnvelopeRef<'a>,
+        offset: u16,
+        bytes: &'a [u8],
+    },
+    Commit {
+        envelope: EnvelopeRef<'a>,
+    },
+    Abort {
+        envelope: EnvelopeRef<'a>,
+    },
+}
+
+impl fmt::Debug for RawCommandRef<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RawCommandRef(REDACTED)")
+    }
+}
+
 /// Allocation-free typed view of an accepted response.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum ResponseRef<'a> {
@@ -653,11 +710,136 @@ impl<'a> CommandRef<'a> {
     }
 }
 
+impl<'a> RawCommandRef<'a> {
+    #[cfg(feature = "model-raw-apdu")]
+    pub const fn instruction(self) -> Instruction {
+        match self {
+            Self::Select => Instruction::Select,
+            Self::OpenSession { .. } => Instruction::OpenSession,
+            Self::GetInfo { .. } => Instruction::GetInfo,
+            Self::ReadDChunk { .. } => Instruction::ReadDChunk,
+            Self::ExportA2 { .. } => Instruction::ExportA2,
+            Self::SignDigest { .. } => Instruction::SignDigest,
+            Self::BeginProvision { .. } => Instruction::BeginProvision,
+            Self::WriteChunk { .. } => Instruction::WriteChunk,
+            Self::Commit { .. } => Instruction::Commit,
+            Self::Abort { .. } => Instruction::Abort,
+        }
+    }
+
+    pub const fn envelope(self) -> Option<EnvelopeRef<'a>> {
+        match self {
+            Self::Select | Self::OpenSession { .. } => None,
+            Self::GetInfo { envelope }
+            | Self::ReadDChunk { envelope, .. }
+            | Self::ExportA2 { envelope, .. }
+            | Self::SignDigest { envelope, .. }
+            | Self::BeginProvision { envelope, .. }
+            | Self::WriteChunk { envelope, .. }
+            | Self::Commit { envelope }
+            | Self::Abort { envelope } => Some(envelope),
+        }
+    }
+
+    fn validate_semantics(self) -> Result<CommandRef<'a>, ProtocolError> {
+        if self
+            .envelope()
+            .is_some_and(|envelope| envelope.sequence() == 0)
+        {
+            return Err(ProtocolError::SequenceRejected);
+        }
+        match self {
+            Self::Select => Ok(CommandRef::Select),
+            Self::OpenSession { mode, session_id } => Ok(CommandRef::OpenSession {
+                mode: Mode::from_byte(mode).ok_or(ProtocolError::ModeOrOperationRejected)?,
+                session_id,
+            }),
+            Self::GetInfo { envelope } => Ok(CommandRef::GetInfo { envelope }),
+            Self::ReadDChunk {
+                envelope,
+                selector,
+                offset,
+            } => {
+                let selector = DescriptorSelector::from_byte(selector)
+                    .ok_or(ProtocolError::ModeOrOperationRejected)?;
+                if !matches!(offset, 0 | 192) {
+                    return Err(ProtocolError::ModeOrOperationRejected);
+                }
+                Ok(CommandRef::ReadDChunk {
+                    envelope,
+                    selector,
+                    offset,
+                })
+            }
+            Self::ExportA2 { envelope, purpose } => Ok(CommandRef::ExportA2 {
+                envelope,
+                purpose: A2Purpose::from_byte(purpose)
+                    .ok_or(ProtocolError::ModeOrOperationRejected)?,
+            }),
+            Self::SignDigest {
+                envelope,
+                wallet_id,
+                review_hash,
+                input_index,
+                branch,
+                child_index,
+                digest,
+            } => {
+                if branch > 1 || child_index > MAX_CHILD_INDEX {
+                    return Err(ProtocolError::DerivationPathRejected);
+                }
+                Ok(CommandRef::SignDigest {
+                    envelope,
+                    wallet_id,
+                    review_hash,
+                    input_index,
+                    branch,
+                    child_index,
+                    digest,
+                })
+            }
+            Self::BeginProvision {
+                envelope,
+                ordinal,
+                provisioning_nonce,
+            } => {
+                if !matches!(ordinal, 1..=3) {
+                    return Err(ProtocolError::ProvisioningOrderRejected);
+                }
+                Ok(CommandRef::BeginProvision {
+                    envelope,
+                    ordinal,
+                    provisioning_nonce,
+                })
+            }
+            Self::WriteChunk {
+                envelope,
+                offset,
+                bytes,
+            } => {
+                if !matches!(
+                    (offset, bytes.len()),
+                    (0 | 192 | 384 | 576, MAX_WRITE_CHUNK_BYTES) | (768, 13)
+                ) {
+                    return Err(ProtocolError::ProvisioningOrderRejected);
+                }
+                Ok(CommandRef::WriteChunk {
+                    envelope,
+                    offset,
+                    bytes,
+                })
+            }
+            Self::Commit { envelope } => Ok(CommandRef::Commit { envelope }),
+            Self::Abort { envelope } => Ok(CommandRef::Abort { envelope }),
+        }
+    }
+}
+
 fn array_ref<const N: usize>(bytes: &[u8]) -> Result<&[u8; N], ProtocolError> {
     bytes.try_into().map_err(|_| ProtocolError::WrongLength)
 }
 
-fn parse_envelope(data: &[u8]) -> Result<(EnvelopeRef<'_>, &[u8]), ProtocolError> {
+fn parse_structural_envelope(data: &[u8]) -> Result<(EnvelopeRef<'_>, &[u8]), ProtocolError> {
     if data.len() < ENVELOPE_BYTES {
         return Err(ProtocolError::WrongLength);
     }
@@ -666,9 +848,6 @@ fn parse_envelope(data: &[u8]) -> Result<(EnvelopeRef<'_>, &[u8]), ProtocolError
     }
     let session_id = array_ref(&data[1..17])?;
     let sequence = u32::from_be_bytes(array_ref::<4>(&data[17..21])?.to_owned());
-    if sequence == 0 {
-        return Err(ProtocolError::SequenceRejected);
-    }
     Ok((EnvelopeRef::new(session_id, sequence), &data[21..]))
 }
 
@@ -945,8 +1124,15 @@ fn parse_case4(command: &[u8]) -> Result<&[u8], ProtocolError> {
     Ok(&command[5..5 + body_length])
 }
 
-/// Parse one hostile APDU according to the ratified rejection precedence.
-pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, ProtocolError> {
+/// Parse one hostile APDU through the structural rejection layers only.
+///
+/// Semantic fields intentionally remain raw so the stateful HOST model can
+/// apply session, identity and sequence checks before later semantic checks.
+#[doc(hidden)]
+pub fn parse_structural_command(
+    media: Media,
+    command: &[u8],
+) -> Result<RawCommandRef<'_>, ProtocolError> {
     if media != Media::ContactT1 {
         return Err(ProtocolError::ContactInterfaceRequired);
     }
@@ -983,7 +1169,7 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
         if data != APPLET_AID {
             return Err(ProtocolError::ModeOrOperationRejected);
         }
-        return Ok(CommandRef::Select);
+        return Ok(RawCommandRef::Select);
     }
 
     match instruction {
@@ -994,9 +1180,8 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
             if data[0] != PROTOCOL_VERSION {
                 return Err(ProtocolError::ProtocolVersionMismatch);
             }
-            let mode = Mode::from_byte(data[1]).ok_or(ProtocolError::ModeOrOperationRejected)?;
-            Ok(CommandRef::OpenSession {
-                mode,
+            Ok(RawCommandRef::OpenSession {
+                mode: data[1],
                 session_id: array_ref(&data[2..18])?,
             })
         }
@@ -1004,25 +1189,20 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
             if data.len() != ENVELOPE_BYTES {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert!(tail.is_empty());
-            Ok(CommandRef::GetInfo { envelope })
+            Ok(RawCommandRef::GetInfo { envelope })
         }
         Instruction::ReadDChunk => {
             if data.len() != ENVELOPE_BYTES + 3 {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert_eq!(tail.len(), 3);
-            let selector = DescriptorSelector::from_byte(tail[0])
-                .ok_or(ProtocolError::ModeOrOperationRejected)?;
             let offset = u16::from_be_bytes(array_ref::<2>(&tail[1..3])?.to_owned());
-            if !matches!(offset, 0 | 192) {
-                return Err(ProtocolError::ModeOrOperationRejected);
-            }
-            Ok(CommandRef::ReadDChunk {
+            Ok(RawCommandRef::ReadDChunk {
                 envelope,
-                selector,
+                selector: tail[0],
                 offset,
             })
         }
@@ -1030,24 +1210,22 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
             if data.len() != ENVELOPE_BYTES + 1 {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert_eq!(tail.len(), 1);
-            let purpose =
-                A2Purpose::from_byte(tail[0]).ok_or(ProtocolError::ModeOrOperationRejected)?;
-            Ok(CommandRef::ExportA2 { envelope, purpose })
+            Ok(RawCommandRef::ExportA2 {
+                envelope,
+                purpose: tail[0],
+            })
         }
         Instruction::SignDigest => {
             if data.len() != ENVELOPE_BYTES + 105 {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert_eq!(tail.len(), 105);
             let branch = tail[68];
             let child_index = u32::from_be_bytes(array_ref::<4>(&tail[69..73])?.to_owned());
-            if branch > 1 || child_index > MAX_CHILD_INDEX {
-                return Err(ProtocolError::DerivationPathRejected);
-            }
-            Ok(CommandRef::SignDigest {
+            Ok(RawCommandRef::SignDigest {
                 envelope,
                 wallet_id: array_ref(&tail[0..32])?,
                 review_hash: array_ref(&tail[32..64])?,
@@ -1061,12 +1239,9 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
             if data.len() != ENVELOPE_BYTES + 13 {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert_eq!(tail.len(), 13);
-            if !matches!(tail[0], 1..=3) {
-                return Err(ProtocolError::ProvisioningOrderRejected);
-            }
-            Ok(CommandRef::BeginProvision {
+            Ok(RawCommandRef::BeginProvision {
                 envelope,
                 ordinal: tail[0],
                 provisioning_nonce: array_ref(&tail[1..13])?,
@@ -1076,17 +1251,11 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
             if !matches!(data.len(), 36 | 215) {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert!(matches!(tail.len(), 15 | 194));
             let offset = u16::from_be_bytes(array_ref::<2>(&tail[0..2])?.to_owned());
             let bytes = &tail[2..];
-            if !matches!(
-                (offset, bytes.len()),
-                (0 | 192 | 384 | 576, MAX_WRITE_CHUNK_BYTES) | (768, 13)
-            ) {
-                return Err(ProtocolError::ProvisioningOrderRejected);
-            }
-            Ok(CommandRef::WriteChunk {
+            Ok(RawCommandRef::WriteChunk {
                 envelope,
                 offset,
                 bytes,
@@ -1096,20 +1265,25 @@ pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, Pro
             if data.len() != ENVELOPE_BYTES {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert!(tail.is_empty());
-            Ok(CommandRef::Commit { envelope })
+            Ok(RawCommandRef::Commit { envelope })
         }
         Instruction::Abort => {
             if data.len() != ENVELOPE_BYTES {
                 return Err(ProtocolError::WrongLength);
             }
-            let (envelope, tail) = parse_envelope(data)?;
+            let (envelope, tail) = parse_structural_envelope(data)?;
             debug_assert!(tail.is_empty());
-            Ok(CommandRef::Abort { envelope })
+            Ok(RawCommandRef::Abort { envelope })
         }
         Instruction::Select => unreachable!("SELECT returned before proprietary dispatch"),
     }
+}
+
+/// Parse one hostile APDU according to the ratified stateless semantics.
+pub fn parse_command(media: Media, command: &[u8]) -> Result<CommandRef<'_>, ProtocolError> {
+    parse_structural_command(media, command)?.validate_semantics()
 }
 
 fn encode_case4(

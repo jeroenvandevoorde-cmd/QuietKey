@@ -20,6 +20,9 @@ pub use apdu::{
     Instruction, Media, Mode, Profile, ProtocolError, ResponseError, ResponseRef, SignRequest,
     StatusWord,
 };
+#[cfg(feature = "model-raw-apdu")]
+#[doc(hidden)]
+pub use apdu::{parse_structural_command, RawCommandRef};
 pub use record::{
     parse_record, RecordError, RecordRef, XprvRef, RECORD_A2_OFFSET, RECORD_CHANGE_D_OFFSET,
     RECORD_INSTANCE_ID_OFFSET, RECORD_MAGIC_OFFSET, RECORD_ORIGIN_FINGERPRINT_OFFSET,

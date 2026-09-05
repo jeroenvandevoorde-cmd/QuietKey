@@ -3,6 +3,11 @@
 use qk_card_model::{
     CardModel, FaultPoint, ModelError, ModelLifecycle, ModelMode, ModelProfile, RECORD_BYTES,
 };
+use qk_card_protocol::{
+    encode_abort, encode_begin_provision, encode_commit, encode_export_a2, encode_open_session,
+    encode_read_d_chunk, encode_sign_digest, encode_write_chunk, A2Purpose, DescriptorSelector,
+    EnvelopeRef, Media, ProtocolError, SignRequest, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
+};
 
 const FIXTURE: &str = include_str!("../../qk-card-protocol/tests/fixtures/card_protocol_v1.txt");
 const NONCE: [u8; 12] = *b"QKV2S4NONCE1";
@@ -91,6 +96,118 @@ fn commit_result(record: &[u8; RECORD_BYTES]) -> Result<(), ModelError> {
         .expect("begin");
     write_complete_record(&mut model, record);
     model.commit(&SETUP_ID, 7)
+}
+
+fn encoded_open() -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_open_session(ModelMode::Setup, &SETUP_ID, &mut output).expect("OPEN");
+    output[..length].to_vec()
+}
+
+fn encoded_read(id: &'static [u8; 16], sequence: u32) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_read_d_chunk(
+        EnvelopeRef::new(id, sequence),
+        DescriptorSelector::Receive,
+        0,
+        &mut output,
+    )
+    .expect("READ_D");
+    output[..length].to_vec()
+}
+
+fn encoded_a2(id: &'static [u8; 16], sequence: u32) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_export_a2(
+        EnvelopeRef::new(id, sequence),
+        A2Purpose::Setup,
+        &mut output,
+    )
+    .expect("EXPORT_A2");
+    output[..length].to_vec()
+}
+
+fn encoded_sign(id: &'static [u8; 16], sequence: u32, wallet: &[u8; 32]) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_sign_digest(
+        EnvelopeRef::new(id, sequence),
+        SignRequest {
+            wallet_id: wallet,
+            review_hash: &[0x58; 32],
+            input_index: 0,
+            branch: 0,
+            child_index: 0,
+            digest: &[0x59; 32],
+        },
+        &mut output,
+    )
+    .expect("SIGN");
+    output[..length].to_vec()
+}
+
+fn encoded_begin(id: &'static [u8; 16], sequence: u32) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_begin_provision(EnvelopeRef::new(id, sequence), 1, &NONCE, &mut output)
+        .expect("BEGIN");
+    output[..length].to_vec()
+}
+
+fn encoded_write(id: &'static [u8; 16], sequence: u32) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_write_chunk(EnvelopeRef::new(id, sequence), 0, &[0x5a; 192], &mut output)
+        .expect("WRITE");
+    output[..length].to_vec()
+}
+
+fn encoded_commit(id: &'static [u8; 16], sequence: u32) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_commit(EnvelopeRef::new(id, sequence), &mut output).expect("COMMIT");
+    output[..length].to_vec()
+}
+
+fn encoded_abort(id: &'static [u8; 16], sequence: u32) -> Vec<u8> {
+    let mut output = [0u8; MAX_REQUEST_BYTES];
+    let length = encode_abort(EnvelopeRef::new(id, sequence), &mut output).expect("ABORT");
+    output[..length].to_vec()
+}
+
+fn assert_apdu_rejection(model: &mut CardModel, command: &[u8], expected: ProtocolError) {
+    let mut response = [0xa5; MAX_RESPONSE_BYTES];
+    assert_eq!(
+        model.process_apdu(Media::ContactT1, command, &mut response),
+        Err(expected)
+    );
+    assert_eq!(&response[..2], &expected.status_word().bytes());
+    assert!(response[2..].iter().all(|byte| *byte == 0));
+}
+
+fn open_unprovisioned(mode: ModelMode) -> CardModel {
+    let mut model = CardModel::new();
+    model.select(true).expect("select");
+    model.open(1, mode, SETUP_ID).expect("open");
+    model
+}
+
+fn open_committed(mode: ModelMode) -> CardModel {
+    let mut model = CardModel::new();
+    let _ = provision(&mut model);
+    model.select(true).expect("select");
+    model.open(1, mode, SETUP_ID).expect("open");
+    model
+}
+
+fn open_retired(mode: ModelMode) -> CardModel {
+    let mut model = CardModel::new();
+    let _ = provision(&mut model);
+    model.inject_fault(FaultPoint::CorruptCommittedDigest);
+    model.select(true).expect("select");
+    assert_eq!(
+        model.open(1, ModelMode::Normal, NORMAL_ID),
+        Err(ModelError::InternalIntegrityFailure)
+    );
+    model.select(true).expect("retired select");
+    model.open(1, mode, SETUP_ID).expect("retired open");
+    model
 }
 
 #[test]
@@ -421,7 +538,7 @@ fn session_identity_sequence_version_and_command_cap_are_exact() {
 }
 
 #[test]
-fn retired_error_allows_info_and_obeys_mode_before_lifecycle_precedence() {
+fn retired_error_allows_only_info_and_lifecycle_precedes_all_other_semantics() {
     let mut model = CardModel::new();
     let _ = provision(&mut model);
     model.inject_fault(FaultPoint::CorruptCommittedDigest);
@@ -438,7 +555,7 @@ fn retired_error_allows_info_and_obeys_mode_before_lifecycle_precedence() {
     let mut descriptor = [0u8; 192];
     assert_eq!(
         model.read_descriptor(&NORMAL_ID, 1, 9, 999, &mut descriptor),
-        Err(ModelError::ModeOrOperationRejected)
+        Err(ModelError::LifecycleRejected)
     );
     model.select(true).expect("select");
     model
@@ -446,7 +563,7 @@ fn retired_error_allows_info_and_obeys_mode_before_lifecycle_precedence() {
         .expect("open");
     assert_eq!(
         model.export_a2(&NORMAL_ID, 1, 1, &mut [0u8; 32]),
-        Err(ModelError::ModeOrOperationRejected)
+        Err(ModelError::LifecycleRejected)
     );
     model.select(true).expect("select");
     model
@@ -456,7 +573,7 @@ fn retired_error_allows_info_and_obeys_mode_before_lifecycle_precedence() {
         model
             .sign_digest(&NORMAL_ID, 1, &[0; 32], &[0; 32], 0, 9, 999_999, &[0; 32])
             .map(|_| ()),
-        Err(ModelError::ModeOrOperationRejected)
+        Err(ModelError::LifecycleRejected)
     );
 
     model.select(true).expect("select");
@@ -470,6 +587,204 @@ fn retired_error_allows_info_and_obeys_mode_before_lifecycle_precedence() {
 #[test]
 fn per_command_semantic_precedence_collisions_are_exact() {
     let record = fixture_record(ModelProfile::SimpleRecovery);
+
+    let mut duplicate_open = encoded_open();
+    duplicate_open[6] = 9;
+    let mut model = open_unprovisioned(ModelMode::Setup);
+    assert_apdu_rejection(
+        &mut model,
+        &duplicate_open,
+        ProtocolError::SessionStateRejected,
+    );
+    let mut model = CardModel::new();
+    model.select(true).expect("select");
+    assert_apdu_rejection(
+        &mut model,
+        &duplicate_open,
+        ProtocolError::ModeOrOperationRejected,
+    );
+
+    for mut read in [
+        {
+            let mut value = encoded_read(&SETUP_ID, 1);
+            value[26] = 9;
+            value
+        },
+        {
+            let mut value = encoded_read(&SETUP_ID, 1);
+            value[27..29].copy_from_slice(&1u16.to_be_bytes());
+            value
+        },
+    ] {
+        assert_apdu_rejection(
+            &mut CardModel::new(),
+            &read,
+            ProtocolError::SessionStateRejected,
+        );
+        let mut wrong_id = open_unprovisioned(ModelMode::Setup);
+        read[6..22].copy_from_slice(&NORMAL_ID);
+        assert_apdu_rejection(&mut wrong_id, &read, ProtocolError::SessionIdMismatch);
+        let mut wrong_sequence = open_unprovisioned(ModelMode::Setup);
+        read[6..22].copy_from_slice(&SETUP_ID);
+        read[22..26].copy_from_slice(&2u32.to_be_bytes());
+        assert_apdu_rejection(&mut wrong_sequence, &read, ProtocolError::SequenceRejected);
+        let mut semantic = open_unprovisioned(ModelMode::Setup);
+        read[22..26].copy_from_slice(&1u32.to_be_bytes());
+        assert_apdu_rejection(&mut semantic, &read, ProtocolError::ModeOrOperationRejected);
+    }
+
+    let mut a2 = encoded_a2(&SETUP_ID, 1);
+    a2[26] = 9;
+    assert_apdu_rejection(
+        &mut CardModel::new(),
+        &a2,
+        ProtocolError::SessionStateRejected,
+    );
+    let mut wrong_id = open_unprovisioned(ModelMode::Setup);
+    a2[6..22].copy_from_slice(&NORMAL_ID);
+    assert_apdu_rejection(&mut wrong_id, &a2, ProtocolError::SessionIdMismatch);
+    let mut wrong_sequence = open_unprovisioned(ModelMode::Setup);
+    a2[6..22].copy_from_slice(&SETUP_ID);
+    a2[22..26].copy_from_slice(&2u32.to_be_bytes());
+    assert_apdu_rejection(&mut wrong_sequence, &a2, ProtocolError::SequenceRejected);
+    let mut semantic = open_committed(ModelMode::Setup);
+    a2[22..26].copy_from_slice(&1u32.to_be_bytes());
+    assert_apdu_rejection(&mut semantic, &a2, ProtocolError::ModeOrOperationRejected);
+
+    let wallet: [u8; 32] = record[23..55].try_into().expect("fixture wallet");
+    for mut sign in [
+        {
+            let mut value = encoded_sign(&SETUP_ID, 1, &wallet);
+            value[94] = 2;
+            value
+        },
+        {
+            let mut value = encoded_sign(&SETUP_ID, 1, &wallet);
+            value[95..99].copy_from_slice(&65_536u32.to_be_bytes());
+            value
+        },
+    ] {
+        assert_apdu_rejection(
+            &mut CardModel::new(),
+            &sign,
+            ProtocolError::SessionStateRejected,
+        );
+        let mut wrong_id = open_committed(ModelMode::Normal);
+        sign[6..22].copy_from_slice(&NORMAL_ID);
+        assert_apdu_rejection(&mut wrong_id, &sign, ProtocolError::SessionIdMismatch);
+        let mut wrong_sequence = open_committed(ModelMode::Normal);
+        sign[6..22].copy_from_slice(&SETUP_ID);
+        sign[22..26].copy_from_slice(&2u32.to_be_bytes());
+        assert_apdu_rejection(&mut wrong_sequence, &sign, ProtocolError::SequenceRejected);
+        let mut wrong_mode = open_committed(ModelMode::Setup);
+        sign[22..26].copy_from_slice(&1u32.to_be_bytes());
+        assert_apdu_rejection(
+            &mut wrong_mode,
+            &sign,
+            ProtocolError::ModeOrOperationRejected,
+        );
+        let mut retired = open_retired(ModelMode::Normal);
+        assert_apdu_rejection(&mut retired, &sign, ProtocolError::LifecycleRejected);
+        let mut wrong_wallet = open_committed(ModelMode::Normal);
+        sign[26] ^= 1;
+        assert_apdu_rejection(
+            &mut wrong_wallet,
+            &sign,
+            ProtocolError::WalletBindingRejected,
+        );
+        let mut semantic = open_committed(ModelMode::Normal);
+        sign[26] ^= 1;
+        assert_apdu_rejection(&mut semantic, &sign, ProtocolError::DerivationPathRejected);
+    }
+
+    let mut begin = encoded_begin(&SETUP_ID, 1);
+    begin[26] = 9;
+    assert_apdu_rejection(
+        &mut CardModel::new(),
+        &begin,
+        ProtocolError::SessionStateRejected,
+    );
+    let mut wrong_id = open_unprovisioned(ModelMode::Setup);
+    begin[6..22].copy_from_slice(&NORMAL_ID);
+    assert_apdu_rejection(&mut wrong_id, &begin, ProtocolError::SessionIdMismatch);
+    let mut wrong_sequence = open_unprovisioned(ModelMode::Setup);
+    begin[6..22].copy_from_slice(&SETUP_ID);
+    begin[22..26].copy_from_slice(&2u32.to_be_bytes());
+    assert_apdu_rejection(&mut wrong_sequence, &begin, ProtocolError::SequenceRejected);
+    let mut wrong_mode = open_committed(ModelMode::Normal);
+    begin[22..26].copy_from_slice(&1u32.to_be_bytes());
+    assert_apdu_rejection(
+        &mut wrong_mode,
+        &begin,
+        ProtocolError::ModeOrOperationRejected,
+    );
+    let mut wrong_lifecycle = open_committed(ModelMode::Setup);
+    assert_apdu_rejection(
+        &mut wrong_lifecycle,
+        &begin,
+        ProtocolError::LifecycleRejected,
+    );
+    let mut semantic = open_unprovisioned(ModelMode::Setup);
+    assert_apdu_rejection(
+        &mut semantic,
+        &begin,
+        ProtocolError::ProvisioningOrderRejected,
+    );
+
+    let mut write = encoded_write(&SETUP_ID, 1);
+    write[26..28].copy_from_slice(&1u16.to_be_bytes());
+    assert_apdu_rejection(
+        &mut CardModel::new(),
+        &write,
+        ProtocolError::SessionStateRejected,
+    );
+    let mut wrong_id = open_unprovisioned(ModelMode::Setup);
+    write[6..22].copy_from_slice(&NORMAL_ID);
+    assert_apdu_rejection(&mut wrong_id, &write, ProtocolError::SessionIdMismatch);
+    let mut wrong_sequence = open_unprovisioned(ModelMode::Setup);
+    write[6..22].copy_from_slice(&SETUP_ID);
+    write[22..26].copy_from_slice(&2u32.to_be_bytes());
+    assert_apdu_rejection(&mut wrong_sequence, &write, ProtocolError::SequenceRejected);
+    let mut wrong_mode = open_committed(ModelMode::Normal);
+    write[22..26].copy_from_slice(&1u32.to_be_bytes());
+    assert_apdu_rejection(
+        &mut wrong_mode,
+        &write,
+        ProtocolError::ModeOrOperationRejected,
+    );
+    let mut wrong_lifecycle = open_unprovisioned(ModelMode::Setup);
+    assert_apdu_rejection(
+        &mut wrong_lifecycle,
+        &write,
+        ProtocolError::LifecycleRejected,
+    );
+    let mut staging = open_unprovisioned(ModelMode::Setup);
+    staging
+        .begin_provision(&SETUP_ID, 1, 1, NONCE)
+        .expect("begin");
+    write[22..26].copy_from_slice(&2u32.to_be_bytes());
+    assert_apdu_rejection(
+        &mut staging,
+        &write,
+        ProtocolError::ProvisioningOrderRejected,
+    );
+
+    for command in [encoded_commit(&SETUP_ID, 1), encoded_abort(&SETUP_ID, 1)] {
+        let mut wrong_mode = open_committed(ModelMode::Normal);
+        assert_apdu_rejection(
+            &mut wrong_mode,
+            &command,
+            ProtocolError::ModeOrOperationRejected,
+        );
+        let mut wrong_lifecycle = open_unprovisioned(ModelMode::Setup);
+        assert_apdu_rejection(
+            &mut wrong_lifecycle,
+            &command,
+            ProtocolError::LifecycleRejected,
+        );
+        let mut retired = open_retired(ModelMode::Normal);
+        assert_apdu_rejection(&mut retired, &command, ProtocolError::LifecycleRejected);
+    }
 
     let mut open = CardModel::new();
     open.select(true).expect("select");
@@ -549,7 +864,7 @@ fn command_and_signature_caps_precede_identity_sequence_and_lifecycle() {
     assert_eq!(
         sign.sign_digest(&NORMAL_ID, 1, &[0; 32], &[0; 32], 0, 0, 0, &[0; 32])
             .map(|_| ()),
-        Err(ModelError::ModeOrOperationRejected)
+        Err(ModelError::LifecycleRejected)
     );
 }
 

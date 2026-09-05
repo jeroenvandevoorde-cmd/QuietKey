@@ -11,7 +11,9 @@ const FIXTURE: &str = include_str!("../../qk-card-protocol/tests/fixtures/card_p
 fn crate_is_test_only_path_dependency_code() {
     assert!(LIB.contains("Test-only HOST model"));
     assert!(FIXTURE.contains("PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL"));
-    assert!(MANIFEST.contains("qk-card-protocol = { path = \"../qk-card-protocol\" }"));
+    assert!(MANIFEST.contains(
+        "qk-card-protocol = { path = \"../qk-card-protocol\", features = [\"model-raw-apdu\"] }"
+    ));
     assert!(MANIFEST.contains(
         "qk-secp = { path = \"../qk-secp\", features = [\"card-signature-normalization\"] }"
     ));

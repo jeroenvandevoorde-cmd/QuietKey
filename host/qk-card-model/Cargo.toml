@@ -7,7 +7,7 @@ publish = false
 description = "Test-only HOST model of the byte-complete QuietKey Key Card B protocol. No Java Card simulator, target, production, RNG, or Gate claim."
 
 [dependencies]
-qk-card-protocol = { path = "../qk-card-protocol" }
+qk-card-protocol = { path = "../qk-card-protocol", features = ["model-raw-apdu"] }
 qk-secp = { path = "../qk-secp", features = ["card-signature-normalization"] }
 
 [features]
