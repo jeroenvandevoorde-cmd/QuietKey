@@ -6,28 +6,39 @@
 //! transaction controller. It has no file-descriptor, socket or logging
 //! operation.
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
+use crate::capability::NormalCardBSignatureV2;
 use crate::capability::{
     CardPresence, CoreDeviceGrants, KeypadKey, MockCardSlot, MockDisplay, MockKeypad,
-    NormalCardBDataV2, NormalCardBSignatureV2,
+    NormalCardBDataV2,
 };
 use crate::normal_artifact_v2::NormalProfileV2;
 use crate::normal_v2::{
     NormalCardBSigningRequestV2, NormalErrorV2, NormalScreenV2, NormalSessionV2, NormalStageV2,
     ProcessSignatureRejectionV2,
 };
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 use crate::wipe::WipingArray;
 use crate::{CoreOutbound, Interruption, NormalExportActionV2, Source};
 use core::fmt;
 #[cfg(feature = "host-runtime")]
 use qk_device_wire::MessageKind;
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const DESCRIPTOR_BYTES: usize = 306;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const WALLET_ID_BYTES: usize = 32;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const ACCOUNT_XPUB_BYTES: usize = 111;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const A2_BYTES: usize = 32;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const SIGNATURE_COUNT_BYTES: usize = 2;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const MIN_DER_BYTES: usize = 8;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const MAX_DER_BYTES: usize = 72;
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 const MAX_SIGNATURES: usize = 100;
 const DISPLAY_STAGE_COUNT: usize = 14;
 
@@ -197,12 +208,24 @@ impl NormalProcessControllerV2 {
     /// Parse one complete legacy fixture NormalFactor body and construct the
     /// existing Normal owner. Active HOST runtime reaches the same owner only
     /// through `accept_bound_card` after raw card-protocol verification.
+    #[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
     pub fn accept_normal_factor(
         &mut self,
         body: &[u8],
     ) -> Result<CoreOutbound, NormalProcessErrorV2> {
         let card =
             parse_normal_factor(body).map_err(|error| self.fail(Self::normal_error(error)))?;
+        self.accept_bound_card(card)
+    }
+
+    /// Enter the existing owner from a card-protocol binding in ring-fenced
+    /// fuzz builds without reopening the legacy NormalFactor byte grammar.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn fuzz_accept_bound_card(
+        &mut self,
+        card: NormalCardBDataV2,
+    ) -> Result<CoreOutbound, NormalProcessErrorV2> {
         self.accept_bound_card(card)
     }
 
@@ -239,6 +262,7 @@ impl NormalProcessControllerV2 {
     }
 
     /// Map the test-only card rejection without retaining its request bytes.
+    #[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
     pub fn reject_card(&mut self, request_kind: u8, status: u16) -> NormalProcessErrorV2 {
         let error = match (request_kind, status) {
             (0x01 | 0x02, 0x0001) => NormalErrorV2::CardAbsent,
@@ -851,6 +875,7 @@ const fn network_wire(network: qk_psbt::ReviewNetwork) -> u8 {
     }
 }
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 fn parse_normal_factor(body: &[u8]) -> Result<NormalCardBDataV2, NormalErrorV2> {
     let mut offset = 0usize;
     let receive: [u8; DESCRIPTOR_BYTES] = take(body, &mut offset, DESCRIPTOR_BYTES)?
@@ -892,6 +917,7 @@ fn parse_normal_factor(body: &[u8]) -> Result<NormalCardBDataV2, NormalErrorV2> 
     .map_err(|_| NormalErrorV2::CardDataRejected)
 }
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 fn parse_signatures(
     body: &[u8],
     offset: &mut usize,
@@ -932,6 +958,7 @@ fn parse_signatures(
     Ok(signatures)
 }
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 fn take<'a>(bytes: &'a [u8], offset: &mut usize, length: usize) -> Result<&'a [u8], NormalErrorV2> {
     let end = offset
         .checked_add(length)
@@ -943,6 +970,7 @@ fn take<'a>(bytes: &'a [u8], offset: &mut usize, length: usize) -> Result<&'a [u
     Ok(value)
 }
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 fn read_u16(bytes: &[u8]) -> u16 {
     let mut value = [0u8; 2];
     if let Some(source) = bytes.get(..2) {
@@ -951,6 +979,7 @@ fn read_u16(bytes: &[u8]) -> u16 {
     u16::from_le_bytes(value)
 }
 
+#[cfg(any(test, feature = "legacy-normal-factor-fixture"))]
 fn read_u32(bytes: &[u8]) -> u32 {
     let mut value = [0u8; 4];
     if let Some(source) = bytes.get(..4) {

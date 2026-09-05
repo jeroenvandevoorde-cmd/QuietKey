@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-forty-four libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+fifty-two libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -181,6 +181,27 @@ stream. Both 100,000-input campaigns completed against the fixed final source;
 their agreeing two-copy minimizations are registered in
 `CORPUS-MANIFEST-PROCESS-S9.tsv`.
 
+QK-DEC-161 adds the pure `qk_card_protocol` and `qk_card_model` targets and
+requalifies `qk_device_wire` and `qk_core_normal_process`. The protocol target
+drives hostile command, response, persistent-record, rejection-encoding,
+lifecycle-table, output-bound, and volatile-wipe paths while requiring the
+complete named error surface and deterministic canonical encodings. The model
+target sends bounded arbitrary raw APDUs only through `CardModel::process_apdu`
+and requires canonical responses, exact named rejections, deterministic state
+transitions, and matching cleanup counts. Their initial accepted seeds are
+exact lines copied from the shared public, permanently NEVER-FUND
+`card_protocol_v1.txt` fixture; they create no new key authority. The test-only
+model permits COMMIT in the exact registered fixture flow only, so arbitrary
+structured mutations cannot introduce or exercise unregistered signing key
+material; malformed and pre-commit state remain hostile inputs. The model is
+absent from every product closure. The requalified core target parses
+the registered INFO, descriptor, A2, and signature response facts through
+`qk-card-protocol`, enters through one doc-hidden fuzz-only bound-card seam,
+and requires the default decoder to reject the retired NormalFactor kind.
+Campaign 029 remains planned until
+the final source is fixed; no card, device, process, socket, descriptor, or
+hardware action occurs in these pure targets.
+
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
 implemented inner response parser, one complete valid ingress transfer, outer
@@ -233,16 +254,18 @@ runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `DEPENDENCY-ALLOWLIST.tsv` records every package in the union of the default,
 `ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s8-supervisor`,
 `process-s3-io`, `process-s4-core`, `process-s5-core`, `process-s6-core`, and
-`process-s7-core`, `process-s9-wire`, and `process-s9-core`
+`process-s7-core`, `process-s9-wire`, `process-s9-core`, `card-s1-protocol`,
+and `card-s1-model`
 normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
-`qk-decoy`, `qk-supervisor`, `qk-io`, `qk-core`, and `qk-device-wire` are
+`qk-decoy`, `qk-supervisor`, `qk-io`, `qk-core`, `qk-device-wire`,
+`qk-card-protocol`, and `qk-card-model` are
 optional and absent from the default closure; each target selects only its
 named non-default feature. `process-s9-wire` reaches only qk-device-wire;
 `process-s9-core` adds qk-device-wire to the existing qk-core closure.
 `Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the twelve fuzz closures remain isolated, qk-decoy's host closure is
+proves the fourteen fuzz closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
 qk-ipc, and qk-io's default fuzz closure is exactly qk-io plus qk-ipc and
 qk-bbqr while its HOST runtime closure adds only qk-device-wire. The
@@ -252,8 +275,11 @@ qk-psbt, qk-secp and qk-wallet-v2. The qk-core HOST runtime and
 `process-s9-core` closure add only qk-device-wire to that set; direct qk-ipc
 fuzzing support is selected only inside the core feature. qk-host-sim and qk-io are absent from
 all core product and fuzz closures. The normalized union validates against the
-allowlist, and the legacy default and named closures remain unchanged in
-membership.
+allowlist; `card-s1-protocol` reaches only qk-card-protocol,
+`card-s1-model` reaches only qk-card-model, qk-card-protocol and qk-secp, and
+qk-card-model is absent from every product closure. The legacy default and
+other named closures remain unchanged except for the ratified qk-core and
+qk-device-wire edges.
 `tools/check.sh` exempts only
 `fuzz/**/Cargo.toml` from the general dependency ban and fails closed on
 non-top-level dependency tables, patches, replacements, closure isolation, or
@@ -318,6 +344,8 @@ fuzz/run-bounded.sh qk_core_kit_intake 100000
 fuzz/run-bounded.sh qk_core_kit_restore 100000
 fuzz/run-bounded.sh qk_core_kit_spend 100000
 fuzz/run-bounded.sh qk_device_wire 100000
+fuzz/run-bounded.sh qk_card_protocol 100000
+fuzz/run-bounded.sh qk_card_model 100000
 fuzz/run-bounded.sh qk_core_normal_process 100000
 ```
 

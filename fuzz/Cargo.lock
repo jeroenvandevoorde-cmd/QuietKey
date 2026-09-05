@@ -197,6 +197,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "qk-card-model"
+version = "0.0.1"
+dependencies = [
+ "qk-card-protocol",
+ "qk-secp",
+]
+
+[[package]]
+name = "qk-card-protocol"
+version = "0.0.1"
+
+[[package]]
 name = "qk-card-trace"
 version = "0.0.1"
 
@@ -206,12 +218,15 @@ version = "0.0.1"
 dependencies = [
  "qk-a1",
  "qk-bbqr",
+ "qk-bip32",
+ "qk-card-protocol",
  "qk-descriptor",
  "qk-device-wire",
  "qk-ipc",
  "qk-kit",
  "qk-provisioning",
  "qk-psbt",
+ "qk-secp",
  "qk-wallet-v2",
 ]
 
@@ -323,6 +338,8 @@ dependencies = [
  "qk-a1",
  "qk-a1-codec",
  "qk-bbqr",
+ "qk-card-model",
+ "qk-card-protocol",
  "qk-card-trace",
  "qk-core",
  "qk-decoy",

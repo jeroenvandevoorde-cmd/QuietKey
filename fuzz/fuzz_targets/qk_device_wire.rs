@@ -27,9 +27,11 @@ enum ModelKind {
     KeypadEvent,
     CardProfile,
     CardNormalFactor,
+    CardApduResponse,
     CardRejected,
     CardReadProfile,
     CardReadNormalFactor,
+    CardApduRequest,
     CameraBegin,
     CameraChunk,
     MediaReadBegin,
@@ -122,6 +124,7 @@ fn error_name(error: DeviceError) -> ErrorName {
         DeviceError::FilenameRejected => "FilenameRejected",
         DeviceError::ArtifactMismatch => "ArtifactMismatch",
         DeviceError::DeviceRejected => "DeviceRejected",
+        DeviceError::LegacyNormalFactorRejected => "LegacyNormalFactorRejected",
     };
     assert_eq!(error.name(), name);
     assert_eq!(error.to_string(), name);
@@ -180,9 +183,11 @@ fn model_kind(capability: u8, value: u8) -> Result<ModelKind, ErrorName> {
         (0x02, 0x01) => Ok(ModelKind::KeypadEvent),
         (0x03, 0x81) => Ok(ModelKind::CardProfile),
         (0x03, 0x82) => Ok(ModelKind::CardNormalFactor),
+        (0x03, 0x83) => Ok(ModelKind::CardApduResponse),
         (0x03, 0xff) => Ok(ModelKind::CardRejected),
         (0x04, 0x01) => Ok(ModelKind::CardReadProfile),
         (0x04, 0x02) => Ok(ModelKind::CardReadNormalFactor),
+        (0x04, 0x03) => Ok(ModelKind::CardApduRequest),
         (0x05, 0x01) => Ok(ModelKind::CameraBegin),
         (0x05, 0x02) => Ok(ModelKind::CameraChunk),
         (0x06, 0x01) => Ok(ModelKind::MediaReadBegin),
@@ -207,8 +212,10 @@ fn model_body_cap(kind: ModelKind) -> usize {
         ModelKind::DisplayReview | ModelKind::DisplayResult => 180,
         ModelKind::KeypadEvent => 17,
         ModelKind::CardNormalFactor => 11_790,
+        ModelKind::CardApduResponse => 218,
         ModelKind::CardRejected | ModelKind::MediaRejected => 3,
         ModelKind::CardReadProfile | ModelKind::CardReadNormalFactor => 0,
+        ModelKind::CardApduRequest => 221,
         ModelKind::CameraBegin
         | ModelKind::MediaBeginAccepted
         | ModelKind::MediaFinished
@@ -737,6 +744,7 @@ fn model_body(header: ModelHeader, body: &[u8]) -> Result<(), ErrorName> {
         ModelKind::DisplayResult => model_result(body),
         ModelKind::KeypadEvent => model_keypad(body),
         ModelKind::CardNormalFactor => model_card_factor(body),
+        ModelKind::CardApduRequest | ModelKind::CardApduResponse => Ok(()),
         ModelKind::CardRejected => {
             exact(body, 3)?;
             value_in(body[0], 1, 2)?;
@@ -931,7 +939,7 @@ fn received(
     if sequence > 1 {
         for prior in 1..sequence {
             let (prior_kind, prior_body): (MessageKind, &[u8]) = match capability {
-                Capability::CardResponse => (MessageKind::CardProfile, &[1]),
+                Capability::CardResponse => (MessageKind::CardApduResponse, &[0x90, 0x00]),
                 Capability::MediaInput => (MessageKind::MediaChunkAccepted, &[1, 0, 0, 0]),
                 _ => (kind, body),
             };
@@ -950,8 +958,8 @@ fn exercise_sequences(selected: Capability) {
     let kind = match selected {
         Capability::Display => MessageKind::DisplayStage,
         Capability::Keypad => MessageKind::KeypadEvent,
-        Capability::CardResponse => MessageKind::CardProfile,
-        Capability::CardRequest => MessageKind::CardReadProfile,
+        Capability::CardResponse => MessageKind::CardApduResponse,
+        Capability::CardRequest => MessageKind::CardApduRequest,
         Capability::CameraInput => MessageKind::CameraBegin,
         Capability::MediaInput => MessageKind::MediaReadBegin,
         Capability::PrintOutput => MessageKind::PrintWriteBegin,
@@ -988,7 +996,7 @@ fn exercise_sequences(selected: Capability) {
 fn exercise_card_exchange(selector: u8) {
     let mut exchange = ExchangeProtocol::new(Capability::CardRequest, Capability::CardResponse)
         .expect("the card pair is fixed");
-    match selector % 6 {
+    match selector % 8 {
         0 => {
             let frame = received(Capability::CardResponse, MessageKind::CardProfile, 1, &[1]);
             assert_eq!(
@@ -1062,7 +1070,35 @@ fn exercise_card_exchange(selector: u8) {
                 "ResponseKindMismatch"
             );
         }
-        _ => unreachable!("modulo six is exhaustive"),
+        6 => {
+            exchange
+                .begin(MessageKind::CardApduRequest)
+                .expect("first APDU request");
+            let frame = received(
+                Capability::CardResponse,
+                MessageKind::CardApduResponse,
+                1,
+                &[0x90, 0x00],
+            );
+            exchange
+                .accept_response(&frame)
+                .expect("matching APDU reply");
+        }
+        7 => {
+            exchange
+                .begin(MessageKind::CardApduRequest)
+                .expect("first APDU request");
+            let frame = received(Capability::CardResponse, MessageKind::CardProfile, 1, &[1]);
+            assert_eq!(
+                error_name(
+                    exchange
+                        .accept_response(&frame)
+                        .expect_err("wrong APDU kind")
+                ),
+                "ResponseKindMismatch"
+            );
+        }
+        _ => unreachable!("modulo eight is exhaustive"),
     }
 }
 

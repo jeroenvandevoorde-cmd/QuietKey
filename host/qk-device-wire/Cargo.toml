@@ -7,7 +7,7 @@ publish = false
 description = "Dependency-free HOST reference for the bounded QuietKey mock-device wire."
 
 [features]
-fuzzing = ["legacy-normal-factor-fixture"]
+fuzzing = []
 legacy-normal-factor-fixture = []
 
 [dependencies]

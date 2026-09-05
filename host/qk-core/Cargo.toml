@@ -15,6 +15,7 @@ required-features = ["host-runtime"]
 default = ["normal-v3", "kit-v3"]
 fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
 host-runtime = ["qk-ipc/host-runtime", "normal-process"]
+legacy-normal-factor-fixture = ["qk-device-wire/legacy-normal-factor-fixture"]
 normal-process = [
     "normal-v3",
     "dep:qk-bip32",

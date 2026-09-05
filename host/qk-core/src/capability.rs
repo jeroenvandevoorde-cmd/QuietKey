@@ -238,7 +238,10 @@ impl NormalCardBSignatureV2 {
         )
     }
 
-    #[cfg(feature = "normal-process")]
+    #[cfg(all(
+        feature = "normal-process",
+        any(test, feature = "legacy-normal-factor-fixture")
+    ))]
     pub(crate) fn try_new_bound(
         input_index: u32,
         role_b_pubkey: [u8; 33],

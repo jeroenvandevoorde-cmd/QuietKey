@@ -93,26 +93,46 @@ process_s9_feature_counts=$(awk '
   $0 == "process-s9-wire = [" { wire_start = 1; wire_blocks++ }
   wire_start && $0 == "    \"dep:qk-device-wire\"," { wire_dep++ }
   wire_start && $0 == "    \"qk-device-wire/fuzzing\"," { wire_fuzz++ }
+  wire_start && $0 == "    \"qk-device-wire/legacy-normal-factor-fixture\"," { wire_legacy++ }
   wire_start && $0 != "process-s9-wire = [" && $0 != "]" && \
-    $0 != "    \"dep:qk-device-wire\"," && $0 != "    \"qk-device-wire/fuzzing\"," { wire_extra++ }
+    $0 != "    \"dep:qk-device-wire\"," && $0 != "    \"qk-device-wire/fuzzing\"," && \
+    $0 != "    \"qk-device-wire/legacy-normal-factor-fixture\"," { wire_extra++ }
   wire_start && $0 == "]" { wire_ends++; wire_start = 0 }
   $0 == "process-s9-core = [" { core_start = 1; core_blocks++ }
+  core_start && $0 == "    \"dep:qk-card-protocol\"," { core_protocol++ }
   core_start && $0 == "    \"dep:qk-core\"," { core++ }
   core_start && $0 == "    \"dep:qk-device-wire\"," { core_wire++ }
   core_start && $0 == "    \"dep:qk-ipc\"," { ipc++ }
   core_start && $0 == "    \"qk-core/fuzzing\"," { core_fuzz++ }
   core_start && $0 == "    \"qk-core/normal-process\"," { normal_process++ }
-  core_start && $0 == "    \"qk-device-wire/fuzzing\"," { core_wire_fuzz++ }
   core_start && $0 == "    \"qk-ipc/fuzzing\"," { ipc_fuzz++ }
   core_start && $0 != "process-s9-core = [" && $0 != "]" && \
-    $0 != "    \"dep:qk-core\"," && $0 != "    \"dep:qk-device-wire\"," && $0 != "    \"dep:qk-ipc\"," && \
+    $0 != "    \"dep:qk-card-protocol\"," && $0 != "    \"dep:qk-core\"," && \
+    $0 != "    \"dep:qk-device-wire\"," && $0 != "    \"dep:qk-ipc\"," && \
     $0 != "    \"qk-core/fuzzing\"," && $0 != "    \"qk-core/normal-process\"," && \
-    $0 != "    \"qk-device-wire/fuzzing\"," && $0 != "    \"qk-ipc/fuzzing\"," { core_extra++ }
+    $0 != "    \"qk-ipc/fuzzing\"," { core_extra++ }
   core_start && $0 == "]" { core_ends++; core_start = 0 }
-  END { print wire_blocks + 0, wire_start + 0, wire_ends + 0, wire_dep + 0, wire_fuzz + 0, wire_extra + 0, core_blocks + 0, core_start + 0, core_ends + 0, core + 0, core_wire + 0, ipc + 0, core_fuzz + 0, normal_process + 0, core_wire_fuzz + 0, ipc_fuzz + 0, core_extra + 0 }
+  END { print wire_blocks + 0, wire_start + 0, wire_ends + 0, wire_dep + 0, wire_fuzz + 0, wire_legacy + 0, wire_extra + 0, core_blocks + 0, core_start + 0, core_ends + 0, core_protocol + 0, core + 0, core_wire + 0, ipc + 0, core_fuzz + 0, normal_process + 0, ipc_fuzz + 0, core_extra + 0 }
 ' fuzz/Cargo.toml) || fail 'cannot inspect process-s9 fuzz features'
-[ "$process_s9_feature_counts" = '1 0 1 1 1 0 1 0 1 1 1 1 1 1 1 1 0' ] || \
+[ "$process_s9_feature_counts" = '1 0 1 1 1 1 0 1 0 1 1 1 1 1 1 1 1 0' ] || \
   fail 'process-s9 fuzz features are not declared exactly once in canonical form'
+card_s1_feature_counts=$(awk '
+  $0 == "card-s1-protocol = [\"dep:qk-card-protocol\", \"qk-card-protocol/fuzzing\"]" { protocol++ }
+  $0 == "card-s1-model = [" { model_start = 1; model_blocks++ }
+  model_start && $0 == "    \"dep:qk-card-model\"," { model_dep++ }
+  model_start && $0 == "    \"dep:qk-card-protocol\"," { protocol_dep++ }
+  model_start && $0 == "    \"qk-card-model/fuzzing\"," { model_fuzz++ }
+  model_start && $0 == "    \"qk-card-protocol/fuzzing\"," { protocol_fuzz++ }
+  model_start && $0 != "card-s1-model = [" && $0 != "]" && \
+    $0 != "    \"dep:qk-card-model\"," && $0 != "    \"dep:qk-card-protocol\"," && \
+    $0 != "    \"qk-card-model/fuzzing\"," && \
+    $0 != "    \"qk-card-protocol/fuzzing\"," { model_extra++ }
+  model_start && $0 == "]" { model_ends++; model_start = 0 }
+  END { print protocol + 0, model_blocks + 0, model_start + 0, model_ends + 0, \
+    model_dep + 0, protocol_dep + 0, model_fuzz + 0, protocol_fuzz + 0, model_extra + 0 }
+' fuzz/Cargo.toml) || fail 'cannot inspect card-s1 fuzz features'
+[ "$card_s1_feature_counts" = '1 1 0 1 1 1 1 1 0' ] || \
+  fail 'card-s1 fuzz features are not declared exactly once in canonical form'
 
 if ! awk '
   function flush_bin() {
@@ -147,7 +167,13 @@ if ! awk '
     } else if (name == "qk_core_normal_process") {
       process_s9_core++
       if (required != "process-s9-core") bad = 1
-    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core" || required == "process-s9-wire" || required == "process-s9-core") {
+    } else if (name == "qk_card_protocol") {
+      card_protocol++
+      if (required != "card-s1-protocol") bad = 1
+    } else if (name == "qk_card_model") {
+      card_model++
+      if (required != "card-s1-model") bad = 1
+    } else if (required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core" || required == "process-s9-wire" || required == "process-s9-core" || required == "card-s1-protocol" || required == "card-s1-model") {
       bad = 1
     }
   }
@@ -176,7 +202,7 @@ if ! awk '
   }
   END {
     flush_bin()
-    exit (bad || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3 || process_s9_wire != 1 || process_s9_core != 1) ? 1 : 0
+    exit (bad || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3 || process_s9_wire != 1 || process_s9_core != 1 || card_protocol != 1 || card_model != 1) ? 1 : 0
   }
 ' fuzz/Cargo.toml; then
   fail 'process fuzz target-to-feature mapping is not exact'
@@ -211,6 +237,10 @@ process_s9_wire_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s9-wire
 process_s9_wire_tmp=$(mktemp) || fail 'mktemp failed for process-s9-wire fuzz dependency closure'
 process_s9_core_raw_tmp=$(mktemp) || fail 'mktemp failed for raw process-s9-core fuzz dependency closure'
 process_s9_core_tmp=$(mktemp) || fail 'mktemp failed for process-s9-core fuzz dependency closure'
+card_protocol_raw_tmp=$(mktemp) || fail 'mktemp failed for raw card-s1-protocol fuzz dependency closure'
+card_protocol_tmp=$(mktemp) || fail 'mktemp failed for card-s1-protocol fuzz dependency closure'
+card_model_raw_tmp=$(mktemp) || fail 'mktemp failed for raw card-s1-model fuzz dependency closure'
+card_model_tmp=$(mktemp) || fail 'mktemp failed for card-s1-model fuzz dependency closure'
 host_decoy_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-decoy host dependency closure'
 host_decoy_tmp=$(mktemp) || fail 'mktemp failed for qk-decoy host dependency closure'
 host_supervisor_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-supervisor host dependency closure'
@@ -230,6 +260,8 @@ trap 'rm -f "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
   "$core_s7_raw_tmp" "$core_s7_tmp" \
   "$process_s9_wire_raw_tmp" "$process_s9_wire_tmp" \
   "$process_s9_core_raw_tmp" "$process_s9_core_tmp" \
+  "$card_protocol_raw_tmp" "$card_protocol_tmp" \
+  "$card_model_raw_tmp" "$card_model_tmp" \
   "$host_decoy_tmp" "$host_supervisor_raw_tmp" "$host_supervisor_tmp" \
   "$host_io_raw_tmp" "$host_io_tmp" "$host_core_raw_tmp" "$host_core_tmp" \
   "$closure_raw_tmp" "$closure_tmp"' EXIT HUP INT TERM
@@ -345,6 +377,25 @@ expected_path_set() {
       'qk-psbt|0.0.1' \
       'qk-secp|0.0.1' \
       'qk-wallet-v2|0.0.1' ;;
+    core_normal) printf '%s\n' \
+      'qk-a1|0.0.1' \
+      'qk-bbqr|0.0.1' \
+      'qk-bip32|0.0.1' \
+      'qk-card-protocol|0.0.1' \
+      'qk-core|0.0.1' \
+      'qk-descriptor|0.0.1' \
+      'qk-device-wire|0.0.1' \
+      'qk-ipc|0.0.1' \
+      'qk-kit|0.0.1' \
+      'qk-provisioning|0.0.1' \
+      'qk-psbt|0.0.1' \
+      'qk-secp|0.0.1' \
+      'qk-wallet-v2|0.0.1' ;;
+    card_protocol) printf '%s\n' 'qk-card-protocol|0.0.1' ;;
+    card_model) printf '%s\n' \
+      'qk-card-model|0.0.1' \
+      'qk-card-protocol|0.0.1' \
+      'qk-secp|0.0.1' ;;
     wire) printf '%s\n' 'qk-device-wire|0.0.1' ;;
   esac
 }
@@ -417,7 +468,7 @@ check_fuzz_closure() {
 
   case "$assertion" in
     default)
-      if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire") { found = 1 } END { exit found ? 0 : 1 }' \
+      if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire" || $2 == "qk-card-protocol" || $2 == "qk-card-model") { found = 1 } END { exit found ? 0 : 1 }' \
           "$normalized_output"; then
         fail 'a ring-fenced process dependency is reachable from the default fuzz dependency closure'
       fi
@@ -428,7 +479,7 @@ check_fuzz_closure() {
         "$normalized_output") || fail 'cannot inspect IPC-feature fuzz dependency closure'
       [ "$ipc_matches" = 1 ] || \
         fail 'qk-ipc 0.0.1 is not present exactly once in the IPC-feature fuzz dependency closure'
-      if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire") { found = 1 } END { exit found ? 0 : 1 }' \
+      if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire" || $2 == "qk-card-protocol" || $2 == "qk-card-model") { found = 1 } END { exit found ? 0 : 1 }' \
           "$normalized_output"; then
         fail 'a process dependency is reachable from the IPC-only fuzz dependency closure'
       fi
@@ -477,13 +528,15 @@ process-s5-core|process-s5-core|process-s5-core|core_s5_raw_tmp|core_s5_tmp|exac
 process-s6-core|process-s6-core|process-s6-core|core_s6_raw_tmp|core_s6_tmp|exact|core|process-s6-core path dependency closure is not the exact twelve-crate qk-core closure
 process-s7-core|process-s7-core|process-s7-core|core_s7_raw_tmp|core_s7_tmp|exact|core|process-s7-core path dependency closure is not the exact twelve-crate qk-core closure
 process-s9-wire|process-s9-wire|process-s9-wire|process_s9_wire_raw_tmp|process_s9_wire_tmp|exact|wire|process-s9-wire path dependency closure is not exactly qk-device-wire
-process-s9-core|process-s9-core|process-s9-core|process_s9_core_raw_tmp|process_s9_core_tmp|exact|core|process-s9-core path dependency closure is not the exact twelve-crate qk-core plus qk-device-wire closure
+process-s9-core|process-s9-core|process-s9-core|process_s9_core_raw_tmp|process_s9_core_tmp|exact|core_normal|process-s9-core path dependency closure is not the exact thirteen-crate qk-core normal-process closure
+card-s1-protocol|card-s1-protocol|card-s1-protocol|card_protocol_raw_tmp|card_protocol_tmp|exact|card_protocol|card-s1-protocol path dependency closure is not exactly qk-card-protocol
+card-s1-model|card-s1-model|card-s1-model|card_model_raw_tmp|card_model_tmp|exact|card_model|card-s1-model path dependency closure is not exactly qk-card-model, qk-card-protocol, and qk-secp
 EOF
 
 cat "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
   "$io_tmp" "$core_tmp" \
   "$core_s5_tmp" "$core_s6_tmp" "$core_s7_tmp" "$process_s9_wire_tmp" \
-  "$process_s9_core_tmp" > "$closure_raw_tmp" || \
+  "$process_s9_core_tmp" "$card_protocol_tmp" "$card_model_tmp" > "$closure_raw_tmp" || \
   fail 'cannot combine fuzz dependency closures'
 sort -u "$closure_raw_tmp" > "$closure_tmp" || fail 'cannot normalize union fuzz dependency closure'
 [ -s "$closure_tmp" ] || fail 'union fuzz dependency closure is empty'
@@ -555,7 +608,7 @@ done <<'EOF'
 qk-decoy|-|qk-decoy|host_decoy_raw_tmp|host_decoy_tmp|decoy|qk-decoy host dependency closure is not dependency-free
 qk-supervisor|-|qk-supervisor|host_supervisor_raw_tmp|host_supervisor_tmp|supervisor|qk-supervisor host dependency closure is not exactly qk-supervisor plus qk-ipc
 qk-io|qk-io/host-runtime|qk-io|host_io_raw_tmp|host_io_tmp|io|qk-io host-runtime dependency closure is not the exact four-crate qk-io closure
-qk-core|qk-core/host-runtime|qk-core|host_core_raw_tmp|host_core_tmp|core|qk-core host-runtime dependency closure is not the exact twelve-crate qk-core closure
+qk-core|qk-core/host-runtime|qk-core|host_core_raw_tmp|host_core_tmp|core_normal|qk-core host-runtime dependency closure is not the exact thirteen-crate qk-core normal-process closure
 EOF
 
 while IFS="$tab" read -r kind name version checksum subject license purpose; do

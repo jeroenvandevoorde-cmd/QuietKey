@@ -36,7 +36,7 @@ fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(CARGO.matches(binary).count(), 1);
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nnormal-process = [\n    \"normal-v3\",\n    \"dep:qk-bip32\",\n    \"dep:qk-card-protocol\",\n    \"dep:qk-secp\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nlegacy-normal-factor-fixture = [\"qk-device-wire/legacy-normal-factor-fixture\"]\nnormal-process = [\n    \"normal-v3\",\n    \"dep:qk-bip32\",\n    \"dep:qk-card-protocol\",\n    \"dep:qk-secp\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
@@ -653,6 +653,7 @@ fn every_public_method_entry_is_pinned() {
             "pub fn card_b_signing_request(&self) -> Option<NormalCardBSigningRequestV2> {",
             "pub fn accept_profile(&mut self, profile_wire: u8) -> Result<(), NormalProcessErrorV2> {",
             "pub fn accept_normal_factor(",
+            "pub fn fuzz_accept_bound_card(",
             "pub fn reject_card(&mut self, request_kind: u8, status: u16) -> NormalProcessErrorV2 {",
             "pub fn receive_qkip(",
             "pub fn advance_automatic(&mut self) -> Result<Option<CoreOutbound>, NormalProcessErrorV2> {",
@@ -660,6 +661,15 @@ fn every_public_method_entry_is_pinned() {
             "pub fn accept_card_b_signature(",
         ]
     );
+    assert!(NORMAL_PROCESS.contains(
+        "#[cfg(feature = \"fuzzing\")]\n    #[doc(hidden)]\n    pub fn fuzz_accept_bound_card("
+    ));
+    assert!(NORMAL_PROCESS.contains(
+        "#[cfg(any(test, feature = \"legacy-normal-factor-fixture\"))]\n    pub fn accept_normal_factor("
+    ));
+    assert!(NORMAL_PROCESS.contains(
+        "#[cfg(any(test, feature = \"legacy-normal-factor-fixture\"))]\n    pub fn reject_card("
+    ));
     assert_eq!(
         public_methods(SESSION),
         [

@@ -1,10 +1,13 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use qk_card_protocol::{
+    parse_response, A2Purpose, DescriptorSelector, Instruction, ResponseRef, DESCRIPTOR_BYTES,
+};
 use qk_core::{
-    CoreOutbound, Interruption, KeypadKey, NormalErrorV2, NormalProcessControllerV2,
-    NormalProcessErrorV2, NormalProcessEventV2, NormalProcessStageV2, NormalProfileV2,
-    NormalStageV2, Source as CoreSource,
+    bind_normal_card_v1, CardInfoV1, CardProcessErrorV1, CoreOutbound, Interruption, KeypadKey,
+    NormalErrorV2, NormalProcessControllerV2, NormalProcessErrorV2, NormalProcessEventV2,
+    NormalProcessStageV2, NormalProfileV2, NormalStageV2, Source as CoreSource,
 };
 use qk_device_wire::{
     parse_frame as parse_device_frame, BodyRef, Capability, DeviceError, KeypadBody, LogicalKey,
@@ -18,19 +21,21 @@ use qk_ipc::{
 const SIGNING: &str = include_str!("../../host/qk-psbt/tests/fixtures/signing_finalization_v2.txt");
 const PROVISIONING: &str =
     include_str!("../../host/qk-provisioning/tests/fixtures/provisioning_v2.txt");
+const CARD: &str = include_str!("../../host/qk-card-protocol/tests/fixtures/card_protocol_v1.txt");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FactorMutation {
+enum SignatureMutation {
     None,
-    WrongWallet,
+    WrongBinding,
     WrongKey,
-    HighS,
     MalformedDer,
+    InvalidSignature,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum FuzzFact {
     DeviceRejected(&'static str),
+    CardBindingRejected(&'static str),
     NormalRejected {
         name: &'static str,
         stage: NormalProcessStageV2,
@@ -47,12 +52,12 @@ struct Model {
     stage: NormalProcessStageV2,
     terminal_name: Option<&'static str>,
     last_normal_stage: Option<NormalStageV2>,
-    mutation: FactorMutation,
+    mutation: SignatureMutation,
     review_advances: u8,
 }
 
 impl Model {
-    const fn new(mutation: FactorMutation) -> Self {
+    const fn new(mutation: SignatureMutation) -> Self {
         Self {
             stage: NormalProcessStageV2::AwaitingProfile,
             terminal_name: None,
@@ -92,11 +97,6 @@ impl Model {
                 ModelCommand::IngressFinished,
             ) => NormalProcessStageV2::Normal(NormalStageV2::FactorB),
             (NormalProcessStageV2::Normal(NormalStageV2::FactorB), ModelCommand::AcceptFactorB)
-                if self.mutation == FactorMutation::WrongWallet =>
-            {
-                return Some(self.reject("CardBindingMismatch", Some(NormalStageV2::FactorB)));
-            }
-            (NormalProcessStageV2::Normal(NormalStageV2::FactorB), ModelCommand::AcceptFactorB)
             | (NormalProcessStageV2::Normal(NormalStageV2::A1Intake), ModelCommand::IngressBegan) => {
                 NormalProcessStageV2::Normal(NormalStageV2::A1Intake)
             }
@@ -119,27 +119,36 @@ impl Model {
             (
                 NormalProcessStageV2::Normal(NormalStageV2::FinalApproval),
                 ModelCommand::CompleteHold,
+            ) => NormalProcessStageV2::Normal(NormalStageV2::CardBSigning),
+            (
+                NormalProcessStageV2::Normal(NormalStageV2::CardBSigning),
+                ModelCommand::AcceptSignature,
             ) => match self.mutation {
-                FactorMutation::WrongKey => {
+                SignatureMutation::WrongBinding => {
+                    return Some(self.reject(
+                        "CardSignatureBindingMismatch",
+                        Some(NormalStageV2::CardBSigning),
+                    ));
+                }
+                SignatureMutation::WrongKey => {
                     return Some(self.reject(
                         "CardSignatureKeyMismatch",
                         Some(NormalStageV2::CardBSigning),
                     ));
                 }
-                FactorMutation::HighS => {
+                SignatureMutation::MalformedDer => {
                     return Some(
-                        self.reject("CardSignatureHighS", Some(NormalStageV2::CardBSigning)),
+                        self.reject("CardSignatureMalformed", Some(NormalStageV2::CardBSigning)),
                     );
                 }
-                FactorMutation::MalformedDer => {
+                SignatureMutation::InvalidSignature => {
                     return Some(
-                        self.reject("CardDataRejected", Some(NormalStageV2::CardBSigning)),
+                        self.reject("CardSignatureInvalid", Some(NormalStageV2::CardBSigning)),
                     );
                 }
-                FactorMutation::None => {
+                SignatureMutation::None => {
                     NormalProcessStageV2::Normal(NormalStageV2::AwaitingExportAction)
                 }
-                FactorMutation::WrongWallet => unreachable!("wrong wallet stopped at FactorB"),
             },
             (
                 NormalProcessStageV2::Normal(NormalStageV2::AwaitingExportAction),
@@ -204,6 +213,7 @@ enum ModelCommand {
     Validate,
     AdvanceReview,
     CompleteHold,
+    AcceptSignature,
     SelectSd,
     ExportContinues,
     ExportFinished,
@@ -332,8 +342,11 @@ fn normal_leaf_error_name(error: NormalErrorV2) -> &'static str {
 fn normal_error_name(error: NormalProcessErrorV2) -> &'static str {
     let name = match error {
         NormalProcessErrorV2::CardProfileMismatch => "CardProfileMismatch",
+        NormalProcessErrorV2::CardSignatureBindingMismatch => "CardSignatureBindingMismatch",
         NormalProcessErrorV2::CardSignatureKeyMismatch => "CardSignatureKeyMismatch",
+        NormalProcessErrorV2::CardSignatureMalformed => "CardSignatureMalformed",
         NormalProcessErrorV2::CardSignatureHighS => "CardSignatureHighS",
+        NormalProcessErrorV2::CardSignatureInvalid => "CardSignatureInvalid",
         NormalProcessErrorV2::Normal(error) => normal_leaf_error_name(error),
     };
     assert_eq!(error.name(), name);
@@ -402,6 +415,28 @@ fn device_error_name(error: DeviceError) -> &'static str {
         DeviceError::FilenameRejected => "FilenameRejected",
         DeviceError::ArtifactMismatch => "ArtifactMismatch",
         DeviceError::DeviceRejected => "DeviceRejected",
+        DeviceError::LegacyNormalFactorRejected => "LegacyNormalFactorRejected",
+    };
+    assert_eq!(error.name(), name);
+    assert_eq!(error.to_string(), name);
+    name
+}
+
+fn card_binding_error_name(error: CardProcessErrorV1) -> &'static str {
+    let name = match error {
+        CardProcessErrorV1::UnexpectedResponse => "CardUnexpectedResponse",
+        CardProcessErrorV1::RecordRejected => "CardRecordRejected",
+        CardProcessErrorV1::InfoRecordVersionMismatch => "CardInfoRecordVersionMismatch",
+        CardProcessErrorV1::InfoLifecycleMismatch => "CardInfoLifecycleMismatch",
+        CardProcessErrorV1::InfoProfileMismatch => "CardInfoProfileMismatch",
+        CardProcessErrorV1::InfoRoleMismatch => "CardInfoRoleMismatch",
+        CardProcessErrorV1::InfoOperationMaskMismatch => "CardInfoOperationMaskMismatch",
+        CardProcessErrorV1::DescriptorRejected => "CardDescriptorRejected",
+        CardProcessErrorV1::DescriptorByteMismatch => "CardDescriptorByteMismatch",
+        CardProcessErrorV1::WalletBindingMismatch => "CardWalletBindingMismatch",
+        CardProcessErrorV1::OriginFingerprintMismatch => "CardOriginFingerprintMismatch",
+        CardProcessErrorV1::AccountXpubMismatch => "CardAccountXpubMismatch",
+        CardProcessErrorV1::CardDataRejected => "CardDataRejected",
     };
     assert_eq!(error.name(), name);
     assert_eq!(error.to_string(), name);
@@ -417,40 +452,133 @@ fn profile(selector: u8) -> (&'static [u8; 2], u8, NormalProfileV2) {
     }
 }
 
-fn factor_body(mutation: FactorMutation) -> Vec<u8> {
-    let mut body = Vec::new();
-    body.extend_from_slice(field(PROVISIONING, "receive_descriptor").as_bytes());
-    body.extend_from_slice(field(PROVISIONING, "change_descriptor").as_bytes());
-    let mut wallet_id = hex_vec(field(PROVISIONING, "wallet_id"));
-    if mutation == FactorMutation::WrongWallet {
-        wallet_id[0] ^= 1;
+fn descriptors() -> [[u8; DESCRIPTOR_BYTES]; 2] {
+    let mut descriptors = [[0u8; DESCRIPTOR_BYTES]; 2];
+    for (field_name, expected_selector, expected_offset, target, start) in [
+        (
+            "normal_read_1_0_response_hex",
+            DescriptorSelector::Receive,
+            0u16,
+            0usize,
+            0usize,
+        ),
+        (
+            "normal_read_1_192_response_hex",
+            DescriptorSelector::Receive,
+            192,
+            0,
+            192,
+        ),
+        (
+            "normal_read_2_0_response_hex",
+            DescriptorSelector::Change,
+            0,
+            1,
+            0,
+        ),
+        (
+            "normal_read_2_192_response_hex",
+            DescriptorSelector::Change,
+            192,
+            1,
+            192,
+        ),
+    ] {
+        let response = hex_vec(field(CARD, field_name));
+        let ResponseRef::ReadDChunk {
+            selector,
+            offset,
+            bytes,
+            ..
+        } = parse_response(Instruction::ReadDChunk, &response).expect("registered READ_D response")
+        else {
+            panic!("registered READ_D response kind");
+        };
+        assert_eq!(selector, expected_selector);
+        assert_eq!(offset, expected_offset);
+        let end = start
+            .checked_add(bytes.len())
+            .expect("registered descriptor chunk bound");
+        descriptors[target][start..end].copy_from_slice(bytes);
     }
-    body.extend_from_slice(&wallet_id);
-    body.extend_from_slice(field(PROVISIONING, "role_b_account_xpub").as_bytes());
-    body.extend_from_slice(&hex_vec(field(PROVISIONING, "a2_transcript_sha256")));
-    body.extend_from_slice(&1u16.to_le_bytes());
-    body.extend_from_slice(&0u32.to_le_bytes());
-    let mut role_b_key = hex_vec(field(SIGNING, "role_b_route_public_key_hex"));
-    if mutation == FactorMutation::WrongKey {
-        role_b_key[32] ^= 1;
-    }
-    body.extend_from_slice(&role_b_key);
-    let der = match mutation {
-        FactorMutation::HighS => {
-            let mut high = vec![0u8; 40];
-            high[..6].copy_from_slice(&[0x30, 0x26, 0x02, 0x01, 0x01, 0x02]);
-            high[6] = 0x21;
-            high[7] = 0;
-            high[8..].fill(0xff);
-            high
-        }
-        FactorMutation::MalformedDer => vec![0x30, 0x06, 0x02, 0x01, 0x80, 0x02, 0x01, 0x01],
-        _ => hex_vec(field(SIGNING, "role_b_der_hex")),
+    assert_eq!(
+        descriptors[0].as_slice(),
+        field(CARD, "receive_descriptor").as_bytes()
+    );
+    assert_eq!(
+        descriptors[1].as_slice(),
+        field(CARD, "change_descriptor").as_bytes()
+    );
+    descriptors
+}
+
+fn a2() -> [u8; 32] {
+    let response = hex_vec(field(CARD, "normal_a2_response_hex"));
+    let ResponseRef::ExportA2 {
+        purpose: A2Purpose::Normal,
+        a2,
+        ..
+    } = parse_response(Instruction::ExportA2, &response).expect("registered EXPORT_A2 response")
+    else {
+        panic!("registered EXPORT_A2 response kind");
     };
-    body.push(u8::try_from(der.len()).expect("bounded DER fixture"));
-    body.extend_from_slice(&der);
-    assert!(body.len() <= 11_790);
-    body
+    assert_eq!(a2.as_slice(), hex_vec(field(CARD, "a2_hex")));
+    *a2
+}
+
+fn bound_card(
+    selected_profile: NormalProfileV2,
+) -> Result<qk_core::NormalCardBDataV2, CardProcessErrorV1> {
+    let mut response = hex_vec(field(CARD, "normal_info_response_hex"));
+    assert_eq!(response.len(), 160);
+    response[24] = match selected_profile {
+        NormalProfileV2::SimpleRecovery => 1,
+        NormalProfileV2::Inheritance => 2,
+        NormalProfileV2::QuantumShelter => 3,
+    };
+    let info = CardInfoV1::try_from_response(
+        parse_response(Instruction::GetInfo, &response).expect("registered INFO response"),
+    )?;
+    let mut a2 = a2();
+    let result = bind_normal_card_v1(selected_profile, info, descriptors(), &mut a2);
+    assert!(a2.iter().all(|byte| *byte == 0));
+    result
+}
+
+fn signature_reply(
+    mutation: SignatureMutation,
+    expected_review_hash: [u8; 32],
+) -> ([u8; 32], u32, [u8; 33], Vec<u8>) {
+    let response = hex_vec(field(CARD, "normal_sign_0_response_hex"));
+    let ResponseRef::SignDigest {
+        review_hash,
+        input_index,
+        public_key,
+        signature_der,
+        ..
+    } = parse_response(Instruction::SignDigest, &response).expect("registered SIGN response")
+    else {
+        panic!("registered SIGN response kind");
+    };
+    assert_eq!(
+        review_hash.as_slice(),
+        hex_vec(field(CARD, "review_hash_hex"))
+    );
+    let mut review_hash = expected_review_hash;
+    let mut public_key = *public_key;
+    let mut signature_der = signature_der.to_vec();
+    match mutation {
+        SignatureMutation::None => {}
+        SignatureMutation::WrongBinding => review_hash[0] ^= 1,
+        SignatureMutation::WrongKey => public_key[32] ^= 1,
+        SignatureMutation::MalformedDer => {
+            signature_der = vec![0x30; 7];
+        }
+        SignatureMutation::InvalidSignature => {
+            signature_der[10] ^= 1;
+        }
+    }
+    (review_hash, input_index, public_key, signature_der)
 }
 
 fn raw_device_frame(capability: Capability, kind: DeviceKind, body: &[u8]) -> Vec<u8> {
@@ -804,22 +932,6 @@ fn controller(
     NormalProcessControllerV2::fuzz_start(profile_ascii, namespace, last_counter)
 }
 
-fn accepted_factor(
-    controller: &mut NormalProcessControllerV2,
-    body: &[u8],
-) -> Result<CoreOutbound, FuzzFact> {
-    let raw = raw_device_frame(Capability::CardResponse, DeviceKind::CardNormalFactor, body);
-    let frame = parse_device_frame(Capability::CardResponse, &raw)
-        .map_err(|error| FuzzFact::DeviceRejected(device_error_name(error)))?;
-    match frame.parsed_body() {
-        Ok(BodyRef::CardResponse(qk_device_wire::CardResponseBody::NormalFactor(_))) => controller
-            .accept_normal_factor(frame.body())
-            .map_err(|error| normal_rejection(controller, error)),
-        Ok(_) => Err(FuzzFact::DeviceRejected("UnexpectedFrame")),
-        Err(error) => Err(FuzzFact::DeviceRejected(device_error_name(error))),
-    }
-}
-
 fn normal_rejection(
     controller: &mut NormalProcessControllerV2,
     error: NormalProcessErrorV2,
@@ -873,7 +985,7 @@ fn checked<T>(
 
 fn setup_controller(
     data: &[u8],
-    mutation: FactorMutation,
+    mutation: SignatureMutation,
 ) -> Result<
     (
         NormalProcessControllerV2,
@@ -884,6 +996,8 @@ fn setup_controller(
     FuzzFact,
 > {
     let mut cursor = Cursor::new(data);
+    let _selector = cursor.byte();
+    let _mutation_selector = cursor.byte();
     let (profile_ascii, profile_wire, selected_profile) = profile(cursor.byte());
     let mut controller =
         controller(profile_ascii, &mut cursor).map_err(|error| FuzzFact::NormalRejected {
@@ -899,23 +1013,21 @@ fn setup_controller(
         ModelCommand::BindProfile,
         accepted,
     )?;
-    let factor = factor_body(mutation);
-    let opening = match accepted_factor(&mut controller, &factor) {
-        Ok(value) => checked(
-            &mut controller,
-            &mut model,
-            ModelCommand::AcceptFactor,
-            Ok(value),
-        )?,
-        Err(fact) => panic!("body-valid fixture factor was rejected early: {fact:?}"),
-    };
+    let card = bound_card(selected_profile).expect("registered APDU facts bind");
+    let accepted = controller.fuzz_accept_bound_card(card);
+    let opening = checked(
+        &mut controller,
+        &mut model,
+        ModelCommand::AcceptFactor,
+        accepted,
+    )?;
     Ok((controller, opening, selected_profile, model))
 }
 
 #[allow(clippy::too_many_lines)]
 fn run_scenario(
     data: &[u8],
-    mutation: FactorMutation,
+    mutation: SignatureMutation,
     injection: Option<(Checkpoint, Attack)>,
 ) -> FuzzFact {
     let (mut controller, opening, selected_profile, mut model) =
@@ -950,7 +1062,7 @@ fn run_scenario(
     }
     stages.push(controller.stage());
 
-    let source = if data.get(1).copied().unwrap_or(0) & 1 == 0 {
+    let source = if data.get(3).copied().unwrap_or(0) & 1 == 0 {
         CoreSource::MediaPsbt
     } else {
         CoreSource::CameraBbqrPsbt
@@ -1061,30 +1173,52 @@ fn run_scenario(
     assert!(!before_hold.contains(&NormalStageV2::Revalidation));
     assert!(!before_hold.contains(&NormalStageV2::CardBSigning));
     let held = controller.handle_event(NormalProcessEventV2::HoldCompleted);
-    match checked(
+    if let Err(fact) = checked(
         &mut controller,
         &mut model,
         ModelCommand::CompleteHold,
         held,
     ) {
+        return fact;
+    }
+    assert_eq!(
+        drain_display_stages(&mut controller),
+        [
+            NormalStageV2::ApprovalHeld,
+            NormalStageV2::Revalidation,
+            NormalStageV2::TerminalASigning,
+            NormalStageV2::CardBSigning,
+        ]
+    );
+    let request = controller
+        .card_b_signing_request()
+        .expect("CardBSigning exposes one immutable request");
+    assert_eq!(request.input_index(), 0);
+    assert_eq!(
+        request.role_b_pubkey().as_slice(),
+        hex_vec(field(CARD, "route_public_key_hex"))
+    );
+    assert_eq!(
+        request.digest().as_slice(),
+        hex_vec(field(CARD, "digest_hex"))
+    );
+    let expected_review_hash = *request.review_hash();
+    drop(request);
+    let (review_hash, input_index, public_key, mut signature) =
+        signature_reply(mutation, expected_review_hash);
+    let accepted =
+        controller.accept_card_b_signature(review_hash, input_index, public_key, &mut signature);
+    let signature_outcome = checked(
+        &mut controller,
+        &mut model,
+        ModelCommand::AcceptSignature,
+        accepted,
+    );
+    assert!(signature.iter().all(|byte| *byte == 0));
+    match signature_outcome {
         Ok(None) => {}
-        Ok(Some(_)) => panic!("approval completion unexpectedly yielded transport"),
-        Err(fact) => {
-            assert!(matches!(
-                mutation,
-                FactorMutation::WrongKey | FactorMutation::HighS | FactorMutation::MalformedDer
-            ));
-            assert_eq!(
-                drain_display_stages(&mut controller),
-                [
-                    NormalStageV2::ApprovalHeld,
-                    NormalStageV2::Revalidation,
-                    NormalStageV2::TerminalASigning,
-                    NormalStageV2::CardBSigning,
-                ]
-            );
-            return fact;
-        }
+        Ok(Some(_)) => panic!("card signature unexpectedly yielded transport"),
+        Err(fact) => return fact,
     }
     stages.push(controller.stage());
 
@@ -1174,7 +1308,7 @@ fn run_scenario(
     }
 }
 
-fn run_complete(data: &[u8], mutation: FactorMutation) -> FuzzFact {
+fn run_complete(data: &[u8], mutation: SignatureMutation) -> FuzzFact {
     run_scenario(data, mutation, None)
 }
 
@@ -1312,7 +1446,7 @@ fn fuzz_keypad(data: &[u8]) -> FuzzFact {
         Err(error) => return FuzzFact::DeviceRejected(device_error_name(error)),
     };
     let (mut controller, opening, selected_profile, _model) =
-        match setup_controller(data, FactorMutation::None) {
+        match setup_controller(data, SignatureMutation::None) {
             Ok(value) => value,
             Err(fact) => return fact,
         };
@@ -1350,37 +1484,75 @@ fn fuzz_profile(data: &[u8]) -> FuzzFact {
     }
 }
 
-fn fuzz_card_profile(data: &[u8]) -> FuzzFact {
-    let raw = raw_device_frame(
-        Capability::CardResponse,
-        DeviceKind::CardProfile,
-        data.get(1..).unwrap_or_default(),
-    );
-    let frame = match parse_device_frame(Capability::CardResponse, &raw) {
-        Ok(value) => value,
-        Err(error) => return FuzzFact::DeviceRejected(device_error_name(error)),
+fn fuzz_card_binding(data: &[u8]) -> FuzzFact {
+    let (_, profile_wire, selected_profile) = profile(data.first().copied().unwrap_or(0));
+    let mut response = hex_vec(field(CARD, "normal_info_response_hex"));
+    response[24] = profile_wire;
+    let mut descriptor_pair = descriptors();
+    let mutation = data.get(1).copied().unwrap_or(0) % 8;
+    let expected = match mutation {
+        0 => None,
+        1 => {
+            response[23] = 0;
+            response[24] = 0;
+            response[26..156].fill(0);
+            response[156..158].copy_from_slice(&0x0011u16.to_be_bytes());
+            Some("CardInfoLifecycleMismatch")
+        }
+        2 => {
+            response[24] = if profile_wire == 3 {
+                1
+            } else {
+                profile_wire + 1
+            };
+            Some("CardInfoProfileMismatch")
+        }
+        3 => {
+            response[156..158].copy_from_slice(&0x0007u16.to_be_bytes());
+            Some("CardInfoOperationMaskMismatch")
+        }
+        4 => {
+            response[42] ^= 1;
+            Some("CardWalletBindingMismatch")
+        }
+        5 => {
+            response[74] ^= 1;
+            Some("CardOriginFingerprintMismatch")
+        }
+        6 => {
+            response[155] ^= 1;
+            Some("CardAccountXpubMismatch")
+        }
+        7 => {
+            descriptor_pair[0][0] ^= 1;
+            Some("CardDescriptorRejected")
+        }
+        _ => unreachable!("modulo eight is exhaustive"),
     };
-    let card_profile = match frame.parsed_body() {
-        Ok(BodyRef::CardResponse(qk_device_wire::CardResponseBody::Profile(profile))) => profile,
-        Ok(_) => return FuzzFact::DeviceRejected("UnexpectedFrame"),
-        Err(error) => return FuzzFact::DeviceRejected(device_error_name(error)),
-    };
-    let mut cursor = Cursor::new(data);
-    let (ascii, _, selected) = profile(data.first().copied().unwrap_or(0));
-    let mut controller = controller(ascii, &mut cursor).expect("canonical profile");
-    match controller.accept_profile(card_profile.wire_value()) {
-        Ok(()) => FuzzFact::Accepted {
-            profile: selected,
-            stages: vec![controller.stage()],
+    let parsed = parse_response(Instruction::GetInfo, &response)
+        .expect("mutated response remains byte-grammatical");
+    let info = CardInfoV1::try_from_response(parsed).expect("owned INFO response");
+    let mut a2 = a2();
+    let result = bind_normal_card_v1(selected_profile, info, descriptor_pair, &mut a2);
+    assert!(a2.iter().all(|byte| *byte == 0));
+    match (expected, result) {
+        (None, Ok(_)) => FuzzFact::Accepted {
+            profile: selected_profile,
+            stages: vec![NormalProcessStageV2::AwaitingNormalFactor],
             outbound_lengths: Vec::new(),
         },
-        Err(error) => normal_rejection(&mut controller, error),
+        (Some(name), Err(error)) => {
+            assert_eq!(card_binding_error_name(error), name);
+            FuzzFact::CardBindingRejected(name)
+        }
+        (None, Err(error)) => panic!("registered binding rejected: {error}"),
+        (Some(name), Ok(_)) => panic!("mutated card binding accepted instead of {name}"),
     }
 }
 
 fn fuzz_qkip(data: &[u8]) -> FuzzFact {
     let (mut controller, opening, selected_profile, _model) =
-        match setup_controller(data, FactorMutation::None) {
+        match setup_controller(data, SignatureMutation::None) {
             Ok(value) => value,
             Err(fact) => return fact,
         };
@@ -1399,18 +1571,22 @@ fn fuzz_qkip(data: &[u8]) -> FuzzFact {
     }
 }
 
-fn fuzz_card_rejection(data: &[u8]) -> FuzzFact {
-    let mut cursor = Cursor::new(data);
-    let (ascii, _, selected_profile) = profile(data.first().copied().unwrap_or(0));
-    let mut controller = controller(ascii, &mut cursor).expect("canonical profile");
-    let status = u16::from_le_bytes([
-        data.get(2).copied().unwrap_or(0),
-        data.get(3).copied().unwrap_or(0),
-    ]);
-    let error = controller.reject_card(data.get(1).copied().unwrap_or(0), status);
-    let fact = normal_rejection(&mut controller, error);
-    assert_eq!(controller.selected_profile(), selected_profile);
-    fact
+fn fuzz_legacy_factor(data: &[u8]) -> FuzzFact {
+    let request = data.get(1).copied().unwrap_or(0) & 1 == 0;
+    let (capability, kind) = if request {
+        (Capability::CardRequest, DeviceKind::CardReadNormalFactor)
+    } else {
+        (Capability::CardResponse, DeviceKind::CardNormalFactor)
+    };
+    let raw = raw_device_frame(capability, kind, data.get(2..).unwrap_or_default());
+    let frame = match parse_device_frame(capability, &raw) {
+        Ok(value) => value,
+        Err(error) => return FuzzFact::DeviceRejected(device_error_name(error)),
+    };
+    match frame.parsed_body() {
+        Err(error) => FuzzFact::DeviceRejected(device_error_name(error)),
+        Ok(_) => panic!("active decoder accepted legacy NormalFactor"),
+    }
 }
 
 fn admitted(data: &[u8]) -> bool {
@@ -1419,18 +1595,18 @@ fn admitted(data: &[u8]) -> bool {
         == 0
 }
 
-fn assert_factor_outcome(mutation: FactorMutation, fact: &FuzzFact) {
+fn assert_signature_outcome(mutation: SignatureMutation, fact: &FuzzFact) {
     let expected_rejection = match mutation {
-        FactorMutation::None => None,
-        FactorMutation::WrongWallet => Some("CardBindingMismatch"),
-        FactorMutation::WrongKey => Some("CardSignatureKeyMismatch"),
-        FactorMutation::HighS => Some("CardSignatureHighS"),
-        FactorMutation::MalformedDer => Some("CardDataRejected"),
+        SignatureMutation::None => None,
+        SignatureMutation::WrongBinding => Some("CardSignatureBindingMismatch"),
+        SignatureMutation::WrongKey => Some("CardSignatureKeyMismatch"),
+        SignatureMutation::MalformedDer => Some("CardSignatureMalformed"),
+        SignatureMutation::InvalidSignature => Some("CardSignatureInvalid"),
     };
     match (expected_rejection, fact) {
         (None, FuzzFact::Accepted { .. }) => {}
         (Some(expected), FuzzFact::NormalRejected { name, .. }) => assert_eq!(name, &expected),
-        _ => panic!("factor mutation produced the wrong closed outcome"),
+        _ => panic!("signature mutation produced the wrong closed outcome"),
     }
 }
 
@@ -1438,15 +1614,15 @@ fuzz_target!(|data: &[u8]| {
     let selector = data.first().copied().unwrap_or(0);
     let fact = if selector == b'V' && admitted(data) {
         let mutation = match data.get(1).copied().unwrap_or(0) % 5 {
-            0 => FactorMutation::None,
-            1 => FactorMutation::WrongWallet,
-            2 => FactorMutation::WrongKey,
-            3 => FactorMutation::HighS,
-            4 => FactorMutation::MalformedDer,
+            0 => SignatureMutation::None,
+            1 => SignatureMutation::WrongBinding,
+            2 => SignatureMutation::WrongKey,
+            3 => SignatureMutation::MalformedDer,
+            4 => SignatureMutation::InvalidSignature,
             _ => unreachable!("modulo five is exhaustive"),
         };
         let fact = run_complete(data, mutation);
-        assert_factor_outcome(mutation, &fact);
+        assert_signature_outcome(mutation, &fact);
         for (index, checkpoint) in Checkpoint::ALL.into_iter().enumerate() {
             let attack = Attack::from_byte(
                 data.get(index.saturating_add(2))
@@ -1454,7 +1630,7 @@ fuzz_target!(|data: &[u8]| {
                     .unwrap_or(u8::try_from(index).expect("five bounded checkpoints")),
             );
             assert!(matches!(
-                run_scenario(data, FactorMutation::None, Some((checkpoint, attack))),
+                run_scenario(data, SignatureMutation::None, Some((checkpoint, attack))),
                 FuzzFact::NormalRejected { .. }
             ));
         }
@@ -1462,16 +1638,18 @@ fuzz_target!(|data: &[u8]| {
     } else {
         let exercise = || match selector % 5 {
             0 => fuzz_profile(data),
-            1 => fuzz_card_profile(data),
+            1 => fuzz_card_binding(data),
             2 => fuzz_keypad(data),
             3 => fuzz_qkip(data),
-            4 => fuzz_card_rejection(data),
+            4 => fuzz_legacy_factor(data),
             _ => unreachable!("modulo five is exhaustive"),
         };
         exercise()
     };
     match fact {
-        FuzzFact::DeviceRejected(name) | FuzzFact::NormalRejected { name, .. } => {
+        FuzzFact::DeviceRejected(name)
+        | FuzzFact::CardBindingRejected(name)
+        | FuzzFact::NormalRejected { name, .. } => {
             assert!(!name.is_empty());
         }
         FuzzFact::Accepted { .. } => {}

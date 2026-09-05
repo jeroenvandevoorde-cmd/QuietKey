@@ -53,6 +53,8 @@ case "$target" in
   qk_core_kit_intake) max_len=512 ;;
   qk_core_kit_restore) max_len=512 ;;
   qk_core_kit_spend) max_len=512 ;;
+  qk_card_protocol) max_len=65536 ;;
+  qk_card_model) max_len=65536 ;;
   qk_device_wire) max_len=65536 ;;
   qk_core_normal_process) max_len=4096 ;;
   *) printf 'unknown target: %s\n' "$target" >&2; exit 2 ;;
@@ -99,6 +101,12 @@ case "$target" in
     ;;
   qk_core_kit_intake|qk_core_kit_restore|qk_core_kit_spend)
     set -- --no-default-features --features process-s7-core "$target" "$corpus"
+    ;;
+  qk_card_protocol)
+    set -- --no-default-features --features card-s1-protocol "$target" "$corpus"
+    ;;
+  qk_card_model)
+    set -- --no-default-features --features card-s1-model "$target" "$corpus"
     ;;
   qk_device_wire)
     set -- --no-default-features --features process-s9-wire "$target" "$corpus"

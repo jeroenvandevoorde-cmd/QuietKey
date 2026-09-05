@@ -27,6 +27,13 @@ legacy = [
     "qk-update/fuzzing",
 ]
 ipc = ["dep:qk-ipc", "qk-ipc/fuzzing"]
+card-s1-protocol = ["dep:qk-card-protocol", "qk-card-protocol/fuzzing"]
+card-s1-model = [
+    "dep:qk-card-model",
+    "dep:qk-card-protocol",
+    "qk-card-model/fuzzing",
+    "qk-card-protocol/fuzzing",
+]
 process-s2-decoy = ["dep:qk-decoy", "qk-decoy/fuzzing"]
 process-s2-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]
 process-s8-supervisor = ["dep:qk-supervisor", "qk-supervisor/fuzzing"]
@@ -65,14 +72,15 @@ process-s7-core = [
 process-s9-wire = [
     "dep:qk-device-wire",
     "qk-device-wire/fuzzing",
+    "qk-device-wire/legacy-normal-factor-fixture",
 ]
 process-s9-core = [
+    "dep:qk-card-protocol",
     "dep:qk-core",
     "dep:qk-device-wire",
     "dep:qk-ipc",
     "qk-core/fuzzing",
     "qk-core/normal-process",
-    "qk-device-wire/fuzzing",
     "qk-ipc/fuzzing",
 ]
 
@@ -82,6 +90,8 @@ qk-a1 = { path = "../host/qk-a1", version = "=0.0.1", optional = true }
 qk-a1-codec = { path = "../host/qk-a1-codec", version = "=0.0.1", optional = true }
 qk-bbqr = { path = "../host/qk-bbqr", version = "=0.0.1", optional = true }
 qk-card-trace = { path = "../host/qk-card-trace", version = "=0.0.1", optional = true }
+qk-card-model = { path = "../host/qk-card-model", version = "=0.0.1", optional = true }
+qk-card-protocol = { path = "../host/qk-card-protocol", version = "=0.0.1", optional = true }
 qk-core = { path = "../host/qk-core", version = "=0.0.1", optional = true }
 qk-descriptor = { path = "../host/qk-descriptor", version = "=0.0.1", optional = true }
 qk-decoy = { path = "../host/qk-decoy", version = "=0.0.1", optional = true }
@@ -456,6 +466,22 @@ test = false
 doc = false
 bench = false
 required-features = ["process-s9-wire"]
+
+[[bin]]
+name = "qk_card_protocol"
+path = "fuzz_targets/qk_card_protocol.rs"
+test = false
+doc = false
+bench = false
+required-features = ["card-s1-protocol"]
+
+[[bin]]
+name = "qk_card_model"
+path = "fuzz_targets/qk_card_model.rs"
+test = false
+doc = false
+bench = false
+required-features = ["card-s1-model"]
 
 [[bin]]
 name = "qk_core_normal_process"

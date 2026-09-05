@@ -9,6 +9,7 @@ const MANIFEST: &str = include_str!("../Cargo.toml");
 
 #[test]
 fn dependency_free_manifest_and_host_only_surface_are_pinned() {
+    assert!(MANIFEST.contains("[features]\nfuzzing = []\nlegacy-normal-factor-fixture = []"));
     let dependency_tail = MANIFEST.split("[dependencies]").nth(1).unwrap();
     assert!(dependency_tail.trim().is_empty());
     for forbidden in [
