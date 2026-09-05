@@ -124,10 +124,13 @@ fn run_cycle(
     let cleanup = cleanup_runtime(&runtime);
     let (supervisor_status, driver_status) = statuses?;
     cleanup?;
-    let expected_supervisor = if cycle.negative.is_some() {
-        status_code(supervisor_status) == Some(NEGATIVE_STATUS)
-    } else {
+    // The silent real-process boundary proves the exact hostile stimulus,
+    // display/review checkpoint, empty outputs, and success or status 70.
+    // Concrete rejection names are pinned at their owning pure boundaries.
+    let expected_supervisor = if cycle.expects_supervisor_success() {
         supervisor_status.success()
+    } else {
+        status_code(supervisor_status) == Some(NEGATIVE_STATUS)
     };
     if expected_supervisor && driver_status.success() {
         Ok(())

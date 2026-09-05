@@ -134,6 +134,23 @@ fn wrong_profile_rejects_and_clears_a2_before_any_factor_exists() {
 }
 
 #[test]
+fn info_wallet_mutation_has_exact_named_rejection() {
+    let fields = fixture();
+    let descriptors = descriptors(&fields);
+
+    let mut wrong_wallet = bytes(&fields, "normal_info_response_hex");
+    wrong_wallet[42] ^= 1;
+    let info = info_from_response(wrong_wallet, 1, 0x000f);
+    let mut a2: [u8; 32] = bytes(&fields, "a2_hex").try_into().expect("A2 width");
+    assert_eq!(
+        bind_normal_card_v1(NormalProfileV2::SimpleRecovery, info, descriptors, &mut a2,)
+            .map(|_| ()),
+        Err(CardProcessErrorV1::WalletBindingMismatch)
+    );
+    assert!(a2.iter().all(|byte| *byte == 0));
+}
+
+#[test]
 fn every_binding_error_name_is_stable() {
     for (error, name) in [
         (

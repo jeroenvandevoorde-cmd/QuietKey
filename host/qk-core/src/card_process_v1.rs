@@ -305,6 +305,12 @@ mod tests {
             Ok(())
         );
 
+        info.record_version = RECORD_VERSION + 1;
+        assert_eq!(
+            validate_normal_info_v1(NormalProfileV2::SimpleRecovery, &info),
+            Err(CardProcessErrorV1::InfoRecordVersionMismatch)
+        );
+        info = committed_info();
         info.lifecycle = Lifecycle::Staging.byte();
         assert_eq!(
             validate_normal_info_v1(NormalProfileV2::SimpleRecovery, &info),

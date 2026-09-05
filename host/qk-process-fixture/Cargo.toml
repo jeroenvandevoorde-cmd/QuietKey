@@ -17,4 +17,6 @@ path = "src/bin/qk-normal-fixture-driver.rs"
 
 [dependencies]
 qk-bbqr = { path = "../qk-bbqr" }
+qk-card-model = { path = "../qk-card-model" }
+qk-card-protocol = { path = "../qk-card-protocol" }
 qk-device-wire = { path = "../qk-device-wire" }

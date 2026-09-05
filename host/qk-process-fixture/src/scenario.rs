@@ -1,16 +1,18 @@
 //! Test-only driver for the registered public Normal fixture.
 //!
-//! PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL. The two source fixture
-//! files are included from their frozen locations and are never copied here.
+//! PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL. The provisioning and
+//! transaction fixtures are included from their frozen locations; the card
+//! fixture is included by `card_scenario_v1`. None is copied here.
 
+use crate::card_scenario_v1::CardScenarioV1;
 use crate::common::{CycleSpec, FixtureError, Ingress, Negative, Profile, Route};
 use crate::wipe::{bytes as wipe_bytes, WipingVec};
 use qk_bbqr::{encode_typed_frame, encoded_part_count, BbqrFileType, MAX_FRAME_TEXT_BYTES};
 use qk_device_wire::{
-    Artifact, BodyRef, Capability, CardRequestBody, DirectRbf, DisplayBody, MessageKind, Network,
-    NormalStage, OneWayProtocol, OutputBody, OutputTransfer, Profile as WireProfile,
-    RecipientOwnership, RecipientType, ResultBody, ReviewBody, Route as WireRoute, Source,
-    StreamDecoder, Warning, HEADER_BYTES, MAX_CHUNK_BYTES,
+    Artifact, BodyRef, Capability, DirectRbf, DisplayBody, MessageKind, Network, NormalStage,
+    OneWayProtocol, OutputBody, OutputTransfer, Profile as WireProfile, RecipientOwnership,
+    RecipientType, ResultBody, ReviewBody, Route as WireRoute, Source, StreamDecoder, Warning,
+    HEADER_BYTES, MAX_CHUNK_BYTES,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -20,8 +22,6 @@ const SIGNING: &str = include_str!("../../qk-psbt/tests/fixtures/signing_finaliz
 
 const DISPLAY_FD: i32 = 3;
 const KEYPAD_FD: i32 = 4;
-const CARD_RESPONSE_FD: i32 = 5;
-const CARD_REQUEST_FD: i32 = 6;
 const CAMERA_FD: i32 = 7;
 const MEDIA_INPUT_FD: i32 = 8;
 const PRINT_OUTPUT_FD: i32 = 9;
@@ -61,58 +61,15 @@ const QR_REVIEW_HASH: [u8; 32] = [
 ];
 
 pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
+    let mut card = CardScenarioV1::provisioned(spec)?;
     preload_inputs(spec)?;
-
-    let mut card_requests = open_fd(CARD_REQUEST_FD, true)?;
-    let mut card_responses = open_fd(CARD_RESPONSE_FD, false)?;
-    let mut request_decoder = StreamDecoder::new(Capability::CardRequest);
-    let mut response_protocol = OneWayProtocol::new(Capability::CardResponse);
-
-    let profile_request = read_frame(&mut card_requests, &mut request_decoder)?;
-    if !matches!(
-        profile_request
-            .parsed_body()
-            .map_err(|_| FixtureError::Wire)?,
-        BodyRef::CardRequest(CardRequestBody::ReadProfile)
-    ) {
-        return Err(FixtureError::FactMismatch);
-    }
-    let served_profile = if spec.negative == Some(Negative::ProfileMismatch) {
-        match spec.profile {
-            Profile::SimpleRecovery => Profile::Inheritance,
-            Profile::Inheritance | Profile::QuantumShelter => Profile::SimpleRecovery,
-        }
-    } else {
-        spec.profile
-    };
-    write_protocol_frame(
-        &mut card_responses,
-        &mut response_protocol,
-        MessageKind::CardProfile,
-        &[served_profile.wire()],
-    )?;
-    if spec.negative == Some(Negative::ProfileMismatch) {
-        require_empty_eof(&mut card_requests)?;
+    if !card.serve_normal_binding()? {
+        card.require_request_eof()?;
+        let mut display = open_fd(DISPLAY_FD, true)?;
+        require_empty_eof(&mut display)?;
         verify_negative_outputs()?;
-        return verify_negative_checkpoint(spec, 0, 0, false, false);
+        return verify_termination_checkpoint(spec, 0, 0, false, false);
     }
-
-    let factor_request = read_frame(&mut card_requests, &mut request_decoder)?;
-    if !matches!(
-        factor_request
-            .parsed_body()
-            .map_err(|_| FixtureError::Wire)?,
-        BodyRef::CardRequest(CardRequestBody::ReadNormalFactor)
-    ) {
-        return Err(FixtureError::FactMismatch);
-    }
-    let factor = normal_factor(spec.negative)?;
-    write_protocol_frame(
-        &mut card_responses,
-        &mut response_protocol,
-        MessageKind::CardNormalFactor,
-        factor.as_slice(),
-    )?;
 
     let mut display = open_fd(DISPLAY_FD, true)?;
     let mut keypad = open_fd(KEYPAD_FD, false)?;
@@ -126,9 +83,9 @@ pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
     loop {
         let frame = match read_frame(&mut display, &mut display_decoder) {
             Ok(frame) => frame,
-            Err(FixtureError::UnexpectedEof) if spec.negative.is_some() => {
+            Err(FixtureError::UnexpectedEof) if spec.expects_termination() => {
                 verify_negative_outputs()?;
-                return verify_negative_checkpoint(
+                return verify_termination_checkpoint(
                     spec,
                     stage_index,
                     review_index,
@@ -184,8 +141,11 @@ pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
                         )?;
                         wipe_bytes(&mut event);
                     }
+                    NormalStage::CardBSigning => {
+                        card.serve_signature()?;
+                    }
                     NormalStage::CompletedWiped => {
-                        if spec.negative.is_some()
+                        if spec.expects_termination()
                             || stage_index != EXPECTED_DISPLAY_STAGES.len()
                             || review_index != REVIEW_COUNT
                             || !saw_result
@@ -418,70 +378,6 @@ fn bbqr_record(payload: &[u8]) -> Result<WipingVec, FixtureError> {
             .map_err(|_| FixtureError::Fixture)?;
     }
     Ok(record)
-}
-
-fn normal_factor(negative: Option<Negative>) -> Result<WipingVec, FixtureError> {
-    let receive = field(PROVISIONING, "receive_descriptor")?.as_bytes();
-    let change = field(PROVISIONING, "change_descriptor")?.as_bytes();
-    if receive.len() != 306 || change.len() != 306 {
-        return Err(FixtureError::Fixture);
-    }
-    let mut wallet_id = hex_field(PROVISIONING, "wallet_id")?;
-    let xpub = field(PROVISIONING, "role_b_account_xpub")?.as_bytes();
-    let a2 = hex_field(PROVISIONING, "a2_transcript_sha256")?;
-    let mut public_key = hex_field(SIGNING, "role_b_route_public_key_hex")?;
-    let original_der = hex_field(SIGNING, "role_b_der_hex")?;
-    let der = if negative == Some(Negative::HighS) {
-        high_s_der(original_der.as_slice())?
-    } else {
-        WipingVec::from_slice(original_der.as_slice()).map_err(|_| FixtureError::Fixture)?
-    };
-    if negative == Some(Negative::WrongWallet) {
-        wallet_id.as_mut_slice()[0] ^= 1;
-    }
-    if negative == Some(Negative::WrongKey) {
-        public_key.as_mut_slice()[32] ^= 1;
-    }
-    if wallet_id.len() != 32 || xpub.len() != 111 || a2.len() != 32 || public_key.len() != 33 {
-        return Err(FixtureError::Fixture);
-    }
-    let length = 789usize
-        .checked_add(38)
-        .and_then(|value| value.checked_add(der.len()))
-        .ok_or(FixtureError::Fixture)?;
-    let mut body = WipingVec::zeroed(length).map_err(|_| FixtureError::Fixture)?;
-    let mut offset = 0usize;
-    append(body.as_mut_slice(), &mut offset, receive)?;
-    append(body.as_mut_slice(), &mut offset, change)?;
-    append(body.as_mut_slice(), &mut offset, wallet_id.as_slice())?;
-    append(body.as_mut_slice(), &mut offset, xpub)?;
-    append(body.as_mut_slice(), &mut offset, a2.as_slice())?;
-    append(body.as_mut_slice(), &mut offset, &1u16.to_le_bytes())?;
-    append(body.as_mut_slice(), &mut offset, &0u32.to_le_bytes())?;
-    append(body.as_mut_slice(), &mut offset, public_key.as_slice())?;
-    append(
-        body.as_mut_slice(),
-        &mut offset,
-        &[u8::try_from(der.len()).map_err(|_| FixtureError::Fixture)?],
-    )?;
-    append(body.as_mut_slice(), &mut offset, der.as_slice())?;
-    if offset != body.len() {
-        return Err(FixtureError::Fixture);
-    }
-    Ok(body)
-}
-
-fn high_s_der(low: &[u8]) -> Result<WipingVec, FixtureError> {
-    if low.len() != 71 || low.get(0..4) != Some(&[0x30, 0x45, 0x02, 0x21]) {
-        return Err(FixtureError::Fixture);
-    }
-    let mut high = WipingVec::zeroed(72).map_err(|_| FixtureError::Fixture)?;
-    high.as_mut_slice()[0..4].copy_from_slice(&[0x30, 0x46, 0x02, 0x21]);
-    high.as_mut_slice()[4..37].copy_from_slice(&low[4..37]);
-    high.as_mut_slice()[37..40].copy_from_slice(&[0x02, 0x21, 0x00]);
-    high.as_mut_slice()[40] = 0x80;
-    high.as_mut_slice()[71] = 0x01;
-    Ok(high)
 }
 
 fn verify_review(
@@ -739,7 +635,7 @@ fn verify_negative_outputs() -> Result<(), FixtureError> {
     require_empty_eof(&mut print_output)
 }
 
-fn verify_negative_checkpoint(
+fn verify_termination_checkpoint(
     spec: CycleSpec,
     stage_index: usize,
     review_index: usize,
@@ -748,15 +644,19 @@ fn verify_negative_checkpoint(
 ) -> Result<(), FixtureError> {
     let negative = spec.negative.ok_or(FixtureError::FactMismatch)?;
     let (expected_stages, expected_reviews, expected_profile) = match negative {
-        Negative::ProfileMismatch => (0, 0, false),
+        Negative::CardMedia
+        | Negative::CardApduFraming
+        | Negative::CardStatusPrecedence
+        | Negative::ProfileMismatch
+        | Negative::RecordMismatch
+        | Negative::WrongWallet
+        | Negative::SequenceMismatch => (0, 0, false),
         Negative::EarlyHold => (1, 0, true),
         Negative::HostileQkdv | Negative::IngressCap => (3, 0, true),
-        Negative::WrongWallet => (4, 0, true),
-        Negative::WrongKey | Negative::HighS => (7, REVIEW_COUNT, true),
+        Negative::InvalidSignature => (11, REVIEW_COUNT, true),
+        Negative::HighSNormalization => return Err(FixtureError::FactMismatch),
     };
-    let named = negative.expected_error_name();
-    if named.is_empty()
-        || stage_index != expected_stages
+    if stage_index != expected_stages
         || review_index != expected_reviews
         || saw_profile != expected_profile
         || saw_result
@@ -929,18 +829,6 @@ fn hex_field(source: &str, name: &str) -> Result<WipingVec, FixtureError> {
     Ok(output)
 }
 
-fn append(output: &mut [u8], offset: &mut usize, value: &[u8]) -> Result<(), FixtureError> {
-    let end = offset
-        .checked_add(value.len())
-        .ok_or(FixtureError::Fixture)?;
-    output
-        .get_mut(*offset..end)
-        .ok_or(FixtureError::Fixture)?
-        .copy_from_slice(value);
-    *offset = end;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -964,32 +852,6 @@ mod tests {
     }
 
     #[test]
-    fn normal_factor_variants_are_body_valid_and_named_precedence_inputs() {
-        for negative in [None, Some(Negative::WrongWallet), Some(Negative::WrongKey)] {
-            let factor = normal_factor(negative).unwrap();
-            let mut frame = vec![0u8; HEADER_BYTES + factor.len()];
-            qk_device_wire::encode_frame(
-                Capability::CardResponse,
-                MessageKind::CardNormalFactor,
-                1,
-                factor.as_slice(),
-                &mut frame,
-            )
-            .unwrap();
-        }
-        let high = normal_factor(Some(Negative::HighS)).unwrap();
-        let mut frame = vec![0u8; HEADER_BYTES + high.len()];
-        qk_device_wire::encode_frame(
-            Capability::CardResponse,
-            MessageKind::CardNormalFactor,
-            1,
-            high.as_slice(),
-            &mut frame,
-        )
-        .unwrap();
-    }
-
-    #[test]
     fn camera_bbqr_record_uses_registered_payload_without_copy_fixture() {
         let payload = hex_field(SIGNING, "s0_hex").unwrap();
         let record = bbqr_record(payload.as_slice()).unwrap();
@@ -1006,8 +868,8 @@ mod tests {
             [
                 DISPLAY_FD,
                 KEYPAD_FD,
-                CARD_RESPONSE_FD,
-                CARD_REQUEST_FD,
+                5,
+                6,
                 CAMERA_FD,
                 MEDIA_INPUT_FD,
                 PRINT_OUTPUT_FD,
@@ -1020,21 +882,25 @@ mod tests {
     #[test]
     fn negative_checkpoints_and_fixed_nonce_filenames_are_exact() {
         for (negative, stage_count, review_count, saw_profile) in [
+            (Negative::CardMedia, 0, 0, false),
+            (Negative::CardApduFraming, 0, 0, false),
+            (Negative::CardStatusPrecedence, 0, 0, false),
             (Negative::ProfileMismatch, 0, 0, false),
+            (Negative::RecordMismatch, 0, 0, false),
+            (Negative::WrongWallet, 0, 0, false),
+            (Negative::SequenceMismatch, 0, 0, false),
             (Negative::EarlyHold, 1, 0, true),
             (Negative::HostileQkdv, 3, 0, true),
             (Negative::IngressCap, 3, 0, true),
-            (Negative::WrongWallet, 4, 0, true),
-            (Negative::WrongKey, 7, REVIEW_COUNT, true),
-            (Negative::HighS, 7, REVIEW_COUNT, true),
+            (Negative::InvalidSignature, 11, REVIEW_COUNT, true),
         ] {
             let spec = CycleSpec::negative(negative);
             assert_eq!(
-                verify_negative_checkpoint(spec, stage_count, review_count, saw_profile, false),
+                verify_termination_checkpoint(spec, stage_count, review_count, saw_profile, false),
                 Ok(())
             );
             assert_eq!(
-                verify_negative_checkpoint(
+                verify_termination_checkpoint(
                     spec,
                     stage_count.saturating_add(1),
                     review_count,

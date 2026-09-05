@@ -13,6 +13,8 @@ fn source(path: &str) -> String {
 fn fixture_workspace_is_ring_fenced_and_dependency_free_beyond_approved_leaves() {
     let manifest = source("Cargo.toml");
     assert!(manifest.contains("qk-bbqr = { path = \"../qk-bbqr\" }"));
+    assert!(manifest.contains("qk-card-model = { path = \"../qk-card-model\" }"));
+    assert!(manifest.contains("qk-card-protocol = { path = \"../qk-card-protocol\" }"));
     assert!(manifest.contains("qk-device-wire = { path = \"../qk-device-wire\" }"));
     assert!(!manifest.contains("qk-core"));
     assert!(!manifest.contains("qk-host-sim"));
@@ -23,10 +25,13 @@ fn fixture_workspace_is_ring_fenced_and_dependency_free_beyond_approved_leaves()
 fn only_driver_includes_frozen_fixture_paths() {
     let common = source("src/main.rs");
     let driver = source("src/scenario.rs");
+    let card = source("src/card_scenario_v1.rs");
     assert!(!common.contains("include_str!"));
     assert!(driver.contains("../../qk-provisioning/tests/fixtures/provisioning_v2.txt"));
     assert!(driver.contains("../../qk-psbt/tests/fixtures/signing_finalization_v2.txt"));
+    assert!(card.contains("../../qk-card-protocol/tests/fixtures/card_protocol_v1.txt"));
     assert!(driver.contains("PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL"));
+    assert!(card.contains("PERMANENTLY NEVER-FUND TEST MATERIAL"));
 }
 
 #[test]
@@ -34,7 +39,8 @@ fn harness_locks_timeout_tree_kill_reap_and_exact_matrix() {
     let common = source("src/main.rs");
     let harness = source("src/bin/qk-normal-process-harness.rs");
     assert!(common.contains("EXPECTED_SUCCESS_CYCLES: usize = 12"));
-    assert!(common.contains("EXPECTED_NEGATIVE_CYCLES: usize = 7"));
+    assert!(common.contains("EXPECTED_SPECIAL_SUCCESS_CYCLES: usize = 1"));
+    assert!(common.contains("EXPECTED_TERMINATING_CYCLES: usize = 11"));
     assert!(harness.contains("kill_group(group)"));
     assert!(harness.contains("supervisor.wait()"));
     assert!(harness.contains("driver.wait()"));
@@ -42,24 +48,29 @@ fn harness_locks_timeout_tree_kill_reap_and_exact_matrix() {
     for case in [
         "hostile-qkdv",
         "ingress-cap",
-        "profile-mismatch",
         "early-hold",
+        "card-media",
+        "card-apdu-framing",
+        "card-status-precedence",
+        "profile-mismatch",
+        "record-mismatch",
         "wrong-wallet",
-        "wrong-key",
-        "high-s",
+        "sequence-mismatch",
+        "high-s-normalization",
+        "invalid-signature",
     ] {
         assert!(common.contains(case));
     }
 }
 
 #[test]
-fn driver_locks_stages_named_negative_checkpoints_and_exact_sd_names() {
+fn driver_locks_stages_termination_checkpoints_and_exact_sd_names() {
     let common = source("src/main.rs");
     let driver = source("src/scenario.rs");
+    let card = source("src/card_scenario_v1.rs");
     for required in [
         "EXPECTED_DISPLAY_STAGES",
-        "verify_negative_checkpoint",
-        "expected_error_name",
+        "verify_termination_checkpoint",
         "EXPECTED_PSBT_FILENAME",
         "EXPECTED_TRANSACTION_FILENAME",
         "verify_negative_outputs",
@@ -67,6 +78,20 @@ fn driver_locks_stages_named_negative_checkpoints_and_exact_sd_names() {
         assert!(
             common.contains(required) || driver.contains(required),
             "missing strengthened process oracle {required}"
+        );
+    }
+    for required in [
+        "provision_and_verify",
+        "ContactlessAndWrongCla",
+        "RecordVersion",
+        "WalletId",
+        "ResponseSequence",
+        "HighS",
+        "InvalidSignature",
+    ] {
+        assert!(
+            card.contains(required),
+            "missing card process oracle {required}"
         );
     }
 }

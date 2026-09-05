@@ -1,4 +1,4 @@
-//! Shared, non-fixture state for the QK-DEC-156 subprocess harness.
+//! Shared, non-fixture state for the QK-DEC-156/QK-DEC-161 subprocess harness.
 //!
 //! This file deliberately contains no registered fixture bytes. The fixture
 //! driver alone includes `scenario.rs`; the harness owns only process and pipe
@@ -11,8 +11,10 @@ use std::ffi::OsString;
 
 pub const CYCLE_TIMEOUT_MILLIS: u64 = 15_000;
 pub const EXPECTED_SUCCESS_CYCLES: usize = 12;
-pub const EXPECTED_NEGATIVE_CYCLES: usize = 7;
-pub const EXPECTED_TOTAL_CYCLES: usize = EXPECTED_SUCCESS_CYCLES + EXPECTED_NEGATIVE_CYCLES;
+pub const EXPECTED_SPECIAL_SUCCESS_CYCLES: usize = 1;
+pub const EXPECTED_TERMINATING_CYCLES: usize = 11;
+pub const EXPECTED_TOTAL_CYCLES: usize =
+    EXPECTED_SUCCESS_CYCLES + EXPECTED_SPECIAL_SUCCESS_CYCLES + EXPECTED_TERMINATING_CYCLES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Profile {
@@ -108,57 +110,69 @@ impl Route {
 pub enum Negative {
     HostileQkdv,
     IngressCap,
-    ProfileMismatch,
     EarlyHold,
+    CardMedia,
+    CardApduFraming,
+    CardStatusPrecedence,
+    ProfileMismatch,
+    RecordMismatch,
     WrongWallet,
-    WrongKey,
-    HighS,
+    SequenceMismatch,
+    HighSNormalization,
+    InvalidSignature,
 }
 
 impl Negative {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 12] = [
         Self::HostileQkdv,
         Self::IngressCap,
-        Self::ProfileMismatch,
         Self::EarlyHold,
+        Self::CardMedia,
+        Self::CardApduFraming,
+        Self::CardStatusPrecedence,
+        Self::ProfileMismatch,
+        Self::RecordMismatch,
         Self::WrongWallet,
-        Self::WrongKey,
-        Self::HighS,
+        Self::SequenceMismatch,
+        Self::HighSNormalization,
+        Self::InvalidSignature,
     ];
 
     pub const fn argument(self) -> &'static str {
         match self {
             Self::HostileQkdv => "hostile-qkdv",
             Self::IngressCap => "ingress-cap",
-            Self::ProfileMismatch => "profile-mismatch",
             Self::EarlyHold => "early-hold",
+            Self::CardMedia => "card-media",
+            Self::CardApduFraming => "card-apdu-framing",
+            Self::CardStatusPrecedence => "card-status-precedence",
+            Self::ProfileMismatch => "profile-mismatch",
+            Self::RecordMismatch => "record-mismatch",
             Self::WrongWallet => "wrong-wallet",
-            Self::WrongKey => "wrong-key",
-            Self::HighS => "high-s",
+            Self::SequenceMismatch => "sequence-mismatch",
+            Self::HighSNormalization => "high-s-normalization",
+            Self::InvalidSignature => "invalid-signature",
         }
     }
 
-    pub const fn expected_error_name(self) -> &'static str {
-        match self {
-            Self::HostileQkdv => "MagicMismatch",
-            Self::IngressCap => "SourceMismatch",
-            Self::ProfileMismatch => "CardProfileMismatch",
-            Self::EarlyHold => "ApprovalUnavailable",
-            Self::WrongWallet => "CardBindingMismatch",
-            Self::WrongKey => "CardSignatureKeyMismatch",
-            Self::HighS => "CardSignatureHighS",
-        }
+    pub const fn terminates(self) -> bool {
+        !matches!(self, Self::HighSNormalization)
     }
 
     pub fn parse(value: &str) -> Result<Self, FixtureError> {
         match value {
             "hostile-qkdv" => Ok(Self::HostileQkdv),
             "ingress-cap" => Ok(Self::IngressCap),
-            "profile-mismatch" => Ok(Self::ProfileMismatch),
             "early-hold" => Ok(Self::EarlyHold),
+            "card-media" => Ok(Self::CardMedia),
+            "card-apdu-framing" => Ok(Self::CardApduFraming),
+            "card-status-precedence" => Ok(Self::CardStatusPrecedence),
+            "profile-mismatch" => Ok(Self::ProfileMismatch),
+            "record-mismatch" => Ok(Self::RecordMismatch),
             "wrong-wallet" => Ok(Self::WrongWallet),
-            "wrong-key" => Ok(Self::WrongKey),
-            "high-s" => Ok(Self::HighS),
+            "sequence-mismatch" => Ok(Self::SequenceMismatch),
+            "high-s-normalization" => Ok(Self::HighSNormalization),
+            "invalid-signature" => Ok(Self::InvalidSignature),
             _ => Err(FixtureError::Invocation),
         }
     }
@@ -188,6 +202,20 @@ impl CycleSpec {
             ingress: Ingress::Camera,
             route: Route::Sd,
             negative: Some(negative),
+        }
+    }
+
+    pub const fn expects_supervisor_success(self) -> bool {
+        match self.negative {
+            None | Some(Negative::HighSNormalization) => true,
+            Some(_) => false,
+        }
+    }
+
+    pub const fn expects_termination(self) -> bool {
+        match self.negative {
+            Some(negative) => negative.terminates(),
+            None => false,
         }
     }
 
@@ -302,7 +330,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matrix_is_exact_twelve_plus_seven() {
+    fn matrix_is_exact_twelve_plus_one_plus_eleven() {
         let cycles = cycle_matrix();
         assert_eq!(cycles.len(), EXPECTED_TOTAL_CYCLES);
         assert_eq!(
@@ -317,7 +345,21 @@ mod tests {
                 .iter()
                 .filter(|cycle| cycle.negative.is_some())
                 .count(),
-            7
+            12
+        );
+        assert_eq!(
+            cycles
+                .iter()
+                .filter(|cycle| cycle.expects_supervisor_success())
+                .count(),
+            13
+        );
+        assert_eq!(
+            cycles
+                .iter()
+                .filter(|cycle| cycle.expects_termination())
+                .count(),
+            EXPECTED_TERMINATING_CYCLES
         );
         for profile in Profile::ALL {
             for ingress in Ingress::ALL {
@@ -337,20 +379,5 @@ mod tests {
             assert_eq!(parse_driver_arguments(cycle.driver_arguments()), Ok(cycle));
         }
         assert_eq!(parse_driver_arguments([]), Err(FixtureError::Invocation));
-    }
-
-    #[test]
-    fn negative_cases_pin_their_named_outcomes() {
-        for (negative, name) in [
-            (Negative::HostileQkdv, "MagicMismatch"),
-            (Negative::IngressCap, "SourceMismatch"),
-            (Negative::ProfileMismatch, "CardProfileMismatch"),
-            (Negative::EarlyHold, "ApprovalUnavailable"),
-            (Negative::WrongWallet, "CardBindingMismatch"),
-            (Negative::WrongKey, "CardSignatureKeyMismatch"),
-            (Negative::HighS, "CardSignatureHighS"),
-        ] {
-            assert_eq!(negative.expected_error_name(), name);
-        }
     }
 }

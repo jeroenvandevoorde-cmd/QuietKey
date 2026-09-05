@@ -1,5 +1,7 @@
 #![deny(unsafe_code)]
 
+#[path = "../card_scenario_v1.rs"]
+mod card_scenario_v1;
 #[path = "../main.rs"]
 mod common;
 #[path = "../scenario.rs"]

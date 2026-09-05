@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fail-closed HOST process-harness verification for QK-DEC-154 and QK-DEC-156.
+# Fail-closed HOST process-harness verification for QK-DEC-154, QK-DEC-156, and QK-DEC-161.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -40,6 +40,11 @@ for package in qk-core qk-io; do
     --offline --quiet -p "$package" --features host-runtime || \
     fail "$package host-process tests failed"
 done
+for package in qk-card-protocol qk-card-model; do
+  CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
+    --offline --quiet -p "$package" --all-features || \
+    fail "$package card-boundary tests failed"
+done
 CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
   --offline --quiet -p qk-process-fixture || \
   fail 'qk-process-fixture tests failed'
@@ -66,14 +71,14 @@ normal_driver="$process_build/debug/qk-normal-fixture-driver"
 normal_stdout="$process_runs/normal.stdout"
 normal_stderr="$process_runs/normal.stderr"
 normal_expected="$process_runs/normal.expected"
-printf 'cycles=19 passed=19 failed=0 timed_out=0\n' >"$normal_expected" || \
+printf 'cycles=24 passed=24 failed=0 timed_out=0\n' >"$normal_expected" || \
   fail 'cannot write expected Normal summary'
 if ! "$normal_harness" "$launcher" "$normal_driver" \
   >"$normal_stdout" 2>"$normal_stderr"; then
-  fail 'Normal 19-cycle process matrix failed'
+  fail 'Normal 24-cycle process matrix failed'
 fi
 [ ! -s "$normal_stderr" ] || fail 'Normal process matrix wrote standard error'
 cmp "$normal_expected" "$normal_stdout" >/dev/null 2>&1 || \
   fail 'Normal process matrix summary mismatch'
 
-printf 'OK: HOST process harness passed Setup/Kit controls and 19-cycle Normal matrix\n'
+printf 'OK: HOST process harness passed Setup/Kit controls and 24-cycle Normal matrix\n'
