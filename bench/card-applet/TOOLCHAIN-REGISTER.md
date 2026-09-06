@@ -1,6 +1,6 @@
 # Java Card Applet Candidate Toolchain Register
 
-PLAN-ONLY REGISTRATION - APPLET LANE CLOSED - NO CARD ACTION AUTHORIZED
+QK-DEC-162 TEST APPLET BUILD RECIPE - NO CARD ACTION AUTHORIZED
 
 ## Boundary
 
@@ -10,8 +10,10 @@ or reachable from a QuietKey product or fuzz dependency closure. This register
 authorizes no installation, build, converter run, CAP, APDU, GlobalPlatform
 operation, card contact, specimen mutation, production use, or Gate claim.
 
-The future applet build must add its own fail-closed allowlist guard. No guard,
-build manifest, or `tools/check.sh` wiring is created by this registration.
+QK-DEC-155 itself created no guard, build manifest, or full-check wiring.
+QK-DEC-162 subsequently authorizes the source and test-build recipe below,
+including its fail-closed guard. It does not schedule a converter run or a
+card operation.
 
 ## Registered top-level artifacts
 
@@ -187,8 +189,79 @@ bytes, SHA-256
 `5b5b08b339fc813462dde6a0080de60d98e9e07d4333cfd5d1fe3b4e3a3cf599`,
 was moved into `qk-bench-evidence`; its bytes and hash did not change.
 
-No development card has been procured or authorized. No applet source, build,
-CAP comparison, loader experiment, key operation, APDU, or specimen session is
-authorized by this register. The first converter run, reproducible-build
-procedure, applet dependency guard, development-card procurement, key custody,
-protocol row, and every later physical session retain their existing gates.
+This register supplies no authorization for a loader experiment, key
+operation, APDU or specimen session. QK-DEC-158-SUP-001 governs the specimen
+assignments; this build recipe changes none of them. The first converter run
+remains Owner-scheduled, and every later physical session retains its gate.
+
+## QK-DEC-162 complete build declarations
+
+The sole compile API is the Owner-verified `lib/api_classic-3.0.5.jar` from
+the registered DevKit archive: **56,791 bytes**, SHA-256
+`b1981a2e97b77995cc79f67f04a12f5da3672a57715d5adf8eca27264b6119bd`.
+The Owner extracted it on 2026-09-02; the ZIP entry is dated
+2026-05-05 00:15. Its Oracle agreement is the same license-gated record above.
+It is the only added allowlist row; all 23 earlier artifact rows are unchanged.
+No API, tool, CAP or compiled class is vendored. The test package and applet
+AIDs remain `F0514B3242` and `F0514B324201`, marked
+`PERMANENTLY NEVER-FUND TEST MATERIAL`; `build` and `canonicalize` accept
+only the literal mode `test`, otherwise `ProductionTestIdentifiersRejected`.
+
+`tools/check-card-applet.sh` requires Python 3.9 or newer with its standard
+library. Missing `python3` is the named failure `Python3Unavailable`; an
+older interpreter is `PythonVersionRejected`. The ordinary-clone check
+checks the exact nine source names, fixed build declarations, all 24
+allowlist entries, no vendored or undeclared build inputs, and all-features
+HOST, fuzz and enrollment closure isolation. It runs the pure packaging and
+vector tests without Oracle tools. Pure JVM math execution is not a card
+runtime test; unavailable Java is explicitly reported as pending by that
+test, never as an executed vector pass. No new build dependency is added.
+
+Only after the Owner schedules the first converter run, the invocation is:
+
+```text
+build.sh build test ABS_SOURCE SOURCE_COMMIT ABS_JDK_ARCHIVE ABS_JDK_HOME ABS_ANT_ARCHIVE ABS_ANT_HOME ABS_DEVKIT_ARCHIVE ABS_TASK_JAR ABS_NEW_PRIVATE_OUTPUT
+```
+
+All paths are absolute and the output directory must not exist. Source is a
+clean checkout at the exact recorded 40-hex commit. The wrapper verifies all
+four registered tool archives, every extracted input, and the nested API.
+The DevKit home is the archive path without its `.zip` suffix. No download,
+alternate tool, ambient Java option, inherited classpath, annotation
+processor or automatic retry is available. `gp.jar` is not a build input.
+The output directory is private (0700), files are new (0600), and failed
+attempt logs remain there with the named outcome; no failed run is a
+successful build registration.
+
+The fixed javac arguments are `-source 1.8 -target 1.8 -bootclasspath API
+-classpath API -proc:none -implicit:none -encoding UTF-8 -g:none -d CLASSES`,
+followed by the exact ordered nine sources in QK-DEC-162. Both classpaths
+contain only the API above. Source/target-8 obsolescence warnings are expected
+and retained. The Ant XML uses only the explicit compiled-classes conversion
+with target 3.0.5, `verify=true`, `debug=false`, `strip=false`, `ints=false`,
+`exportmap=false`, and the package/version/AIDs in QK-DEC-162. It cannot
+compile sources or add imports. The build log records and verifies the exact
+forked converter argument vector and the helper's successful verifier line.
+All command arguments, the six-entry explicit environment, tool/extracted
+identities, source commit, raw/canonical hashes, per-entry comparisons and
+start/end times are retained in the private JSON records and compiler logs.
+The exact full invocations and byte-level packaging remain QK-DEC-162's
+normative text; the build tests pin those declarations before execution.
+
+The canonicalizer validates both ZIP header sets under the row's bounds,
+preserves every permitted component and sidecar body, and regenerates only
+the fixed manifest. The ZIP writer fixes ordering, UTF-8 flag, STORED method,
+timestamp, attributes and all header fields. Reopen verification compares
+every name and body plus length, CRC-32 and SHA-256; optional class sidecars
+also match the explicit javac output. The raw converter CAP and its hash stay
+in private custody. Only `canonical.cap` is a later load candidate.
+`build.sh compare ABS_CANONICAL_1 ABS_CANONICAL_2` rejects unequal or
+noncanonical bytes by name. Pure test archives are packaging tests, not
+converter output or evidence of a loadable CAP.
+
+No converter or CAP identity is registered by this implementation. Two
+Owner-scheduled clean apparatus builds must produce equal canonical bytes;
+the later Linux repeat needs its own applicable JDK registration and must
+agree before any enrolled-specimen load. Neither compilation nor pure tests
+close the JDK converter pin, native secp256k1 capability, RNG, transaction
+capacity, power-cut, memory-remanence, media-refusal, timing or Gate evidence.

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- QK-DEC-162: PERMANENTLY NEVER-FUND TEST MATERIAL. Compilation is external. -->
+<project name="quietkey-cardb-test-cap" default="convert">
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="${qk.task.jar}"/>
+  <target name="convert">
+    <javacard>
+      <cap jckit="${qk.devkit}" targetsdk="3.0.5" classes="${qk.classes}"
+           package="org.quietkey.cardb" aid="F0514B3242" version="1.0"
+           output="${qk.raw.cap}" verify="true" debug="false" strip="false"
+           ints="false" exportmap="false">
+        <applet class="org.quietkey.cardb.KeyCardBApplet" aid="F0514B324201"/>
+      </cap>
+    </javacard>
+  </target>
+</project>

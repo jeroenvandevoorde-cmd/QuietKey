@@ -70,6 +70,7 @@ else
 fi
 
 tools/check-process-harness.sh || fail 'HOST process harness check failed'
+tools/check-card-applet.sh || fail 'card applet build contract check failed'
 
 # --- 4. Persistent fuzz corpus registry ---------------------------------
 if [ ! -x tools/check-fuzz-corpora.sh ]; then
