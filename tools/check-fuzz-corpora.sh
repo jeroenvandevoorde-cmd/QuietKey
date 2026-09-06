@@ -32,12 +32,10 @@ validate_source_commit() {
   esac
   [ "${#validated_source_value}" = 40 ] || \
     fail "$source_label must be a full 40-character commit id"
-  if [ "$source_label" = campaign_source ]; then
-    source_type=$(git cat-file -t "$validated_source_value" 2>/dev/null) || \
-      fail "campaign_source commit does not exist: $validated_source_value"
-    [ "$source_type" = commit ] || \
-      fail "campaign_source must name a commit object: $validated_source_value"
-  fi
+  source_type=$(git cat-file -t "$validated_source_value" 2>/dev/null) || \
+    fail "$source_label commit does not exist: $validated_source_value"
+  [ "$source_type" = commit ] || \
+    fail "$source_label must name a commit object: $validated_source_value"
 }
 
 manifest_source() {

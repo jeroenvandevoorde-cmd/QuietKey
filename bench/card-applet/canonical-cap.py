@@ -362,10 +362,10 @@ def check_wrapper(path, check=False):
               "    echo 'QK-CARD-APPLET FAIL Python3Unavailable' >&2", "    exit 1", "fi"]
     if check:
         tail = ['repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)',
-                'exec python3 -I "$repo_root/bench/card-applet/canonical-cap.py" check "$repo_root"']
+                'exec python3 -I -B "$repo_root/bench/card-applet/canonical-cap.py" check "$repo_root"']
     else:
         tail = ['script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-                'exec python3 -I "$script_dir/canonical-cap.py" "$@"']
+                'exec python3 -I -B "$script_dir/canonical-cap.py" "$@"']
     require(lines == common + tail, "BuildWrapperMismatch")
 
 

@@ -6,4 +6,4 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-exec python3 -I "$repo_root/bench/card-applet/canonical-cap.py" check "$repo_root"
+exec python3 -I -B "$repo_root/bench/card-applet/canonical-cap.py" check "$repo_root"

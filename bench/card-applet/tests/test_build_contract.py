@@ -369,6 +369,15 @@ class GuardTests(unittest.TestCase):
         path.write_text(path.read_text() + "JAVA_TOOL_OPTIONS=-javaagent:evil.jar\n")
         self.reject("BuildWrapperMismatch")
 
+    def test_guard_wrappers_require_bytecode_disabled(self):
+        for path in (self.base / "build.sh", self.root / "tools/check-card-applet.sh"):
+            with self.subTest(wrapper=path.name):
+                original = path.read_text()
+                self.assertIn("python3 -I -B ", original)
+                path.write_text(original.replace("python3 -I -B ", "python3 -I "))
+                self.reject("BuildWrapperMismatch")
+                path.write_text(original)
+
     def test_guard_allowlist_hash_and_license(self):
         path = self.base / "DEPENDENCY-ALLOWLIST.tsv"
         original = path.read_text()
@@ -568,6 +577,46 @@ class RecipeTests(unittest.TestCase):
                 result = subprocess.run(["/bin/sh", str(script)], env={"PATH": tmp}, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stderr, b"QK-CARD-APPLET FAIL Python3Unavailable\n")
+
+    def test_wrappers_do_not_write_repository_bytecode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            base = root / "bench/card-applet"
+            base.mkdir(parents=True)
+            (root / "tools").mkdir()
+            for original, copy in ((BASE / "build.sh", base / "build.sh"),
+                                   (REPO / "tools/check-card-applet.sh", root / "tools/check-card-applet.sh")):
+                shutil.copyfile(original, copy)
+            module = base / "probe.py"
+            module.write_text("PUBLIC_TEST_VALUE = 162\n")
+            (base / "canonical-cap.py").write_text(
+                "import importlib.util\nimport pathlib\nimport sys\n"
+                "assert sys.flags.isolated == 1 and sys.dont_write_bytecode\n"
+                "path = pathlib.Path(__file__).with_name('probe.py')\n"
+                "spec = importlib.util.spec_from_file_location('qk_bytecode_probe', path)\n"
+                "module = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(module)\n"
+                "assert module.PUBLIC_TEST_VALUE == 162\n")
+            environment = dict(os.environ)
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            for script, arguments in ((base / "build.sh", ["check", str(root)]),
+                                      (root / "tools/check-card-applet.sh", [])):
+                with self.subTest(wrapper=script.name):
+                    result = subprocess.run(["/bin/sh", str(script)] + arguments,
+                                            env=environment, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, b"")
+                    self.assertEqual(result.stderr, b"")
+                    self.assertEqual([path for path in root.rglob("*")
+                                      if path.name == "__pycache__" or path.suffix in (".pyc", ".pyo")], [])
+
+    def test_check_child_keeps_bytecode_disabled(self):
+        result = subprocess.CompletedProcess([], 0, b"", b"")
+        with mock.patch.object(CAP, "check_repository", return_value={"result": "PASS"}), \
+                mock.patch.object(CAP.subprocess, "run", return_value=result) as execute:
+            self.assertEqual(CAP.main(["check", str(REPO)]), {"result": "PASS"})
+        self.assertEqual(execute.call_args.args[0][:5],
+                         [sys.executable, "-I", "-B", "-m", "unittest"])
 
     def test_canonical_cli_does_not_execute_java(self):
         with tempfile.TemporaryDirectory() as tmp:

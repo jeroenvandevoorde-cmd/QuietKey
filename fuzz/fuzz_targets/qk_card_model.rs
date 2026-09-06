@@ -145,8 +145,47 @@ fn run_fixture(requests: &[Vec<u8>]) -> Vec<StepFact> {
         .collect()
 }
 
-fn run_structured(data: &[u8]) -> Vec<StepFact> {
+fn registered_requests(prefix: &str) -> Vec<Vec<u8>> {
+    FIXTURE
+        .lines()
+        .filter_map(|line| line.split_once(": "))
+        .filter(|(name, _)| name.starts_with(prefix) && name.ends_with("_request_hex"))
+        .map(|(_, hex)| {
+            hex.as_bytes()
+                .chunks_exact(2)
+                .map(|pair| {
+                    u8::from_str_radix(core::str::from_utf8(pair).expect("fixture ASCII"), 16)
+                        .expect("fixture hex")
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn public_committed_model() -> CardModel {
+    // PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL: only the registered
+    // fixed fixture supplies provisioning bytes; no fuzz byte enters COMMIT.
     let mut model = CardModel::new();
+    let requests = registered_requests("setup_");
+    assert_eq!(requests.len(), 9);
+    for request in requests {
+        assert_eq!(
+            process_one(&mut model, Media::ContactT1, &request).status,
+            0x9000
+        );
+    }
+    assert_eq!(model.lifecycle(), ModelLifecycle::Committed);
+    model
+}
+
+fn run_structured(data: &[u8]) -> Vec<StepFact> {
+    // Bit 7 of the first frame selects a public pre-committed start. Bit 0
+    // still selects media and the original frame geometry is unchanged.
+    let mut model = if data.first().is_some_and(|control| control & 0x80 != 0) {
+        public_committed_model()
+    } else {
+        CardModel::new()
+    };
     let mut facts = Vec::new();
     let mut offset = 0usize;
     while offset < data.len() && facts.len() < 128 {
@@ -165,10 +204,9 @@ fn run_structured(data: &[u8]) -> Vec<StepFact> {
             Media::Contactless
         };
         let candidate = &data[offset..end];
-        // Only the byte-exact registered fixture flow may commit signing key
-        // material. Structured mutations still exercise every parser and all
-        // pre-commit state, while a skipped COMMIT leaves later SIGN requests
-        // unable to reach a private-key operation.
+        // Mutations cannot commit arbitrary key material. In the committed
+        // start, hostile READ_D, EXPORT_A2 and SIGN reach their handlers using
+        // only the fixed public fixture authority established above.
         if parse_structural_command(media, candidate)
             .is_ok_and(|command| command.instruction() == Instruction::Commit)
         {
@@ -181,6 +219,39 @@ fn run_structured(data: &[u8]) -> Vec<StepFact> {
     facts
 }
 
+fn verify_committed_seed() {
+    let requests = registered_requests("normal_");
+    assert_eq!(requests.len(), 9);
+    let mut seed = Vec::new();
+    for (index, request) in requests.iter().enumerate() {
+        seed.push(if index == 0 { 0x80 } else { 0 });
+        seed.extend_from_slice(
+            &u16::try_from(request.len())
+                .expect("bounded APDU")
+                .to_be_bytes(),
+        );
+        seed.extend_from_slice(request);
+    }
+    let facts = run_structured(&seed);
+    assert_eq!(facts.len(), 9);
+    assert!(facts
+        .iter()
+        .all(|fact| fact.status == 0x9000 && fact.lifecycle == ModelLifecycle::Committed));
+    for (index, instruction) in [
+        (3, Instruction::ReadDChunk),
+        (7, Instruction::ExportA2),
+        (8, Instruction::SignDigest),
+    ] {
+        assert_eq!(
+            parse_structural_command(Media::ContactT1, &requests[index])
+                .expect("fixture command")
+                .instruction(),
+            instruction
+        );
+        assert!(facts[index].response_len > 2);
+    }
+}
+
 fn run(data: &[u8]) -> Vec<StepFact> {
     if let Some(requests) = decode_fixture_flow(data) {
         run_fixture(&requests)
@@ -190,6 +261,8 @@ fn run(data: &[u8]) -> Vec<StepFact> {
 }
 
 fuzz_target!(|data: &[u8]| {
+    static COMMITTED_SEED_CHECK: std::sync::Once = std::sync::Once::new();
+    COMMITTED_SEED_CHECK.call_once(verify_committed_seed);
     let mut rejected = CardModel::new();
     let error = rejected
         .select(false)

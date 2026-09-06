@@ -6,4 +6,4 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec python3 -I "$script_dir/canonical-cap.py" "$@"
+exec python3 -I -B "$script_dir/canonical-cap.py" "$@"
