@@ -6,9 +6,10 @@
 //! explicit export route. It exposes no byte accessor for retained ingress,
 //! A2, Seed-A, signer state, or finalized artifacts.
 
+#[cfg(feature = "normal-process")]
+use crate::capability::NormalCardBSignatureV2;
 use crate::capability::{
-    CoreDeviceGrants, CoreScreen, KeypadKey, NormalCardBDataV2, NormalCardBSignatureV2,
-    NormalCardMockErrorV2,
+    CoreDeviceGrants, CoreScreen, KeypadKey, NormalCardBDataV2, NormalCardMockErrorV2,
 };
 use crate::error::{CoreError, Interruption, IoRejection};
 use crate::io_wire::Source;
