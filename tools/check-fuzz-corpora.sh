@@ -345,7 +345,7 @@ process_s6|process slice-6|QK-PROCESS-S6-CORPUS-MANIFEST-V1|process_s6_registere
 process_s7|process slice-7|QK-PROCESS-S7-CORPUS-MANIFEST-V1|process_s7_registered||no
 process_s8|process slice-8|QK-PROCESS-S8-CORPUS-MANIFEST-V1|process_s8_registered||no
 process_s9|process slice-9|QK-PROCESS-S9-CORPUS-MANIFEST-V1|process_s9_registered||yes
-card_s1|card slice-1|QK-CARD-S1-CORPUS-MANIFEST-V1|card_s1_registered||no
+card_s1|card slice-1|QK-CARD-S1-CORPUS-MANIFEST-V1|card_s1_registered|qk_card_model|no
 PARTITIONS
 
 partition_values() {
@@ -412,7 +412,7 @@ select_render_mode() {
 --render-process-s7|render_process_s7|process_s7|
 --render-process-s8|render_process_s8|process_s8|
 --render-process-s9|render_process_s9|process_s9|
---render-card-s1|render_card_s1|card_s1|
+--render-card-s1|render_card_s1|card_s1|qk_card_model
 RENDER_MODES
   [ -n "$mode" ] || fail "$usage"
 }
@@ -488,9 +488,10 @@ if [ "$mode" = render_card_s1 ]; then
   target_tmp=$(mktemp) || fail 'mktemp failed for card slice-1 target entries'
   trap 'rm -f "$card_s1_entries" "$card_s1_expected" "$target_tmp"' EXIT HUP INT TERM
   emit_partition_entries "$card_s1_targets" "$card_s1_entries"
-  render_partition 'QK-CARD-S1-CORPUS-MANIFEST-V1' "$render_source" \
+  card_s1_source=$(manifest_source "$card_s1_manifest")
+  render_partition 'QK-CARD-S1-CORPUS-MANIFEST-V1' "$card_s1_source" \
     "$card_s1_targets" "$card_s1_order" "$card_s1_entries" \
-    "$card_s1_expected"
+    "$card_s1_expected" qk_card_model "$render_source"
   sed -n 'p' "$card_s1_expected"
   exit 0
 fi

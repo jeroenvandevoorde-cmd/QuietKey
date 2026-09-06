@@ -191,10 +191,12 @@ and requires canonical responses, exact named rejections, deterministic state
 transitions, and matching cleanup counts. Their initial accepted seeds are
 exact lines copied from the shared public, permanently NEVER-FUND
 `card_protocol_v1.txt` fixture; they create no new key authority. The test-only
-model permits COMMIT in the exact registered fixture flow only, so arbitrary
-structured mutations cannot introduce or exercise unregistered signing key
-material; malformed and pre-commit state remain hostile inputs. The model is
-absent from every product closure. The requalified core target parses
+model permits mutated input to COMMIT only in the exact registered fixture
+flow. A structured-input flag can instead build a fixed public pre-committed
+state solely from that fixture, then drive hostile READ_D, EXPORT_A2 and SIGN
+commands; no fuzz byte supplies signing key material. Malformed, pre-commit and
+post-commit states are hostile inputs. The model is absent from every product
+closure. The requalified core target parses
 the registered INFO, descriptor, A2, and signature response facts through
 `qk-card-protocol`, enters through one doc-hidden fuzz-only bound-card seam,
 and requires the default decoder to reject the retired NormalFactor kind.
@@ -203,10 +205,13 @@ Campaign 029 completed at qualification source
 points are `qk_card_protocol` 96 files/5,257 bytes, `qk_card_model` 56
 files/45,446 bytes, `qk_device_wire` 324 files/19,738 bytes, and
 `qk_core_normal_process` 86 files/1,597 bytes. The card-slice-1 and
-re-rendered process-slice-9 manifests register those roots. The final replay
-covered all 52 registered roots and 7,834 executed units with zero failures
-and zero artifacts; no card, device, process, socket, descriptor, or hardware
-action occurred in these pure targets.
+re-rendered process-slice-9 manifests registered those roots. Campaign 030
+requalified only `qk_card_model` at target source
+`05c640da25902398c04117ee0cf430f149f7f8e4`; its promoted fixed point is 134
+files/82,873 bytes while the other three target sources remain unchanged. The
+final replay covered all 52 registered roots, 7,851 files and 7,912 executed
+units with zero failures and zero artifacts; no card, device, process, socket,
+descriptor, converter, or hardware action occurred in these pure targets.
 
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
