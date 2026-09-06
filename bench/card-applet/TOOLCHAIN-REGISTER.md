@@ -183,12 +183,17 @@ The Linux-repeat apparatus alias is `RIG-HOST-PI3B-01`: arm64 userland,
 `aarch64` uname architecture, Python 3.13.5, Git 2.47.3, kernel
 `6.18.39+rpt-rpi-v8`, 905 MB RAM, and a 58 GB root filesystem with 49 GB
 free. No rustup or Cargo existed there when QK-DEC-162-SUP-002 was recorded.
-The expected archive identity below is registered, but no apparatus-copy
-measurement, clock reading, mtime, or match claim exists yet.
+The Owner supplied the apparatus-copy measurements below under
+QK-DEC-162-SUP-003, with verification clock reading `2026-09-06T21:08:43Z`.
 
 | Tool | Apparatus | Apparatus filename | Expected bytes | Expected SHA-256 | Verification UTC | File mtime UTC | Result |
 |---|---|---|---:|---|---|---|---|---|
-| Temurin JDK Linux aarch64 25.0.4.1+1 | `RIG-HOST-PI3B-01` | `OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz` | 140,137,820 | `69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52` | PENDING Owner measurement | PENDING | PENDING |
+| Temurin JDK Linux aarch64 25.0.4.1+1 | `RIG-HOST-PI3B-01` | `OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz` | 140,137,820 | `69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52` | `2026-09-06T21:08:43Z` | `2026-09-06T20:52:48Z` | MATCH |
+| Apache Ant 1.10.17 | `RIG-HOST-PI3B-01` | `apache-ant-1.10.17-bin.tar.xz` | 5,071,020 | `9553018e2cd5368261c32b2163c802e00de0a1c9707c3cfdd4cf7d6821674b08` | `2026-09-06T21:08:43Z` | `2026-09-06T20:51:50Z` | MATCH |
+| Oracle DevKit 26.0 build 705 | `RIG-HOST-PI3B-01` | `java_card_devkit_tools-bin-v26.0-b_705-04-MAY-2026.zip` | 1,781,450 | `86443cb1b64c006456e524d91082ba25d5ebb0ee5506c6e4d7088350ce251d9d` | `2026-09-06T21:08:43Z` | `2026-09-06T20:51:51Z` | MATCH |
+| ant-javacard v26.05.15 | `RIG-HOST-PI3B-01` | `ant-javacard-v26.05.15.jar` | 65,577 | `14f5e25c07b184e4ec02ee148892c2ea7ad5d7e9db8b91109524df8f7d000589` | `2026-09-06T21:08:43Z` | `2026-09-06T20:51:51Z` | MATCH |
+
+Apparatus software, `RIG-HOST-PI3B-01`: `rustup-init.sh`, 29,915 bytes, SHA-256 `7d0ea0f8eba7fa1ebfe998091cd7ec4501e33ec5ca6b884eb4d894d7da5170af`, file mtime `2026-09-06T20:53:10Z`; installed user-scoped with profile `minimal`: `rustup 1.29.1 (d95a37b6a 2026-08-13)`, `rustc 1.98.1 (48a229cea 2026-09-01)`, `cargo 1.98.1 (797e8a9bc 2026-08-05)`, toolchain `stable-aarch64-unknown-linux-gnu`.
 
 Before any future use, the build procedure must recheck the selected files in
 this private bundle against this register. A mismatch stops rather than
