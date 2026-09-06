@@ -50,26 +50,53 @@ manifest_source() {
   printf '%s\n' "$source_commit"
 }
 
-manifest_target_source() {
+manifest_target_source_pairs() {
   manifest=$1
-  expected_target=$2
-  source_count=$(awk -F '\t' \
-    '$1 == "target_source" { count++ } END { print count + 0 }' "$manifest") || \
-    fail "cannot inspect target_source in $manifest"
-  [ "$source_count" = 1 ] || fail "$manifest must contain one target_source row"
-  if ! awk -F '\t' -v expected="$expected_target" '
-    $1 == "target_source" {
-      if (NF != 3 || $2 != expected) bad = 1
+  configured_targets=$2
+  override_target=${3:-}
+  override_commit=${4:-}
+  if ! awk -F '\t' -v configured="$configured_targets" '
+    BEGIN {
+      count = split(configured, list, " ")
+      for (item = 1; item <= count; item++) expected[list[item]] = 1
     }
-    END { if (bad) exit 1 }
+    $1 == "target_source" {
+      if (NF != 3 || !($2 in expected) || seen[$2]) bad = 1
+      seen[$2] = 1
+      rows++
+    }
+    END {
+      if (rows != count) bad = 1
+      for (item = 1; item <= count; item++) {
+        if (!seen[list[item]]) bad = 1
+      }
+      if (bad) exit 1
+    }
   ' "$manifest"; then
-    fail "$manifest contains a malformed target_source row"
+    fail "$manifest contains malformed, unknown, duplicate, or missing target_source rows"
   fi
-  source_commit=$(awk -F '\t' -v expected="$expected_target" \
-    '$1 == "target_source" && $2 == expected { print $3 }' "$manifest") || \
-    fail "cannot read target_source from $manifest"
-  validate_source_commit "$source_commit" target_source
-  printf '%s\n' "$source_commit"
+  if [ -n "$override_target" ] || [ -n "$override_commit" ]; then
+    [ -n "$override_target" ] && [ -n "$override_commit" ] || \
+      fail 'target_source override requires both target and commit'
+    case " $configured_targets " in
+      *" $override_target "*) ;;
+      *) fail "target_source override names unknown target: $override_target" ;;
+    esac
+    validate_source_commit "$override_commit" target_source
+  fi
+  target_source_pairs=''
+  for target_source_target in $configured_targets; do
+    if [ "$target_source_target" = "$override_target" ]; then
+      target_source_commit=$override_commit
+    else
+      target_source_commit=$(awk -F '\t' -v expected="$target_source_target" \
+        '$1 == "target_source" && $2 == expected { print $3 }' "$manifest") || \
+        fail "cannot read target_source from $manifest"
+      validate_source_commit "$target_source_commit" target_source
+    fi
+    target_source_pairs="${target_source_pairs}${target_source_pairs:+ }${target_source_target} ${target_source_commit}"
+  done
+  printf '%s\n' "$target_source_pairs"
 }
 
 emit_directory() {
@@ -118,19 +145,26 @@ render_partition() {
   target_order=$4
   entries=$5
   destination=$6
-  target_source_target=${7:-}
-  target_source_commit=${8:-}
+  target_source_pairs=${7:-}
 
   validate_source_commit "$source_commit"
-  if [ -n "$target_source_target" ] || [ -n "$target_source_commit" ]; then
-    [ -n "$target_source_target" ] && [ -n "$target_source_commit" ] || \
-      fail 'target_source requires both target and commit'
+  seen_target_sources=''
+  set -- $target_source_pairs
+  while [ "$#" -gt 0 ]; do
+    [ "$#" -ge 2 ] || fail 'target_source pairs have odd arity'
+    target_source_target=$1
+    target_source_commit=$2
+    shift 2
     validate_source_commit "$target_source_commit" target_source
     case " $targets " in
       *" $target_source_target "*) ;;
       *) fail "target_source names unknown target: $target_source_target" ;;
     esac
-  fi
+    case " $seen_target_sources " in
+      *" $target_source_target "*) fail "duplicate target_source: $target_source_target" ;;
+      *) seen_target_sources="${seen_target_sources}${seen_target_sources:+ }$target_source_target" ;;
+    esac
+  done
   total_count=$(wc -l < "$entries" | tr -d ' ')
   total_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$entries")
   total_hash=$(sha256_file "$entries") || fail 'cannot hash aggregate corpus entries'
@@ -138,9 +172,13 @@ render_partition() {
   {
     printf '%s\n' "$version"
     printf 'campaign_source\t%s\n' "$source_commit"
-    if [ -n "$target_source_target" ]; then
+    set -- $target_source_pairs
+    while [ "$#" -gt 0 ]; do
+      target_source_target=$1
+      target_source_commit=$2
+      shift 2
       printf 'target_source\t%s\t%s\n' "$target_source_target" "$target_source_commit"
-    fi
+    done
     printf 'target_order\t%s\n' "$target_order"
     for target in $targets; do
       awk -F '\t' -v wanted="$target" '$2 == wanted' "$entries" > "$target_tmp" || \
@@ -344,8 +382,8 @@ process_s5|process slice-5|QK-PROCESS-S5-CORPUS-MANIFEST-V1|process_s5_registere
 process_s6|process slice-6|QK-PROCESS-S6-CORPUS-MANIFEST-V1|process_s6_registered||yes
 process_s7|process slice-7|QK-PROCESS-S7-CORPUS-MANIFEST-V1|process_s7_registered||no
 process_s8|process slice-8|QK-PROCESS-S8-CORPUS-MANIFEST-V1|process_s8_registered||no
-process_s9|process slice-9|QK-PROCESS-S9-CORPUS-MANIFEST-V1|process_s9_registered||yes
-card_s1|card slice-1|QK-CARD-S1-CORPUS-MANIFEST-V1|card_s1_registered|qk_card_model|no
+process_s9|process slice-9|QK-PROCESS-S9-CORPUS-MANIFEST-V1|process_s9_registered|qk_core_normal_process|yes
+card_s1|card slice-1|QK-CARD-S1-CORPUS-MANIFEST-V1|card_s1_registered|qk_card_model qk_core_normal_process|no
 PARTITIONS
 
 partition_values() {
@@ -473,9 +511,12 @@ if [ "$mode" = render_process_s9 ]; then
   target_tmp=$(mktemp) || fail 'mktemp failed for process slice-9 target entries'
   trap 'rm -f "$process_s9_entries" "$process_s9_expected" "$target_tmp"' EXIT HUP INT TERM
   emit_partition_entries "$process_s9_targets" "$process_s9_entries"
+  process_s9_target_source_pairs=$(
+    manifest_target_source_pairs "$process_s9_manifest" "$process_s9_target_source"
+  )
   render_partition 'QK-PROCESS-S9-CORPUS-MANIFEST-V1' "$render_source" \
     "$process_s9_targets" "$process_s9_order" "$process_s9_entries" \
-    "$process_s9_expected"
+    "$process_s9_expected" "$process_s9_target_source_pairs"
   sed -n 'p' "$process_s9_expected"
   exit 0
 fi
@@ -489,9 +530,13 @@ if [ "$mode" = render_card_s1 ]; then
   trap 'rm -f "$card_s1_entries" "$card_s1_expected" "$target_tmp"' EXIT HUP INT TERM
   emit_partition_entries "$card_s1_targets" "$card_s1_entries"
   card_s1_source=$(manifest_source "$card_s1_manifest")
+  card_s1_target_source_pairs=$(
+    manifest_target_source_pairs "$card_s1_manifest" "$card_s1_target_source" \
+      qk_card_model "$render_source"
+  )
   render_partition 'QK-CARD-S1-CORPUS-MANIFEST-V1' "$card_s1_source" \
     "$card_s1_targets" "$card_s1_order" "$card_s1_entries" \
-    "$card_s1_expected" qk_card_model "$render_source"
+    "$card_s1_expected" "$card_s1_target_source_pairs"
   sed -n 'p' "$card_s1_expected"
   exit 0
 fi
@@ -1236,10 +1281,10 @@ case "$mode" in
       partition_source_commit=$(manifest_source "$partition_manifest")
       eval "${partition_id}_source=\$partition_source_commit"
       if [ -n "$partition_target_source" ]; then
-        partition_target_source_commit=$(
-          manifest_target_source "$partition_manifest" "$partition_target_source"
+        partition_target_source_pairs=$(
+          manifest_target_source_pairs "$partition_manifest" "$partition_target_source"
         )
-        eval "${partition_id}_target_source_commit=\$partition_target_source_commit"
+        eval "${partition_id}_target_source_pairs=\$partition_target_source_pairs"
       fi
     done
 
@@ -1248,11 +1293,10 @@ case "$mode" in
       partition_registered || continue
       eval "partition_source_commit=\${${partition_id}_source}"
       if [ -n "$partition_target_source" ]; then
-        eval "partition_target_source_commit=\${${partition_id}_target_source_commit}"
+        eval "partition_target_source_pairs=\${${partition_id}_target_source_pairs}"
         render_partition "$partition_version" "$partition_source_commit" \
           "$partition_targets" "$partition_order" "$partition_entries" \
-          "$partition_expected" "$partition_target_source" \
-          "$partition_target_source_commit"
+          "$partition_expected" "$partition_target_source_pairs"
       else
         render_partition "$partition_version" "$partition_source_commit" \
           "$partition_targets" "$partition_order" "$partition_entries" \
@@ -1288,22 +1332,24 @@ case "$mode" in
     partition_values "$render_partition_id"
     if [ -n "$render_target_override" ]; then
       partition_source_commit=$(manifest_source "$partition_manifest")
-      partition_target_source_commit=$render_source
+      partition_target_source_pairs=$(
+        manifest_target_source_pairs "$partition_manifest" "$partition_target_source" \
+          "$render_target_override" "$render_source"
+      )
     else
       partition_source_commit=$render_source
       if [ -n "$partition_target_source" ]; then
-        partition_target_source_commit=$(
-          manifest_target_source "$partition_manifest" "$partition_target_source"
+        partition_target_source_pairs=$(
+          manifest_target_source_pairs "$partition_manifest" "$partition_target_source"
         )
       else
-        partition_target_source_commit=''
+        partition_target_source_pairs=''
       fi
     fi
     if [ -n "$partition_target_source" ]; then
       render_partition "$partition_version" "$partition_source_commit" \
         "$partition_targets" "$partition_order" "$partition_entries" \
-        "$partition_expected" "$partition_target_source" \
-        "$partition_target_source_commit"
+        "$partition_expected" "$partition_target_source_pairs"
     else
       render_partition "$partition_version" "$partition_source_commit" \
         "$partition_targets" "$partition_order" "$partition_entries" \
