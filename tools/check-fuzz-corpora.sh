@@ -513,7 +513,7 @@ if [ "$mode" = render_process_s9 ]; then
   emit_partition_entries "$process_s9_targets" "$process_s9_entries"
   process_s9_target_source_pairs=$(
     manifest_target_source_pairs "$process_s9_manifest" "$process_s9_target_source"
-  )
+  ) || exit 1
   render_partition 'QK-PROCESS-S9-CORPUS-MANIFEST-V1' "$render_source" \
     "$process_s9_targets" "$process_s9_order" "$process_s9_entries" \
     "$process_s9_expected" "$process_s9_target_source_pairs"
@@ -533,7 +533,7 @@ if [ "$mode" = render_card_s1 ]; then
   card_s1_target_source_pairs=$(
     manifest_target_source_pairs "$card_s1_manifest" "$card_s1_target_source" \
       qk_card_model "$render_source"
-  )
+  ) || exit 1
   render_partition 'QK-CARD-S1-CORPUS-MANIFEST-V1' "$card_s1_source" \
     "$card_s1_targets" "$card_s1_order" "$card_s1_entries" \
     "$card_s1_expected" "$card_s1_target_source_pairs"
@@ -1283,7 +1283,7 @@ case "$mode" in
       if [ -n "$partition_target_source" ]; then
         partition_target_source_pairs=$(
           manifest_target_source_pairs "$partition_manifest" "$partition_target_source"
-        )
+        ) || exit 1
         eval "${partition_id}_target_source_pairs=\$partition_target_source_pairs"
       fi
     done
@@ -1335,13 +1335,13 @@ case "$mode" in
       partition_target_source_pairs=$(
         manifest_target_source_pairs "$partition_manifest" "$partition_target_source" \
           "$render_target_override" "$render_source"
-      )
+      ) || exit 1
     else
       partition_source_commit=$render_source
       if [ -n "$partition_target_source" ]; then
         partition_target_source_pairs=$(
           manifest_target_source_pairs "$partition_manifest" "$partition_target_source"
-        )
+        ) || exit 1
       else
         partition_target_source_pairs=''
       fi
