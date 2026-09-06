@@ -213,6 +213,16 @@ final replay covered all 52 registered roots, 7,851 files and 7,912 executed
 units with zero failures and zero artifacts; no card, device, process, socket,
 descriptor, converter, or hardware action occurred in these pure targets.
 
+Campaign 031 requalified only `qk_core_normal_process` at target source
+`180e5e9578f8b6fabccdfb5d9199d9b3c7b2d79d` after QK-DEC-164 added the
+per-session repeated-signature-`r` rejection and its live insertion oracle.
+Its promoted two-copy-agreed fixed point is 88 files/1,759 bytes. PROCESS-S9
+and CARD-S1 retain their historical campaign sources and now carry complete,
+validated target-source rows for every later-produced root. The final replay
+covered all 52 registered roots, 7,853 files and 7,914 executed units with zero
+failures and zero artifacts; no card, converter, device or hardware action
+occurred.
+
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
 implemented inner response parser, one complete valid ingress transfer, outer
