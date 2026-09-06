@@ -2,16 +2,28 @@
 
 use std::env;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use qk_card_enrollment::{
-    encode_transcript, execute_pcsc_identity, run_enrollment, EnrollmentMetadata, EnrollmentMode,
-    EnrollmentOutcome, EnrollmentRecord, IdentityOutcome, PcscEnrollmentBackend,
+    encode_transcript, execute_pcsc_identity, execute_pcsc_sitting, run_enrollment,
+    EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome, EnrollmentRecord, IdentityOutcome,
+    PcscEnrollmentBackend, SittingError, SittingMetadata, SittingMode, SittingOutcome,
 };
 
 enum Command {
     Enrollment(EnrollmentMetadata),
     Identity(EnrollmentMetadata),
+    Sitting {
+        mode: SittingMode,
+        metadata: EnrollmentMetadata,
+        output_path: PathBuf,
+    },
+}
+
+enum ArgumentError {
+    Usage,
+    Sitting(SittingError),
 }
 
 fn usage() {
@@ -23,6 +35,9 @@ fn usage() {
     );
     eprintln!(
         "   or: qk-card-enrollment identity <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <selected-reader-name-lowerhex>"
+    );
+    eprintln!(
+        "   or: qk-card-enrollment sitting <install-info|provision-golden> <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>"
     );
 }
 
@@ -52,20 +67,48 @@ fn parse_lower_hex(value: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-fn parse_arguments() -> Option<Command> {
+fn parse_arguments() -> Result<Command, ArgumentError> {
     let mut arguments = env::args();
-    let _program = arguments.next()?;
-    let mode = arguments.next()?;
-    let source_commit = arguments.next()?;
-    let timestamp_utc = arguments.next()?;
-    let host_alias = arguments.next()?;
-    let reader_alias = arguments.next()?;
+    let _program = arguments.next().ok_or(ArgumentError::Usage)?;
+    let mode = arguments.next().ok_or(ArgumentError::Usage)?;
+    if mode == "sitting" {
+        let sitting_mode = SittingMode::parse(&arguments.next().ok_or(ArgumentError::Usage)?)
+            .map_err(ArgumentError::Sitting)?;
+        let source_commit = arguments.next().ok_or(ArgumentError::Usage)?;
+        let timestamp_utc = arguments.next().ok_or(ArgumentError::Usage)?;
+        let host_alias = arguments.next().ok_or(ArgumentError::Usage)?;
+        let reader_alias = arguments.next().ok_or(ArgumentError::Usage)?;
+        let specimen_alias = arguments.next().ok_or(ArgumentError::Usage)?;
+        let selected_reader_name = parse_lower_hex(&arguments.next().ok_or(ArgumentError::Usage)?)
+            .ok_or(ArgumentError::Usage)?;
+        let output_path = PathBuf::from(arguments.next().ok_or(ArgumentError::Usage)?);
+        if arguments.next().is_some() {
+            return Err(ArgumentError::Usage);
+        }
+        return Ok(Command::Sitting {
+            mode: sitting_mode,
+            metadata: EnrollmentMetadata {
+                mode: EnrollmentMode::Enroll,
+                source_commit,
+                timestamp_utc,
+                host_alias,
+                reader_alias,
+                specimen_alias: Some(specimen_alias),
+                selected_reader_name: Some(selected_reader_name),
+            },
+            output_path,
+        });
+    }
+    let source_commit = arguments.next().ok_or(ArgumentError::Usage)?;
+    let timestamp_utc = arguments.next().ok_or(ArgumentError::Usage)?;
+    let host_alias = arguments.next().ok_or(ArgumentError::Usage)?;
+    let reader_alias = arguments.next().ok_or(ArgumentError::Usage)?;
     match mode.as_str() {
         "enumerate" => {
             if arguments.next().is_some() {
-                return None;
+                return Err(ArgumentError::Usage);
             }
-            Some(Command::Enrollment(EnrollmentMetadata {
+            Ok(Command::Enrollment(EnrollmentMetadata {
                 mode: EnrollmentMode::Enumerate,
                 source_commit,
                 timestamp_utc,
@@ -76,10 +119,12 @@ fn parse_arguments() -> Option<Command> {
             }))
         }
         "enroll" | "identity" => {
-            let specimen_alias = arguments.next()?;
-            let selected_reader_name = parse_lower_hex(&arguments.next()?)?;
+            let specimen_alias = arguments.next().ok_or(ArgumentError::Usage)?;
+            let selected_reader_name =
+                parse_lower_hex(&arguments.next().ok_or(ArgumentError::Usage)?)
+                    .ok_or(ArgumentError::Usage)?;
             if arguments.next().is_some() {
-                return None;
+                return Err(ArgumentError::Usage);
             }
             let metadata = EnrollmentMetadata {
                 mode: EnrollmentMode::Enroll,
@@ -91,23 +136,60 @@ fn parse_arguments() -> Option<Command> {
                 selected_reader_name: Some(selected_reader_name),
             };
             if mode == "identity" {
-                Some(Command::Identity(metadata))
+                Ok(Command::Identity(metadata))
             } else {
-                Some(Command::Enrollment(metadata))
+                Ok(Command::Enrollment(metadata))
             }
         }
-        _ => None,
+        _ => Err(ArgumentError::Usage),
     }
 }
 
 fn main() -> ExitCode {
-    let Some(command) = parse_arguments() else {
-        usage();
-        return ExitCode::from(64);
+    let command = match parse_arguments() {
+        Ok(command) => command,
+        Err(ArgumentError::Usage) => {
+            usage();
+            return ExitCode::from(64);
+        }
+        Err(ArgumentError::Sitting(error)) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
     };
     match command {
         Command::Enrollment(metadata) => run_enrollment_command(metadata),
         Command::Identity(metadata) => run_identity_command(metadata),
+        Command::Sitting {
+            mode,
+            metadata,
+            output_path,
+        } => run_sitting_command(mode, metadata, output_path),
+    }
+}
+
+fn run_sitting_command(
+    mode: SittingMode,
+    metadata: EnrollmentMetadata,
+    output_path: PathBuf,
+) -> ExitCode {
+    let metadata = match validate_metadata(metadata) {
+        Ok(metadata) => metadata,
+        Err(exit) => return exit,
+    };
+    let metadata = match SittingMetadata::new(mode, metadata, output_path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
+    };
+    match execute_pcsc_sitting(metadata) {
+        Ok(SittingOutcome::Pass) => ExitCode::SUCCESS,
+        Ok(SittingOutcome::Reject(error)) | Err(error) => {
+            eprintln!("result={}", error.name());
+            ExitCode::from(1)
+        }
     }
 }
 

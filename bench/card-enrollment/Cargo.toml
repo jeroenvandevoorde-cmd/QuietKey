@@ -1,12 +1,16 @@
 [package]
 name = "qk-card-enrollment"
-version = "0.0.3"
+version = "0.0.4"
 publish = false
 edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
 pcsc = { version = "=2.9.0" }
+
+[dev-dependencies]
+qk-card-model = { path = "../../host/qk-card-model" }
+qk-card-protocol = { path = "../../host/qk-card-protocol" }
 
 [workspace]
 resolver = "2"

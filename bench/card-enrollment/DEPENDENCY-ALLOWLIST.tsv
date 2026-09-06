@@ -1,6 +1,9 @@
-# QuietKey QK-DEC-147/QK-DEC-153-SUP-002 card-observation dependency closure; tab-separated.
+# QuietKey QK-DEC-147/QK-DEC-153-SUP-002/QK-DEC-165 card-observation and sitting dependency closure; tab-separated.
 # kind	name	version	checksum_sha256	provenance_or_checksum_subject	license	purpose
 registry	bitflags	2.13.1	b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da	crates.io-package	MIT OR Apache-2.0	pcsc protocol and state flag representation
 registry	pcsc	2.9.0	7dd833ecf8967e65934c49d3521a175929839bf6d0e497f3bd0d3a2ca08943da	crates.io-package	MIT	safe PC/SC wrapper for the ring-fenced enrollment and fixed identity-read tool
 registry	pcsc-sys	1.3.0	e14ef017e15d2e5592a9e39a346c1dbaea5120bab7ed7106b210ef58ebd97003	crates.io-package	MIT	transitive PC/SC platform binding behind the safe wrapper
 registry	pkg-config	0.3.34	f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548	crates.io-package	MIT OR Apache-2.0	build-only non-macOS PC/SC library discovery
+path	qk-card-model	0.0.1	cff6eea5fa8b3c66bee2173f406b348f8cb819217fa6cc1d51271badd8a39127	host/qk-card-model/Cargo.toml	Apache-2.0	dev-only fixed sitting transcript replay; absent from the tool's normal and build closures
+path	qk-card-protocol	0.0.1	dc58fd821c4409c7477ec9b471e469b24222ed76b4c50e8efc71cadefa9913b5	host/qk-card-protocol/Cargo.toml	Apache-2.0	dev-only model APDU media and protocol types
+path	qk-secp	0.0.1	4dd98b27cac64c0b4e90528e38e430cb98b1da225d8da793cece95b8079c59f0	host/qk-secp/Cargo.toml	Apache-2.0	transitive model-test dependency only; no tool signing surface

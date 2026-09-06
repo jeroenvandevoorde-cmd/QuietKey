@@ -1,0 +1,10 @@
+# QuietKey QK-DEC-165 fixed B4 install-information sitting plan version 1.
+# PERMANENTLY NEVER-FUND PUBLIC PRIVATE MATERIAL.
+# GOLDEN source: host/qk-card-protocol/tests/fixtures/card_protocol_v1.txt; 17,919 bytes; 94 LF; SHA-256 5019c642ec61c1042043c0b325658e06d54bbcd3648c2e168b742e9af139bbe4; Git blob a43001772504ca62180893958d6c23a28be51430.
+# Derivation: preserve the GOLDEN setup SELECT and OPEN pair; append sequence-one INFO for the same setup session in the unprovisioned lifecycle with protocol/record 01/01, lifecycle/profile/role 00/00/02, zero record fields, and operation mask 0011.
+# Constructor agreement: all three indexed request/response pairs match the separately implemented Owner-side constructor byte-for-byte.
+# This plan has no signing exchange and accepts no caller-supplied protocol bytes.
+index	phase	name	request_hex	response_hex
+0	install	select	00a4040006f0514b32420100	9000
+1	install	setup-open	80100000120101a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100	01a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000000009000
+2	install	setup-info	801100001501a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000100	01a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000101010000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000119000
