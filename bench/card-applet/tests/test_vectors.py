@@ -56,6 +56,44 @@ def registered_test_output(path):
 
 
 class SourceVectorTests(unittest.TestCase):
+    def test_record_source_offsets_match_frozen_protocol(self):
+        source = (JAVA / "CardRecord.java").read_text(encoding="utf-8")
+        found = {name: int(value) for name, value in re.findall(
+            r"short\s+(\w+)\s*=\s*\(short\)\s*(\d+);", source)}
+        frozen = (REPO / "host/qk-card-protocol/src/record.rs").read_text(encoding="utf-8")
+        mapping = {"INSTANCE": "INSTANCE_ID", "WALLET": "WALLET_ID",
+                   "FINGERPRINT": "ORIGIN_FINGERPRINT", "XPRV": "XPRV",
+                   "A2": "A2", "RECEIVE": "RECEIVE_D", "CHANGE": "CHANGE_D"}
+        for java_name, rust_name in mapping.items():
+            expected = int(re.search(r"RECORD_" + rust_name + r"_OFFSET: usize = (\d+);",
+                                     frozen)[1])
+            self.assertEqual(found[java_name], expected)
+        self.assertEqual(found["CHAIN"], found["XPRV"] + 13)
+        self.assertEqual(found["SCALAR"], found["XPRV"] + 46)
+        self.assertEqual(found["RECORD_BYTES"], found["CHANGE"] + 306)
+
+    def test_record_domain_constants_against_existing_public_fixture(self):
+        # This checks source constants and frozen facts, not Java Card execution.
+        source = (JAVA / "CardRecord.java").read_text(encoding="utf-8")
+        domains = {}
+        for name in ("RECORD_DOMAIN", "INSTANCE_DOMAIN"):
+            body = re.search(r"byte\[\]\s+" + name + r"\s*=\s*\{(.*?)\};", source, re.S)[1]
+            domains[name] = "".join(re.findall(r"'(.)'", body)).encode("ascii")
+        fixture = (REPO / "host/qk-card-protocol/tests/fixtures/card_protocol_v1.txt").read_text()
+        self.assertIn("PERMANENTLY NEVER-FUND", fixture)
+        facts = dict(line.split(": ", 1) for line in fixture.splitlines()
+                     if line and not line.startswith("#"))
+        for profile in ("01", "02", "03"):
+            record = bytes.fromhex(facts["record_profile_" + profile + "_hex"])
+            self.assertEqual(len(record), 781)
+            self.assertEqual(hashlib.sha256(domains["RECORD_DOMAIN"] + b"\0" + record).hexdigest(),
+                             facts["record_profile_" + profile + "_digest"])
+            self.assertEqual(hashlib.sha256(record[169:475] + b"\0" + record[475:]).digest(),
+                             record[23:55])
+            instance = hashlib.sha256(domains["INSTANCE_DOMAIN"] + b"\0" + record[23:55]
+                + b"\0\x01" + bytes.fromhex(facts["provisioning_nonce_hex"])).digest()[:16]
+            self.assertEqual(instance, record[7:23])
+
     def test_sha512_round_and_initial_bytes_match_registered_model(self):
         java = (JAVA / "Sha512.java").read_text(encoding="utf-8")
         rust = (MODEL / "sha512.rs").read_text(encoding="utf-8")
