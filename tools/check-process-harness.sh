@@ -40,6 +40,16 @@ for package in qk-core qk-io; do
     --offline --quiet -p "$package" --features host-runtime || \
     fail "$package host-process tests failed"
 done
+CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
+  --offline --quiet -p qk-core \
+  --features host-runtime,fuzzing,legacy-normal-factor-fixture || \
+  fail 'qk-core complete Normal-process feature tests failed'
+CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
+  --offline --quiet -p qk-device-wire --features fuzzing || \
+  fail 'qk-device-wire fuzzing-feature tests failed'
+CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
+  --offline --quiet -p qk-io --features host-runtime,fuzzing || \
+  fail 'qk-io complete host-process feature tests failed'
 for package in qk-card-protocol qk-card-model; do
   CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
     --offline --quiet -p "$package" --all-features || \
