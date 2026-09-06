@@ -30,6 +30,7 @@ enum SignatureMutation {
     WrongKey,
     MalformedDer,
     InvalidSignature,
+    RepeatedR,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,6 +145,11 @@ impl Model {
                 SignatureMutation::InvalidSignature => {
                     return Some(
                         self.reject("CardSignatureInvalid", Some(NormalStageV2::CardBSigning)),
+                    );
+                }
+                SignatureMutation::RepeatedR => {
+                    return Some(
+                        self.reject("CardSignatureRepeatedR", Some(NormalStageV2::CardBSigning)),
                     );
                 }
                 SignatureMutation::None => {
@@ -346,6 +352,7 @@ fn normal_error_name(error: NormalProcessErrorV2) -> &'static str {
         NormalProcessErrorV2::CardSignatureKeyMismatch => "CardSignatureKeyMismatch",
         NormalProcessErrorV2::CardSignatureMalformed => "CardSignatureMalformed",
         NormalProcessErrorV2::CardSignatureHighS => "CardSignatureHighS",
+        NormalProcessErrorV2::CardSignatureRepeatedR => "CardSignatureRepeatedR",
         NormalProcessErrorV2::CardSignatureInvalid => "CardSignatureInvalid",
         NormalProcessErrorV2::Normal(error) => normal_leaf_error_name(error),
     };
@@ -576,6 +583,9 @@ fn signature_reply(
         }
         SignatureMutation::InvalidSignature => {
             signature_der[10] ^= 1;
+        }
+        SignatureMutation::RepeatedR => {
+            signature_der = hex_vec("3046022100ccbfad55e5be35282e8927ef2694257e694a7738513c3fc3e396495227809769022100bf61fc4abd1a78f9fa367c00a6442598aebf994ca058bf34e8a747b94a49ad0a");
         }
     }
     (review_hash, input_index, public_key, signature_der)
@@ -1204,6 +1214,11 @@ fn run_scenario(
     );
     let expected_review_hash = *request.review_hash();
     drop(request);
+    if mutation == SignatureMutation::RepeatedR {
+        let mut retained = hex_vec(field(SIGNING, "role_b_der_hex"));
+        assert!(controller.fuzz_preseed_retained_card_signature(&mut retained));
+        assert!(retained.iter().all(|byte| *byte == 0));
+    }
     let (review_hash, input_index, public_key, mut signature) =
         signature_reply(mutation, expected_review_hash);
     let accepted =
@@ -1602,6 +1617,7 @@ fn assert_signature_outcome(mutation: SignatureMutation, fact: &FuzzFact) {
         SignatureMutation::WrongKey => Some("CardSignatureKeyMismatch"),
         SignatureMutation::MalformedDer => Some("CardSignatureMalformed"),
         SignatureMutation::InvalidSignature => Some("CardSignatureInvalid"),
+        SignatureMutation::RepeatedR => Some("CardSignatureRepeatedR"),
     };
     match (expected_rejection, fact) {
         (None, FuzzFact::Accepted { .. }) => {}
@@ -1613,13 +1629,14 @@ fn assert_signature_outcome(mutation: SignatureMutation, fact: &FuzzFact) {
 fuzz_target!(|data: &[u8]| {
     let selector = data.first().copied().unwrap_or(0);
     let fact = if selector == b'V' && admitted(data) {
-        let mutation = match data.get(1).copied().unwrap_or(0) % 5 {
+        let mutation = match data.get(1).copied().unwrap_or(0) % 6 {
             0 => SignatureMutation::None,
             1 => SignatureMutation::WrongBinding,
             2 => SignatureMutation::WrongKey,
             3 => SignatureMutation::MalformedDer,
             4 => SignatureMutation::InvalidSignature,
-            _ => unreachable!("modulo five is exhaustive"),
+            5 => SignatureMutation::RepeatedR,
+            _ => unreachable!("modulo six is exhaustive"),
         };
         let fact = run_complete(data, mutation);
         assert_signature_outcome(mutation, &fact);

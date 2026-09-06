@@ -7,7 +7,8 @@
 //! A2, Seed-A, signer state, or finalized artifacts.
 
 use crate::capability::{
-    CoreDeviceGrants, CoreScreen, KeypadKey, NormalCardBDataV2, NormalCardMockErrorV2,
+    CoreDeviceGrants, CoreScreen, KeypadKey, NormalCardBDataV2, NormalCardBSignatureV2,
+    NormalCardMockErrorV2,
 };
 use crate::error::{CoreError, Interruption, IoRejection};
 use crate::io_wire::Source;
@@ -106,6 +107,7 @@ impl ProcessStageTraceV2 {
 pub(crate) enum ProcessSignatureRejectionV2 {
     Malformed,
     HighS,
+    RepeatedR,
     BindingMismatch,
     KeyMismatch,
     Invalid,
@@ -610,6 +612,7 @@ struct NormalVerifiedCardBSignatureV2 {
     input_index: u32,
     der: WipingArray<72>,
     len: usize,
+    r: WipingArray<32>,
 }
 
 #[cfg(feature = "normal-process")]
@@ -1186,6 +1189,39 @@ impl NormalSessionV2 {
         })
     }
 
+    /// Test-only seam for placing one already-verified public fixture record
+    /// in the bounded retained-response owner without advancing its cursor.
+    #[cfg(all(feature = "normal-process", any(test, feature = "fuzzing")))]
+    pub(crate) fn fuzz_preseed_retained_card_signature(
+        &mut self,
+        der_signature: &mut [u8],
+    ) -> bool {
+        let input = ProcessSignatureInputGuard(der_signature);
+        let Some(request) = self.process_card_b_signing_request() else {
+            return false;
+        };
+        let verified = verify_process_card_b_signature(
+            &request,
+            *request.review_hash(),
+            request.input_index(),
+            *request.role_b_pubkey(),
+            input.as_slice(),
+            &[],
+        );
+        drop(request);
+        drop(input);
+        let Ok(verified) = verified else {
+            return false;
+        };
+        let Some(state) = self.process_signing.as_mut() else {
+            return false;
+        };
+        if !state.role_b.as_slice().is_empty() {
+            return false;
+        }
+        state.role_b.try_push(verified).is_ok()
+    }
+
     /// Bind, normalize, and verify one exact card reply before retaining its
     /// low-S DER owner. The caller's response buffer is cleared on every path.
     #[cfg(feature = "normal-process")]
@@ -1210,6 +1246,10 @@ impl NormalSessionV2 {
             input_index,
             role_b_pubkey,
             input.as_slice(),
+            match self.process_signing.as_ref() {
+                Some(state) => state.role_b.as_slice(),
+                None => &[],
+            },
         );
         drop(request);
         drop(input);
@@ -2180,6 +2220,7 @@ fn verify_process_card_b_signature(
     input_index: u32,
     role_b_pubkey: [u8; 33],
     der_signature: &[u8],
+    retained: &[NormalVerifiedCardBSignatureV2],
 ) -> Result<NormalVerifiedCardBSignatureV2, ProcessSignatureRejectionV2> {
     if review_hash != *request.review_hash() || input_index != request.input_index() {
         return Err(ProcessSignatureRejectionV2::BindingMismatch);
@@ -2197,6 +2238,19 @@ fn verify_process_card_b_signature(
         }
         Err(_) => return Err(ProcessSignatureRejectionV2::Invalid),
     };
+    let r = normalized_card_signature_r(
+        normalized
+            .as_array()
+            .get(..len)
+            .ok_or(ProcessSignatureRejectionV2::Invalid)?,
+    )
+    .ok_or(ProcessSignatureRejectionV2::Invalid)?;
+    if retained
+        .iter()
+        .any(|prior| prior.r.as_array() == r.as_array())
+    {
+        return Err(ProcessSignatureRejectionV2::RepeatedR);
+    }
     let signature = qk_secp::signature_parse_der(
         normalized
             .as_array()
@@ -2212,6 +2266,7 @@ fn verify_process_card_b_signature(
         input_index,
         der: normalized,
         len,
+        r,
     })
 }
 
@@ -2233,7 +2288,7 @@ fn validate_bound_card_signature_records(
 ) -> Result<(), ProcessSignatureRejectionV2> {
     let plans = proof.input_signing_plans();
     let mut prior = None;
-    for signature in card.signatures() {
+    for (record_index, signature) in card.signatures().iter().enumerate() {
         let Some(claimed_key) = signature.role_b_pubkey() else {
             // The frozen typed HOST tests predate the process-wire binding.
             // Every QKDV NormalFactor record uses the bound constructor.
@@ -2262,6 +2317,25 @@ fn validate_bound_card_signature_records(
             .ok_or(ProcessSignatureRejectionV2::Malformed)?;
         if role_b != &claimed_key {
             return Err(ProcessSignatureRejectionV2::KeyMismatch);
+        }
+        reject_repeated_bound_card_r(
+            signature,
+            card.signatures().get(..record_index).unwrap_or_default(),
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "normal-process")]
+fn reject_repeated_bound_card_r(
+    current: &NormalCardBSignatureV2,
+    prior_records: &[NormalCardBSignatureV2],
+) -> Result<(), ProcessSignatureRejectionV2> {
+    for prior in prior_records {
+        if prior.role_b_pubkey().is_some()
+            && card_signatures_repeat_r(prior.der_signature(), current.der_signature())?
+        {
+            return Err(ProcessSignatureRejectionV2::RepeatedR);
         }
     }
     Ok(())
@@ -2331,6 +2405,50 @@ fn parse_card_der_integer(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
         return None;
     }
     Some((value, trailing))
+}
+
+#[cfg(feature = "normal-process")]
+fn normalized_card_signature_r(der: &[u8]) -> Option<WipingArray<32>> {
+    let magnitude = card_signature_r_magnitude(der)?;
+    if magnitude.len() > 32 {
+        return None;
+    }
+    let mut normalized = WipingArray::<32>::zeroed();
+    let offset = 32usize.checked_sub(magnitude.len())?;
+    normalized
+        .as_mut_array()
+        .get_mut(offset..)?
+        .copy_from_slice(magnitude);
+    Some(normalized)
+}
+
+#[cfg(feature = "normal-process")]
+fn card_signature_r_magnitude(der: &[u8]) -> Option<&[u8]> {
+    let (&0x30, rest) = der.split_first()? else {
+        return None;
+    };
+    let (&sequence_len, sequence) = rest.split_first()?;
+    if usize::from(sequence_len) != sequence.len() {
+        return None;
+    }
+    let (r, after_r) = parse_card_der_integer(sequence)?;
+    let (_, trailing) = parse_card_der_integer(after_r)?;
+    if !trailing.is_empty() {
+        return None;
+    }
+    Some(r.strip_prefix(&[0]).unwrap_or(r))
+}
+
+#[cfg(feature = "normal-process")]
+fn card_signatures_repeat_r(
+    first_der: &[u8],
+    second_der: &[u8],
+) -> Result<bool, ProcessSignatureRejectionV2> {
+    let first =
+        card_signature_r_magnitude(first_der).ok_or(ProcessSignatureRejectionV2::Malformed)?;
+    let second =
+        card_signature_r_magnitude(second_der).ok_or(ProcessSignatureRejectionV2::Malformed)?;
+    Ok(first == second)
 }
 
 const fn validate_a1_candidate(source: Source, length: usize) -> Result<(), NormalErrorV2> {
@@ -2443,6 +2561,15 @@ const fn map_artifact_error(error: NormalArtifactErrorV2) -> NormalErrorV2 {
 mod tests {
     use super::{validate_a1_candidate, NormalErrorV2, Source, A1_CAPSULE_BYTES};
 
+    #[cfg(feature = "normal-process")]
+    use super::{
+        card_signatures_repeat_r, normalized_card_signature_r, reject_repeated_bound_card_r,
+        ProcessSignatureRejectionV2,
+    };
+
+    #[cfg(feature = "normal-process")]
+    use crate::NormalCardBSignatureV2;
+
     #[test]
     fn a1_candidate_source_and_length_have_distinct_precedence() {
         assert_eq!(
@@ -2455,6 +2582,108 @@ mod tests {
         );
         assert_eq!(
             validate_a1_candidate(Source::CameraA1Candidate, A1_CAPSULE_BYTES),
+            Ok(())
+        );
+    }
+
+    #[cfg(feature = "normal-process")]
+    #[test]
+    fn numeric_r_normalization_ignores_der_pad_and_s_representation() {
+        let decode = |text: &str| {
+            text.as_bytes()
+                .chunks_exact(2)
+                .map(|pair| {
+                    u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII hex"), 16)
+                        .expect("fixture hex")
+                })
+                .collect::<Vec<_>>()
+        };
+        let low = decode("3045022100ccbfad55e5be35282e8927ef2694257e694a7738513c3fc3e3964952278097690220409e03b542e5870605c983ff59bbda660bef439a0eefe106d72b16d385ec9437");
+        let mut different_s = low.clone();
+        *different_s.last_mut().expect("nonempty DER") ^= 1;
+        let high = decode("3046022100ccbfad55e5be35282e8927ef2694257e694a7738513c3fc3e396495227809769022100bf61fc4abd1a78f9fa367c00a6442598aebf994ca058bf34e8a747b94a49ad0a");
+        let mut normalized_high = [0u8; 72];
+        let normalized_high_len =
+            qk_secp::normalize_card_signature_der(&high, &mut normalized_high)
+                .expect("registered high-S twin normalizes");
+
+        let low_r = normalized_card_signature_r(&low).expect("strict low-S DER");
+        let different_s_r =
+            normalized_card_signature_r(&different_s).expect("strict distinct-S DER");
+        let high_r = normalized_card_signature_r(
+            normalized_high
+                .get(..normalized_high_len)
+                .expect("bounded normalized DER"),
+        )
+        .expect("strict normalized high-S DER");
+        assert_eq!(low_r.as_array(), different_s_r.as_array());
+        assert_eq!(low_r.as_array(), high_r.as_array());
+        assert_eq!(low_r.as_array()[0], 0xcc);
+        assert_eq!(low_r.as_array()[31], 0x69);
+        assert_eq!(card_signatures_repeat_r(&low, &different_s), Ok(true));
+        assert_eq!(
+            card_signatures_repeat_r(
+                &low,
+                normalized_high
+                    .get(..normalized_high_len)
+                    .expect("bounded normalized DER"),
+            ),
+            Ok(true)
+        );
+
+        let short =
+            normalized_card_signature_r(&[0x30, 6, 2, 1, 1, 2, 1, 1]).expect("strict one-byte r");
+        assert!(short.as_array()[..31].iter().all(|byte| *byte == 0));
+        assert_eq!(short.as_array()[31], 1);
+
+        let mut oversized_first = vec![0x30, 0x26, 0x02, 0x21];
+        oversized_first.extend_from_slice(&[1; 33]);
+        oversized_first.extend_from_slice(&[0x02, 0x01, 0x01]);
+        let mut oversized_second = oversized_first.clone();
+        *oversized_second.last_mut().expect("nonempty DER") = 2;
+        assert_eq!(
+            card_signatures_repeat_r(&oversized_first, &oversized_second),
+            Ok(true)
+        );
+    }
+
+    #[cfg(feature = "normal-process")]
+    #[test]
+    fn batch_repeat_detector_uses_numeric_r_and_skips_unbound_legacy_records() {
+        fn bound(input_index: u32, mut der: Vec<u8>) -> NormalCardBSignatureV2 {
+            NormalCardBSignatureV2::try_new_bound(input_index, [0x02; 33], &mut der)
+                .expect("bounded public DER")
+        }
+
+        fn unbound(input_index: u32, mut der: Vec<u8>) -> NormalCardBSignatureV2 {
+            NormalCardBSignatureV2::try_new(input_index, &mut der).expect("bounded public DER")
+        }
+
+        let text = "3045022100ccbfad55e5be35282e8927ef2694257e694a7738513c3fc3e3964952278097690220409e03b542e5870605c983ff59bbda660bef439a0eefe106d72b16d385ec9437";
+        let low = text
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII hex"), 16)
+                    .expect("fixture hex")
+            })
+            .collect::<Vec<_>>();
+        let mut same_r_different_s = low.clone();
+        *same_r_different_s.last_mut().expect("nonempty DER") ^= 1;
+        let mut distinct_r = same_r_different_s.clone();
+        *distinct_r.get_mut(36).expect("32-byte padded r") ^= 1;
+
+        let current = bound(1, same_r_different_s);
+        assert_eq!(
+            reject_repeated_bound_card_r(&current, &[bound(0, low.clone())]),
+            Err(ProcessSignatureRejectionV2::RepeatedR)
+        );
+        assert_eq!(
+            reject_repeated_bound_card_r(&bound(1, distinct_r), &[bound(0, low.clone())]),
+            Ok(())
+        );
+        assert_eq!(
+            reject_repeated_bound_card_r(&current, &[unbound(0, low)]),
             Ok(())
         );
     }

@@ -60,6 +60,7 @@ pub enum NormalProcessErrorV2 {
     CardSignatureKeyMismatch,
     CardSignatureMalformed,
     CardSignatureHighS,
+    CardSignatureRepeatedR,
     CardSignatureInvalid,
     Normal(NormalErrorV2),
 }
@@ -72,6 +73,7 @@ impl NormalProcessErrorV2 {
             Self::CardSignatureKeyMismatch => "CardSignatureKeyMismatch",
             Self::CardSignatureMalformed => "CardSignatureMalformed",
             Self::CardSignatureHighS => "CardSignatureHighS",
+            Self::CardSignatureRepeatedR => "CardSignatureRepeatedR",
             Self::CardSignatureInvalid => "CardSignatureInvalid",
             Self::Normal(error) => error.name(),
         }
@@ -191,6 +193,20 @@ impl NormalProcessControllerV2 {
         self.session
             .as_ref()
             .and_then(NormalSessionV2::process_card_b_signing_request)
+    }
+
+    /// Seed one already-verified public fixture response for hostile retained-
+    /// state testing. This seam does not exist outside ring-fenced fuzz builds.
+    #[cfg(feature = "fuzzing")]
+    #[doc(hidden)]
+    pub fn fuzz_preseed_retained_card_signature(&mut self, der_signature: &mut [u8]) -> bool {
+        match self.session.as_mut() {
+            Some(session) => session.fuzz_preseed_retained_card_signature(der_signature),
+            None => {
+                crate::wipe::bytes(der_signature);
+                false
+            }
+        }
     }
 
     /// Bind the card-served profile fact before any Normal owner exists.
@@ -478,6 +494,9 @@ impl NormalProcessControllerV2 {
                 NormalProcessErrorV2::CardSignatureBindingMismatch
             }
             Some(ProcessSignatureRejectionV2::HighS) => NormalProcessErrorV2::CardSignatureHighS,
+            Some(ProcessSignatureRejectionV2::RepeatedR) => {
+                NormalProcessErrorV2::CardSignatureRepeatedR
+            }
             Some(ProcessSignatureRejectionV2::KeyMismatch) => {
                 NormalProcessErrorV2::CardSignatureKeyMismatch
             }

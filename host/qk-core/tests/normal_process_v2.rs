@@ -437,6 +437,47 @@ fn card_signatures_are_accepted_only_after_revalidation_and_verified_before_fina
 }
 
 #[test]
+fn repeated_numeric_r_is_named_terminal_and_wipes_retained_state() {
+    const RETAINED_SECRET_BYTES: usize = 2 * (72 + 32);
+
+    let signing = fields(SIGNING);
+    let (mut controller, _) = reach_final_approval(SignatureCase::Valid);
+    controller
+        .handle_event(NormalProcessEventV2::HoldCompleted)
+        .expect("hold reaches card signing");
+
+    let mut retained = hex_vec(signing["role_b_der_hex"]);
+    assert!(controller.fuzz_preseed_retained_card_signature(&mut retained));
+    assert!(retained.iter().all(|byte| *byte == 0));
+
+    reset_wiped_bytes();
+    assert!(matches!(
+        submit_card_signature(&mut controller, SignatureCase::HighS),
+        Err(NormalProcessErrorV2::CardSignatureRepeatedR)
+    ));
+    assert_eq!(
+        controller.terminal_error(),
+        Some(NormalProcessErrorV2::CardSignatureRepeatedR)
+    );
+    assert_eq!(
+        controller.terminal_error().map(|error| error.name()),
+        Some("CardSignatureRepeatedR")
+    );
+    assert_eq!(controller.stage(), NormalProcessStageV2::Terminated);
+    assert!(controller.screen().is_none());
+    assert!(controller.card_b_signing_request().is_none());
+    assert!(wiped_bytes() >= RETAINED_SECRET_BYTES);
+    assert!(drain_stages(&mut controller)
+        .ends_with(&[NormalStageV2::TerminalASigning, NormalStageV2::CardBSigning]));
+    assert!(matches!(
+        controller.handle_event(NormalProcessEventV2::SelectSd {
+            caller_nonce: [0x61; 16],
+        }),
+        Err(NormalProcessErrorV2::CardSignatureRepeatedR)
+    ));
+}
+
+#[test]
 fn signature_reply_buffer_is_wiped_before_request_and_after_termination() {
     let (mut controller, _) = reach_final_approval(SignatureCase::Valid);
     let mut early = [0xa5; 72];

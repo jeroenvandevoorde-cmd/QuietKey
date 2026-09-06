@@ -651,6 +651,7 @@ fn every_public_method_entry_is_pinned() {
             "pub fn fuzz_take_display_stage(&mut self) -> Option<NormalStageV2> {",
             "pub fn screen(&self) -> Option<NormalScreenV2<'_>> {",
             "pub fn card_b_signing_request(&self) -> Option<NormalCardBSigningRequestV2> {",
+            "pub fn fuzz_preseed_retained_card_signature(&mut self, der_signature: &mut [u8]) -> bool {",
             "pub fn accept_profile(&mut self, profile_wire: u8) -> Result<(), NormalProcessErrorV2> {",
             "pub fn accept_normal_factor(",
             "pub fn fuzz_accept_bound_card(",
