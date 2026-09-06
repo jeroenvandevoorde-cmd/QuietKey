@@ -294,6 +294,10 @@ class GuardTests(unittest.TestCase):
         self.base = self.root / "bench/card-applet"
         self.base.mkdir(parents=True)
         (self.root / "tools").mkdir()
+        self.host = self.root / "host"
+        self.host.mkdir()
+        self.host_lock = self.host / "Cargo.lock"
+        self.host_lock.write_bytes(b"# existing public test lock\n")
         for name in ("build.xml", "build.sh", "DEPENDENCY-ALLOWLIST.tsv"):
             shutil.copyfile(BASE / name, self.base / name)
         shutil.copyfile(REPO / "tools/check-card-applet.sh", self.root / "tools/check-card-applet.sh")
@@ -315,7 +319,7 @@ class GuardTests(unittest.TestCase):
 
     def test_clean_clone_guard_needs_no_tools(self):
         self.assertEqual(CAP.check_repository(self.root, False),
-                         {"allowlist_rows": 24, "source_files": 9, "result": "PASS"})
+                         {"allowlist_rows": 25, "source_files": 9, "result": "PASS"})
 
     def test_guard_every_cap_attribute_is_closed(self):
         path = self.base / "build.xml"
@@ -381,7 +385,11 @@ class GuardTests(unittest.TestCase):
     def test_guard_allowlist_hash_and_license(self):
         path = self.base / "DEPENDENCY-ALLOWLIST.tsv"
         original = path.read_text()
-        for old, new in ((CAP.TOOLS["jdk"][2], "0" * 64), ("Apache-2.0", "Unknown"),
+        mac_jdk = CAP.JDK_TOOLS["OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz"][1]
+        linux_jdk = CAP.JDK_TOOLS[
+            "OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz"][1]
+        for old, new in ((mac_jdk, "0" * 64), (linux_jdk, "1" * 64),
+                         ("Apache-2.0", "Unknown"),
                          ("candidate applet build driver", "unreviewed build driver")):
             with self.subTest(old=old):
                 path.write_text(original.replace(old, new, 1))
@@ -413,13 +421,54 @@ class GuardTests(unittest.TestCase):
     def test_guard_checks_all_three_closure_graphs(self):
         value = {"resolve": {}, "packages": []}
         result = subprocess.CompletedProcess([], 0, json.dumps(value).encode(), b"")
+        original_lock = self.host_lock.read_bytes()
         with mock.patch.object(CAP.subprocess, "run", return_value=result) as run:
             CAP.check_repository(self.root)
         self.assertEqual(run.call_count, 3)
+        self.assertEqual(self.host_lock.read_bytes(), original_lock)
         for call in run.call_args_list:
             self.assertIn("--all-features", call.args[0])
             self.assertIn("--offline", call.args[0])
             self.assertIn("--locked", call.args[0])
+
+    def test_guard_generates_missing_host_lock_offline_before_metadata(self):
+        self.host_lock.unlink()
+        value = {"resolve": {}, "packages": []}
+
+        def execute(command, **_options):
+            if command[1] == "generate-lockfile":
+                self.assertFalse(self.host_lock.exists())
+                self.host_lock.write_bytes(b"# generated public test lock\n")
+                return subprocess.CompletedProcess(command, 0, b"", b"")
+            self.assertTrue(self.host_lock.is_file())
+            return subprocess.CompletedProcess(command, 0, json.dumps(value).encode(), b"")
+
+        with mock.patch.object(CAP.subprocess, "run", side_effect=execute) as run:
+            CAP.check_repository(self.root)
+        self.assertEqual(run.call_count, 4)
+        self.assertEqual(run.call_args_list[0].args[0], ["cargo", "generate-lockfile", "--offline",
+            "--manifest-path", str(self.root / "host/Cargo.toml")])
+        self.assertEqual(self.host_lock.read_bytes(), b"# generated public test lock\n")
+        for call in run.call_args_list[1:]:
+            self.assertEqual(call.args[0][0:4], ["cargo", "metadata", "--offline", "--locked"])
+
+    def test_guard_missing_host_lock_generation_must_create_regular_file(self):
+        self.host_lock.unlink()
+        success = subprocess.CompletedProcess([], 0, b"", b"")
+        with mock.patch.object(CAP.subprocess, "run", return_value=success) as run:
+            with self.assertRaisesRegex(CAP.Rejection, "^ClosureInspectionFailed$"):
+                CAP.check_repository(self.root)
+        self.assertEqual(run.call_count, 1)
+
+    def test_guard_rejects_host_lock_symlink_without_running_cargo(self):
+        self.host_lock.unlink()
+        target = self.host / "public-test-lock-target"
+        target.write_bytes(b"public test lock\n")
+        self.host_lock.symlink_to(target)
+        with mock.patch.object(CAP.subprocess, "run") as run:
+            with self.assertRaisesRegex(CAP.Rejection, "^ClosureInspectionFailed$"):
+                CAP.check_repository(self.root)
+        run.assert_not_called()
 
 
 class RecipeTests(unittest.TestCase):
@@ -520,7 +569,8 @@ class RecipeTests(unittest.TestCase):
     def test_jdk_archive_home_is_tied_to_member_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            archive, home = root / "jdk.tar.gz", root / "jdk/Contents/Home"
+            archive = root / "OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz"
+            home = root / "mac-home"
             (home / "bin").mkdir(parents=True)
             with tarfile.open(archive, "w:gz") as output:
                 item = tarfile.TarInfo("jdk/Contents/Home/bin/java")
@@ -528,6 +578,67 @@ class RecipeTests(unittest.TestCase):
                 output.addfile(item, io.BytesIO(b"public"))
             (home / "bin/java").write_bytes(b"public")
             self.assertEqual(CAP.verify_extracted(archive, home, "jdk")[0]["sha256"], CAP.sha(b"public"))
+
+    def test_linux_jdk_archive_uses_single_root_without_mac_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            archive = root / "OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz"
+            home = root / "linux-home"
+            (home / "bin").mkdir(parents=True)
+            with tarfile.open(archive, "w:gz") as output:
+                item = tarfile.TarInfo("jdk-25.0.4.1+1/bin/java")
+                item.size = 6
+                output.addfile(item, io.BytesIO(b"public"))
+            (home / "bin/java").write_bytes(b"public")
+            records = CAP.verify_extracted(archive, home, "jdk")
+            self.assertEqual(records, [{"path": str(home / "bin/java"), **CAP.identity(b"public")}])
+
+    def test_jdk_archive_layout_is_bound_to_exact_archive_name(self):
+        names = (
+            ("OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz", "jdk/bin/java"),
+            ("OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz",
+             "jdk/Contents/Home/bin/java"),
+        )
+        for name, member in names:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                archive, home = root / name, root / "home"
+                home.mkdir()
+                with tarfile.open(archive, "w:gz") as output:
+                    item = tarfile.TarInfo(member)
+                    item.size = 6
+                    output.addfile(item, io.BytesIO(b"public"))
+                with self.assertRaisesRegex(CAP.Rejection, "^ToolArchiveMismatch$"):
+                    CAP.verify_extracted(archive, home, "jdk")
+
+    def test_jdk_archive_rejects_multiple_top_level_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            archive = root / "OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz"
+            home = root / "home"
+            (home / "bin").mkdir(parents=True)
+            with tarfile.open(archive, "w:gz") as output:
+                for name in ("jdk/bin/java", "other/bin/javac"):
+                    item = tarfile.TarInfo(name)
+                    item.size = 6
+                    output.addfile(item, io.BytesIO(b"public"))
+            with self.assertRaisesRegex(CAP.Rejection, "^ToolArchiveMismatch$"):
+                CAP.verify_extracted(archive, home, "jdk")
+
+    def test_jdk_tool_identity_is_selected_by_exact_archive_name(self):
+        for name, (size, digest, _layout) in CAP.JDK_TOOLS.items():
+            path = Path("/registered") / name
+            with self.subTest(name=name), \
+                    mock.patch.object(CAP, "absolute_path", return_value=path), \
+                    mock.patch.object(CAP, "file_identity",
+                                      return_value={"bytes": size, "sha256": digest}):
+                self.assertEqual(CAP.verify_tool("jdk", str(path)), path)
+        wrong = Path("/registered/OpenJDK25U-unregistered.tar.gz")
+        with mock.patch.object(CAP, "absolute_path", return_value=wrong), \
+                mock.patch.object(CAP, "file_identity") as identify, \
+                self.assertRaisesRegex(CAP.Rejection, "^ToolIdentityMismatch$"):
+            CAP.verify_tool("jdk", str(wrong))
+        identify.assert_not_called()
 
     def test_failed_build_retains_named_result_and_attempt(self):
         with tempfile.TemporaryDirectory() as tmp:

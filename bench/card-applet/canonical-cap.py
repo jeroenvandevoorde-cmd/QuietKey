@@ -60,9 +60,15 @@ MAX_CANONICAL_TOTAL = MAX_TOTAL + len(MANIFEST_BODY)
 MAX_CANONICAL = MAX_CANONICAL_TOTAL + MAX_ENTRIES * (30 + 46 + 2 * MAX_NAME) + 22
 API_BYTES = 56_791
 API_SHA = "b1981a2e97b77995cc79f67f04a12f5da3672a57715d5adf8eca27264b6119bd"
+JDK_TOOLS = {
+    "OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz":
+        (120256199, "e6229d9504f7922053ab31821b9e6bee8761daf7b026a3476d1a027563009880",
+         "mac-contents-home"),
+    "OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz":
+        (140137820, "69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52",
+         "linux-root"),
+}
 TOOLS = {
-    "jdk": ("OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz", 120256199,
-            "e6229d9504f7922053ab31821b9e6bee8761daf7b026a3476d1a027563009880"),
     "ant": ("apache-ant-1.10.17-bin.tar.xz", 5071020,
             "9553018e2cd5368261c32b2163c802e00de0a1c9707c3cfdd4cf7d6821674b08"),
     "task": ("ant-javacard-v26.05.15.jar", 65577,
@@ -374,7 +380,7 @@ def check_allowlist(path):
             if line and not line.startswith("#")]
     require(all(len(row) == 7 and all(row) for row in rows), "DependencyAllowlistMismatch")
     prior = ("\n".join("\t".join(row) for row in rows if row[0] != "api") + "\n").encode()
-    require(sha(prior) == "f7dacd38fc5f9f928c2b5ce69ea388eeda063bec9b84b00211d98f9ed95c3dbc",
+    require(sha(prior) == "cfe4249f93745d0dd29a0e52e34529494e5411fdca9ab00b2d5d08dc1890d55e",
             "DependencyAllowlistMismatch")
     api_rows = [row for row in rows if row[0] == "api"]
     require(len(api_rows) == 1 and "lib/api_classic-3.0.5.jar" in api_rows[0][4]
@@ -383,7 +389,10 @@ def check_allowlist(path):
             "DependencyAllowlistMismatch")
     # Pin every existing QK-DEC-155 row without making the loader a build input.
     expected = {
-        ("tool", "Temurin JDK", "25.0.4.1+1"): TOOLS["jdk"][2],
+        ("tool", "Temurin JDK", "25.0.4.1+1"):
+            JDK_TOOLS["OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz"][1],
+        ("tool", "Temurin JDK Linux aarch64", "25.0.4.1+1"):
+            JDK_TOOLS["OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz"][1],
         ("tool", "Apache Ant", "1.10.17"): TOOLS["ant"][2],
         ("tool", "ant-javacard", "26.05.15"): TOOLS["task"][2],
         ("tool", "Oracle Java Card Development Kit Tools", "26.0 build 705"): TOOLS["devkit"][2],
@@ -435,6 +444,21 @@ def check_repository(root, check_closures=True):
         require(item.name not in ("Cargo.toml", "pom.xml", "build.gradle", "gradlew",
                                   "settings.gradle", "package.json"), "UndeclaredBuildInput")
     if check_closures:
+        host_lock = root / "host/Cargo.lock"
+        require(not host_lock.is_symlink(), "ClosureInspectionFailed")
+        if host_lock.exists():
+            require(host_lock.is_file() and stat.S_ISREG(host_lock.stat().st_mode),
+                    "ClosureInspectionFailed")
+        else:
+            try:
+                generated = subprocess.run(["cargo", "generate-lockfile", "--offline",
+                    "--manifest-path", str(root / "host/Cargo.toml")], cwd=root,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            except OSError:
+                raise Rejection("ClosureInspectionFailed") from None
+            require(generated.returncode == 0 and not host_lock.is_symlink()
+                    and host_lock.is_file() and stat.S_ISREG(host_lock.stat().st_mode),
+                    "ClosureInspectionFailed")
         # A cargo metadata graph enumerates paths even when an optional dependency
         # is feature-disabled; --all-features includes every registered closure.
         for manifest in (root / "host/Cargo.toml", root / "fuzz/Cargo.toml",
@@ -464,9 +488,14 @@ def check_repository(root, check_closures=True):
 
 def verify_tool(kind, value):
     path = absolute_path(value)
-    expected_name, size, digest = TOOLS[kind]
-    require(path.name == expected_name and file_identity(path) == {"bytes": size, "sha256": digest},
-            "ToolIdentityMismatch")
+    if kind == "jdk":
+        expected = JDK_TOOLS.get(path.name)
+        require(expected is not None, "ToolIdentityMismatch")
+        size, digest, _layout = expected
+    else:
+        expected_name, size, digest = TOOLS[kind]
+        require(path.name == expected_name, "ToolIdentityMismatch")
+    require(file_identity(path) == {"bytes": size, "sha256": digest}, "ToolIdentityMismatch")
     return path
 
 
@@ -480,12 +509,18 @@ def relative_member(name):
 def verify_extracted(archive, home, kind):
     """Tie every extracted input to its hash-pinned archive; forbid added files.
 
-    JDK mac archives have one top root plus Contents/Home; Ant has one top root;
-    the DevKit ZIP has bin/lib at its root. No extraction is performed here.
+    JDK archives have one top root: Mac uses Contents/Home and Linux does not.
+    Ant has one top root; the DevKit ZIP has bin/lib at its root. No extraction
+    is performed here.
     """
     expected = {}
     symlinks = {}
     prefix = None
+    jdk_layout = None
+    if kind == "jdk":
+        jdk = JDK_TOOLS.get(archive.name)
+        require(jdk is not None, "ToolArchiveMismatch")
+        jdk_layout = jdk[2]
     if kind == "devkit":
         with zipfile.ZipFile(archive) as source:
             for info in source.infolist():
@@ -503,9 +538,12 @@ def verify_extracted(archive, home, kind):
                 require(parts[0] == prefix, "ToolArchiveMismatch")
                 sub = "/".join(parts[1:])
                 if kind == "jdk":
-                    if not sub.startswith("Contents/Home/"):
-                        continue
-                    sub = sub[len("Contents/Home/"):]
+                    if jdk_layout == "mac-contents-home":
+                        if not sub.startswith("Contents/Home/"):
+                            continue
+                        sub = sub[len("Contents/Home/"):]
+                    else:
+                        require(not sub.startswith("Contents/Home/"), "ToolArchiveMismatch")
                 if not sub or member.isdir():
                     continue
                 require(sub not in expected and sub not in symlinks, "ToolArchiveMismatch")
@@ -522,6 +560,8 @@ def verify_extracted(archive, home, kind):
                         count += len(chunk)
                     require(count == member.size, "ToolArchiveMismatch")
                     expected[sub] = {"bytes": count, "sha256": hasher.hexdigest()}
+        if kind == "jdk":
+            require(bool(expected or symlinks), "ToolArchiveMismatch")
     actual = set()
     for path in home.rglob("*"):
         relative = path.relative_to(home).as_posix()

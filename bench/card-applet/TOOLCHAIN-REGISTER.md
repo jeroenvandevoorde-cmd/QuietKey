@@ -20,6 +20,7 @@ card operation.
 | Tool | Exact artifact | Bytes | SHA-256 | Source pin | License | Status |
 |---|---|---:|---|---|---|---|
 | Temurin JDK 25.0.4.1+1 | `OpenJDK25U-jdk_x64_mac_hotspot_25.0.4.1_1.tar.gz` | 120,256,199 | `e6229d9504f7922053ab31821b9e6bee8761daf7b026a3476d1a027563009880` | Adoptium `temurin25-binaries` release-tag target commit `790405b2b35f68f615679082036cbeb1ae58144a` | GPL-2.0-only with Classpath Exception 2.0 | Registered working hypothesis; first successful converter run closes the JDK pin. |
+| Temurin JDK Linux aarch64 25.0.4.1+1 | `OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz` | 140,137,820 | `69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52` | Eclipse Temurin release `jdk-25.0.4.1+1`; Adoptium `temurin25-binaries` release-tag target commit `790405b2b35f68f615679082036cbeb1ae58144a` | GPL-2.0-only with Classpath Exception 2.0 | Registered apparatus-only Linux-repeat artifact; Pi apparatus copy remains pending Owner measurement. |
 | Apache Ant 1.10.17 | `apache-ant-1.10.17-bin.tar.xz` | 5,071,020 | `9553018e2cd5368261c32b2163c802e00de0a1c9707c3cfdd4cf7d6821674b08` | Apache release archive; published SHA-512 `cac0bb907c671fdf48b8fe09ae0a37e34b7fd6c7c6f85fb3b8c218f100c2e7eb65df40c1c08e6ba2f89d7cde7e68482e731c4f5458c3539b25f8ddf2c6aebcdc` | Apache-2.0 | Registered candidate build driver. |
 | ant-javacard v26.05.15 | Apparatus name `ant-javacard-v26.05.15.jar`; upstream release asset `ant-javacard.jar` | 65,577 | `14f5e25c07b184e4ec02ee148892c2ea7ad5d7e9db8b91109524df8f7d000589` | Commit `52a5d97ce8530e59dddeb09713409dd4a91daa85` | MIT | Registered candidate Ant task. The apparatus rename changes no byte; a separate LOA download of the same release asset reproduced the digest. |
 | Oracle Java Card Development Kit Tools 26.0 build 705 | `java_card_devkit_tools-bin-v26.0-b_705-04-MAY-2026.zip` | 1,781,450 | `86443cb1b64c006456e524d91082ba25d5ebb0ee5506c6e4d7088350ce251d9d` | Oracle Java Card download table plus Owner-held exact archive matched on the apparatus | Oracle Technology Network Developer License Agreement for Oracle Java | Registered license-gated converter/verifier archive; nonredistributable and never vendored. |
@@ -178,6 +179,17 @@ apparatus and each result was compared with the registered value.
 | Oracle DevKit 26.0 build 705 | `java_card_devkit_tools-bin-v26.0-b_705-04-MAY-2026.zip` | 1,781,450 | `86443cb1b64c006456e524d91082ba25d5ebb0ee5506c6e4d7088350ce251d9d` | `2026-09-01T22:00:03Z` | `2026-09-01T14:54:13Z` | MATCH |
 | GlobalPlatformPro v25.10.20 | `gp.jar` | 14,840,623 | `c88e0c5093032ec4571571f5397b6174e56bf632667950fa5bb716338534b122` | `2026-09-01T22:00:03Z` | `2026-09-01T15:28:09Z` | MATCH |
 
+The Linux-repeat apparatus alias is `RIG-HOST-PI3B-01`: arm64 userland,
+`aarch64` uname architecture, Python 3.13.5, Git 2.47.3, kernel
+`6.18.39+rpt-rpi-v8`, 905 MB RAM, and a 58 GB root filesystem with 49 GB
+free. No rustup or Cargo existed there when QK-DEC-162-SUP-002 was recorded.
+The expected archive identity below is registered, but no apparatus-copy
+measurement, clock reading, mtime, or match claim exists yet.
+
+| Tool | Apparatus | Apparatus filename | Expected bytes | Expected SHA-256 | Verification UTC | File mtime UTC | Result |
+|---|---|---|---:|---|---|---|---|---|
+| Temurin JDK Linux aarch64 25.0.4.1+1 | `RIG-HOST-PI3B-01` | `OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.4.1_1.tar.gz` | 140,137,820 | `69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52` | PENDING Owner measurement | PENDING | PENDING |
+
 Before any future use, the build procedure must recheck the selected files in
 this private bundle against this register. A mismatch stops rather than
 substituting another artifact.
@@ -210,7 +222,7 @@ only the literal mode `test`, otherwise `ProductionTestIdentifiersRejected`.
 `tools/check-card-applet.sh` requires Python 3.9 or newer with its standard
 library. Missing `python3` is the named failure `Python3Unavailable`; an
 older interpreter is `PythonVersionRejected`. The ordinary-clone check
-checks the exact nine source names, fixed build declarations, all 24
+checks the exact nine source names, fixed build declarations, all 25
 allowlist entries, no vendored or undeclared build inputs, and all-features
 HOST, fuzz and enrollment closure isolation. It runs the pure packaging and
 vector tests without Oracle tools. Pure JVM math execution is not a card
