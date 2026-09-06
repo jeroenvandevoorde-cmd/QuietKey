@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 extern "C" {
     fn dup2(source: i32, target: i32) -> i32;
     fn pipe(descriptors: *mut i32) -> i32;
+    fn kill(process: i32, signal: i32) -> i32;
 }
 
 fn advanced(outcome: ProcessLifecycleOutcome) -> ProcessLifecycleAction {
@@ -543,84 +544,455 @@ fn normal_device_pipes() -> (Vec<(File, File)>, Vec<File>) {
         .collect();
     (pairs, sources)
 }
+struct InspectorPrograms {
+    saved: Vec<(&'static str, PathBuf)>,
+}
+
+impl InspectorPrograms {
+    fn install(binaries: &Path, root: &Path) -> Self {
+        let evidence = root.join("inspector-current");
+        let runtime = root.join("runtime-normal");
+        let mut saved = Vec::new();
+        for (role, child) in [
+            ("decoy", "qk-decoy-host"),
+            ("core", "qk-core-host"),
+            ("io", "qk-io-host"),
+        ] {
+            let source = format!(
+                "const ROLE: &str = {role:?};\nconst EVIDENCE_ROOT: &str = {evidence:?};\nconst RUNTIME: &str = {runtime:?};\n{}",
+                include_str!("support/descriptor_inspector.rs"),
+            );
+            let stub = compile_stub(root, &format!("{role}-inspector"), &source);
+            saved.push((child, replace_child(binaries, child, &stub)));
+        }
+        Self { saved }
+    }
+
+    fn restore(self, binaries: &Path) {
+        for (child, saved) in self.saved {
+            restore_child(binaries, child, &saved);
+        }
+    }
+}
+
+struct InspectorCycle {
+    directory: PathBuf,
+    status: std::process::ExitStatus,
+    passed: bool,
+}
+
+struct InspectorChild {
+    child: std::process::Child,
+    reaped: bool,
+}
+
+fn group_signal(id: u32, signal: i32) -> std::io::Result<()> {
+    // SAFETY: id is the leader of the test-owned process group; signal zero
+    // probes that group without delivering a signal.
+    if unsafe { kill(-(id as i32), signal) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+fn group_absent(id: u32) -> bool {
+    matches!(group_signal(id, 0), Err(error) if error.raw_os_error() == Some(3))
+}
+
+impl Drop for InspectorChild {
+    fn drop(&mut self) {
+        // Also runs on parent-test unwind; only this test's group is affected.
+        if !group_absent(self.child.id()) {
+            let _ = group_signal(self.child.id(), 9);
+        }
+        if !self.reaped {
+            let _ = self.child.wait();
+        }
+    }
+}
+
+fn utc_now() -> String {
+    let output = Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
+        .expect("UTC clock");
+    assert!(output.status.success());
+    String::from_utf8(output.stdout)
+        .expect("ASCII clock")
+        .trim()
+        .to_owned()
+}
+
+fn inspector_cycle(
+    supervisor: &Path,
+    root: &Path,
+    label: &str,
+    injection: Option<&str>,
+) -> InspectorCycle {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let current = root.join("inspector-current");
+    fs::create_dir(&current).expect("fresh evidence directory");
+    if let Some(injection) = injection {
+        fs::write(current.join("inject"), injection).unwrap();
+    }
+    let start = utc_now();
+    let clock = Instant::now();
+    let runtime = root.join("runtime-normal");
+    let ambient = File::open("/dev/null").unwrap();
+    let (_pairs, sources) = normal_device_pipes();
+    let mut command = Command::new(supervisor);
+    command.args(["normal", "01"]).arg(&runtime);
+    command.stdout(Stdio::from(
+        File::create(current.join("launcher.stdout")).unwrap(),
+    ));
+    command.stderr(Stdio::from(
+        File::create(current.join("launcher.stderr")).unwrap(),
+    ));
+    command.process_group(0);
+    // SAFETY: only dup2 runs between fork and exec; all sources remain owned.
+    unsafe {
+        command.pre_exec(move || {
+            if dup2(ambient.as_raw_fd(), 256) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            for (index, source) in sources.iter().enumerate() {
+                if dup2(source.as_raw_fd(), 7 + index as i32) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+    let mut child = InspectorChild {
+        child: command.spawn().expect("inspector launcher spawn"),
+        reaped: false,
+    };
+    let mut timed_out = false;
+    let mut termination = String::new();
+    let status = loop {
+        if let Some(status) = child.child.try_wait().unwrap() {
+            child.reaped = true;
+            break status;
+        }
+        if clock.elapsed() >= Duration::from_secs(30) {
+            timed_out = true;
+            termination.push_str(&format!(
+                "group_term\t{:?}\n",
+                group_signal(child.child.id(), 15)
+            ));
+            std::thread::sleep(Duration::from_secs(1));
+            termination.push_str(&format!(
+                "group_kill\t{:?}\n",
+                group_signal(child.child.id(), 9)
+            ));
+            let status = child.child.wait().unwrap();
+            child.reaped = true;
+            break status;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let reap_wait = Instant::now();
+    while !group_absent(child.child.id()) && reap_wait.elapsed() < Duration::from_secs(1) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let group_gone = group_absent(child.child.id());
+    if !group_gone {
+        termination.push_str(&format!(
+            "lingering_group_kill\t{:?}\n",
+            group_signal(child.child.id(), 9)
+        ));
+        let cleanup_wait = Instant::now();
+        while !group_absent(child.child.id()) && cleanup_wait.elapsed() < Duration::from_secs(1) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            group_absent(child.child.id()),
+            "unreaped group; preserve untouched evidence at {}",
+            current.display()
+        );
+    }
+    let mut record = File::create(current.join("result.tsv")).unwrap();
+    let source = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(source.status.success());
+    writeln!(
+        record,
+        "source_commit\t{}",
+        String::from_utf8(source.stdout).unwrap().trim()
+    )
+    .unwrap();
+    writeln!(record, "cycle\t{label}").unwrap();
+    writeln!(record, "start_utc\t{start}").unwrap();
+    writeln!(record, "end_utc\t{}", utc_now()).unwrap();
+    writeln!(record, "elapsed_ms\t{}", clock.elapsed().as_millis()).unwrap();
+    writeln!(record, "launcher_exit\t{status}").unwrap();
+    writeln!(record, "timed_out\t{timed_out}").unwrap();
+    writeln!(record, "process_group_absent\t{group_gone}").unwrap();
+    record.write_all(termination.as_bytes()).unwrap();
+    writeln!(record, "runtime_removed\t{}", !runtime.exists()).unwrap();
+    let mut passed = status.success() && !timed_out && !runtime.exists() && group_gone;
+    for role in ["decoy", "core", "io"] {
+        for suffix in ["evidence", "stderr"] {
+            let name = format!("{role}.{suffix}");
+            let content = fs::read(current.join(&name));
+            match content {
+                Ok(bytes) => {
+                    writeln!(record, "file\t{name}\tPRESENT\t{}", bytes.len()).unwrap();
+                    if suffix == "evidence" {
+                        passed &= bytes.ends_with(b"result\tPASS\n");
+                    } else {
+                        passed &= bytes.is_empty();
+                    }
+                }
+                Err(error) => {
+                    writeln!(record, "file\t{name}\tABSENT\t{error}").unwrap();
+                    passed = false;
+                }
+            }
+        }
+    }
+    for name in ["launcher.stdout", "launcher.stderr"] {
+        let bytes = fs::read(current.join(name)).unwrap();
+        writeln!(record, "file\t{name}\tPRESENT\t{}", bytes.len()).unwrap();
+        passed &= bytes.is_empty();
+    }
+    writeln!(record, "result\t{}", if passed { "PASS" } else { "FAIL" }).unwrap();
+    record.sync_all().unwrap();
+    drop(record);
+    if runtime.exists() {
+        fs::rename(&runtime, current.join("runtime-residue"))
+            .expect("preserve leftover runtime before next fresh cycle");
+    }
+    let directory = root.join(label);
+    fs::rename(&current, &directory).expect("retain complete per-cycle evidence");
+    InspectorCycle {
+        directory,
+        status,
+        passed,
+    }
+}
 
 fn exact_inherited_descriptors_and_pretraffic_unlink_are_observed(
     binaries: &Path,
     supervisor: &Path,
     root: &Path,
 ) {
-    let decoy_ok = root.join("decoy-grants-ok");
-    let core_ok = root.join("core-grants-ok");
-    let io_ok = root.join("io-grants-ok");
-    let runtime = root.join("runtime-normal");
-    let decoy = compile_stub(
-        root,
-        "decoy-inspector",
-        &descriptor_inspector_source("decoy", &decoy_ok, &runtime),
+    let programs = InspectorPrograms::install(binaries, root);
+    let cycle = inspector_cycle(supervisor, root, "normal-inspector", None);
+    programs.restore(binaries);
+    assert!(
+        cycle.passed,
+        "inspector evidence retained at {}",
+        cycle.directory.display()
     );
-    let core = compile_stub(
-        root,
-        "core-inspector",
-        &descriptor_inspector_source("core", &core_ok, &runtime),
-    );
-    let io = compile_stub(
-        root,
-        "io-inspector",
-        &descriptor_inspector_source("io", &io_ok, &runtime),
-    );
-    let decoy_saved = replace_child(binaries, "qk-decoy-host", &decoy);
-    let core_saved = replace_child(binaries, "qk-core-host", &core);
-    let io_saved = replace_child(binaries, "qk-io-host", &io);
-    assert_output(run_launcher(supervisor, "normal", root), 0);
-    restore_child(binaries, "qk-decoy-host", &decoy_saved);
-    restore_child(binaries, "qk-core-host", &core_saved);
-    restore_child(binaries, "qk-io-host", &io_saved);
-    assert_eq!(fs::read(decoy_ok).unwrap(), b"PASS");
-    assert_eq!(fs::read(core_ok).unwrap(), b"PASS");
-    assert_eq!(fs::read(io_ok).unwrap(), b"PASS");
 }
 
-fn descriptor_inspector_source(role: &str, sentinel: &Path, runtime: &Path) -> String {
-    let (expected, null_fds) = match role {
-        // Rust reopens an exec-time-closed fd 0/1 pair on /dev/null before
-        // `main`; requiring the null device here proves the supervisor's
-        // inherited stdin/stdout were not retained.
-        "decoy" => (
-            "[(0, 2), (1, 2), (2, 1), (3, 0), (4, 1)]",
-            "[0, 1, 2, 3, 4]",
-        ),
-        "core" => (
-            "[(0, 2), (1, 2), (2, 1), (3, 1), (4, 0), (5, 0), (6, 1)]",
-            "[2]",
-        ),
-        "io" => (
-            "[(0, 2), (1, 2), (2, 1), (3, 0), (4, 0), (5, 1), (6, 1)]",
-            "[2]",
-        ),
-        _ => unreachable!(),
-    };
-    let endpoint_checks = if role == "decoy" {
-        String::new()
-    } else {
-        let socket = runtime.join("qkip.sock");
-        let peer_barrier = match role {
-            "core" => "let barrier_ok = std::io::Write::write_all(&mut socket, b\"C\").is_ok() && std::io::Read::read_exact(&mut socket, &mut peer).is_ok() && peer == *b\"I\";",
-            "io" => "let barrier_ok = std::io::Write::write_all(&mut socket, b\"I\").is_ok() && std::io::Read::read_exact(&mut socket, &mut peer).is_ok() && peer == *b\"C\";",
-            _ => unreachable!(),
-        };
-        format!(
-            "let first = std::fs::metadata(\"/dev/fd/0\").unwrap(); let second = std::fs::metadata(\"/dev/fd/1\").unwrap(); let endpoint_same = first.dev() == second.dev() && first.ino() == second.ino(); if !endpoint_same {{ observed.push_str(\"endpoint-map-mismatch;\"); }} ok &= endpoint_same; let mut socket = unsafe {{ <std::os::unix::net::UnixStream as std::os::fd::FromRawFd>::from_raw_fd(0) }}; let endpoint_connected = socket.local_addr().is_ok() && socket.peer_addr().is_ok(); if !endpoint_connected {{ observed.push_str(\"endpoint-not-connected;\"); }} ok &= endpoint_connected; let runtime_present = std::path::Path::new({runtime:?}).is_dir(); if !runtime_present {{ observed.push_str(\"runtime-absent;\"); }} ok &= runtime_present; let socket_absent = !std::path::Path::new({socket:?}).exists(); if !socket_absent {{ observed.push_str(\"socket-present;\"); }} ok &= socket_absent; let reconnect_refused = std::os::unix::net::UnixStream::connect({socket:?}).is_err(); if !reconnect_refused {{ observed.push_str(\"reconnect-succeeded;\"); }} ok &= reconnect_refused; let mut peer = [0u8; 1]; {peer_barrier} if !barrier_ok {{ observed.push_str(\"peer-barrier-failed;\"); }} ok &= barrier_ok;"
-        )
-    };
-    let finish = if role == "decoy" {
-        "loop { std::thread::park(); }"
-    } else {
-        ""
-    };
-    let failure = sentinel.with_extension("fail");
-    format!(
-        r#"use std::os::unix::fs::MetadataExt; extern "C" {{ fn fcntl(fd: i32, cmd: i32, ...) -> i32; }} fn open(fd: i32) -> bool {{ (unsafe {{ fcntl(fd, 1) }}) >= 0 }} fn mode(fd: i32) -> i32 {{ (unsafe {{ fcntl(fd, 3) }}) & 3 }} fn main() {{ let expected: &[(i32, i32)] = &{expected}; let null_fds: &[i32] = &{null_fds}; let mut ok = true; let mut observed = String::new(); for fd in 0..=256 {{ if open(fd) {{ observed.push_str(&format!("{{fd}}:{{}},", mode(fd))); }} let wanted = expected.iter().find(|(candidate, _)| *candidate == fd); ok &= match wanted {{ Some((_, access)) => open(fd) && mode(fd) == *access, None => !open(fd), }}; }} let null = std::fs::metadata("/dev/null").unwrap(); for fd in null_fds {{ let actual = std::fs::metadata(format!("/dev/fd/{{fd}}")).unwrap(); ok &= actual.rdev() == null.rdev(); }} {endpoint_checks} if !ok {{ std::fs::write({failure:?}, observed).unwrap(); std::process::exit(70); }} std::fs::write({sentinel:?}, b"PASS").unwrap(); {finish} }}"#,
+#[test]
+fn inspector_named_failures_and_panic_keep_both_roles_and_stderr() {
+    let root = short_test_root("inspector-faults");
+    fs::create_dir_all(&root).unwrap();
+    let binaries = build_product_binaries(&root);
+    let supervisor = binaries.join("qk-supervisor-host");
+    let programs = InspectorPrograms::install(&binaries, &root);
+    for (label, injection, expected) in [
+        ("core-failure", "core:forced-failure", "injected_failure"),
+        ("io-failure", "io:forced-failure", "injected_failure"),
+        ("core-panic", "core:panic", "unexpected_panic"),
+    ] {
+        let cycle = inspector_cycle(&supervisor, &root, label, Some(injection));
+        assert!(!cycle.passed);
+        assert_eq!(
+            cycle.status.code(),
+            Some(70),
+            "{}",
+            cycle.directory.display()
+        );
+        let failed_role = injection.split(':').next().unwrap();
+        let evidence =
+            fs::read_to_string(cycle.directory.join(format!("{failed_role}.evidence"))).unwrap();
+        assert!(evidence.contains(expected), "{evidence}");
+        let result = fs::read_to_string(cycle.directory.join("result.tsv")).unwrap();
+        for role in ["core", "io"] {
+            assert!(result.contains(&format!("file\t{role}.evidence\t")));
+            assert!(result.contains(&format!("file\t{role}.stderr\t")));
+        }
+        if injection.ends_with(":panic") {
+            let stderr = fs::read_to_string(cycle.directory.join("core.stderr")).unwrap();
+            assert!(
+                stderr.contains("qk163 injected inspector panic"),
+                "{stderr}"
+            );
+        }
+        assert!(fs::read(cycle.directory.join("launcher.stderr"))
+            .unwrap()
+            .is_empty());
+    }
+    programs.restore(&binaries);
+    println!(
+        "QK-DEC-163 injected failure evidence retained: {}",
+        root.display()
+    );
+}
+
+struct CpuWorkers(Vec<std::process::Child>);
+
+impl Drop for CpuWorkers {
+    fn drop(&mut self) {
+        for child in &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl CpuWorkers {
+    fn require_alive(&mut self) {
+        for worker in &mut self.0 {
+            assert!(
+                worker.try_wait().unwrap().is_none(),
+                "CPU worker exited early"
+            );
+        }
+    }
+
+    fn start(root: &Path) -> Self {
+        let count = std::thread::available_parallelism().unwrap().get();
+        let mut workers = Self(Vec::new());
+        for index in 0..count {
+            let ready = root.join(format!("cpu-worker-{index}.ready"));
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "inspector_cpu_worker"])
+                .env("QK163_CPU_READY", &ready)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            workers.0.push(child);
+            let wait = Instant::now();
+            while !ready.exists() {
+                assert!(
+                    wait.elapsed() < Duration::from_secs(10),
+                    "CPU worker readiness"
+                );
+                assert!(workers.0.last_mut().unwrap().try_wait().unwrap().is_none());
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        workers
+    }
+}
+
+#[test]
+#[ignore = "worker only for the Owner-bounded QK-DEC-163 diagnosis"]
+fn inspector_cpu_worker() {
+    let ready = std::env::var_os("QK163_CPU_READY").expect("diagnosis worker marker");
+    let mut value = 1u64;
+    for _ in 0..100_000 {
+        value = std::hint::black_box(value.wrapping_mul(6364136223846793005).wrapping_add(1));
+    }
+    fs::write(ready, b"READY\n").unwrap();
+    loop {
+        value = std::hint::black_box(value.wrapping_mul(6364136223846793005).wrapping_add(1));
+    }
+}
+
+#[test]
+#[ignore = "run exactly once for the QK-DEC-163 50-unloaded/20-loaded diagnosis"]
+fn inspector_diagnosis_50_unloaded_20_loaded() {
+    use std::io::Write;
+    let root = short_test_root("diagnosis-163");
+    fs::create_dir(&root).expect("fresh diagnosis root; never overwrite prior runs");
+    let source = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(source.status.success());
+    fs::write(root.join("source_commit"), &source.stdout).unwrap();
+    for (name, program, arguments) in [
+        ("machine.txt", "uname", vec!["-sm"]),
+        ("rustc.txt", "rustc", vec!["--version", "--verbose"]),
+        ("cargo.txt", "cargo", vec!["--version"]),
+    ] {
+        let output = Command::new(program).args(arguments).output().unwrap();
+        assert!(output.status.success());
+        fs::write(root.join(name), output.stdout).unwrap();
+    }
+    fs::write(
+        root.join("logical-cpus.txt"),
+        format!("{}\n", std::thread::available_parallelism().unwrap().get()),
     )
+    .unwrap();
+    let binaries = build_product_binaries(&root);
+    let supervisor = binaries.join("qk-supervisor-host");
+    let programs = InspectorPrograms::install(&binaries, &root);
+    let mut listing = File::create(root.join("runs.tsv")).unwrap();
+    writeln!(listing, "group\trun\tresult\tdirectory").unwrap();
+    let mut failures = 0;
+    for (group, count) in [("unloaded", 50), ("cpu-loaded", 20)] {
+        let mut workers = if group == "cpu-loaded" {
+            Some(CpuWorkers::start(&root))
+        } else {
+            None
+        };
+        let process_snapshot = Command::new("ps")
+            .args(["-A", "-o", "pid,ppid,pcpu,comm"])
+            .output()
+            .unwrap();
+        assert!(process_snapshot.status.success(), "process snapshot failed");
+        fs::write(
+            root.join(format!("{group}-processes.txt")),
+            process_snapshot.stdout,
+        )
+        .unwrap();
+        fs::write(
+            root.join(format!("{group}-processes.stderr")),
+            process_snapshot.stderr,
+        )
+        .unwrap();
+        let load = Command::new("uptime").output().unwrap();
+        assert!(load.status.success(), "load snapshot failed");
+        fs::write(root.join(format!("{group}-load.txt")), load.stdout).unwrap();
+        fs::write(
+            root.join(format!("{group}-workers.txt")),
+            format!(
+                "{}\n",
+                workers.as_ref().map_or(0, |workers| workers.0.len())
+            ),
+        )
+        .unwrap();
+        for index in 1..=count {
+            if let Some(workers) = &mut workers {
+                workers.require_alive();
+            }
+            let label = format!("{group}-{index:02}");
+            let cycle = inspector_cycle(&supervisor, &root, &label, None);
+            failures += usize::from(!cycle.passed);
+            writeln!(
+                listing,
+                "{group}\t{index}\t{}\t{label}",
+                if cycle.passed { "PASS" } else { "FAIL" }
+            )
+            .unwrap();
+            listing.sync_all().unwrap();
+        }
+        if let Some(workers) = &mut workers {
+            workers.require_alive();
+        }
+        drop(workers);
+    }
+    programs.restore(&binaries);
+    println!("QK-DEC-163 evidence: {}", root.display());
+    assert_eq!(
+        failures,
+        0,
+        "all 70 outcomes retained at {}",
+        root.display()
+    );
 }
 
 fn assert_output(output: Output, status: i32) {
