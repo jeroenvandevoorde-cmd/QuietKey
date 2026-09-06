@@ -1,5 +1,7 @@
 package org.quietkey.cardb;
 
+import javacard.framework.Util;
+
 /** Explicit clearing for fixed owners; target remanence remains a physical obligation. */
 final class Wipe {
     private Wipe() {}
@@ -9,9 +11,6 @@ final class Wipe {
     }
 
     static void clear(byte[] bytes, short offset, short length) {
-        short i;
-        for (i = 0; i < length; i++) {
-            bytes[(short) (offset + i)] = 0;
-        }
+        Util.arrayFillNonAtomic(bytes, offset, length, (byte) 0);
     }
 }

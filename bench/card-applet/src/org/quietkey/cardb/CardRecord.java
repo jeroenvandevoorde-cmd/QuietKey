@@ -188,8 +188,9 @@ final class CardRecord {
             ISOException.throwIt((short) 0x6f08);
         }
         try {
+            clearStagingBytes();
             JCSystem.beginTransaction();
-            clearStaging();
+            resetStaging();
             Util.arrayCopy(input, nonceOffset, nonce, (short) 0, (short) 12);
             ordinal = requestedOrdinal;
             provisionMode = mode;
@@ -227,8 +228,9 @@ final class CardRecord {
             ISOException.throwIt((short) 0x6f07);
         }
         try {
+            clearStagingBytes();
             JCSystem.beginTransaction();
-            clearStaging();
+            resetStaging();
             life = Protocol.UNPROVISIONED;
             JCSystem.commitTransaction();
         } catch (RuntimeException failure) {
@@ -252,9 +254,10 @@ final class CardRecord {
                 Util.arrayCopy(staged, (short) 0, committed, (short) 0, RECORD_BYTES);
                 Util.arrayCopy(xpub, (short) 0, storedXpub, (short) 0, (short) 78);
                 Util.arrayCopy(hash, (short) 0, storedDigest, (short) 0, (short) 32);
-                clearStaging();
+                resetStaging();
                 life = Protocol.COMMITTED;
                 JCSystem.commitTransaction();
+                clearStagingBytes();
             } catch (RuntimeException failure) {
                 integrityFailure();
             }
@@ -424,10 +427,14 @@ final class CardRecord {
         }
     }
 
-    /** Transactional during provision/abort/commit; inaccessible after retirement. */
-    private void clearStaging() {
+    /** Persistent bytes are cleared outside the transaction log. */
+    private void clearStagingBytes() {
         Wipe.clear(staged);
         Wipe.clear(nonce);
+    }
+
+    /** Transactional during provision/abort/commit; inaccessible after retirement. */
+    private void resetStaging() {
         filled = (short) 0;
         ordinal = (byte) 0;
         provisionMode = (byte) 0;
@@ -449,7 +456,8 @@ final class CardRecord {
             Wipe.clear(committed);
             Wipe.clear(storedXpub);
             Wipe.clear(storedDigest);
-            clearStaging();
+            clearStagingBytes();
+            resetStaging();
         } finally {
             try {
                 if (JCSystem.getTransactionDepth() != (byte) 0) {

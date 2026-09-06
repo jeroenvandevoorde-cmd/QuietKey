@@ -1,4 +1,4 @@
-"""QK-DEC-162 pure math vectors; no proprietary API, converter, or native card execution.
+"""QK-DEC-162 math vectors and source contracts; no converter or native card execution.
 
 PERMANENTLY NEVER-FUND TEST MATERIAL. QK_APPLET_TEST_JAVA_HOME may select a local
 JDK for ordinary JVM vectors. If none works, PureJvmVectorsPending is an explicit
@@ -22,6 +22,34 @@ JAVA = BASE / "src" / "org" / "quietkey" / "cardb"
 MODEL = REPO / "host" / "qk-card-model" / "src"
 HARNESS = BASE / "tests" / "VectorHarness.java"
 PURE = ("Sha512.java", "HmacSha512.java", "Scalar256.java", "Wipe.java")
+
+# This one-method test substitute exercises Wipe's range effects on a JVM. It is
+# not the Java Card runtime and supplies no transaction-capacity or power-cut evidence.
+UTIL_TEST_SHIM = """package javacard.framework;
+public final class Util {
+    private Util() {}
+    public static short arrayFillNonAtomic(byte[] bytes, short offset, short length, byte value) {
+        java.util.Arrays.fill(bytes, offset, offset + length, value);
+        return (short) (offset + length);
+    }
+}
+"""
+
+
+def java_method(source, name):
+    start = re.search(r"(?m)^\s*(?:(?:private|public|protected|static|final)\s+)*"
+                      r"(?:void|byte|short|boolean)\s+" + name + r"\([^;{}]*\)\s*\{", source)
+    if start is None:
+        raise AssertionError("MissingJavaMethod:" + name)
+    depth = 1
+    end = start.end()
+    while depth:
+        if source[end] == "{":
+            depth += 1
+        elif source[end] == "}":
+            depth -= 1
+        end += 1
+    return source[start.end():end - 1]
 
 
 def java_bytes(source, name):
@@ -120,14 +148,75 @@ class SourceVectorTests(unittest.TestCase):
         self.assertEqual(harness_hex("BIP32_HMAC"), expected)
         self.assertEqual(expected, hmac.new(bytes(range(32)), bytes(range(37)), "sha512").digest())
 
-    def test_pure_helpers_have_no_optional_integer_or_platform_dependency(self):
+    def test_helpers_allow_only_the_wipe_utility_platform_dependency(self):
         for filename in PURE:
             source = (JAVA / filename).read_text(encoding="utf-8")
             source = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.S)
             with self.subTest(source=filename):
                 self.assertNotRegex(source, r"\b(?:int|long|float|double)\b")
-                self.assertNotRegex(source, r"\bimport\b")
+                if filename == "Wipe.java":
+                    self.assertEqual(re.findall(r"import\s+([^;]+);", source),
+                                     ["javacard.framework.Util"])
+                    self.assertIn("Util.arrayFillNonAtomic(bytes, offset, length, (byte) 0)", source)
+                    self.assertNotRegex(source, r"\b(?:for|while)\b")
+                else:
+                    self.assertNotRegex(source, r"\bimport\b")
                 self.assertNotIn("NativeSecp256k1", source)
+
+    def test_persistent_wipes_are_outside_transactions_and_metadata_stays_atomic(self):
+        # Source ordering only: the physical commit buffer and interrupted writes
+        # remain bench evidence, not claims made by this test.
+        source = (JAVA / "CardRecord.java").read_text(encoding="utf-8")
+        methods = {name: java_method(source, name) for name in ("begin", "abort", "commit")}
+        for name, body in methods.items():
+            with self.subTest(method=name):
+                self.assertEqual(body.count("JCSystem.beginTransaction();"), 1)
+                self.assertEqual(body.count("JCSystem.commitTransaction();"), 1)
+                self.assertEqual(body.count("clearStagingBytes();"), 1)
+                transaction = body.split("JCSystem.beginTransaction();", 1)[1].split(
+                    "JCSystem.commitTransaction();", 1)[0]
+                self.assertNotIn("clearStagingBytes", transaction)
+                self.assertNotIn("Wipe.clear", transaction)
+                self.assertIn("resetStaging();", transaction)
+                self.assertIn("life = Protocol.", transaction)
+                self.assertIn("catch (RuntimeException failure) {\n", body)
+                self.assertIn("integrityFailure();", body)
+                if name == "commit":
+                    self.assertLess(body.index("JCSystem.commitTransaction();"),
+                                    body.index("clearStagingBytes();"))
+                else:
+                    self.assertLess(body.index("clearStagingBytes();"),
+                                    body.index("JCSystem.beginTransaction();"))
+        self.assertEqual(java_method(source, "clearStagingBytes").split(),
+                         ["Wipe.clear(staged);", "Wipe.clear(nonce);"])
+        self.assertEqual(" ".join(java_method(source, "resetStaging").split()),
+                         "filled = (short) 0; ordinal = (byte) 0; provisionMode = (byte) 0;")
+        begin = methods["begin"].split("JCSystem.beginTransaction();", 1)[1].split(
+            "JCSystem.commitTransaction();", 1)[0]
+        self.assertIn("Util.arrayCopy(input, nonceOffset, nonce, (short) 0, (short) 12);", begin)
+        self.assertIn("ordinal = requestedOrdinal;", begin)
+        self.assertIn("provisionMode = mode;", begin)
+
+    def test_atomic_commit_copy_payload_remains_891_bytes_before_platform_overhead(self):
+        source = (JAVA / "CardRecord.java").read_text(encoding="utf-8")
+        commit = java_method(source, "commit")
+        transaction = commit.split("JCSystem.beginTransaction();", 1)[1].split(
+            "JCSystem.commitTransaction();", 1)[0]
+        copies = re.findall(r"Util\.arrayCopy\(([^;]+)\);", transaction)
+        self.assertEqual(copies, [
+            "staged, (short) 0, committed, (short) 0, RECORD_BYTES",
+            "xpub, (short) 0, storedXpub, (short) 0, (short) 78",
+            "hash, (short) 0, storedDigest, (short) 0, (short) 32",
+        ])
+        self.assertEqual(781 + 78 + 32, 891)
+        self.assertLess(transaction.index(copies[-1]), transaction.index("resetStaging();"))
+        self.assertLess(transaction.index("resetStaging();"),
+                        transaction.index("life = Protocol.COMMITTED;"))
+        retirement = java_method(source, "integrityFailure")
+        self.assertLess(retirement.index("JCSystem.abortTransaction();"),
+                        retirement.index("JCSystem.beginTransaction();"))
+        self.assertLess(retirement.index("JCSystem.commitTransaction();"),
+                        retirement.index("Wipe.clear(committed);"))
 
     def test_vector_harness_excludes_applet_and_native_curve_execution(self):
         source = HARNESS.read_text(encoding="utf-8")
@@ -184,9 +273,12 @@ class PureJvmVectorTests(unittest.TestCase):
     def test_registered_vectors_and_reference_comparisons(self):
         java, javac, environment = self.tools()
         with tempfile.TemporaryDirectory(prefix="qk-pure-vectors-") as directory:
+            shim = Path(directory) / "javacard/framework/Util.java"
+            shim.parent.mkdir(parents=True)
+            shim.write_text(UTIL_TEST_SHIM, encoding="utf-8")
             command = [javac, "-source", "1.8", "-target", "1.8", "-proc:none",
                        "-implicit:none", "-encoding", "UTF-8", "-g:none", "-d", directory]
-            command += [str(JAVA / name) for name in PURE] + [str(HARNESS)]
+            command += [str(JAVA / name) for name in PURE] + [str(shim), str(HARNESS)]
             compiled = subprocess.run(command, env=environment, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, timeout=90, text=True)
             self.assertEqual(compiled.returncode, 0, "PureJvmCompilationFailed:\n" + compiled.stderr)
