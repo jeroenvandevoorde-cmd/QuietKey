@@ -529,6 +529,7 @@ class RecipeTests(unittest.TestCase):
             status = subprocess.CompletedProcess([], 0, b"", b"")
             head = subprocess.CompletedProcess([], 0, (commit + "\n").encode(), b"")
             with mock.patch.object(CAP.subprocess, "run", side_effect=[status, head]), \
+                    mock.patch.object(CAP, "__file__", str(source / "bench/card-applet/canonical-cap.py")), \
                     mock.patch.object(CAP, "check_repository"), \
                     mock.patch.object(CAP, "verify_tool", side_effect=CAP.Rejection("ToolIdentityMismatch")):
                 with self.assertRaisesRegex(CAP.Rejection, "^ToolIdentityMismatch$"):
@@ -539,6 +540,18 @@ class RecipeTests(unittest.TestCase):
             self.assertEqual(result["result"], "FAIL")
             self.assertEqual(result["rejection"], "ToolIdentityMismatch")
             self.assertFalse((output / "canonical.cap").exists())
+
+    def test_helper_from_another_checkout_rejects_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source, output = root / "another-checkout", root / "new-build"
+            source.mkdir()
+            with mock.patch.object(CAP.subprocess, "run") as execute:
+                with self.assertRaisesRegex(CAP.Rejection, "^BuildSourceMismatch$"):
+                    CAP.build(["test", str(source), "1" * 40]
+                              + ["/unopened"] * 6 + [str(output)])
+                execute.assert_not_called()
+            self.assertFalse(output.exists())
 
     def test_failed_subprocess_preserves_output(self):
         with tempfile.TemporaryDirectory() as tmp:

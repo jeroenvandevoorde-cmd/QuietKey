@@ -601,6 +601,8 @@ def build(args):
     mode, root_s, commit, jdk_archive_s, jdk_s, ant_archive_s, ant_s, devkit_archive_s, task_s, output_s = args
     ensure_test(mode)
     root = absolute_path(root_s, "directory")
+    require(Path(__file__).resolve() == root / "bench/card-applet/canonical-cap.py",
+            "BuildSourceMismatch")
     output = absolute_path(output_s, absent=True)
     require(root not in output.parents and re.fullmatch(r"[0-9a-f]{40}", commit), "BuildSourceMismatch")
     output.mkdir(mode=0o700)
