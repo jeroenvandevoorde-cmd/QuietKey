@@ -7,6 +7,9 @@ const IDENTITY_ADAPTER: &str = include_str!("../src/pcsc_identity_adapter.rs");
 const SITTING: &str = include_str!("../src/sitting.rs");
 const SITTING_TRANSCRIPT: &str = include_str!("../src/sitting_transcript.rs");
 const SITTING_ADAPTER: &str = include_str!("../src/pcsc_sitting_adapter.rs");
+const OBSERVATION: &str = include_str!("../src/management_observation.rs");
+const OBSERVATION_TRANSCRIPT: &str = include_str!("../src/management_observation_transcript.rs");
+const OBSERVATION_ADAPTER: &str = include_str!("../src/pcsc_management_observation_adapter.rs");
 const TRANSCRIPT: &str = include_str!("../src/transcript.rs");
 const MAIN: &str = include_str!("../src/main.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
@@ -25,6 +28,9 @@ fn production_roots_forbid_unsafe_code() {
         SITTING,
         SITTING_TRANSCRIPT,
         SITTING_ADAPTER,
+        OBSERVATION,
+        OBSERVATION_TRANSCRIPT,
+        OBSERVATION_ADAPTER,
         TRANSCRIPT,
         MAIN,
     ] {
@@ -35,7 +41,7 @@ fn production_roots_forbid_unsafe_code() {
 }
 
 #[test]
-fn safe_adapter_exposes_only_the_three_private_fixed_transmits() {
+fn safe_adapters_confine_transmits_to_the_three_private_paths() {
     for source in [
         LIB,
         IDENTITY,
@@ -45,12 +51,15 @@ fn safe_adapter_exposes_only_the_three_private_fixed_transmits() {
         TRANSCRIPT,
         SITTING,
         SITTING_TRANSCRIPT,
+        OBSERVATION,
+        OBSERVATION_TRANSCRIPT,
         MAIN,
     ] {
         assert!(!source.contains(".transmit("));
     }
     assert_eq!(IDENTITY_ADAPTER.matches(".transmit(").count(), 3);
     assert_eq!(SITTING_ADAPTER.matches(".transmit(").count(), 1);
+    assert_eq!(OBSERVATION_ADAPTER.matches(".transmit(").count(), 1);
     for source in [
         LIB,
         IDENTITY,
@@ -61,6 +70,9 @@ fn safe_adapter_exposes_only_the_three_private_fixed_transmits() {
         SITTING,
         SITTING_TRANSCRIPT,
         SITTING_ADAPTER,
+        OBSERVATION,
+        OBSERVATION_TRANSCRIPT,
+        OBSERVATION_ADAPTER,
         TRANSCRIPT,
         MAIN,
     ] {
@@ -185,6 +197,8 @@ fn public_reexports_are_the_reviewed_boundary() {
     assert!(SITTING_ADAPTER.contains("pub fn execute_pcsc_sitting("));
     assert!(!SITTING_ADAPTER.contains("pub struct"));
     assert!(!SITTING.contains("apdu: &[u8]"));
+    assert!(!OBSERVATION_ADAPTER.contains("pub struct"));
+    assert!(OBSERVATION_ADAPTER.contains("pub fn execute_pcsc_management_observation("));
 }
 
 #[test]
@@ -208,5 +222,5 @@ fn sitting_dev_dependencies_and_historical_version_literal_are_exact() {
         ]
     );
     assert!(LIB.contains("pub const IDENTITY_TOOL_VERSION: &str = \"0.0.3\";"));
-    assert!(LIB.contains("pub const SITTING_TOOL_VERSION: &str = env!(\"CARGO_PKG_VERSION\");"));
+    assert!(LIB.contains("pub const SITTING_TOOL_VERSION: &str = \"0.0.4\";"));
 }

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fail-closed validator for QK-DEC-147/165's ring-fenced observation and sitting tool.
+# Fail-closed validator for QK-DEC-147/165/SUP-001's ring-fenced bench tool.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -59,7 +59,7 @@ package_shape=$(awk '
   $0 == "[package]" { package_sections++; in_package = 1; next }
   /^\[/ { in_package = 0; next }
   in_package && $0 == "name = \"qk-card-enrollment\"" { names++ }
-  in_package && $0 == "version = \"0.0.4\"" { versions++ }
+  in_package && $0 == "version = \"0.0.5\"" { versions++ }
   in_package && $0 == "publish = false" { publish++ }
   in_package && $0 == "edition = \"2021\"" { editions++ }
   in_package && $0 == "license = \"Apache-2.0\"" { licenses++ }
@@ -108,15 +108,21 @@ expected_bench_sources='bench/card-enrollment/src/identity.rs
 bench/card-enrollment/src/identity_transcript.rs
 bench/card-enrollment/src/lib.rs
 bench/card-enrollment/src/main.rs
+bench/card-enrollment/src/management_observation.rs
+bench/card-enrollment/src/management_observation_transcript.rs
 bench/card-enrollment/src/model.rs
 bench/card-enrollment/src/pcsc_adapter.rs
 bench/card-enrollment/src/pcsc_identity_adapter.rs
+bench/card-enrollment/src/pcsc_management_observation_adapter.rs
 bench/card-enrollment/src/pcsc_sitting_adapter.rs
 bench/card-enrollment/src/sitting.rs
 bench/card-enrollment/src/sitting_transcript.rs
 bench/card-enrollment/src/transcript.rs
 bench/card-enrollment/tests/identity_mock.rs
 bench/card-enrollment/tests/identity_transcript.rs
+bench/card-enrollment/tests/management_observation_guard.rs
+bench/card-enrollment/tests/management_observation_mock.rs
+bench/card-enrollment/tests/management_observation_transcript.rs
 bench/card-enrollment/tests/mock.rs
 bench/card-enrollment/tests/sitting_guard.rs
 bench/card-enrollment/tests/sitting_mock.rs
@@ -133,6 +139,8 @@ done
 
 identity_adapter='bench/card-enrollment/src/pcsc_identity_adapter.rs'
 sitting_adapter='bench/card-enrollment/src/pcsc_sitting_adapter.rs'
+observation_adapter='bench/card-enrollment/src/pcsc_management_observation_adapter.rs'
+observation_source='bench/card-enrollment/src/management_observation.rs'
 bench_production_sources=$(printf '%s\n' "$bench_sources" | grep '^bench/card-enrollment/src/') || \
   fail 'bench production Rust sources are missing'
 identity_transmit_count=$(grep -F -c '.transmit(' "$identity_adapter") || \
@@ -142,11 +150,45 @@ identity_transmit_count=$(grep -F -c '.transmit(' "$identity_adapter") || \
 sitting_transmit_count=$(grep -F -c '.transmit(' "$sitting_adapter") || sitting_transmit_count=0
 [ "$sitting_transmit_count" = 1 ] || \
   fail 'the private sitting adapter must contain exactly one fixed-plan transmit call'
+observation_transmit_count=$(grep -F -c '.transmit(' "$observation_adapter") || observation_transmit_count=0
+[ "$observation_transmit_count" = 1 ] || \
+  fail 'the private management-observation adapter must contain exactly one fixed-sequence transmit call'
+observation_commands=$(awk '
+  /^pub const (SELECT_ISD_COMMAND|MANAGEMENT_CARD_RECOGNITION_COMMAND|INITIALIZE_UPDATE_COMMAND|KEY_INFORMATION_TEMPLATE_COMMAND):/ { emitting = 1 }
+  emitting {
+    line = $0
+    gsub(/[[:space:]]/, "", line)
+    printf "%s", line
+    if (line ~ /;$/) { printf "\n"; emitting = 0 }
+  }
+' "$observation_source") || fail 'cannot inspect fixed management-observation commands'
+expected_observation_commands='pubconstSELECT_ISD_COMMAND:[u8;14]=[0x00,0xa4,0x04,0x00,0x08,0xa0,0x00,0x00,0x01,0x51,0x00,0x00,0x00,0x00,];
+pubconstMANAGEMENT_CARD_RECOGNITION_COMMAND:[u8;5]=[0x80,0xca,0x00,0x66,0x00];
+pubconstINITIALIZE_UPDATE_COMMAND:[u8;14]=[0x80,0x50,0x00,0x00,0x08,0x51,0x4b,0x46,0x38,0x42,0x33,0x56,0x31,0x00,];
+pubconstKEY_INFORMATION_TEMPLATE_COMMAND:[u8;5]=[0x80,0xca,0x00,0xe0,0x00];'
+[ "$observation_commands" = "$expected_observation_commands" ] || \
+  fail 'management-observation command bytes differ from QK-DEC-165-SUP-001'
+observation_order=$(awk '
+  /^const FIXED_COMMANDS: \[FixedCommand; 4\] = \[/ { in_table = 1; tables++; next }
+  in_table && /^\];/ { in_table = 0; next }
+  in_table && /phase:|request:/ { gsub(/[[:space:]]/, ""); print }
+  END { if (tables != 1) exit 1 }
+' "$observation_source") || fail 'cannot inspect fixed observation order'
+[ "$observation_order" = 'phase:ObservationPhase::SelectIsd,
+request:&SELECT_ISD_COMMAND,
+phase:ObservationPhase::CardRecognition,
+request:&MANAGEMENT_CARD_RECOGNITION_COMMAND,
+phase:ObservationPhase::InitializeUpdate,
+request:&INITIALIZE_UPDATE_COMMAND,
+phase:ObservationPhase::KeyInformation,
+request:&KEY_INFORMATION_TEMPLATE_COMMAND,' ] || \
+  fail 'management-observation sequence is not exactly SELECT, recognition, INITIALIZE UPDATE, key information'
 for source in $bench_production_sources; do
   [ "$source" = "$identity_adapter" ] && continue
   [ "$source" = "$sitting_adapter" ] && continue
+  [ "$source" = "$observation_adapter" ] && continue
   if grep -F '.transmit(' "$source" >/dev/null 2>&1; then
-    fail "transmit call exists outside the two private fixed-plan adapters: $source"
+    fail "transmit call exists outside the three private fixed-plan adapters: $source"
   fi
 done
 for forbidden_surface in '.control(' '.get_attribute(' '.begin_transaction(' 'pub fn card' 'pub fn context' 'pub use pcsc::'; do
@@ -305,7 +347,7 @@ expected_lock_facts='bitflags|2.13.1|registry+https://github.com/rust-lang/crate
 pcsc-sys|1.3.0|registry+https://github.com/rust-lang/crates.io-index|e14ef017e15d2e5592a9e39a346c1dbaea5120bab7ed7106b210ef58ebd97003
 pcsc|2.9.0|registry+https://github.com/rust-lang/crates.io-index|7dd833ecf8967e65934c49d3521a175929839bf6d0e497f3bd0d3a2ca08943da
 pkg-config|0.3.34|registry+https://github.com/rust-lang/crates.io-index|f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548
-qk-card-enrollment|0.0.4||
+qk-card-enrollment|0.0.5||
 qk-card-model|0.0.1||
 qk-card-protocol|0.0.1||
 qk-secp|0.0.1||'
@@ -329,7 +371,7 @@ normal_facts=$(normalize_tree "$normal_tree_tmp") || fail 'cannot normalize benc
 expected_normal_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
-qk-card-enrollment|0.0.4'
+qk-card-enrollment|0.0.5'
 [ "$normal_facts" = "$expected_normal_facts" ] || \
   fail 'bench normal dependency closure is not the exact reviewed four-package set'
 
@@ -343,7 +385,7 @@ expected_build_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.4'
+qk-card-enrollment|0.0.5'
 [ "$build_facts" = "$expected_build_facts" ] || \
   fail 'bench normal/build dependency closure is not the exact reviewed five-package set'
 
@@ -357,7 +399,7 @@ expected_test_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.4
+qk-card-enrollment|0.0.5
 qk-card-model|0.0.1
 qk-card-protocol|0.0.1
 qk-secp|0.0.1'

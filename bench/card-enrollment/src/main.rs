@@ -2,18 +2,25 @@
 
 use std::env;
 use std::io::{self, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use qk_card_enrollment::{
-    encode_transcript, execute_pcsc_identity, execute_pcsc_sitting, run_enrollment,
-    EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome, EnrollmentRecord, IdentityOutcome,
-    PcscEnrollmentBackend, SittingError, SittingMetadata, SittingMode, SittingOutcome,
+    encode_transcript, execute_pcsc_identity, execute_pcsc_management_observation,
+    execute_pcsc_sitting, run_enrollment, EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome,
+    EnrollmentRecord, IdentityOutcome, ManagementObservationMetadata, ObservationError,
+    ObservationOutcome, PcscEnrollmentBackend, SittingError, SittingMetadata, SittingMode,
+    SittingOutcome,
 };
 
 enum Command {
     Enrollment(EnrollmentMetadata),
     Identity(EnrollmentMetadata),
+    ManagementObservation {
+        metadata: EnrollmentMetadata,
+        output_path: PathBuf,
+    },
     Sitting {
         mode: SittingMode,
         metadata: EnrollmentMetadata,
@@ -37,7 +44,7 @@ fn usage() {
         "   or: qk-card-enrollment identity <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <selected-reader-name-lowerhex>"
     );
     eprintln!(
-        "   or: qk-card-enrollment sitting <install-info|provision-golden> <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>"
+        "   or: qk-card-enrollment sitting <install-info|provision-golden|management-observe> <source-commit> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>"
     );
 }
 
@@ -72,8 +79,12 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
     let _program = arguments.next().ok_or(ArgumentError::Usage)?;
     let mode = arguments.next().ok_or(ArgumentError::Usage)?;
     if mode == "sitting" {
-        let sitting_mode = SittingMode::parse(&arguments.next().ok_or(ArgumentError::Usage)?)
-            .map_err(ArgumentError::Sitting)?;
+        let sitting_name = arguments.next().ok_or(ArgumentError::Usage)?;
+        let sitting_mode = if sitting_name == "management-observe" {
+            None
+        } else {
+            Some(SittingMode::parse(&sitting_name).map_err(ArgumentError::Sitting)?)
+        };
         let source_commit = arguments.next().ok_or(ArgumentError::Usage)?;
         let timestamp_utc = arguments.next().ok_or(ArgumentError::Usage)?;
         let host_alias = arguments.next().ok_or(ArgumentError::Usage)?;
@@ -85,18 +96,25 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
         if arguments.next().is_some() {
             return Err(ArgumentError::Usage);
         }
-        return Ok(Command::Sitting {
-            mode: sitting_mode,
-            metadata: EnrollmentMetadata {
-                mode: EnrollmentMode::Enroll,
-                source_commit,
-                timestamp_utc,
-                host_alias,
-                reader_alias,
-                specimen_alias: Some(specimen_alias),
-                selected_reader_name: Some(selected_reader_name),
+        let metadata = EnrollmentMetadata {
+            mode: EnrollmentMode::Enroll,
+            source_commit,
+            timestamp_utc,
+            host_alias,
+            reader_alias,
+            specimen_alias: Some(specimen_alias),
+            selected_reader_name: Some(selected_reader_name),
+        };
+        return Ok(match sitting_mode {
+            Some(mode) => Command::Sitting {
+                mode,
+                metadata,
+                output_path,
             },
-            output_path,
+            None => Command::ManagementObservation {
+                metadata,
+                output_path,
+            },
         });
     }
     let source_commit = arguments.next().ok_or(ArgumentError::Usage)?;
@@ -160,11 +178,47 @@ fn main() -> ExitCode {
     match command {
         Command::Enrollment(metadata) => run_enrollment_command(metadata),
         Command::Identity(metadata) => run_identity_command(metadata),
+        Command::ManagementObservation {
+            metadata,
+            output_path,
+        } => run_management_observation_command(metadata, output_path),
         Command::Sitting {
             mode,
             metadata,
             output_path,
         } => run_sitting_command(mode, metadata, output_path),
+    }
+}
+
+fn run_management_observation_command(
+    metadata: EnrollmentMetadata,
+    output_path: PathBuf,
+) -> ExitCode {
+    let metadata = match validate_metadata(metadata) {
+        Ok(metadata) => metadata,
+        Err(exit) => return exit,
+    };
+    let metadata = match ManagementObservationMetadata::new(metadata, output_path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
+    };
+    // This mode never sends panic payloads or private observations to the console.
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        execute_pcsc_management_observation(metadata)
+    }))
+    .unwrap_or(Err(ObservationError::Sitting(
+        SittingError::SittingBoundaryPanicked,
+    )));
+    match result {
+        Ok(ObservationOutcome::Pass) => ExitCode::SUCCESS,
+        Ok(ObservationOutcome::Reject(error)) | Err(error) => {
+            eprintln!("result={}", error.name());
+            ExitCode::from(1)
+        }
     }
 }
 

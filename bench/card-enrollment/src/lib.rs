@@ -4,14 +4,18 @@
 //! ATR observations. Generic APDU transmission remains unavailable; the
 //! identity path owns exactly three private, literal, source-pinned commands.
 //! The sitting path owns one separately registered fixed exchange table.
+//! Management observation has a separate fixed four-command, shape-only path.
 
 #![forbid(unsafe_code)]
 
 mod identity;
 mod identity_transcript;
+mod management_observation;
+mod management_observation_transcript;
 mod model;
 mod pcsc_adapter;
 mod pcsc_identity_adapter;
+mod pcsc_management_observation_adapter;
 mod pcsc_sitting_adapter;
 mod sitting;
 mod sitting_transcript;
@@ -25,6 +29,16 @@ pub use identity::{
     SELECT_DEFAULT_APPLICATION_COMMAND,
 };
 pub use identity_transcript::encode_identity_transcript;
+pub use management_observation::{
+    run_management_observation, InitializationFields, ManagementObservationBackend,
+    ManagementObservationMetadata, ObservationError, ObservationFailure, ObservationOutcome,
+    ObservationPhase, ObservationStatus, ObservationSummary, INITIALIZE_UPDATE_COMMAND,
+    KEY_INFORMATION_TEMPLATE_COMMAND, MANAGEMENT_CARD_RECOGNITION_COMMAND,
+    MANAGEMENT_OBSERVATION_MODE, MAX_OBSERVATION_RESPONSE_BYTES, SELECT_ISD_COMMAND,
+};
+pub use management_observation_transcript::{
+    ManagementObservationTranscript, MANAGEMENT_OBSERVATION_TRANSCRIPT_VERSION,
+};
 pub use model::{
     authorize_operation, run_enrollment, CaptureAttempt, CardCapture, EnrollmentBackend,
     EnrollmentError, EnrollmentEvent, EnrollmentMetadata, EnrollmentMode, EnrollmentOperation,
@@ -32,6 +46,7 @@ pub use model::{
 };
 pub use pcsc_adapter::PcscEnrollmentBackend;
 pub use pcsc_identity_adapter::execute_pcsc_identity;
+pub use pcsc_management_observation_adapter::execute_pcsc_management_observation;
 pub use pcsc_sitting_adapter::execute_pcsc_sitting;
 pub use sitting::{
     fixed_sitting_plan, run_fixed_sitting_plan, sitting_output_basename, validate_sitting_binding,
@@ -52,7 +67,9 @@ pub const TOOL_VERSION: &str = "0.0.1";
 pub const IDENTITY_ALLOWLIST_ID: &str = "QK-F8-IDENT-V2";
 pub const IDENTITY_TRANSCRIPT_VERSION: &str = "QK-CARD-IDENTITY-V2";
 pub const IDENTITY_TOOL_VERSION: &str = "0.0.3";
-pub const SITTING_TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const SITTING_TOOL_VERSION: &str = "0.0.4";
+pub const MANAGEMENT_OBSERVATION_TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const MANAGEMENT_OBSERVATION_ALLOWLIST_ID: &str = "QK-DEC-165-SUP-001";
 
 pub const MAX_READER_LIST_BYTES: usize = 4_096;
 pub const MAX_READERS: usize = 32;
