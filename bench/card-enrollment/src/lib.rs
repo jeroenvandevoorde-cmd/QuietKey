@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+mod b6;
 mod identity;
 mod identity_transcript;
 mod management_observation;
@@ -21,6 +22,14 @@ mod sitting;
 mod sitting_transcript;
 mod transcript;
 
+pub use b6::{
+    b6_exchange, b6_output_basename, run_b6, B6Error, B6Exchange, B6Metadata, B6Observer,
+    B6Outcome, B6RunSummary, B6SignatureFacts, B6_CAMPAIGN_SOURCE_COMMIT, B6_DIGEST,
+    B6_EXCHANGES_PER_SESSION, B6_EXPANDED_REQUEST_BYTES, B6_MODE, B6_PLAN_SHA256, B6_PLAN_VERSION,
+    B6_PUBLIC_KEY, B6_REVIEW_HASH, B6_SESSION_COUNT, B6_SESSION_IDS, B6_SIGNATURES_PER_SESSION,
+    B6_TOOL_VERSION, B6_TOTAL_EXCHANGES, B6_TOTAL_SIGNATURES, B6_TRANSCRIPT_LIMIT_ID,
+    B6_TRANSCRIPT_VERSION, B6_WALLET_ID, MAX_B6_TRANSCRIPT_BYTES,
+};
 pub use identity::{
     run_identity, validate_card_recognition_response, validate_cplc_response,
     validate_select_response, IdentityAttempt, IdentityBackend, IdentityError, IdentityEvent,
