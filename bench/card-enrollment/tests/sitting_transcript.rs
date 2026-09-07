@@ -132,3 +132,14 @@ fn sitting_version_bump_does_not_change_the_historical_identity_version() {
     assert_eq!(SITTING_TOOL_VERSION, "0.0.4");
     assert_eq!(IDENTITY_TOOL_VERSION, "0.0.3");
 }
+
+#[test]
+fn committed_readback_header_names_the_b6_tool_without_changing_older_headers() {
+    let metadata = metadata(SittingMode::CommittedReadback);
+    let mut transcript = SittingTranscript::new(Vec::new());
+    transcript.write_header(&metadata).unwrap();
+    let text = String::from_utf8(transcript.into_inner()).unwrap();
+    assert!(text.contains("tool_version=0.0.6\n"));
+    assert!(text.contains("mode=committed-readback\n"));
+    assert!(text.contains("output_basename=qk-card-sitting-v1__committed-readback__J3R180-02__"));
+}

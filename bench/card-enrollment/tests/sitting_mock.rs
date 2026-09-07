@@ -46,6 +46,11 @@ fn sitting_metadata(mode: SittingMode) -> SittingMetadata {
 #[test]
 fn only_registered_modes_bindings_source_and_output_name_are_accepted() {
     assert_eq!(
+        SittingMode::parse("committed-readback"),
+        Ok(SittingMode::CommittedReadback)
+    );
+    let _ = sitting_metadata(SittingMode::CommittedReadback);
+    assert_eq!(
         SittingMode::parse("install-info"),
         Ok(SittingMode::InstallInfo)
     );
@@ -153,6 +158,43 @@ fn only_registered_modes_bindings_source_and_output_name_are_accepted() {
         ),
         Err(SittingError::SittingOutputNameMismatch)
     );
+}
+
+#[test]
+fn committed_readback_uses_fixed_engine_and_stops_at_each_mismatch() {
+    let plan = fixed_sitting_plan(SittingMode::CommittedReadback).unwrap();
+    assert_eq!(plan.exchanges().len(), 8);
+    for failure in 0..=8 {
+        let mut calls = 0;
+        let mut transcript = SittingTranscript::new(Vec::new());
+        let summary = run_fixed_sitting_plan(&plan, &mut transcript, |request, response| {
+            let exchange = &plan.exchanges()[calls];
+            assert_eq!(request, exchange.request());
+            let expected = exchange.expected_response();
+            response[..expected.len()].copy_from_slice(expected);
+            if calls == failure {
+                response[0] ^= 1;
+            }
+            calls += 1;
+            Ok(expected.len())
+        });
+        assert_eq!(calls, (failure + 1).min(8));
+        assert_eq!(summary.transmit_calls, calls);
+        assert_eq!(summary.received_responses, calls);
+        assert_eq!(
+            summary.outcome,
+            if failure == 8 {
+                SittingOutcome::Pass
+            } else {
+                SittingOutcome::Reject(SittingError::SittingResponseMismatch)
+            }
+        );
+        let text = String::from_utf8(transcript.into_inner()).unwrap();
+        for index in 9..9 + calls {
+            assert!(text.contains(&format!("apdu.{index}.rx_hex=")));
+        }
+        assert!(!text.contains(&format!("apdu.{}.tx_hex=", 9 + calls)));
+    }
 }
 
 #[test]

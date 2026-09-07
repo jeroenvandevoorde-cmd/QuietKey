@@ -25,11 +25,14 @@ pub const MAX_SITTING_CAPTURE_BYTES: usize = 258;
 
 const INSTALL_PLAN: &str = include_str!("../tests/fixtures/sitting_install_v1.tsv");
 const PROVISION_PLAN: &str = include_str!("../tests/fixtures/sitting_provision_v1.tsv");
+const COMMITTED_READBACK_PLAN: &str =
+    include_str!("../tests/fixtures/sitting_committed_readback_v1.tsv");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SittingMode {
     InstallInfo,
     ProvisionGolden,
+    CommittedReadback,
 }
 
 impl SittingMode {
@@ -37,6 +40,7 @@ impl SittingMode {
         match value {
             "install-info" => Ok(Self::InstallInfo),
             "provision-golden" => Ok(Self::ProvisionGolden),
+            "committed-readback" => Ok(Self::CommittedReadback),
             _ => Err(SittingError::SittingModeRejected),
         }
     }
@@ -45,6 +49,7 @@ impl SittingMode {
         match self {
             Self::InstallInfo => "install-info",
             Self::ProvisionGolden => "provision-golden",
+            Self::CommittedReadback => "committed-readback",
         }
     }
 
@@ -52,6 +57,7 @@ impl SittingMode {
         match self {
             Self::InstallInfo => 3,
             Self::ProvisionGolden => 17,
+            Self::CommittedReadback => 8,
         }
     }
 
@@ -59,6 +65,7 @@ impl SittingMode {
         match self {
             Self::InstallInfo => INSTALL_PLAN,
             Self::ProvisionGolden => PROVISION_PLAN,
+            Self::CommittedReadback => COMMITTED_READBACK_PLAN,
         }
     }
 }
@@ -318,7 +325,13 @@ pub fn fixed_sitting_plan(mode: SittingMode) -> Result<SittingPlan, SittingError
                 .ok_or(SittingError::SittingSequenceViolation)?,
         )?;
         if fields.next().is_some()
-            || index != exchanges.len()
+            || index
+                != exchanges.len()
+                    + if mode == SittingMode::CommittedReadback {
+                        9
+                    } else {
+                        0
+                    }
             || phase.is_empty()
             || name.is_empty()
             || request.len() > MAX_SITTING_REQUEST_BYTES
@@ -392,6 +405,16 @@ fn plan_shape_is_exact(mode: SittingMode, exchanges: &[SittingExchange]) -> bool
             ("provision", "setup-write-576"),
             ("provision", "setup-write-768"),
             ("provision", "setup-commit"),
+            ("readback", "select"),
+            ("readback", "setup-open"),
+            ("readback", "setup-info"),
+            ("readback", "read-d1-0"),
+            ("readback", "read-d1-192"),
+            ("readback", "read-d2-0"),
+            ("readback", "read-d2-192"),
+            ("readback", "export-a2-purpose-01"),
+        ],
+        SittingMode::CommittedReadback => &[
             ("readback", "select"),
             ("readback", "setup-open"),
             ("readback", "setup-info"),

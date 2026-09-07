@@ -48,7 +48,11 @@ impl GuardTree {
                 }
             }
         }
-        for name in ["sitting_install_v1.tsv", "sitting_provision_v1.tsv"] {
+        for name in [
+            "sitting_install_v1.tsv",
+            "sitting_provision_v1.tsv",
+            "sitting_committed_readback_v1.tsv",
+        ] {
             tree.copy(
                 root,
                 &format!("bench/card-enrollment/tests/fixtures/{name}"),

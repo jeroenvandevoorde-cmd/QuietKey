@@ -297,15 +297,17 @@ done
 
 fixture_names=$(git ls-files 'bench/card-enrollment/tests/fixtures/*' | LC_ALL=C sort) || \
   fail 'cannot enumerate registered sitting fixtures'
-[ "$fixture_names" = 'bench/card-enrollment/tests/fixtures/sitting_install_v1.tsv
+[ "$fixture_names" = 'bench/card-enrollment/tests/fixtures/sitting_committed_readback_v1.tsv
+bench/card-enrollment/tests/fixtures/sitting_install_v1.tsv
 bench/card-enrollment/tests/fixtures/sitting_provision_v1.tsv' ] || \
   fail 'registered sitting fixture set is not exact'
-for fixture_kind in install provision; do
+for fixture_kind in install provision committed_readback; do
   fixture="bench/card-enrollment/tests/fixtures/sitting_${fixture_kind}_v1.tsv"
   [ -f "$fixture" ] && [ ! -L "$fixture" ] || fail "registered sitting fixture is missing or linked: $fixture"
   case "$fixture_kind" in
     install) fixture_bytes=1421; fixture_lines=10; fixture_hash=8e3fba7d4d1cfe077bfe73806adc0f46a60db7471717909684b3caccf66a117e ;;
     provision) fixture_bytes=6203; fixture_lines=24; fixture_hash=2e142641399b652f39093d7297445af589feb58afb9963e9e0728bf8d9dda5e3 ;;
+    committed_readback) fixture_bytes=2943; fixture_lines=13; fixture_hash=6cedbdc6f53c8100e042b8d3e06ebef2a2c56b42e98bbfa32b3a951f39084c36 ;;
   esac
   actual_bytes=$(wc -c < "$fixture" | tr -d '[:space:]') || fail 'cannot count sitting fixture bytes'
   actual_lines=$(wc -l < "$fixture" | tr -d '[:space:]') || fail 'cannot count sitting fixture lines'

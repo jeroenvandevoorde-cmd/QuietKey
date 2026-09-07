@@ -48,6 +48,35 @@ fn provisioning_and_setup_readback_plan_is_byte_exact_in_a_fresh_model() {
 }
 
 #[test]
+fn committed_readback_rows_and_model_responses_are_unchanged() {
+    let source = include_str!("fixtures/sitting_provision_v1.tsv");
+    let subset = include_str!("fixtures/sitting_committed_readback_v1.tsv");
+    let expected_rows: Vec<_> = source
+        .lines()
+        .filter(|line| line.contains("\treadback\t"))
+        .collect();
+    let actual_rows: Vec<_> = subset
+        .lines()
+        .filter(|line| line.contains("\treadback\t"))
+        .collect();
+    assert_eq!(actual_rows, expected_rows);
+    assert_eq!(actual_rows.len(), 8);
+    let provision = fixed_sitting_plan(SittingMode::ProvisionGolden).unwrap();
+    let readback = fixed_sitting_plan(SittingMode::CommittedReadback).unwrap();
+    assert_eq!(readback.exchanges(), &provision.exchanges()[9..]);
+    let mut model = replay(SittingMode::ProvisionGolden);
+    for exchange in readback.exchanges() {
+        let mut response = [0u8; RESPONSE_BYTES];
+        let count = model
+            .process_apdu(Media::ContactT1, exchange.request(), &mut response)
+            .unwrap();
+        assert_eq!(&response[..count], exchange.expected_response());
+        assert_ne!(exchange.request().get(1), Some(&0x15));
+    }
+    assert_eq!(model.lifecycle(), ModelLifecycle::Committed);
+}
+
+#[test]
 fn provision_plan_derivation_changes_only_the_three_rowed_normal_fields() {
     let plan = fixed_sitting_plan(SittingMode::ProvisionGolden).expect("registered plan");
     let exchanges = plan.exchanges();
