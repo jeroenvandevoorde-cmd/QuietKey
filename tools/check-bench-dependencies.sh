@@ -106,6 +106,7 @@ workspace_shape=$(awk '
 bench_sources=$(git ls-files | grep -E '^bench/card-enrollment/.*\.rs$') || bench_sources=''
 [ -n "$bench_sources" ] || fail 'bench Rust sources are missing'
 expected_bench_sources='bench/card-enrollment/src/b6.rs
+bench/card-enrollment/src/b6_transcript.rs
 bench/card-enrollment/src/identity.rs
 bench/card-enrollment/src/identity_transcript.rs
 bench/card-enrollment/src/lib.rs
@@ -121,6 +122,7 @@ bench/card-enrollment/src/sitting.rs
 bench/card-enrollment/src/sitting_transcript.rs
 bench/card-enrollment/src/transcript.rs
 bench/card-enrollment/tests/b6_mock.rs
+bench/card-enrollment/tests/b6_transcript.rs
 bench/card-enrollment/tests/b6_verification.rs
 bench/card-enrollment/tests/identity_mock.rs
 bench/card-enrollment/tests/identity_transcript.rs

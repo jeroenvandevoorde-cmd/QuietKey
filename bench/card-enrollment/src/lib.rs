@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod b6;
+mod b6_transcript;
 mod identity;
 mod identity_transcript;
 mod management_observation;
@@ -30,6 +31,7 @@ pub use b6::{
     B6_TOOL_VERSION, B6_TOTAL_EXCHANGES, B6_TOTAL_SIGNATURES, B6_TRANSCRIPT_LIMIT_ID,
     B6_TRANSCRIPT_VERSION, B6_WALLET_ID, MAX_B6_TRANSCRIPT_BYTES,
 };
+pub use b6_transcript::B6Transcript;
 pub use identity::{
     run_identity, validate_card_recognition_response, validate_cplc_response,
     validate_select_response, IdentityAttempt, IdentityBackend, IdentityError, IdentityEvent,
