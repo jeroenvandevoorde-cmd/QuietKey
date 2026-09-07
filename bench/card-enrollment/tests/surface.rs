@@ -137,7 +137,7 @@ fn active_policy_has_one_explicit_transmit_refusal() {
 }
 
 #[test]
-fn manifest_has_only_the_reviewed_safe_wrapper_dependency() {
+fn manifest_has_exactly_the_reviewed_b6_runtime_dependencies() {
     let dependency_section = MANIFEST
         .split_once("[dependencies]\n")
         .expect("dependency section")
@@ -149,7 +149,11 @@ fn manifest_has_only_the_reviewed_safe_wrapper_dependency() {
         .lines()
         .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
         .collect();
-    assert_eq!(entries, ["pcsc = { version = \"=2.9.0\" }"]);
+    assert_eq!(entries, [
+        "pcsc = { version = \"=2.9.0\" }",
+        "qk-card-protocol = { path = \"../../host/qk-card-protocol\" }",
+        "qk-secp = { path = \"../../host/qk-secp\", features = [\"card-signature-normalization\"] }",
+    ]);
 }
 
 #[test]
@@ -216,10 +220,7 @@ fn sitting_dev_dependencies_and_historical_version_literal_are_exact() {
         .collect();
     assert_eq!(
         entries,
-        [
-            "qk-card-model = { path = \"../../host/qk-card-model\" }",
-            "qk-card-protocol = { path = \"../../host/qk-card-protocol\" }",
-        ]
+        ["qk-card-model = { path = \"../../host/qk-card-model\" }",]
     );
     assert!(LIB.contains("pub const IDENTITY_TOOL_VERSION: &str = \"0.0.3\";"));
     assert!(LIB.contains("pub const SITTING_TOOL_VERSION: &str = \"0.0.4\";"));

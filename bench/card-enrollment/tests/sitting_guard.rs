@@ -121,7 +121,7 @@ fn guard_rejects_model_moved_into_normal_dependencies() {
         "",
     );
     tree.rejects(
-        "bench direct dependencies are not exactly pcsc 2.9.0 plus the two reviewed dev-only paths",
+        "bench direct dependencies are not exactly pcsc 2.9.0 plus the reviewed runtime and dev paths",
     );
 }
 
@@ -148,7 +148,7 @@ fn guard_rejects_alternate_path_syntax_and_registry_injection() {
         "../../host/./qk-card-model",
     );
     tree.rejects(
-        "bench direct dependencies are not exactly pcsc 2.9.0 plus the two reviewed dev-only paths",
+        "bench direct dependencies are not exactly pcsc 2.9.0 plus the reviewed runtime and dev paths",
     );
     let tree = GuardTree::new();
     tree.replace(
@@ -157,7 +157,7 @@ fn guard_rejects_alternate_path_syntax_and_registry_injection() {
         "[dependencies]\nother = \"1\"\n",
     );
     tree.rejects(
-        "bench direct dependencies are not exactly pcsc 2.9.0 plus the two reviewed dev-only paths",
+        "bench direct dependencies are not exactly pcsc 2.9.0 plus the reviewed runtime and dev paths",
     );
 }
 
