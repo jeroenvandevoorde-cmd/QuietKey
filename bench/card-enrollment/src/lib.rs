@@ -5,6 +5,7 @@
 //! identity path owns exactly three private, literal, source-pinned commands.
 //! The sitting path owns one separately registered fixed exchange table.
 //! Management observation has a separate fixed four-command, shape-only path.
+//! B6 owns a separate fixed public-signature campaign with live verification.
 
 #![forbid(unsafe_code)]
 
@@ -16,6 +17,7 @@ mod management_observation;
 mod management_observation_transcript;
 mod model;
 mod pcsc_adapter;
+mod pcsc_b6_adapter;
 mod pcsc_identity_adapter;
 mod pcsc_management_observation_adapter;
 mod pcsc_sitting_adapter;
@@ -56,6 +58,7 @@ pub use model::{
     EnrollmentOutcome, EnrollmentRecord, NegotiatedProtocol, ValidatedMetadata,
 };
 pub use pcsc_adapter::PcscEnrollmentBackend;
+pub use pcsc_b6_adapter::execute_pcsc_b6;
 pub use pcsc_identity_adapter::execute_pcsc_identity;
 pub use pcsc_management_observation_adapter::execute_pcsc_management_observation;
 pub use pcsc_sitting_adapter::execute_pcsc_sitting;

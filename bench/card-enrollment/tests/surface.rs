@@ -10,6 +10,9 @@ const SITTING_ADAPTER: &str = include_str!("../src/pcsc_sitting_adapter.rs");
 const OBSERVATION: &str = include_str!("../src/management_observation.rs");
 const OBSERVATION_TRANSCRIPT: &str = include_str!("../src/management_observation_transcript.rs");
 const OBSERVATION_ADAPTER: &str = include_str!("../src/pcsc_management_observation_adapter.rs");
+const B6: &str = include_str!("../src/b6.rs");
+const B6_TRANSCRIPT: &str = include_str!("../src/b6_transcript.rs");
+const B6_ADAPTER: &str = include_str!("../src/pcsc_b6_adapter.rs");
 const TRANSCRIPT: &str = include_str!("../src/transcript.rs");
 const MAIN: &str = include_str!("../src/main.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
@@ -31,6 +34,9 @@ fn production_roots_forbid_unsafe_code() {
         OBSERVATION,
         OBSERVATION_TRANSCRIPT,
         OBSERVATION_ADAPTER,
+        B6,
+        B6_TRANSCRIPT,
+        B6_ADAPTER,
         TRANSCRIPT,
         MAIN,
     ] {
@@ -41,7 +47,7 @@ fn production_roots_forbid_unsafe_code() {
 }
 
 #[test]
-fn safe_adapters_confine_transmits_to_the_three_private_paths() {
+fn safe_adapters_confine_transmits_to_the_four_private_paths() {
     for source in [
         LIB,
         IDENTITY,
@@ -53,6 +59,8 @@ fn safe_adapters_confine_transmits_to_the_three_private_paths() {
         SITTING_TRANSCRIPT,
         OBSERVATION,
         OBSERVATION_TRANSCRIPT,
+        B6,
+        B6_TRANSCRIPT,
         MAIN,
     ] {
         assert!(!source.contains(".transmit("));
@@ -60,6 +68,7 @@ fn safe_adapters_confine_transmits_to_the_three_private_paths() {
     assert_eq!(IDENTITY_ADAPTER.matches(".transmit(").count(), 3);
     assert_eq!(SITTING_ADAPTER.matches(".transmit(").count(), 1);
     assert_eq!(OBSERVATION_ADAPTER.matches(".transmit(").count(), 1);
+    assert_eq!(B6_ADAPTER.matches(".transmit(").count(), 1);
     for source in [
         LIB,
         IDENTITY,
@@ -73,6 +82,9 @@ fn safe_adapters_confine_transmits_to_the_three_private_paths() {
         OBSERVATION,
         OBSERVATION_TRANSCRIPT,
         OBSERVATION_ADAPTER,
+        B6,
+        B6_TRANSCRIPT,
+        B6_ADAPTER,
         TRANSCRIPT,
         MAIN,
     ] {

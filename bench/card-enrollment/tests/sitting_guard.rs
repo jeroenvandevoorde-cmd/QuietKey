@@ -186,3 +186,41 @@ fn guard_rejects_changed_registered_sitting_bytes() {
     );
     tree.rejects("registered sitting fixture identity mismatch: bench/card-enrollment/tests/fixtures/sitting_install_v1.tsv");
 }
+
+#[test]
+fn guard_rejects_b6_runtime_feature_changes_and_transmit_relocation() {
+    let tree = GuardTree::new();
+    tree.replace(
+        "bench/card-enrollment/Cargo.toml",
+        ", features = [\"card-signature-normalization\"]",
+        "",
+    );
+    tree.rejects("bench direct dependencies are not exactly pcsc 2.9.0 plus the reviewed runtime and dev paths");
+
+    let tree = GuardTree::new();
+    tree.replace(
+        "bench/card-enrollment/src/pcsc_b6_adapter.rs",
+        "card.transmit(request, response)",
+        "card.unsent(request, response)",
+    );
+    tree.rejects("the private B6 adapter must contain exactly one fixed-campaign transmit call");
+
+    let tree = GuardTree::new();
+    tree.replace(
+        "bench/card-enrollment/src/b6.rs",
+        "use core::fmt;",
+        "use core::fmt;\n// probe.transmit(forbidden)",
+    );
+    tree.rejects("transmit call exists outside the four private fixed-plan adapters: bench/card-enrollment/src/b6.rs");
+}
+
+#[test]
+fn guard_rejects_changed_committed_readback_identity() {
+    let tree = GuardTree::new();
+    tree.replace(
+        "bench/card-enrollment/tests/fixtures/sitting_committed_readback_v1.tsv",
+        "00a4040006f0514b32420100",
+        "00a4040006f0514b32420200",
+    );
+    tree.rejects("registered sitting fixture identity mismatch: bench/card-enrollment/tests/fixtures/sitting_committed_readback_v1.tsv");
+}

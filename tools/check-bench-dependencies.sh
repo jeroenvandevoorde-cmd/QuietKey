@@ -115,12 +115,14 @@ bench/card-enrollment/src/management_observation.rs
 bench/card-enrollment/src/management_observation_transcript.rs
 bench/card-enrollment/src/model.rs
 bench/card-enrollment/src/pcsc_adapter.rs
+bench/card-enrollment/src/pcsc_b6_adapter.rs
 bench/card-enrollment/src/pcsc_identity_adapter.rs
 bench/card-enrollment/src/pcsc_management_observation_adapter.rs
 bench/card-enrollment/src/pcsc_sitting_adapter.rs
 bench/card-enrollment/src/sitting.rs
 bench/card-enrollment/src/sitting_transcript.rs
 bench/card-enrollment/src/transcript.rs
+bench/card-enrollment/tests/b6_guard.rs
 bench/card-enrollment/tests/b6_mock.rs
 bench/card-enrollment/tests/b6_transcript.rs
 bench/card-enrollment/tests/b6_verification.rs
@@ -146,6 +148,7 @@ done
 identity_adapter='bench/card-enrollment/src/pcsc_identity_adapter.rs'
 sitting_adapter='bench/card-enrollment/src/pcsc_sitting_adapter.rs'
 observation_adapter='bench/card-enrollment/src/pcsc_management_observation_adapter.rs'
+b6_adapter='bench/card-enrollment/src/pcsc_b6_adapter.rs'
 observation_source='bench/card-enrollment/src/management_observation.rs'
 bench_production_sources=$(printf '%s\n' "$bench_sources" | grep '^bench/card-enrollment/src/') || \
   fail 'bench production Rust sources are missing'
@@ -159,6 +162,9 @@ sitting_transmit_count=$(grep -F -c '.transmit(' "$sitting_adapter") || sitting_
 observation_transmit_count=$(grep -F -c '.transmit(' "$observation_adapter") || observation_transmit_count=0
 [ "$observation_transmit_count" = 1 ] || \
   fail 'the private management-observation adapter must contain exactly one fixed-sequence transmit call'
+b6_transmit_count=$(grep -F -c '.transmit(' "$b6_adapter") || b6_transmit_count=0
+[ "$b6_transmit_count" = 1 ] || \
+  fail 'the private B6 adapter must contain exactly one fixed-campaign transmit call'
 observation_commands=$(awk '
   /^pub const (SELECT_ISD_COMMAND|MANAGEMENT_CARD_RECOGNITION_COMMAND|INITIALIZE_UPDATE_COMMAND|KEY_INFORMATION_TEMPLATE_COMMAND):/ { emitting = 1 }
   emitting {
@@ -193,8 +199,9 @@ for source in $bench_production_sources; do
   [ "$source" = "$identity_adapter" ] && continue
   [ "$source" = "$sitting_adapter" ] && continue
   [ "$source" = "$observation_adapter" ] && continue
+  [ "$source" = "$b6_adapter" ] && continue
   if grep -F '.transmit(' "$source" >/dev/null 2>&1; then
-    fail "transmit call exists outside the three private fixed-plan adapters: $source"
+    fail "transmit call exists outside the four private fixed-plan adapters: $source"
   fi
 done
 for forbidden_surface in '.control(' '.get_attribute(' '.begin_transaction(' 'pub fn card' 'pub fn context' 'pub use pcsc::'; do
