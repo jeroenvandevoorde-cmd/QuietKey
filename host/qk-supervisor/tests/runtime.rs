@@ -10,18 +10,21 @@ use qk_supervisor::{
 };
 use std::ffi::OsString;
 use std::fs::{self, File};
+use std::io::Write;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{symlink, PermissionsExt};
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::time::{Duration, Instant};
+use std::process::{Command, ExitStatus, Output, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 extern "C" {
     fn dup2(source: i32, target: i32) -> i32;
     fn pipe(descriptors: *mut i32) -> i32;
     fn kill(process: i32, signal: i32) -> i32;
+    fn signal(signal: i32, handler: usize) -> usize;
 }
 
 fn advanced(outcome: ProcessLifecycleOutcome) -> ProcessLifecycleAction {
@@ -257,45 +260,57 @@ fn invocation_parser_locks_mode_specific_arguments_profiles_and_absent_absolute_
 #[test]
 fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_connection_loss() {
     let root = short_test_root("integration");
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).unwrap();
+    fs::create_dir(&root).unwrap();
     let binaries = build_product_binaries(&root);
     let supervisor = binaries.join("qk-supervisor-host");
 
     for mode in ["setup", "kit"] {
-        assert_output(run_launcher(&supervisor, mode, &root), 0);
+        assert_output(run_launcher(&supervisor, mode, &root, mode), 0);
     }
 
     let preexisting = root.join("preexisting");
     fs::create_dir(&preexisting).unwrap();
     assert_output(
-        Command::new(&supervisor)
-            .arg("setup")
-            .arg(&preexisting)
-            .output()
-            .unwrap(),
+        checked_command(
+            Command::new(&supervisor).arg("setup").arg(&preexisting),
+            &root,
+            "preexisting-runtime",
+            &preexisting,
+        ),
         64,
     );
     fs::remove_dir(&preexisting).unwrap();
     let symlink_path = root.join("symlink-runtime");
     symlink(&root, &symlink_path).unwrap();
     assert_output(
-        Command::new(&supervisor)
-            .arg("setup")
-            .arg(&symlink_path)
-            .output()
-            .unwrap(),
+        checked_command(
+            Command::new(&supervisor).arg("setup").arg(&symlink_path),
+            &root,
+            "symlink-runtime",
+            &symlink_path,
+        ),
         64,
     );
     fs::remove_file(&symlink_path).unwrap();
-    assert_output(Command::new(&supervisor).output().unwrap(), 64);
     assert_output(
-        Command::new(&supervisor)
-            .arg("setup")
-            .arg(root.join("extra-runtime"))
-            .arg("extra")
-            .output()
-            .unwrap(),
+        checked_command(
+            &mut Command::new(&supervisor),
+            &root,
+            "missing-arguments",
+            &root.join("missing-runtime"),
+        ),
+        64,
+    );
+    assert_output(
+        checked_command(
+            Command::new(&supervisor)
+                .arg("setup")
+                .arg(root.join("extra-runtime"))
+                .arg("extra"),
+            &root,
+            "extra-argument",
+            &root.join("extra-runtime"),
+        ),
         64,
     );
 
@@ -309,7 +324,7 @@ fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_con
     let disconnect = compile_stub(
         &root,
         "disconnect",
-        "use std::time::Duration; extern \"C\" { fn close(fd: i32) -> i32; } fn main() { unsafe { close(0); close(1); } std::thread::sleep(Duration::from_secs(30)); }",
+        "use std::time::Duration; extern \"C\" { fn close(fd: i32) -> i32; } fn main() { unsafe { close(0); close(1); } std::thread::sleep(Duration::from_secs(5)); }",
     );
     replace_and_test_failure(&binaries, &supervisor, &root, "qk-io-host", &disconnect);
 
@@ -369,11 +384,18 @@ fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_con
 
     exact_inherited_descriptors_and_pretraffic_unlink_are_observed(&binaries, &supervisor, &root);
 
-    fs::remove_dir_all(&root).unwrap();
+    println!(
+        "QK-DEC-166 launcher-cycle evidence retained: {}",
+        root.display()
+    );
 }
 
 fn short_test_root(label: &str) -> PathBuf {
-    PathBuf::from(format!("/tmp/qk-s8-{label}-{}", std::process::id()))
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    PathBuf::from(format!("/tmp/qk-s8-{label}-{}-{nonce}", std::process::id()))
 }
 
 fn build_product_binaries(root: &Path) -> PathBuf {
@@ -432,7 +454,11 @@ fn replace_and_test_failure(
     replacement: &Path,
 ) {
     let saved = replace_child(binaries, child_name, replacement);
-    assert_output(run_launcher(supervisor, "normal", root), 70);
+    let label = format!(
+        "replace-{child_name}-{}",
+        replacement.file_name().unwrap().to_string_lossy()
+    );
+    assert_output(run_launcher(supervisor, "normal", root, &label), 70);
     restore_child(binaries, child_name, &saved);
 }
 
@@ -447,7 +473,10 @@ fn replace_with_exec_failure_and_test_cleanup(
     fs::rename(&child, &saved).unwrap();
     fs::write(&child, b"not-an-executable").unwrap();
     fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
-    assert_output(run_launcher(supervisor, "normal", root), 70);
+    assert_output(
+        run_launcher(supervisor, "normal", root, "core-exec-failure"),
+        70,
+    );
     fs::remove_file(&child).unwrap();
     fs::rename(saved, child).unwrap();
 }
@@ -461,7 +490,12 @@ fn replace_two_and_test_failure(
 ) {
     let first_saved = replace_child(binaries, first.0, first.1);
     let second_saved = replace_child(binaries, second.0, second.1);
-    assert_output(run_launcher(supervisor, "normal", root), 70);
+    let label = format!(
+        "pair-{}-{}",
+        first.1.file_name().unwrap().to_string_lossy(),
+        second.1.file_name().unwrap().to_string_lossy()
+    );
+    assert_output(run_launcher(supervisor, "normal", root, &label), 70);
     restore_child(binaries, first.0, &first_saved);
     restore_child(binaries, second.0, &second_saved);
 }
@@ -480,9 +514,13 @@ fn restore_child(binaries: &Path, child_name: &str, saved: &Path) {
     fs::rename(saved, child).unwrap();
 }
 
-fn run_launcher(supervisor: &Path, mode: &str, root: &Path) -> Output {
+fn run_launcher(supervisor: &Path, mode: &str, root: &Path, label: &str) -> HarnessOutput {
     let runtime = root.join(format!("runtime-{mode}"));
-    let _ = fs::remove_dir(&runtime);
+    assert!(
+        !runtime.exists(),
+        "prior runtime retained at {}",
+        runtime.display()
+    );
     let ambient = File::open("/dev/null").unwrap();
     let mut command = Command::new(supervisor);
     command.arg(mode);
@@ -514,8 +552,12 @@ fn run_launcher(supervisor: &Path, mode: &str, root: &Path) -> Output {
             }
         });
     }
-    let output = command.output().unwrap();
-    assert!(!runtime.exists());
+    let output = checked_command(&mut command, root, label, &runtime);
+    assert!(
+        !runtime.exists(),
+        "runtime residue; evidence {}",
+        output.directory.display()
+    );
     output
 }
 
@@ -581,9 +623,39 @@ struct InspectorCycle {
     passed: bool,
 }
 
-struct InspectorChild {
+const LAUNCHER_DEADLINE: Duration = Duration::from_secs(30);
+const LAUNCHER_POLL: Duration = Duration::from_millis(10);
+const CLEANUP_PHASE: Duration = Duration::from_secs(1);
+static CYCLE_NUMBER: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug)]
+struct HarnessOutput {
+    output: Output,
+    directory: PathBuf,
+}
+
+#[derive(Debug)]
+struct HarnessFailure {
+    name: &'static str,
+    cleanup_failed: bool,
+    directory: PathBuf,
+}
+
+enum ReadyAction<'a> {
+    None,
+    Expire(&'a Path),
+    Unwind(&'a Path),
+}
+
+struct HarnessChild {
     child: std::process::Child,
-    reaped: bool,
+    status: Option<ExitStatus>,
+    finished: bool,
+    clock: Instant,
+    evidence: File,
+    directory: PathBuf,
+    root: PathBuf,
+    runtime: PathBuf,
 }
 
 fn group_signal(id: u32, signal: i32) -> std::io::Result<()> {
@@ -600,28 +672,645 @@ fn group_absent(id: u32) -> bool {
     matches!(group_signal(id, 0), Err(error) if error.raw_os_error() == Some(3))
 }
 
-impl Drop for InspectorChild {
-    fn drop(&mut self) {
-        // Also runs on parent-test unwind; only this test's group is affected.
-        if !group_absent(self.child.id()) {
-            let _ = group_signal(self.child.id(), 9);
+impl HarnessChild {
+    fn poll_reaped_and_absent(&mut self) -> bool {
+        if self.status.is_none() {
+            match self.child.try_wait() {
+                Ok(status) => self.status = status,
+                Err(error) => {
+                    let _ = writeln!(self.evidence, "cleanup_try_wait_error\t{error}");
+                }
+            }
         }
-        if !self.reaped {
-            let _ = self.child.wait();
+        self.status.is_some() && group_absent(self.child.id())
+    }
+
+    fn cleanup(&mut self) -> bool {
+        if self.poll_reaped_and_absent() {
+            return true;
+        }
+        for (name, signal) in [("group_term", 15), ("group_kill", 9)] {
+            let result = group_signal(self.child.id(), signal);
+            let _ = writeln!(self.evidence, "{name}\t{result:?}");
+            let phase = Instant::now();
+            loop {
+                if self.poll_reaped_and_absent() {
+                    return true;
+                }
+                if phase.elapsed() >= CLEANUP_PHASE {
+                    break;
+                }
+                std::thread::sleep(LAUNCHER_POLL);
+            }
+        }
+        self.poll_reaped_and_absent()
+    }
+
+    fn finish(
+        &mut self,
+        mut first_failure: Option<&'static str>,
+    ) -> Result<HarnessOutput, HarnessFailure> {
+        if first_failure.is_none() && self.status.is_some() && !group_absent(self.child.id()) {
+            first_failure = Some("LauncherHarnessDescendantsRemain");
+        }
+        let cleaned = self.cleanup();
+        if !cleaned && first_failure.is_none() {
+            first_failure = Some("LauncherHarnessCleanupFailed");
+        }
+        // If cleanup failed, a surviving writer may still append. Retain its
+        // files without reading to EOF; the original failure remains primary.
+        let stdout = if cleaned {
+            fs::read(self.directory.join("launcher.stdout"))
+        } else {
+            Ok(Vec::new())
+        };
+        let stderr = if cleaned {
+            fs::read(self.directory.join("launcher.stderr"))
+        } else {
+            Ok(Vec::new())
+        };
+        if (stdout.is_err() || stderr.is_err()) && first_failure.is_none() {
+            first_failure = Some("LauncherHarnessEvidenceFailed");
+        }
+        let recorded = (|| -> std::io::Result<()> {
+            writeln!(self.evidence, "end_utc\t{}", utc_now())?;
+            writeln!(
+                self.evidence,
+                "elapsed_ms\t{}",
+                self.clock.elapsed().as_millis()
+            )?;
+            writeln!(self.evidence, "launcher_status\t{:?}", self.status)?;
+            writeln!(
+                self.evidence,
+                "launcher_exit_code\t{:?}",
+                self.status.and_then(|status| status.code())
+            )?;
+            writeln!(
+                self.evidence,
+                "launcher_signal\t{:?}",
+                self.status.and_then(|status| status.signal())
+            )?;
+            writeln!(self.evidence, "launcher_reaped\t{}", self.status.is_some())?;
+            writeln!(
+                self.evidence,
+                "timed_out\t{}",
+                first_failure == Some("LauncherHarnessTimeout")
+            )?;
+            writeln!(
+                self.evidence,
+                "process_group_absent\t{}",
+                group_absent(self.child.id())
+            )?;
+            writeln!(
+                self.evidence,
+                "cleanup\t{}",
+                if cleaned {
+                    "PASS"
+                } else {
+                    "LauncherHarnessCleanupFailed"
+                }
+            )?;
+            writeln!(self.evidence, "runtime_path\t{:?}", self.runtime)?;
+            writeln!(
+                self.evidence,
+                "runtime_present\t{}",
+                self.runtime.symlink_metadata().is_ok()
+            )?;
+            for name in ["launcher.stdout", "launcher.stderr"] {
+                record_artifact(
+                    &mut self.evidence,
+                    &self.directory,
+                    &self.directory.join(name),
+                )?;
+            }
+            for entry in fs::read_dir(&self.root)? {
+                let path = entry?.path();
+                record_artifact(&mut self.evidence, &self.root, &path)?;
+            }
+            for role in ["decoy", "core", "io"] {
+                for suffix in ["evidence", "stderr", "fail", "sentinel"] {
+                    record_artifact(
+                        &mut self.evidence,
+                        &self.root,
+                        &self
+                            .root
+                            .join("inspector-current")
+                            .join(format!("{role}.{suffix}")),
+                    )?;
+                }
+                record_artifact(
+                    &mut self.evidence,
+                    &self.root,
+                    &self
+                        .root
+                        .join("target/debug")
+                        .join(format!("qk-{role}-host.saved")),
+                )?;
+            }
+            writeln!(
+                self.evidence,
+                "first_failure\t{}",
+                first_failure.unwrap_or("none")
+            )?;
+            self.evidence.sync_all()
+        })();
+        if recorded.is_err() && first_failure.is_none() {
+            first_failure = Some("LauncherHarnessEvidenceFailed");
+        }
+        self.finished = true;
+        if let Some(name) = first_failure {
+            eprintln!(
+                "{name}; cleanup_failed={}; evidence {}",
+                !cleaned,
+                self.directory.display()
+            );
+            return Err(HarnessFailure {
+                name,
+                cleanup_failed: !cleaned,
+                directory: self.directory.clone(),
+            });
+        }
+        match (self.status, stdout, stderr) {
+            (Some(status), Ok(stdout), Ok(stderr)) => Ok(HarnessOutput {
+                output: Output {
+                    status,
+                    stdout,
+                    stderr,
+                },
+                directory: self.directory.clone(),
+            }),
+            _ => Err(HarnessFailure {
+                name: "LauncherHarnessEvidenceFailed",
+                cleanup_failed: !cleaned,
+                directory: self.directory.clone(),
+            }),
         }
     }
 }
 
+impl Drop for HarnessChild {
+    fn drop(&mut self) {
+        if !self.finished {
+            // No wait(), output pipe join, assertion, or second cleanup attempt.
+            let _ = self.finish(Some("LauncherHarnessUnwind"));
+        }
+    }
+}
+
+fn record_artifact(record: &mut File, root: &Path, path: &Path) -> std::io::Result<()> {
+    let name = path.strip_prefix(root).unwrap_or(path);
+    match path.symlink_metadata() {
+        Ok(metadata) => writeln!(
+            record,
+            "artifact\t{name:?}\tPRESENT\t{}\t{:?}",
+            metadata.len(),
+            metadata.file_type()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            writeln!(record, "artifact\t{name:?}\tABSENT")
+        }
+        Err(error) => writeln!(record, "artifact\t{name:?}\tINSPECTION_FAILED\t{error}"),
+    }
+}
+
+fn source_commit_fact() -> String {
+    match std::env::var("QK_TEST_SOURCE_COMMIT") {
+        Ok(value) if value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) => {
+            value
+        }
+        _ => "unavailable".to_owned(),
+    }
+}
+
+fn utc_at(seconds: u64) -> String {
+    let mut days = seconds / 86_400;
+    let mut year = 1970u64;
+    let leap = |year: u64| {
+        year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+    };
+    loop {
+        let length = if leap(year) { 366 } else { 365 };
+        if days < length {
+            break;
+        }
+        days -= length;
+        year += 1;
+    }
+    let lengths = [
+        31,
+        if leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 0;
+    while days >= lengths[month] {
+        days -= lengths[month];
+        month += 1;
+    }
+    let remaining = seconds % 86_400;
+    format!(
+        "{year:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        month + 1,
+        days + 1,
+        remaining / 3600,
+        (remaining % 3600) / 60,
+        remaining % 60
+    )
+}
+
 fn utc_now() -> String {
-    let output = Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .expect("UTC clock");
-    assert!(output.status.success());
-    String::from_utf8(output.stdout)
-        .expect("ASCII clock")
-        .trim()
-        .to_owned()
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(elapsed) => utc_at(elapsed.as_secs()),
+        Err(_) => "UNAVAILABLE: clock before UNIX epoch".to_owned(),
+    }
+}
+
+fn cycle_directory(root: &Path, label: &str) -> PathBuf {
+    assert!(label
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte)));
+    let number = CYCLE_NUMBER.fetch_add(1, Ordering::Relaxed);
+    let directory = root.join(format!("launcher-{number:04}-{label}"));
+    fs::create_dir(&directory).expect("fresh per-cycle directory; never overwrite evidence");
+    directory
+}
+
+fn checked_command(
+    command: &mut Command,
+    root: &Path,
+    label: &str,
+    runtime: &Path,
+) -> HarnessOutput {
+    let directory = cycle_directory(root, label);
+    run_command(command, root, label, runtime, &directory, ReadyAction::None).unwrap_or_else(
+        |failure| {
+            panic!(
+                "{}; cleanup_failed={}; evidence {}",
+                failure.name,
+                failure.cleanup_failed,
+                failure.directory.display()
+            )
+        },
+    )
+}
+
+fn run_command(
+    command: &mut Command,
+    root: &Path,
+    label: &str,
+    runtime: &Path,
+    directory: &Path,
+    ready_action: ReadyAction<'_>,
+) -> Result<HarnessOutput, HarnessFailure> {
+    let failure = |name| HarnessFailure {
+        name,
+        cleanup_failed: false,
+        directory: directory.to_owned(),
+    };
+    let mut evidence = File::options()
+        .create_new(true)
+        .write(true)
+        .open(directory.join("harness.tsv"))
+        .map_err(|_| failure("LauncherHarnessEvidenceFailed"))?;
+    let prepared = (|| -> std::io::Result<()> {
+        writeln!(evidence, "source_commit\t{}", source_commit_fact())?;
+        writeln!(
+            evidence,
+            "source_commit_origin\trunner-supplied; not inspected by test"
+        )?;
+        writeln!(
+            evidence,
+            "test\t{}",
+            std::thread::current().name().unwrap_or("unnamed")
+        )?;
+        writeln!(evidence, "cycle\t{label}")?;
+        writeln!(evidence, "program\t{:?}", command.get_program())?;
+        writeln!(
+            evidence,
+            "arguments\t{:?}",
+            command.get_args().collect::<Vec<_>>()
+        )?;
+        writeln!(evidence, "start_utc\t{}", utc_now())?;
+        for (name, stdout) in [("launcher.stdout", true), ("launcher.stderr", false)] {
+            let file = File::options()
+                .create_new(true)
+                .write(true)
+                .open(directory.join(name))?;
+            if stdout {
+                command.stdout(Stdio::from(file));
+            } else {
+                command.stderr(Stdio::from(file));
+            }
+        }
+        evidence.sync_all()
+    })();
+    if let Err(error) = prepared {
+        let _ = writeln!(
+            evidence,
+            "first_failure\tLauncherHarnessEvidenceFailed\t{error}"
+        );
+        return Err(failure("LauncherHarnessEvidenceFailed"));
+    }
+    command.process_group(0);
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = writeln!(
+                evidence,
+                "first_failure\tLauncherHarnessSpawnFailed\t{error}"
+            );
+            let _ = evidence.sync_all();
+            return Err(failure("LauncherHarnessSpawnFailed"));
+        }
+    };
+    let clock = Instant::now();
+    let mut owned = HarnessChild {
+        child,
+        status: None,
+        finished: false,
+        clock,
+        evidence,
+        directory: directory.to_owned(),
+        root: root.to_owned(),
+        runtime: runtime.to_owned(),
+    };
+    let recorded = writeln!(
+        owned.evidence,
+        "launcher_pid\t{}\nprocess_group\t{}\ndeadline_ms\t{}",
+        owned.child.id(),
+        owned.child.id(),
+        LAUNCHER_DEADLINE.as_millis()
+    );
+    if recorded.is_err() {
+        return owned.finish(Some("LauncherHarnessEvidenceFailed"));
+    }
+    let first_failure = loop {
+        match owned.child.try_wait() {
+            Ok(Some(status)) => {
+                owned.status = Some(status);
+                break None;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let _ = writeln!(owned.evidence, "try_wait_error\t{error}");
+                break Some("LauncherHarnessWaitFailed");
+            }
+        }
+        match ready_action {
+            ReadyAction::Expire(path) if path.exists() => {
+                let _ = writeln!(owned.evidence, "ready_deadline_seam\t{:?}", path);
+                break Some("LauncherHarnessTimeout");
+            }
+            ReadyAction::Unwind(path) if path.exists() => panic!("test-only ready unwind seam"),
+            _ => {}
+        }
+        if clock.elapsed() >= LAUNCHER_DEADLINE {
+            break Some("LauncherHarnessTimeout");
+        }
+        std::thread::sleep(LAUNCHER_POLL);
+    };
+    owned.finish(first_failure)
+}
+
+static FIXTURE_TERM: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn fixture_term(_: i32) {
+    FIXTURE_TERM.store(true, Ordering::Relaxed);
+}
+
+#[test]
+#[ignore = "subprocess only for deterministic QK-DEC-166 harness regressions"]
+fn launcher_harness_blocking_fixture() {
+    let root = PathBuf::from(std::env::var_os("QK166_FIXTURE_ROOT").expect("fixture root"));
+    if std::env::var_os("QK166_DESCENDANT").is_some() {
+        fs::write(
+            root.join("descendant-ready"),
+            format!("{}\n", std::process::id()),
+        )
+        .unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+    // SAFETY: the handler only stores an atomic flag and is installed in this
+    // single-purpose subprocess; the execed descendant keeps default SIGTERM.
+    assert_ne!(
+        unsafe { signal(15, fixture_term as *const () as usize) },
+        usize::MAX
+    );
+    let mut descendant = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "launcher_harness_blocking_fixture",
+            "--nocapture",
+        ])
+        .env("QK166_DESCENDANT", "1")
+        .spawn()
+        .unwrap();
+    let ready_wait = Instant::now();
+    while !root.join("descendant-ready").exists() {
+        assert!(ready_wait.elapsed() < Duration::from_secs(10));
+        assert!(descendant.try_wait().unwrap().is_none());
+        std::thread::sleep(LAUNCHER_POLL);
+    }
+    fs::write(
+        root.join("both-ready"),
+        format!("{}\n{}\n", std::process::id(), descendant.id()),
+    )
+    .unwrap();
+    while !FIXTURE_TERM.load(Ordering::Relaxed) {
+        std::thread::sleep(LAUNCHER_POLL);
+    }
+    // The leader remains alive to reap its TERM-terminated descendant. This
+    // avoids relying on an external init process to reap orphan zombies.
+    let reap = Instant::now();
+    loop {
+        if let Some(status) = descendant.try_wait().unwrap() {
+            fs::write(root.join("descendant-reaped"), format!("{status}\n")).unwrap();
+            return;
+        }
+        assert!(reap.elapsed() < Duration::from_millis(800));
+        std::thread::sleep(LAUNCHER_POLL);
+    }
+}
+
+fn blocking_fixture_command(root: &Path) -> Command {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--ignored",
+            "--exact",
+            "launcher_harness_blocking_fixture",
+            "--nocapture",
+        ])
+        .env("QK166_FIXTURE_ROOT", root);
+    command
+}
+
+fn assert_cleaned_fixture(root: &Path, directory: &Path, failure: &str) {
+    let record = fs::read_to_string(directory.join("harness.tsv")).unwrap();
+    for fact in [
+        format!("first_failure\t{failure}\n"),
+        "launcher_reaped\ttrue\n".to_owned(),
+        "process_group_absent\ttrue\n".to_owned(),
+        "cleanup\tPASS\n".to_owned(),
+    ] {
+        assert!(record.contains(&fact), "{record}");
+    }
+    let ready = fs::read_to_string(root.join("both-ready")).unwrap();
+    let pids: Vec<u32> = ready.lines().map(|line| line.parse().unwrap()).collect();
+    assert_eq!(pids.len(), 2);
+    assert!(group_absent(pids[0]));
+    assert!(root.join("descendant-reaped").exists());
+    assert!(directory.join("launcher.stdout").is_file());
+    assert!(directory.join("launcher.stderr").is_file());
+    assert!(directory.starts_with(root));
+}
+
+#[test]
+fn launcher_harness_ready_timeout_reaps_leader_and_descendant_and_retains_evidence() {
+    let root = short_test_root("deadline");
+    fs::create_dir(&root).unwrap();
+    let directory = cycle_directory(&root, "ready-timeout");
+    let ready = root.join("both-ready");
+    let failure = run_command(
+        &mut blocking_fixture_command(&root),
+        &root,
+        "ready-timeout",
+        &root.join("runtime"),
+        &directory,
+        ReadyAction::Expire(&ready),
+    )
+    .unwrap_err();
+    assert_eq!(failure.name, "LauncherHarnessTimeout");
+    assert!(!failure.cleanup_failed);
+    assert_eq!(failure.directory, directory);
+    assert_cleaned_fixture(&root, &directory, "LauncherHarnessTimeout");
+    println!(
+        "QK-DEC-166 deterministic timeout evidence: {}",
+        root.display()
+    );
+}
+
+#[test]
+fn launcher_harness_ready_unwind_uses_the_same_bounded_cleanup() {
+    let root = short_test_root("unwind");
+    fs::create_dir(&root).unwrap();
+    let directory = cycle_directory(&root, "ready-unwind");
+    let ready = root.join("both-ready");
+    let result = std::panic::catch_unwind(|| {
+        let _ = run_command(
+            &mut blocking_fixture_command(&root),
+            &root,
+            "ready-unwind",
+            &root.join("runtime"),
+            &directory,
+            ReadyAction::Unwind(&ready),
+        );
+    });
+    assert!(result.is_err());
+    assert_cleaned_fixture(&root, &directory, "LauncherHarnessUnwind");
+    println!(
+        "QK-DEC-166 deterministic unwind evidence: {}",
+        root.display()
+    );
+}
+
+#[test]
+fn launcher_harness_retains_ordinary_statuses_without_confusing_them_with_timeout() {
+    let root = short_test_root("ordinary-exits");
+    fs::create_dir(&root).unwrap();
+    let binary = compile_stub(
+        &root,
+        "fixed-exit",
+        "fn main() { std::process::exit(std::env::args().nth(1).unwrap().parse().unwrap()); }",
+    );
+    for code in [0, 64, 70] {
+        let result = checked_command(
+            Command::new(&binary).arg(code.to_string()),
+            &root,
+            &format!("exit-{code}"),
+            &root.join("absent-runtime"),
+        );
+        let record = fs::read_to_string(result.directory.join("harness.tsv")).unwrap();
+        assert!(record.contains("first_failure\tnone\n"));
+        assert!(record.contains("timed_out\tfalse\n"));
+        assert_output(result, code);
+    }
+}
+
+#[test]
+fn launcher_harness_kills_a_ready_term_ignoring_leader_within_the_cleanup_bound() {
+    let root = short_test_root("kill-phase");
+    fs::create_dir(&root).unwrap();
+    let ready = root.join("ready");
+    let binary = compile_stub(
+        &root,
+        "ignores-term",
+        &format!("extern \"C\" {{ fn signal(signal: i32, handler: usize) -> usize; }} fn main() {{ unsafe {{ signal(15, 1); }} std::fs::write({ready:?}, b\"READY\\n\").unwrap(); loop {{ std::thread::park(); }} }}"),
+    );
+    let directory = cycle_directory(&root, "kill-phase");
+    let failure = run_command(
+        &mut Command::new(&binary),
+        &root,
+        "kill-phase",
+        &root.join("runtime"),
+        &directory,
+        ReadyAction::Expire(&ready),
+    )
+    .unwrap_err();
+    assert_eq!(failure.name, "LauncherHarnessTimeout");
+    assert!(!failure.cleanup_failed);
+    let record = fs::read_to_string(directory.join("harness.tsv")).unwrap();
+    assert!(record.contains("group_term\tOk(())\n"), "{record}");
+    assert!(record.contains("group_kill\tOk(())\n"), "{record}");
+    assert!(record.contains("launcher_signal\tSome(9)\n"), "{record}");
+    assert!(record.contains("launcher_reaped\ttrue\n"), "{record}");
+    assert!(record.contains("process_group_absent\ttrue\n"), "{record}");
+}
+
+#[test]
+fn launcher_harness_spawn_failure_preserves_the_attempt_without_a_child() {
+    let root = short_test_root("spawn-failure");
+    fs::create_dir(&root).unwrap();
+    let directory = cycle_directory(&root, "missing-binary");
+    let failure = run_command(
+        Command::new(root.join("absent-binary")).arg("fixed-argument"),
+        &root,
+        "missing-binary",
+        &root.join("runtime"),
+        &directory,
+        ReadyAction::None,
+    )
+    .unwrap_err();
+    assert_eq!(failure.name, "LauncherHarnessSpawnFailed");
+    assert!(!failure.cleanup_failed);
+    let record = fs::read_to_string(directory.join("harness.tsv")).unwrap();
+    assert!(record.contains("first_failure\tLauncherHarnessSpawnFailed\t"));
+    assert!(record.contains("fixed-argument"));
+    assert!(!record.contains("launcher_pid\t"));
+    assert!(directory.join("launcher.stdout").exists());
+    assert!(directory.join("launcher.stderr").exists());
+}
+
+#[test]
+fn launcher_harness_clock_is_utc_without_spawning_a_program() {
+    assert_eq!(LAUNCHER_DEADLINE, Duration::from_secs(30));
+    assert_eq!(LAUNCHER_POLL, Duration::from_millis(10));
+    assert_eq!(CLEANUP_PHASE, Duration::from_secs(1));
+    assert_eq!(utc_at(0), "1970-01-01T00:00:00Z");
+    assert_eq!(utc_at(951_782_400), "2000-02-29T00:00:00Z");
+    assert_eq!(utc_at(1_709_164_799), "2024-02-28T23:59:59Z");
+    assert_eq!(utc_at(1_788_876_800), "2026-09-08T14:13:20Z");
 }
 
 fn inspector_cycle(
@@ -630,9 +1319,6 @@ fn inspector_cycle(
     label: &str,
     injection: Option<&str>,
 ) -> InspectorCycle {
-    use std::io::Write;
-    use std::process::Stdio;
-
     let current = root.join("inspector-current");
     fs::create_dir(&current).expect("fresh evidence directory");
     if let Some(injection) = injection {
@@ -645,12 +1331,6 @@ fn inspector_cycle(
     let (_pairs, sources) = normal_device_pipes();
     let mut command = Command::new(supervisor);
     command.args(["normal", "01"]).arg(&runtime);
-    command.stdout(Stdio::from(
-        File::create(current.join("launcher.stdout")).unwrap(),
-    ));
-    command.stderr(Stdio::from(
-        File::create(current.join("launcher.stderr")).unwrap(),
-    ));
     command.process_group(0);
     // SAFETY: only dup2 runs between fork and exec; all sources remain owned.
     unsafe {
@@ -666,66 +1346,27 @@ fn inspector_cycle(
             Ok(())
         });
     }
-    let mut child = InspectorChild {
-        child: command.spawn().expect("inspector launcher spawn"),
-        reaped: false,
-    };
-    let mut timed_out = false;
-    let mut termination = String::new();
-    let status = loop {
-        if let Some(status) = child.child.try_wait().unwrap() {
-            child.reaped = true;
-            break status;
-        }
-        if clock.elapsed() >= Duration::from_secs(30) {
-            timed_out = true;
-            termination.push_str(&format!(
-                "group_term\t{:?}\n",
-                group_signal(child.child.id(), 15)
-            ));
-            std::thread::sleep(Duration::from_secs(1));
-            termination.push_str(&format!(
-                "group_kill\t{:?}\n",
-                group_signal(child.child.id(), 9)
-            ));
-            let status = child.child.wait().unwrap();
-            child.reaped = true;
-            break status;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    let reap_wait = Instant::now();
-    while !group_absent(child.child.id()) && reap_wait.elapsed() < Duration::from_secs(1) {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let group_gone = group_absent(child.child.id());
-    if !group_gone {
-        termination.push_str(&format!(
-            "lingering_group_kill\t{:?}\n",
-            group_signal(child.child.id(), 9)
-        ));
-        let cleanup_wait = Instant::now();
-        while !group_absent(child.child.id()) && cleanup_wait.elapsed() < Duration::from_secs(1) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(
-            group_absent(child.child.id()),
-            "unreaped group; preserve untouched evidence at {}",
-            current.display()
-        );
-    }
-    let mut record = File::create(current.join("result.tsv")).unwrap();
-    let source = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    assert!(source.status.success());
-    writeln!(
-        record,
-        "source_commit\t{}",
-        String::from_utf8(source.stdout).unwrap().trim()
+    let observed = run_command(
+        &mut command,
+        root,
+        label,
+        &runtime,
+        &current,
+        ReadyAction::None,
     )
-    .unwrap();
+    .unwrap_or_else(|failure| {
+        panic!(
+            "{}; cleanup_failed={}; evidence {}",
+            failure.name,
+            failure.cleanup_failed,
+            failure.directory.display()
+        )
+    });
+    let status = observed.output.status;
+    let timed_out = false;
+    let group_gone = true; // A successful bounded runner has reaped and checked the entire group.
+    let mut record = File::create(current.join("result.tsv")).unwrap();
+    writeln!(record, "source_commit\t{}", source_commit_fact()).unwrap();
     writeln!(record, "cycle\t{label}").unwrap();
     writeln!(record, "start_utc\t{start}").unwrap();
     writeln!(record, "end_utc\t{}", utc_now()).unwrap();
@@ -733,7 +1374,7 @@ fn inspector_cycle(
     writeln!(record, "launcher_exit\t{status}").unwrap();
     writeln!(record, "timed_out\t{timed_out}").unwrap();
     writeln!(record, "process_group_absent\t{group_gone}").unwrap();
-    record.write_all(termination.as_bytes()).unwrap();
+    writeln!(record, "bounded_harness\tharness.tsv").unwrap();
     writeln!(record, "runtime_removed\t{}", !runtime.exists()).unwrap();
     let mut passed = status.success() && !timed_out && !runtime.exists() && group_gone;
     for role in ["decoy", "core", "io"] {
@@ -784,12 +1425,12 @@ fn exact_inherited_descriptors_and_pretraffic_unlink_are_observed(
 ) {
     let programs = InspectorPrograms::install(binaries, root);
     let cycle = inspector_cycle(supervisor, root, "normal-inspector", None);
-    programs.restore(binaries);
     assert!(
         cycle.passed,
         "inspector evidence retained at {}",
         cycle.directory.display()
     );
+    programs.restore(binaries);
 }
 
 #[test]
@@ -845,7 +1486,33 @@ impl Drop for CpuWorkers {
     fn drop(&mut self) {
         for child in &mut self.0 {
             let _ = child.kill();
-            let _ = child.wait();
+        }
+        let mut reaped = vec![false; self.0.len()];
+        let deadline = Instant::now();
+        loop {
+            for (child, done) in self.0.iter_mut().zip(&mut reaped) {
+                if !*done {
+                    *done = matches!(child.try_wait(), Ok(Some(_)));
+                }
+            }
+            if reaped.iter().all(|done| *done) {
+                return;
+            }
+            if deadline.elapsed() >= CLEANUP_PHASE {
+                break;
+            }
+            std::thread::sleep(LAUNCHER_POLL);
+        }
+        for (child, done) in self.0.iter().zip(reaped) {
+            if !done {
+                eprintln!(
+                    "LauncherHarnessCleanupFailed: CPU worker {} was not reaped",
+                    child.id()
+                );
+            }
+        }
+        if !std::thread::panicking() {
+            panic!("LauncherHarnessCleanupFailed");
         }
     }
 }
@@ -907,12 +1574,11 @@ fn inspector_diagnosis_50_unloaded_20_loaded() {
     use std::io::Write;
     let root = short_test_root("diagnosis-163");
     fs::create_dir(&root).expect("fresh diagnosis root; never overwrite prior runs");
-    let source = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    assert!(source.status.success());
-    fs::write(root.join("source_commit"), &source.stdout).unwrap();
+    fs::write(
+        root.join("source_commit"),
+        format!("{}\n", source_commit_fact()),
+    )
+    .unwrap();
     for (name, program, arguments) in [
         ("machine.txt", "uname", vec!["-sm"]),
         ("rustc.txt", "rustc", vec!["--version", "--verbose"]),
@@ -995,10 +1661,12 @@ fn inspector_diagnosis_50_unloaded_20_loaded() {
     );
 }
 
-fn assert_output(output: Output, status: i32) {
-    assert_eq!(output.status.code(), Some(status));
-    assert!(output.stdout.is_empty());
-    assert!(output.stderr.is_empty());
+fn assert_output(result: HarnessOutput, status: i32) {
+    let evidence = result.directory.display();
+    let output = result.output;
+    assert_eq!(output.status.code(), Some(status), "evidence {evidence}");
+    assert!(output.stdout.is_empty(), "evidence {evidence}");
+    assert!(output.stderr.is_empty(), "evidence {evidence}");
 }
 
 #[test]
