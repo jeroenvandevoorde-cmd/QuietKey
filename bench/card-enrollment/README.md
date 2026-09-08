@@ -94,20 +94,19 @@ The exact command form is:
 ```sh
 cargo run --manifest-path bench/card-enrollment/Cargo.toml --locked --offline -- \
   sitting <install-info|provision-golden> \
-  17f3b26acc97930d94d5acec9d3b4dd83dcda31a \
+  <SITTING_CAMPAIGN_SOURCE_COMMIT> \
   <YYYY-MM-DDTHH:MM:SSZ> iMac SCR3310-01 J3R180-02 \
   4964656e7469766520534352333378782076322e302055534220534320526561646572 \
   <absolute-new-output>
 ```
 
-The 40-hex argument is the fixed CAP campaign source: Row A helper commit
-`17f3b26acc97930d94d5acec9d3b4dd83dcda31a`. It is not a claim about the
+Replace `<SITTING_CAMPAIGN_SOURCE_COMMIT>` with the 40-hex value of
+`SITTING_CAMPAIGN_SOURCE_COMMIT` in `src/sitting.rs` from the row-authorized
+tool checkout. It is the fixed CAP campaign source, not a claim about the
 sitting-tool executable's source; the physical sitting record separately binds
-the published Lane B tool revision. The plans also bind the canonical
-49,313-byte CAP with SHA-256
-`b20ba762d4c5b6c92f8f121980b425b295dcb2c2d3e4cad2a3b405be4efbb52f` and
-the nine applet sources at
-`7e3407f8607f580f5f9df29ae28428d894b483f2`.
+the published Lane B tool revision. The same file defines the canonical CAP
+byte count and SHA-256 as `CANONICAL_CAP_BYTES` and `CANONICAL_CAP_SHA256`, and
+the nine applet sources' revision as `SITTING_APPLET_SOURCE_COMMIT`.
 
 The output must be an absent absolute path whose basename is exactly
 `qk-card-sitting-v1__<mode>__J3R180-02__<utc>.txt`. The tool creates it with
