@@ -215,6 +215,70 @@ fn pass_runs_only_the_four_fixed_requests_and_retains_initialization_fields() {
 }
 
 #[test]
+fn specimen03_mock_transcript_differs_only_in_three_validated_header_fields() {
+    let mut backend02 = MockBackend::passing();
+    let (summary02, transcript02) = run(&mut backend02);
+    let mut backend03 = MockBackend::passing();
+    let metadata03 = metadata_result(
+        SOURCE_COMMIT,
+        &format!("/tmp/qk-card-sitting-v1__management-observe__J3R180-03__{TIMESTAMP}.txt"),
+        "J3R180-03",
+    )
+    .expect("validated specimen03 metadata");
+    let mut transcript03 = ManagementObservationTranscript::new(Vec::new());
+    let summary03 = run_management_observation(&metadata03, &mut backend03, &mut transcript03);
+    let transcript03 = String::from_utf8(transcript03.into_inner()).expect("ASCII transcript");
+
+    assert_eq!(summary03, summary02);
+    assert_eq!(summary03.outcome, ObservationOutcome::Pass);
+    assert_eq!(summary03.transmit_calls, 4);
+    assert_eq!(summary03.received_responses, 4);
+    assert_eq!(summary03.disconnect, Some(ObservationOutcome::Pass));
+    assert_eq!(summary03.first_failure, None);
+    assert_eq!(backend03.requests, backend02.requests);
+    assert_eq!(backend03.connect_calls, 1);
+    assert_eq!(backend03.disconnect_calls, 1);
+    assert!(!backend03.connected);
+
+    let permitted_changes = [
+        ("tool_version=0.0.5\n".to_owned(), "tool_version=0.0.8\n".to_owned()),
+        ("specimen_alias=J3R180-02\n".to_owned(), "specimen_alias=J3R180-03\n".to_owned()),
+        (
+            format!("output_basename=qk-card-sitting-v1__management-observe__J3R180-02__{TIMESTAMP}.txt\n"),
+            format!("output_basename=qk-card-sitting-v1__management-observe__J3R180-03__{TIMESTAMP}.txt\n"),
+        ),
+    ];
+    assert_eq!(transcript02.lines().count(), transcript03.lines().count());
+    assert_eq!(
+        transcript02
+            .lines()
+            .zip(transcript03.lines())
+            .filter(|(left, right)| left != right)
+            .count(),
+        3
+    );
+    let mut normalized = transcript03;
+    for (line02, line03) in permitted_changes {
+        assert_eq!(
+            transcript02
+                .split_inclusive('\n')
+                .filter(|line| *line == line02)
+                .count(),
+            1
+        );
+        assert_eq!(
+            normalized
+                .split_inclusive('\n')
+                .filter(|line| *line == line03)
+                .count(),
+            1
+        );
+        normalized = normalized.replace(&line03, &line02);
+    }
+    assert_eq!(normalized, transcript02);
+}
+
+#[test]
 fn e0_status_failure_retains_the_scp_fact_and_all_four_exchange_counts() {
     let mut responses = passing_responses(0x02, None);
     responses[3] = vec![0x6a, 0x82];
@@ -777,22 +841,38 @@ fn reader_count_name_and_total_byte_bounds_keep_the_sitting_pre_apdu() {
 
 #[test]
 fn observation_metadata_accepts_a_new_tool_commit_but_not_a_wrong_binding_or_name() {
-    let valid = metadata_result(
-        SOURCE_COMMIT,
-        &format!("/tmp/qk-card-sitting-v1__management-observe__J3R180-02__{TIMESTAMP}.txt"),
-        "J3R180-02",
-    );
-    assert!(valid.is_ok());
+    for specimen in ["J3R180-02", "J3R180-03"] {
+        let valid = metadata_result(
+            SOURCE_COMMIT,
+            &format!("/tmp/qk-card-sitting-v1__management-observe__{specimen}__{TIMESTAMP}.txt"),
+            specimen,
+        );
+        assert!(valid.is_ok());
+    }
 
     let wrong_specimen = metadata_result(
         SOURCE_COMMIT,
         &format!("/tmp/qk-card-sitting-v1__management-observe__J3R180-02__{TIMESTAMP}.txt"),
-        "J3R180-03",
+        "J3R180-01",
     );
     assert_eq!(
         wrong_specimen.expect_err("wrong specimen"),
         ObservationError::Sitting(SittingError::SittingBindingMismatch)
     );
+
+    for (specimen, filename_specimen) in [("J3R180-02", "J3R180-03"), ("J3R180-03", "J3R180-02")] {
+        let crossed_name = metadata_result(
+            SOURCE_COMMIT,
+            &format!(
+                "/tmp/qk-card-sitting-v1__management-observe__{filename_specimen}__{TIMESTAMP}.txt"
+            ),
+            specimen,
+        );
+        assert_eq!(
+            crossed_name.expect_err("crossed specimen basename"),
+            ObservationError::Sitting(SittingError::SittingOutputNameMismatch)
+        );
+    }
 
     let wrong_name = metadata_result(SOURCE_COMMIT, "/tmp/management-observe.txt", "J3R180-02");
     assert_eq!(

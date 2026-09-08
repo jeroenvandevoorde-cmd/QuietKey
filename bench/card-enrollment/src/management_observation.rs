@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use crate::{
     validate_card_recognition_response, validate_select_response, EnrollmentMode,
     ManagementObservationTranscript, NegotiatedProtocol, SittingError, SittingTransportFailure,
-    ValidatedMetadata, MAX_ATR_BYTES, MAX_READERS, MAX_READER_LIST_BYTES, MAX_READER_NAME_BYTES,
-    REGISTERED_J3R180_ATR, SITTING_READER_NAME,
+    ValidatedMetadata, MANAGEMENT_OBSERVATION_TOOL_VERSION, MAX_ATR_BYTES, MAX_READERS,
+    MAX_READER_LIST_BYTES, MAX_READER_NAME_BYTES, REGISTERED_J3R180_ATR, SITTING_READER_NAME,
 };
 
 pub const MANAGEMENT_OBSERVATION_MODE: &str = "management-observe";
@@ -164,6 +164,7 @@ impl ObservationSummary {
 pub struct ManagementObservationMetadata {
     enrollment: ValidatedMetadata,
     output_path: PathBuf,
+    tool_version: &'static str,
 }
 
 impl ManagementObservationMetadata {
@@ -172,13 +173,25 @@ impl ManagementObservationMetadata {
         output_path: PathBuf,
     ) -> Result<Self, ObservationError> {
         validate_management_observation_binding(&enrollment)?;
-        validate_management_observation_output_path(
-            &enrollment.inner().timestamp_utc,
-            output_path.as_path(),
-        )?;
+        let timestamp = &enrollment.inner().timestamp_utc;
+        let tool_version = match enrollment.inner().specimen_alias.as_deref() {
+            Some("J3R180-02") => {
+                validate_management_observation_output_path(timestamp, output_path.as_path())?;
+                MANAGEMENT_OBSERVATION_TOOL_VERSION
+            }
+            Some("J3R180-03") => {
+                let basename = format!(
+                    "qk-card-sitting-v1__{MANAGEMENT_OBSERVATION_MODE}__J3R180-03__{timestamp}.txt"
+                );
+                validate_management_observation_basename(output_path.as_path(), &basename)?;
+                "0.0.8"
+            }
+            _ => return Err(SittingError::SittingBindingMismatch.into()),
+        };
         Ok(Self {
             enrollment,
             output_path,
+            tool_version,
         })
     }
 
@@ -189,6 +202,10 @@ impl ManagementObservationMetadata {
     pub(crate) const fn enrollment(&self) -> &ValidatedMetadata {
         &self.enrollment
     }
+
+    pub(crate) const fn tool_version(&self) -> &'static str {
+        self.tool_version
+    }
 }
 
 pub fn validate_management_observation_binding(
@@ -198,7 +215,10 @@ pub fn validate_management_observation_binding(
     if metadata.mode != EnrollmentMode::Enroll
         || metadata.host_alias != "iMac"
         || metadata.reader_alias != "SCR3310-01"
-        || metadata.specimen_alias.as_deref() != Some("J3R180-02")
+        || !matches!(
+            metadata.specimen_alias.as_deref(),
+            Some("J3R180-02" | "J3R180-03")
+        )
         || metadata.selected_reader_name.as_deref() != Some(SITTING_READER_NAME)
     {
         return Err(SittingError::SittingBindingMismatch.into());
@@ -214,13 +234,23 @@ pub fn validate_management_observation_output_path(
     timestamp_utc: &str,
     path: &Path,
 ) -> Result<(), ObservationError> {
+    validate_management_observation_basename(
+        path,
+        &management_observation_output_basename(timestamp_utc),
+    )
+}
+
+fn validate_management_observation_basename(
+    path: &Path,
+    expected_basename: &str,
+) -> Result<(), ObservationError> {
     if !path.is_absolute() || path.parent().is_none() {
         return Err(SittingError::SittingOutputPathRejected.into());
     }
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return Err(SittingError::SittingOutputPathRejected.into());
     };
-    if name != management_observation_output_basename(timestamp_utc) {
+    if name != expected_basename {
         return Err(SittingError::SittingOutputNameMismatch.into());
     }
     Ok(())

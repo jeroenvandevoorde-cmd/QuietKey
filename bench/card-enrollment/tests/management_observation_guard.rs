@@ -138,7 +138,7 @@ fn cli_rejects_wrong_binding_and_extra_command_material_before_contact() {
     let output_path = directory.path().join(expected_basename());
 
     let mut wrong_binding_arguments = arguments(&output_path, "iMac", &[]);
-    wrong_binding_arguments[6] = "J3R180-03".to_owned();
+    wrong_binding_arguments[6] = "J3R180-01".to_owned();
     let wrong_binding = run_cli(&wrong_binding_arguments);
     assert_named_refusal(&wrong_binding, 64, "SittingBindingMismatch");
     assert!(!output_path.exists());
@@ -155,6 +155,21 @@ fn cli_rejects_wrong_binding_and_extra_command_material_before_contact() {
         assert!(stderr.starts_with("usage: qk-card-enrollment"));
         assert!(!stderr.contains(extra));
         assert_no_private_observation(&stderr);
+        assert!(!output_path.exists());
+    }
+}
+
+#[test]
+fn crossed_specimen_basenames_are_rejected_before_output_or_contact() {
+    let directory = TempDirectory::new();
+    for (specimen, filename_specimen) in [("J3R180-02", "J3R180-03"), ("J3R180-03", "J3R180-02")] {
+        let output_path = directory.path().join(format!(
+            "qk-card-sitting-v1__management-observe__{filename_specimen}__{UTC}.txt"
+        ));
+        let mut crossed_arguments = arguments(&output_path, "iMac", &[]);
+        crossed_arguments[6] = specimen.to_owned();
+        let refusal = run_cli(&crossed_arguments);
+        assert_named_refusal(&refusal, 64, "SittingOutputNameMismatch");
         assert!(!output_path.exists());
     }
 }
@@ -184,6 +199,22 @@ fn valid_metadata_with_an_existing_output_stops_before_pcsc() {
         .find("PcscManagementObservationBackend::default()")
         .expect("PC/SC backend");
     assert!(open < backend);
+}
+
+#[test]
+fn specimen03_existing_output_is_preserved_before_pcsc() {
+    let directory = TempDirectory::new();
+    let output_path = directory.path().join(format!(
+        "qk-card-sitting-v1__management-observe__J3R180-03__{UTC}.txt"
+    ));
+    let sentinel = b"existing specimen03 private output remains byte-identical\n";
+    fs::write(&output_path, sentinel).expect("existing output");
+    let mut specimen03_arguments = arguments(&output_path, "iMac", &[]);
+    specimen03_arguments[6] = "J3R180-03".to_owned();
+
+    let refusal = run_cli(&specimen03_arguments);
+    assert_named_refusal(&refusal, 1, "SittingOutputCreateFailed");
+    assert_eq!(fs::read(&output_path).expect("retained output"), sentinel);
 }
 
 fn arguments(output_path: &Path, host_alias: &str, extras: &[&str]) -> Vec<String> {

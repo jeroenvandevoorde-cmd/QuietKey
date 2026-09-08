@@ -6,8 +6,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use crate::{
     InitializationFields, ManagementObservationMetadata, NegotiatedProtocol, ObservationError,
     ObservationFailure, ObservationOutcome, ObservationPhase, SittingError,
-    MANAGEMENT_OBSERVATION_ALLOWLIST_ID, MANAGEMENT_OBSERVATION_TOOL_VERSION,
-    MAX_SITTING_TRANSCRIPT_BYTES, SITTING_CAMPAIGN_SOURCE_COMMIT,
+    MANAGEMENT_OBSERVATION_ALLOWLIST_ID, MAX_SITTING_TRANSCRIPT_BYTES,
+    SITTING_CAMPAIGN_SOURCE_COMMIT,
 };
 
 pub const MANAGEMENT_OBSERVATION_TRANSCRIPT_VERSION: &str = "QK-CARD-MANAGEMENT-OBSERVATION-V1";
@@ -51,7 +51,7 @@ impl<W: Write> ManagementObservationTranscript<W> {
             ))?;
         self.write_line(MANAGEMENT_OBSERVATION_TRANSCRIPT_VERSION)?;
         self.write_field("allowlist", MANAGEMENT_OBSERVATION_ALLOWLIST_ID)?;
-        self.write_field("tool_version", MANAGEMENT_OBSERVATION_TOOL_VERSION)?;
+        self.write_field("tool_version", metadata.tool_version())?;
         self.write_field("source_commit", &enrollment.source_commit)?;
         self.write_field("campaign_source_commit", SITTING_CAMPAIGN_SOURCE_COMMIT)?;
         self.write_field("visibility", "PRIVATE_CUSTODY_ONLY")?;
