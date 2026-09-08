@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use crate::{EnrollmentMode, SittingTranscript, ValidatedMetadata, MAX_SITTING_TRANSCRIPT_BYTES};
 
 pub const SITTING_PLAN_VERSION: &str = "1";
-pub const SITTING_CAMPAIGN_SOURCE_COMMIT: &str = "17f3b26acc97930d94d5acec9d3b4dd83dcda31a";
-pub const SITTING_APPLET_SOURCE_COMMIT: &str = "7e3407f8607f580f5f9df29ae28428d894b483f2";
-pub const CANONICAL_CAP_BYTES: usize = 49_313;
+pub const SITTING_CAMPAIGN_SOURCE_COMMIT: &str = "d706e0dbe4826bb2b65a5e00ed61ccd8921cc22c";
+pub const SITTING_APPLET_SOURCE_COMMIT: &str = "d706e0dbe4826bb2b65a5e00ed61ccd8921cc22c";
+pub const CANONICAL_CAP_BYTES: usize = 40_914;
 pub const CANONICAL_CAP_SHA256: &str =
-    "b20ba762d4c5b6c92f8f121980b425b295dcb2c2d3e4cad2a3b405be4efbb52f";
+    "edad47ec29421b5802281f6426d72a8c5994831cc7a265d223ede6234310b8ae";
 pub const GOLDEN_FIXTURE_PATH: &str = "host/qk-card-protocol/tests/fixtures/card_protocol_v1.txt";
 pub const GOLDEN_FIXTURE_BYTES: usize = 17_919;
 pub const GOLDEN_FIXTURE_LF: usize = 94;

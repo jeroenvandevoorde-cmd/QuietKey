@@ -130,7 +130,20 @@ fn header_binds_every_sitting_identity_and_the_expanded_b6_plan() {
     ] {
         assert!(text.contains(&format!("{field}={value}\n")), "{field}");
     }
-    assert_eq!(B6_TOOL_VERSION, "0.0.6");
+    assert_eq!(B6_TOOL_VERSION, "0.0.7");
+    assert_eq!(
+        SITTING_CAMPAIGN_SOURCE_COMMIT,
+        "d706e0dbe4826bb2b65a5e00ed61ccd8921cc22c"
+    );
+    assert_eq!(
+        SITTING_APPLET_SOURCE_COMMIT,
+        "d706e0dbe4826bb2b65a5e00ed61ccd8921cc22c"
+    );
+    assert_eq!(CANONICAL_CAP_BYTES, 40_914);
+    assert_eq!(
+        CANONICAL_CAP_SHA256,
+        "edad47ec29421b5802281f6426d72a8c5994831cc7a265d223ede6234310b8ae"
+    );
     assert_eq!(B6_TRANSCRIPT_VERSION, "QK-CARD-B6-V1");
     assert_eq!(MAX_B6_TRANSCRIPT_BYTES, 2_097_152);
     assert_eq!(MAX_SITTING_TRANSCRIPT_BYTES, 32_768);

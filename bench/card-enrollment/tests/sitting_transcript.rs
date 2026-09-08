@@ -139,7 +139,7 @@ fn committed_readback_header_names_the_b6_tool_without_changing_older_headers() 
     let mut transcript = SittingTranscript::new(Vec::new());
     transcript.write_header(&metadata).unwrap();
     let text = String::from_utf8(transcript.into_inner()).unwrap();
-    assert!(text.contains("tool_version=0.0.6\n"));
+    assert!(text.contains("tool_version=0.0.7\n"));
     assert!(text.contains("mode=committed-readback\n"));
     assert!(text.contains("output_basename=qk-card-sitting-v1__committed-readback__J3R180-02__"));
 }
