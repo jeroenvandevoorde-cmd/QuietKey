@@ -10,7 +10,7 @@ final class HmacSha512 {
         this(new Sha512(), new byte[SCRATCH_BYTES]);
     }
 
-    /** Card callers provide separately owned transient hash and HMAC scratch. */
+    /** Card callers provide a nonshared digest and separately owned transient HMAC scratch. */
     HmacSha512(Sha512 suppliedSha, byte[] suppliedScratch) {
         if (suppliedScratch.length != SCRATCH_BYTES) {
             throw new ArrayIndexOutOfBoundsException();
@@ -22,7 +22,6 @@ final class HmacSha512 {
 
     void clear() {
         Wipe.clear(scratch);
-        sha.clear();
     }
 
     void compute(byte[] key, short keyOffset, short keyLength,

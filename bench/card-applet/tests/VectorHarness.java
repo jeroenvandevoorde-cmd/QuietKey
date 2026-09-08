@@ -73,18 +73,25 @@ public final class VectorHarness {
 
     private static void shaTies(Random random) throws Exception {
         Sha512 sha = new Sha512();
+        SoftwareSha512 software = new SoftwareSha512();
         for (int length = 0; length <= 1000; length++) {
             byte[] message = new byte[length];
             random.nextBytes(message);
             byte[] actual = new byte[64];
             sha.digest(message, (short) 0, (short) length, actual, (short) 0);
             equal(actual, MessageDigest.getInstance("SHA-512").digest(message), "Sha512JvmTie");
+            byte[] oracle = new byte[64];
+            software.digest(message, (short) 0, (short) length, oracle, (short) 0);
+            equal(actual, oracle, "Sha512SoftwareTie");
         }
         byte[] maximum = new byte[32767];
         random.nextBytes(maximum);
         byte[] actual = new byte[64];
         sha.digest(maximum, (short) 0, (short) maximum.length, actual, (short) 0);
         equal(actual, MessageDigest.getInstance("SHA-512").digest(maximum), "Sha512MaximumTie");
+        byte[] oracle = new byte[64];
+        software.digest(maximum, (short) 0, (short) maximum.length, oracle, (short) 0);
+        equal(actual, oracle, "Sha512SoftwareMaximumTie");
         byte[] padded = new byte[200];
         random.nextBytes(padded);
         byte[] expected = MessageDigest.getInstance("SHA-512").digest(Arrays.copyOfRange(padded, 7, 136));
@@ -112,6 +119,7 @@ public final class VectorHarness {
                 Mac reference = Mac.getInstance("HmacSHA512");
                 reference.init(new SecretKeySpec(key, "HmacSHA512"));
                 equal(actual, reference.doFinal(data), "HmacJvmTie");
+                equal(actual, softwareHmac(key, data), "HmacSoftwareTie");
             }
         }
         byte[] key = new byte[128];
@@ -124,6 +132,22 @@ public final class VectorHarness {
         hmac.compute(key, (short) 0, (short) 128, data, (short) 0, (short) 64,
                 key, (short) 0);
         equal(Arrays.copyOfRange(key, 0, 64), expected, "HmacKeyOutputAlias");
+    }
+
+    private static byte[] softwareHmac(byte[] key, byte[] data) {
+        SoftwareSha512 software = new SoftwareSha512();
+        byte[] inner = new byte[128 + data.length];
+        byte[] outer = new byte[192];
+        for (int i = 0; i < 128; i++) {
+            int value = i < key.length ? key[i] : 0;
+            inner[i] = (byte) (value ^ 0x36);
+            outer[i] = (byte) (value ^ 0x5c);
+        }
+        System.arraycopy(data, 0, inner, 128, data.length);
+        software.digest(inner, (short) 0, (short) inner.length, outer, (short) 128);
+        byte[] result = new byte[64];
+        software.digest(outer, (short) 0, (short) outer.length, result, (short) 0);
+        return result;
     }
 
     private static void scalarTies(Random random) {
@@ -167,19 +191,23 @@ public final class VectorHarness {
     }
 
     private static void cleanup() {
-        byte[] shaScratch = new byte[Sha512.SCRATCH_BYTES];
+        javacard.security.MessageDigest.configure(0, 0, 0, false);
+        byte[] shaScratch = new byte[SoftwareSha512.SCRATCH_BYTES];
         byte[] hmacScratch = new byte[HmacSha512.SCRATCH_BYTES];
         byte[] scalarScratch = new byte[Scalar256.SCRATCH_BYTES];
-        Sha512 sha = new Sha512(shaScratch);
+        SoftwareSha512 software = new SoftwareSha512(shaScratch);
+        Sha512 sha = new Sha512();
         HmacSha512 hmac = new HmacSha512(sha, hmacScratch);
         Scalar256 addition = new Scalar256(scalarScratch);
         byte[] key = scalar(BigInteger.ONE);
         byte[] output = new byte[64];
+        software.digest(key, (short) 0, (short) 32, output, (short) 0);
+        equal(shaScratch, new byte[shaScratch.length], "SoftwareShaSuccessScratchWiped");
         sha.digest(key, (short) 0, (short) 32, output, (short) 0);
-        equal(shaScratch, new byte[shaScratch.length], "ShaSuccessScratchWiped");
         hmac.compute(key, (short) 0, (short) 32, key, (short) 0, (short) 32,
                 output, (short) 0);
-        equal(shaScratch, new byte[shaScratch.length], "HmacHashScratchWiped");
+        check(javacard.security.MessageDigest.resetCount() == 6, "HmacHashResetAfterEveryUse");
+        check(javacard.security.MessageDigest.finalCount() == 3, "HmacTwoDigestCalls");
         equal(hmacScratch, new byte[hmacScratch.length], "HmacSuccessScratchWiped");
         addition.add(key, (short) 0, key, (short) 0, output, (short) 0);
         equal(scalarScratch, new byte[scalarScratch.length], "ScalarSuccessScratchWiped");
@@ -190,7 +218,13 @@ public final class VectorHarness {
             assertions++;
         }
         equal(output, new byte[64], "ShaRejectOutputWiped");
-        equal(shaScratch, new byte[shaScratch.length], "ShaRejectScratchWiped");
+        try {
+            software.digest(key, (short) -1, (short) 32, output, (short) 0);
+            throw new AssertionError("SoftwareShaBoundsNotRejected");
+        } catch (ArrayIndexOutOfBoundsException expected) {
+            assertions++;
+        }
+        equal(shaScratch, new byte[shaScratch.length], "SoftwareShaRejectScratchWiped");
         try {
             hmac.compute(key, (short) 0, (short) 32, key, (short) 0, (short) 65,
                     output, (short) 0);
@@ -199,7 +233,7 @@ public final class VectorHarness {
             assertions++;
         }
         equal(output, new byte[64], "HmacRejectOutputWiped");
-        equal(shaScratch, new byte[shaScratch.length], "HmacRejectHashWiped");
+        check(javacard.security.MessageDigest.finalCount() == 3, "HmacBoundsBeforeHash");
         equal(hmacScratch, new byte[hmacScratch.length], "HmacRejectScratchWiped");
         byte[] partial = filled(10, (byte) 0x55);
         Wipe.clear(partial, (short) 2, (short) 6);
@@ -207,6 +241,104 @@ public final class VectorHarness {
                 "WipeExactSubrange");
         Wipe.clear(partial);
         equal(partial, new byte[10], "WipeWholeOwner");
+    }
+
+    private static void exactWipedSlice(byte[] output, String name) {
+        equal(Arrays.copyOfRange(output, 8, 72), new byte[64], name + "OutputWiped");
+        equal(Arrays.copyOfRange(output, 0, 8), filled(8, (byte) 0x55), name + "PrefixPreserved");
+        equal(Arrays.copyOfRange(output, 72, 80), filled(8, (byte) 0x55), name + "SuffixPreserved");
+    }
+
+    private static void providerFaults() {
+        int[][] digestCases = {{1, 0, 0}, {2, 0, 0}, {-1, 0, 0},
+                {0, 1, 0}, {0, 0, 1}, {2, 1, 0}};
+        byte[] input = filled(200, (byte) 0x33);
+        for (int[] fault : digestCases) {
+            javacard.security.MessageDigest.configure(fault[0], fault[1], fault[2], false);
+            Sha512 sha = new Sha512();
+            byte[] output = filled(80, (byte) 0x55);
+            try {
+                sha.digest(input, (short) 7, (short) 129, output, (short) 8);
+                throw new AssertionError("ProviderFaultNotRejected");
+            } catch (RuntimeException expected) {
+                assertions++;
+            }
+            exactWipedSlice(output, "ProviderFault");
+            check(javacard.security.MessageDigest.resetCount() == 2, "ProviderFinalResetAttempted");
+            check(javacard.security.MessageDigest.finalCount() ==
+                    (fault[0] == 1 || fault[0] == -1 ? 0 : 1), "ProviderNoUseBeforeReset");
+            check(javacard.security.MessageDigest.requestCount() == 1, "ProviderNoFallbackRequest");
+            check(javacard.security.MessageDigest.allocationCount() == 1, "ProviderNoPerUseAllocation");
+        }
+
+        int[][] hmacCases = {{1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}, {-1, 0, 0},
+                {0, 1, 0}, {0, 2, 0}, {0, 0, 1}, {0, 0, 2}, {2, 1, 0}, {4, 2, 0}};
+        for (int[] fault : hmacCases) {
+            javacard.security.MessageDigest.configure(fault[0], fault[1], fault[2], false);
+            byte[] scratch = new byte[HmacSha512.SCRATCH_BYTES];
+            HmacSha512 hmac = new HmacSha512(new Sha512(), scratch);
+            check(javacard.security.MessageDigest.resetCount() == 0, "HmacConstructionDoesNotReset");
+            Arrays.fill(scratch, (byte) 0x44);
+            byte[] output = filled(80, (byte) 0x55);
+            try {
+                hmac.compute(input, (short) 0, (short) 32, input, (short) 32, (short) 37,
+                        output, (short) 8);
+                throw new AssertionError("HmacProviderFaultNotRejected");
+            } catch (RuntimeException expected) {
+                assertions++;
+            }
+            exactWipedSlice(output, "HmacProviderFault");
+            equal(scratch, new byte[384], "HmacProviderFaultAllScratchWiped");
+            int resets = javacard.security.MessageDigest.resetCount();
+            int finals = javacard.security.MessageDigest.finalCount();
+            hmac.clear();
+            check(javacard.security.MessageDigest.resetCount() == resets, "HmacClearDoesNotReset");
+            check(javacard.security.MessageDigest.finalCount() == finals, "HmacClearDoesNotHash");
+            check(javacard.security.MessageDigest.requestCount() == 1, "HmacNoFallbackRequest");
+            check(javacard.security.MessageDigest.allocationCount() == 1, "HmacNoPerUseAllocation");
+        }
+
+        javacard.security.MessageDigest.configure(0, 0, 0, true);
+        try {
+            new Sha512();
+            throw new AssertionError("MissingProviderNotRejected");
+        } catch (RuntimeException expected) {
+            assertions++;
+        }
+        check(javacard.security.MessageDigest.requestCount() == 1, "MissingProviderNoFallback");
+        check(javacard.security.MessageDigest.allocationCount() == 0, "MissingProviderNoReplacement");
+
+        javacard.security.MessageDigest.configure(0, 0, 0, false);
+        Sha512 sha = new Sha512();
+        byte[] output = new byte[64];
+        for (int i = 0; i < 20; i++) {
+            sha.digest(input, (short) 0, (short) 37, output, (short) 0);
+        }
+        check(javacard.security.MessageDigest.resetCount() == 40, "RepeatedUseResetCount");
+        check(javacard.security.MessageDigest.finalCount() == 20, "RepeatedUseHashCount");
+        check(javacard.security.MessageDigest.requestCount() == 1, "RepeatedUseOneProviderRequest");
+        check(javacard.security.MessageDigest.allocationCount() == 1, "RepeatedUseOneProviderOwner");
+
+        short[][] bounds = {{-1, 1, 8}, {0, -1, 8}, {201, 0, 8}, {199, 2, 8},
+                {0, 1, -1}, {0, 1, 17}};
+        for (short[] bound : bounds) {
+            javacard.security.MessageDigest.configure(0, 0, 0, false);
+            sha = new Sha512();
+            output = filled(80, (byte) 0x55);
+            try {
+                sha.digest(input, bound[0], bound[1], output, bound[2]);
+                throw new AssertionError("ProviderBoundsNotRejected");
+            } catch (ArrayIndexOutOfBoundsException expected) {
+                assertions++;
+            }
+            check(javacard.security.MessageDigest.finalCount() == 0, "ProviderBoundsBeforeHash");
+            if (bound[2] == 8) {
+                exactWipedSlice(output, "ProviderBounds");
+            } else {
+                equal(output, filled(80, (byte) 0x55), "InvalidOutputRangeUntouched");
+            }
+        }
+        javacard.security.MessageDigest.configure(0, 0, 0, false);
     }
 
     public static void main(String[] arguments) throws Exception {
@@ -219,6 +351,7 @@ public final class VectorHarness {
         hmacTies(publicInputs);
         scalarTies(publicInputs);
         cleanup();
+        providerFaults();
         System.out.println("QK-PURE-VECTORS PASS assertions=" + assertions);
     }
 }

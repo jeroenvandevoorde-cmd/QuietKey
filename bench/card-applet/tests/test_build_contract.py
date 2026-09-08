@@ -159,6 +159,12 @@ class PackagingTests(unittest.TestCase):
                 files[name] = b"x"
                 self.reject("ArchivePathRejected", raw_zip(files))
 
+    def test_software_sha512_oracle_cannot_enter_cap(self):
+        name = CAP.CLASS_ROOT + "SoftwareSha512.class"
+        files = minimal()
+        files[name] = b"test-only oracle"
+        self.reject("ArchivePathRejected", raw_zip(files), class_bodies={name: files[name]})
+
     def test_alternate_traversal_and_non_utf8_names_rejected(self):
         for name in ("../Header.cap", "/org/quietkey/cardb/javacard/Header.cap",
                      "org\\quietkey\\cardb\\javacard\\Header.cap", "META-INF/mAnIfEsT.mf", "é.cap"):
@@ -348,6 +354,15 @@ class GuardTests(unittest.TestCase):
         (self.source / "Extra.java").write_text("class Extra {}")
         self.reject("UnexpectedSource")
 
+    def test_software_sha512_oracle_is_allowed_only_outside_production_sources(self):
+        tests = self.base / "tests"
+        tests.mkdir()
+        oracle = tests / "SoftwareSha512.java"
+        shutil.copyfile(BASE / "tests/SoftwareSha512.java", oracle)
+        self.assertEqual(CAP.check_repository(self.root, False)["source_files"], 9)
+        shutil.copyfile(oracle, self.source / oracle.name)
+        self.reject("UnexpectedSource")
+
     def test_guard_missing_source(self):
         (self.source / "Wipe.java").unlink()
         self.reject("UnexpectedSource")
@@ -472,6 +487,15 @@ class GuardTests(unittest.TestCase):
 
 
 class RecipeTests(unittest.TestCase):
+    def test_software_sha512_oracle_is_not_a_compile_input(self):
+        javac, _, _ = CAP.build_commands(*map(Path, (
+            "/jdk", "/ant", "/devkit", "/task.jar", "/src", "/out/classes",
+            "/out/tmp", "/out/raw.cap")))
+        self.assertNotIn("SoftwareSha512", CAP.SOURCES)
+        self.assertEqual(len([arg for arg in javac if arg.endswith(".java")]), 9)
+        self.assertFalse(any("SoftwareSha512" in arg or "/tests/" in arg for arg in javac))
+        self.assertNotIn(CAP.CLASS_ROOT + "SoftwareSha512.class", CAP.CLASSES)
+
     def test_compile_and_ant_commands_exact(self):
         jdk, ant, devkit, task, src, classes, tmp, raw = map(Path, (
             "/jdk", "/ant", "/devkit", "/task.jar", "/src", "/out/classes", "/out/tmp", "/out/raw.cap"))
@@ -531,6 +555,16 @@ class RecipeTests(unittest.TestCase):
             self.assertEqual(len(CAP.load_classes(root)), 9)
             (sub / "Wipe.class").write_bytes(b"\xca\xfe\xba\xbe\0\0\0\x35")
             with self.assertRaisesRegex(CAP.Rejection, "^UnexpectedClassVersion$"):
+                CAP.load_classes(root)
+
+    def test_compiled_software_sha512_oracle_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            sub = root / "org/quietkey/cardb"
+            sub.mkdir(parents=True)
+            for name in (*CAP.SOURCES, "SoftwareSha512"):
+                (sub / (name + ".class")).write_bytes(b"\xca\xfe\xba\xbe\0\0\0\x34")
+            with self.assertRaisesRegex(CAP.Rejection, "^UnexpectedClass$"):
                 CAP.load_classes(root)
 
     def test_existing_output_not_overwritten(self):

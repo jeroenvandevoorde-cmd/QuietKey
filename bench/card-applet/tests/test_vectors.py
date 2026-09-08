@@ -21,6 +21,7 @@ REPO = BASE.parents[1]
 JAVA = BASE / "src" / "org" / "quietkey" / "cardb"
 MODEL = REPO / "host" / "qk-card-model" / "src"
 HARNESS = BASE / "tests" / "VectorHarness.java"
+SOFTWARE_SHA = BASE / "tests" / "SoftwareSha512.java"
 PURE = ("Sha512.java", "HmacSha512.java", "Scalar256.java", "Wipe.java")
 
 # This one-method test substitute exercises Wipe's range effects on a JVM. It is
@@ -31,6 +32,79 @@ public final class Util {
     public static short arrayFillNonAtomic(byte[] bytes, short offset, short length, byte value) {
         java.util.Arrays.fill(bytes, offset, offset + length, value);
         return (short) (offset + length);
+    }
+}
+"""
+
+
+# Test-only provider plumbing backed by the ordinary JVM digest. This is neither
+# a Java Card simulator nor evidence about platform-provider timing or memory.
+DIGEST_TEST_SHIM = """package javacard.security;
+public final class MessageDigest {
+    public static final byte ALG_SHA_512 = (byte) 6;
+    private static int resetFault;
+    private static int finalFault;
+    private static int shortFinal;
+    private static boolean creationFault;
+    private static int resets;
+    private static int finals;
+    private static int requests;
+    private static int allocations;
+    private final java.security.MessageDigest actual;
+
+    private MessageDigest() {
+        try {
+            actual = java.security.MessageDigest.getInstance("SHA-512");
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new AssertionError(failure);
+        }
+        allocations++;
+    }
+
+    public static void configure(int resetAt, int finalAt, int shortAt, boolean creation) {
+        resetFault = resetAt;
+        finalFault = finalAt;
+        shortFinal = shortAt;
+        creationFault = creation;
+        resets = 0;
+        finals = 0;
+        requests = 0;
+        allocations = 0;
+    }
+
+    public static int resetCount() { return resets; }
+    public static int finalCount() { return finals; }
+    public static int requestCount() { return requests; }
+    public static int allocationCount() { return allocations; }
+
+    public static MessageDigest getInstance(byte algorithm, boolean externalAccess) {
+        requests++;
+        if (creationFault || algorithm != ALG_SHA_512 || externalAccess) {
+            throw new RuntimeException("ProviderSelectionRejected");
+        }
+        return new MessageDigest();
+    }
+
+    public void reset() {
+        resets++;
+        if (resetFault == -1 || resets == resetFault) {
+            throw new RuntimeException("ProviderResetFault");
+        }
+        actual.reset();
+    }
+
+    public short doFinal(byte[] input, short offset, short length, byte[] output, short outOffset) {
+        finals++;
+        if (finals == finalFault) {
+            java.util.Arrays.fill(output, outOffset, outOffset + 17, (byte) 0x66);
+            throw new RuntimeException("ProviderFinalFault");
+        }
+        actual.update(input, offset, length);
+        byte[] value = actual.digest();
+        short returned = finals == shortFinal ? (short) 63 : (short) 64;
+        System.arraycopy(value, 0, output, outOffset, returned);
+        java.util.Arrays.fill(value, (byte) 0);
+        return returned;
     }
 }
 """
@@ -123,7 +197,7 @@ class SourceVectorTests(unittest.TestCase):
             self.assertEqual(instance, record[7:23])
 
     def test_sha512_round_and_initial_bytes_match_registered_model(self):
-        java = (JAVA / "Sha512.java").read_text(encoding="utf-8")
+        java = SOFTWARE_SHA.read_text(encoding="utf-8")
         rust = (MODEL / "sha512.rs").read_text(encoding="utf-8")
         self.assertEqual(java_bytes(java, "INITIAL"), rust_words(rust, "INITIAL"))
         self.assertEqual(java_bytes(java, "K"), rust_words(rust, "K"))
@@ -148,7 +222,81 @@ class SourceVectorTests(unittest.TestCase):
         self.assertEqual(harness_hex("BIP32_HMAC"), expected)
         self.assertEqual(expected, hmac.new(bytes(range(32)), bytes(range(37)), "sha512").digest())
 
-    def test_helpers_allow_only_the_wipe_utility_platform_dependency(self):
+    def test_golden_protocol_fixture_identity_is_unchanged(self):
+        value = (REPO / "host/qk-card-protocol/tests/fixtures/card_protocol_v1.txt").read_bytes()
+        self.assertEqual((len(value), value.count(b"\n")), (17919, 94))
+        self.assertEqual(hashlib.sha256(value).hexdigest(),
+                         "5019c642ec61c1042043c0b325658e06d54bbcd3648c2e168b742e9af139bbe4")
+
+    def test_platform_digest_has_one_install_time_owner_and_no_cleanup_api(self):
+        source = (JAVA / "Sha512.java").read_text(encoding="utf-8")
+        body = java_method(source, "digest")
+        self.assertEqual(source.count("MessageDigest.getInstance("), 1)
+        self.assertIn("MessageDigest.getInstance(MessageDigest.ALG_SHA_512, false)", source)
+        self.assertNotIn("getInstance", body)
+        self.assertNotRegex(source, r"new\s+(?:byte|short)\s*\[")
+        self.assertNotRegex(source, r"\b(?:INITIAL|compress|SCRATCH_BYTES)\s*(?:=|\()")
+        self.assertNotRegex(source, r"\bvoid\s+clear\s*\(")
+        self.assertNotIn("SoftwareSha512", source)
+        self.assertEqual(body.count("digest.reset()"), 2)
+        self.assertLess(body.index("digest.reset()"), body.index("digest.doFinal("))
+        self.assertIn("!= (short) 64", body)
+        self.assertIn("(!complete || !resetComplete)", body)
+        self.assertIn("Wipe.clear(output, outOffset, (short) 64)", body)
+        hmac_source = (JAVA / "HmacSha512.java").read_text(encoding="utf-8")
+        self.assertEqual(java_method(hmac_source, "clear").strip(), "Wipe.clear(scratch);")
+        self.assertNotIn("sha.clear", hmac_source)
+
+    def test_explicit_transient_payload_and_public_digest_inputs(self):
+        source = (JAVA / "CardRecord.java").read_text(encoding="utf-8")
+        scratch = {}
+        for name in ("HmacSha512", "Scalar256"):
+            text = (JAVA / (name + ".java")).read_text(encoding="utf-8")
+            scratch[name] = int(re.search(r"SCRATCH_BYTES = (\d+);", text)[1])
+        allocated = []
+        for literal, helper in re.findall(
+                r"transientBytes\((?:\(short\)\s*(\d+)|(\w+)\.SCRATCH_BYTES)\)", source):
+            allocated.append(int(literal) if literal else scratch[helper])
+        self.assertEqual(allocated, [384, 33, 32, 78, 32, 32, 33, 37, 64, 32, 1])
+        protocol = (JAVA / "Protocol.java").read_text(encoding="utf-8")
+        direct = []
+        for name in ("KeyCardBApplet", "Session", "NativeSecp256k1"):
+            text = (JAVA / (name + ".java")).read_text(encoding="utf-8")
+            for literal, field in re.findall(
+                    r"makeTransientByteArray\((?:\(short\)\s*(\d+)|Protocol\.(\w+)),"
+                    r"\s*JCSystem.CLEAR_ON_DESELECT\)", text):
+                direct.append(int(literal) if literal else int(re.search(
+                    field + r" = \(short\) (\d+);", protocol)[1]))
+        self.assertEqual(direct, [215, 216, 8, 84, 65])
+        self.assertEqual(len(allocated + direct), 16)
+        self.assertEqual(sum(allocated + direct), 1346)
+        self.assertEqual(sum(allocated + direct) + 1056, 2402)
+        self.assertIn("Sha512 sha512 = new Sha512();", source)
+        body = java_method(source, "deriveChild")
+        compact = re.sub(r"\s+", " ", body)
+        self.assertIn("hmac.compute(childChain, (short) 0, (short) 32, message, (short) 0, "
+                      "(short) 37, material, (short) 0);", compact)
+        self.assertNotRegex(body, r"hmac\.compute\([^;]*childScalar")
+        all_sources = "\n".join(path.read_text() for path in JAVA.glob("*.java"))
+        self.assertNotRegex(all_sources, r"\b(?:getAvailableMemory|getMaxCommitCapacity|isTransient)\s*\(")
+
+    def test_hash_failure_preserves_existing_binding_rejection_priority(self):
+        record = (JAVA / "CardRecord.java").read_text(encoding="utf-8")
+        derive = java_method(record, "deriveChild")
+        match = re.search(r"try\s*\{(.*?)\}\s*catch\s*\(RuntimeException failure\)\s*\{(.*?)\}",
+                          derive, re.S)
+        self.assertIsNotNone(match)
+        self.assertEqual(re.sub(r"\s+", " ", match[1]).strip(),
+            "hmac.compute(childChain, (short) 0, (short) 32, message, (short) 0, "
+            "(short) 37, material, (short) 0);")
+        self.assertEqual(match[2].strip(), "ISOException.throwIt((short) 0x6f0e);")
+        sign = java_method((JAVA / "Session.java").read_text(), "sign")
+        self.assertLess(sign.index("catch (ISOException failure)"),
+                        sign.index("ISOException.throwIt((short) 0x6f0d)"))
+        self.assertLess(sign.index("ISOException.throwIt((short) 0x6f0d)"),
+                        sign.index("ISOException.throwIt(deferredNativeFailure)"))
+
+    def test_helpers_allow_only_the_registered_platform_dependencies(self):
         for filename in PURE:
             source = (JAVA / filename).read_text(encoding="utf-8")
             source = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.S)
@@ -159,6 +307,9 @@ class SourceVectorTests(unittest.TestCase):
                                      ["javacard.framework.Util"])
                     self.assertIn("Util.arrayFillNonAtomic(bytes, offset, length, (byte) 0)", source)
                     self.assertNotRegex(source, r"\b(?:for|while)\b")
+                elif filename == "Sha512.java":
+                    self.assertEqual(re.findall(r"import\s+([^;]+);", source),
+                                     ["javacard.security.MessageDigest"])
                 else:
                     self.assertNotRegex(source, r"\bimport\b")
                 self.assertNotIn("NativeSecp256k1", source)
@@ -221,7 +372,8 @@ class SourceVectorTests(unittest.TestCase):
     def test_vector_harness_excludes_applet_and_native_curve_execution(self):
         source = HARNESS.read_text(encoding="utf-8")
         self.assertIn("PERMANENTLY NEVER-FUND TEST MATERIAL", source)
-        self.assertNotRegex(source, r"\b(?:javacard|javacardx)\s*\.")
+        self.assertNotRegex(source.replace("javacard.security.MessageDigest", ""),
+                            r"\b(?:javacard|javacardx)\s*\.")
         self.assertNotIn("NativeSecp256k1", source)
         self.assertNotIn("KeyCardBApplet", source)
         self.assertIn("new Random(123456)", source)
@@ -276,9 +428,13 @@ class PureJvmVectorTests(unittest.TestCase):
             shim = Path(directory) / "javacard/framework/Util.java"
             shim.parent.mkdir(parents=True)
             shim.write_text(UTIL_TEST_SHIM, encoding="utf-8")
+            digest_shim = Path(directory) / "javacard/security/MessageDigest.java"
+            digest_shim.parent.mkdir(parents=True)
+            digest_shim.write_text(DIGEST_TEST_SHIM, encoding="utf-8")
             command = [javac, "-source", "1.8", "-target", "1.8", "-proc:none",
                        "-implicit:none", "-encoding", "UTF-8", "-g:none", "-d", directory]
-            command += [str(JAVA / name) for name in PURE] + [str(shim), str(HARNESS)]
+            command += [str(JAVA / name) for name in PURE]
+            command += [str(shim), str(digest_shim), str(SOFTWARE_SHA), str(HARNESS)]
             compiled = subprocess.run(command, env=environment, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, timeout=90, text=True)
             self.assertEqual(compiled.returncode, 0, "PureJvmCompilationFailed:\n" + compiled.stderr)
@@ -287,7 +443,7 @@ class PureJvmVectorTests(unittest.TestCase):
                                       timeout=90, text=True)
             self.assertEqual(executed.returncode, 0, "PureJvmVectorsFailed:\n" + executed.stderr)
             self.assertEqual(executed.stderr, "")
-            self.assertEqual(executed.stdout, "QK-PURE-VECTORS PASS assertions=6266\n")
+            self.assertEqual(executed.stdout, "QK-PURE-VECTORS PASS assertions=8696\n")
 
 
 if __name__ == "__main__":

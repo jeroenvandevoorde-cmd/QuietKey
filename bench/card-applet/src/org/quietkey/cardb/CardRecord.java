@@ -61,7 +61,9 @@ final class CardRecord {
         life = Protocol.UNPROVISIONED;
         sha256 = MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
         nativeCurve = new NativeSecp256k1();
-        Sha512 sha512 = new Sha512(transientBytes(Sha512.SCRATCH_BYTES));
+        // Explicit transient array payload is 1,346 bytes, previously 2,402.
+        // Provider overhead is unmeasured; this is not a free-memory probe.
+        Sha512 sha512 = new Sha512();
         hmac = new HmacSha512(sha512, transientBytes(HmacSha512.SCRATCH_BYTES));
         scalarMath = new Scalar256(transientBytes(Scalar256.SCRATCH_BYTES));
         hash = transientBytes((short) 32);
@@ -381,8 +383,14 @@ final class CardRecord {
         if (!nativeCurve.publicKey(childScalar, (short) 0, message, (short) 0)) {
             ISOException.throwIt((short) 0x6f0e);
         }
-        hmac.compute(childChain, (short) 0, (short) 32, message, (short) 0,
-                (short) 37, material, (short) 0);
+        // Nonhardened HMAC inputs are xpub-public chain code, public key and index;
+        // no private scalar reaches this SHA-512 provider.
+        try {
+            hmac.compute(childChain, (short) 0, (short) 32, message, (short) 0,
+                    (short) 37, material, (short) 0);
+        } catch (RuntimeException failure) {
+            ISOException.throwIt((short) 0x6f0e);
+        }
         if (!scalarMath.add(childScalar, (short) 0, material, (short) 0,
                 nextScalar, (short) 0)) {
             ISOException.throwIt((short) 0x6f0c);
