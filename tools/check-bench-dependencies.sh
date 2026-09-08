@@ -109,6 +109,8 @@ expected_bench_sources='bench/card-enrollment/src/b6.rs
 bench/card-enrollment/src/b6_transcript.rs
 bench/card-enrollment/src/identity.rs
 bench/card-enrollment/src/identity_transcript.rs
+bench/card-enrollment/src/interruption.rs
+bench/card-enrollment/src/interruption_transcript.rs
 bench/card-enrollment/src/lib.rs
 bench/card-enrollment/src/main.rs
 bench/card-enrollment/src/management_observation.rs
@@ -117,6 +119,7 @@ bench/card-enrollment/src/model.rs
 bench/card-enrollment/src/pcsc_adapter.rs
 bench/card-enrollment/src/pcsc_b6_adapter.rs
 bench/card-enrollment/src/pcsc_identity_adapter.rs
+bench/card-enrollment/src/pcsc_interruption_adapter.rs
 bench/card-enrollment/src/pcsc_management_observation_adapter.rs
 bench/card-enrollment/src/pcsc_sitting_adapter.rs
 bench/card-enrollment/src/sitting.rs
@@ -128,6 +131,7 @@ bench/card-enrollment/tests/b6_transcript.rs
 bench/card-enrollment/tests/b6_verification.rs
 bench/card-enrollment/tests/identity_mock.rs
 bench/card-enrollment/tests/identity_transcript.rs
+bench/card-enrollment/tests/interruption.rs
 bench/card-enrollment/tests/management_observation_guard.rs
 bench/card-enrollment/tests/management_observation_mock.rs
 bench/card-enrollment/tests/management_observation_transcript.rs
@@ -149,6 +153,7 @@ identity_adapter='bench/card-enrollment/src/pcsc_identity_adapter.rs'
 sitting_adapter='bench/card-enrollment/src/pcsc_sitting_adapter.rs'
 observation_adapter='bench/card-enrollment/src/pcsc_management_observation_adapter.rs'
 b6_adapter='bench/card-enrollment/src/pcsc_b6_adapter.rs'
+interruption_adapter='bench/card-enrollment/src/pcsc_interruption_adapter.rs'
 observation_source='bench/card-enrollment/src/management_observation.rs'
 bench_production_sources=$(printf '%s\n' "$bench_sources" | grep '^bench/card-enrollment/src/') || \
   fail 'bench production Rust sources are missing'
@@ -165,6 +170,9 @@ observation_transmit_count=$(grep -F -c '.transmit(' "$observation_adapter") || 
 b6_transmit_count=$(grep -F -c '.transmit(' "$b6_adapter") || b6_transmit_count=0
 [ "$b6_transmit_count" = 1 ] || \
   fail 'the private B6 adapter must contain exactly one fixed-campaign transmit call'
+interruption_transmit_count=$(grep -F -c '.transmit(' "$interruption_adapter") || interruption_transmit_count=0
+[ "$interruption_transmit_count" = 1 ] || \
+  fail 'the private interruption adapter must contain exactly one fixed-plan transmit call'
 observation_commands=$(awk '
   /^pub const (SELECT_ISD_COMMAND|MANAGEMENT_CARD_RECOGNITION_COMMAND|INITIALIZE_UPDATE_COMMAND|KEY_INFORMATION_TEMPLATE_COMMAND):/ { emitting = 1 }
   emitting {
@@ -200,8 +208,9 @@ for source in $bench_production_sources; do
   [ "$source" = "$sitting_adapter" ] && continue
   [ "$source" = "$observation_adapter" ] && continue
   [ "$source" = "$b6_adapter" ] && continue
+  [ "$source" = "$interruption_adapter" ] && continue
   if grep -F '.transmit(' "$source" >/dev/null 2>&1; then
-    fail "transmit call exists outside the four private fixed-plan adapters: $source"
+    fail "transmit call exists outside the five private fixed-plan adapters: $source"
   fi
 done
 for forbidden_surface in '.control(' '.get_attribute(' '.begin_transaction(' 'pub fn card' 'pub fn context' 'pub use pcsc::'; do
@@ -311,15 +320,17 @@ fixture_names=$(git ls-files 'bench/card-enrollment/tests/fixtures/*' | LC_ALL=C
   fail 'cannot enumerate registered sitting fixtures'
 [ "$fixture_names" = 'bench/card-enrollment/tests/fixtures/sitting_committed_readback_v1.tsv
 bench/card-enrollment/tests/fixtures/sitting_install_v1.tsv
+bench/card-enrollment/tests/fixtures/sitting_interruption_v1.tsv
 bench/card-enrollment/tests/fixtures/sitting_provision_v1.tsv' ] || \
   fail 'registered sitting fixture set is not exact'
-for fixture_kind in install provision committed_readback; do
+for fixture_kind in install provision committed_readback interruption; do
   fixture="bench/card-enrollment/tests/fixtures/sitting_${fixture_kind}_v1.tsv"
   [ -f "$fixture" ] && [ ! -L "$fixture" ] || fail "registered sitting fixture is missing or linked: $fixture"
   case "$fixture_kind" in
     install) fixture_bytes=1421; fixture_lines=10; fixture_hash=8e3fba7d4d1cfe077bfe73806adc0f46a60db7471717909684b3caccf66a117e ;;
     provision) fixture_bytes=6203; fixture_lines=24; fixture_hash=2e142641399b652f39093d7297445af589feb58afb9963e9e0728bf8d9dda5e3 ;;
     committed_readback) fixture_bytes=2943; fixture_lines=13; fixture_hash=6cedbdc6f53c8100e042b8d3e06ebef2a2c56b42e98bbfa32b3a951f39084c36 ;;
+    interruption) fixture_bytes=13506; fixture_lines=57; fixture_hash=48c57da772e4e57e955add911e528403881e211eabb37743d5bd59ed6c075cbc ;;
   esac
   actual_bytes=$(wc -c < "$fixture" | tr -d '[:space:]') || fail 'cannot count sitting fixture bytes'
   actual_lines=$(wc -l < "$fixture" | tr -d '[:space:]') || fail 'cannot count sitting fixture lines'

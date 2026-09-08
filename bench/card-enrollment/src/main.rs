@@ -7,14 +7,22 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use qk_card_enrollment::{
-    encode_transcript, execute_pcsc_b6, execute_pcsc_identity, execute_pcsc_management_observation,
-    execute_pcsc_sitting, run_enrollment, B6Error, B6Metadata, B6Outcome, EnrollmentMetadata,
-    EnrollmentMode, EnrollmentOutcome, EnrollmentRecord, IdentityOutcome,
-    ManagementObservationMetadata, ObservationError, ObservationOutcome, PcscEnrollmentBackend,
-    SittingError, SittingMetadata, SittingMode, SittingOutcome,
+    encode_transcript, execute_pcsc_b6, execute_pcsc_identity, execute_pcsc_interruption,
+    execute_pcsc_management_observation, execute_pcsc_sitting, removal_wait_for, run_enrollment,
+    B6Error, B6Metadata, B6Outcome, EnrollmentMetadata, EnrollmentMode, EnrollmentOutcome,
+    EnrollmentRecord, IdentityOutcome, InterruptionError, InterruptionMetadata, InterruptionMode,
+    InterruptionOutcome, InterruptionTrial, ManagementObservationMetadata, ObservationError,
+    ObservationOutcome, PcscEnrollmentBackend, SittingError, SittingMetadata, SittingMode,
+    SittingOutcome, REMOVAL_WAIT_ENV,
 };
 
 enum Command {
+    Interruption {
+        mode: InterruptionMode,
+        trial: InterruptionTrial,
+        metadata: EnrollmentMetadata,
+        output_path: PathBuf,
+    },
     Enrollment(EnrollmentMetadata),
     Identity(EnrollmentMetadata),
     ManagementObservation {
@@ -35,6 +43,7 @@ enum Command {
 enum ArgumentError {
     Usage,
     Sitting(SittingError),
+    Interruption(InterruptionError),
 }
 
 fn usage() {
@@ -53,6 +62,7 @@ fn usage() {
     eprintln!(
         "   or: qk-card-enrollment b6 <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>"
     );
+    eprintln!("   or: qk-card-enrollment sitting <interrupt-golden|classify-golden|abort-staging-golden> <trial-id> <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>");
 }
 
 fn parse_lower_hex(value: &str) -> Option<Vec<u8>> {
@@ -87,7 +97,16 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
     let mode = arguments.next().ok_or(ArgumentError::Usage)?;
     if mode == "sitting" {
         let sitting_name = arguments.next().ok_or(ArgumentError::Usage)?;
-        let sitting_mode = if sitting_name == "management-observe" {
+        let interruption_mode = InterruptionMode::parse(&sitting_name).ok();
+        let trial = if interruption_mode.is_some() {
+            Some(
+                InterruptionTrial::parse(&arguments.next().ok_or(ArgumentError::Usage)?)
+                    .map_err(ArgumentError::Interruption)?,
+            )
+        } else {
+            None
+        };
+        let sitting_mode = if sitting_name == "management-observe" || interruption_mode.is_some() {
             None
         } else {
             Some(SittingMode::parse(&sitting_name).map_err(ArgumentError::Sitting)?)
@@ -112,6 +131,14 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
             specimen_alias: Some(specimen_alias),
             selected_reader_name: Some(selected_reader_name),
         };
+        if let (Some(mode), Some(trial)) = (interruption_mode, trial) {
+            return Ok(Command::Interruption {
+                mode,
+                trial,
+                metadata,
+                output_path,
+            });
+        }
         return Ok(match sitting_mode {
             Some(mode) => Command::Sitting {
                 mode,
@@ -203,8 +230,18 @@ fn main() -> ExitCode {
             eprintln!("result={}", error.name());
             return ExitCode::from(64);
         }
+        Err(ArgumentError::Interruption(error)) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
     };
     match command {
+        Command::Interruption {
+            mode,
+            trial,
+            metadata,
+            output_path,
+        } => run_interruption_command(mode, trial, metadata, output_path),
         Command::Enrollment(metadata) => run_enrollment_command(metadata),
         Command::Identity(metadata) => run_identity_command(metadata),
         Command::ManagementObservation {
@@ -220,6 +257,37 @@ fn main() -> ExitCode {
             metadata,
             output_path,
         } => run_b6_command(metadata, output_path),
+    }
+}
+
+fn run_interruption_command(
+    mode: InterruptionMode,
+    trial: InterruptionTrial,
+    metadata: EnrollmentMetadata,
+    output_path: PathBuf,
+) -> ExitCode {
+    let metadata = match validate_metadata(metadata) {
+        Ok(m) => m,
+        Err(exit) => return exit,
+    };
+    let metadata = match removal_wait_for(mode, trial, || env::var_os(REMOVAL_WAIT_ENV))
+        .and_then(|wait| InterruptionMetadata::new(mode, trial, metadata, output_path, wait))
+    {
+        Ok(m) => m,
+        Err(error) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
+    };
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(|| execute_pcsc_interruption(metadata)))
+        .unwrap_or(Err(SittingError::SittingBoundaryPanicked.into()));
+    match result {
+        Ok(InterruptionOutcome::Reject(error)) | Err(error) => {
+            eprintln!("result={}", error.name());
+            ExitCode::from(1)
+        }
+        Ok(_) => ExitCode::SUCCESS,
     }
 }
 

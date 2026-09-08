@@ -13,12 +13,15 @@ mod b6;
 mod b6_transcript;
 mod identity;
 mod identity_transcript;
+mod interruption;
+mod interruption_transcript;
 mod management_observation;
 mod management_observation_transcript;
 mod model;
 mod pcsc_adapter;
 mod pcsc_b6_adapter;
 mod pcsc_identity_adapter;
+mod pcsc_interruption_adapter;
 mod pcsc_management_observation_adapter;
 mod pcsc_sitting_adapter;
 mod sitting;
@@ -42,6 +45,14 @@ pub use identity::{
     SELECT_DEFAULT_APPLICATION_COMMAND,
 };
 pub use identity_transcript::encode_identity_transcript;
+pub use interruption::{
+    interruption_output_basename, interruption_plan, removal_wait_for, run_interruption,
+    validate_removal_state, InterruptionBackend, InterruptionError, InterruptionMetadata,
+    InterruptionMode, InterruptionOutcome, InterruptionPlanRow, InterruptionSummary,
+    InterruptionTrial, RawCardState, RemovalWaitMs, INTERRUPTION_PLAN, INTERRUPTION_PLAN_BYTES,
+    INTERRUPTION_PLAN_LF, INTERRUPTION_PLAN_SHA256, INTERRUPTION_TOOL_VERSION, REMOVAL_WAIT_ENV,
+};
+pub use interruption_transcript::InterruptionTranscript;
 pub use management_observation::{
     run_management_observation, InitializationFields, ManagementObservationBackend,
     ManagementObservationMetadata, ObservationError, ObservationFailure, ObservationOutcome,
@@ -60,6 +71,7 @@ pub use model::{
 pub use pcsc_adapter::PcscEnrollmentBackend;
 pub use pcsc_b6_adapter::execute_pcsc_b6;
 pub use pcsc_identity_adapter::execute_pcsc_identity;
+pub use pcsc_interruption_adapter::execute_pcsc_interruption;
 pub use pcsc_management_observation_adapter::execute_pcsc_management_observation;
 pub use pcsc_sitting_adapter::execute_pcsc_sitting;
 pub use sitting::{

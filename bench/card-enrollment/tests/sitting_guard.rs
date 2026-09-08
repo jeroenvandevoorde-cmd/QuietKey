@@ -52,6 +52,7 @@ impl GuardTree {
             "sitting_install_v1.tsv",
             "sitting_provision_v1.tsv",
             "sitting_committed_readback_v1.tsv",
+            "sitting_interruption_v1.tsv",
         ] {
             tree.copy(
                 root,
@@ -114,6 +115,26 @@ impl Drop for GuardTree {
 fn reviewed_static_surface_reaches_the_closure_boundary() {
     // No host workspace is copied: this is the deliberate recursion barrier.
     GuardTree::new().rejects("host Cargo.lock generation failed offline");
+}
+
+#[test]
+fn interruption_fixture_and_fifth_transmit_boundary_are_pinned() {
+    let tree = GuardTree::new();
+    tree.replace(
+        "bench/card-enrollment/tests/fixtures/sitting_interruption_v1.tsv",
+        "00b1",
+        "00b0",
+    );
+    tree.rejects("registered sitting fixture identity mismatch: bench/card-enrollment/tests/fixtures/sitting_interruption_v1.tsv");
+    let tree = GuardTree::new();
+    tree.replace(
+        "bench/card-enrollment/src/pcsc_interruption_adapter.rs",
+        ".transmit(",
+        ".removed_call(",
+    );
+    tree.rejects(
+        "the private interruption adapter must contain exactly one fixed-plan transmit call",
+    );
 }
 
 #[test]
@@ -211,7 +232,7 @@ fn guard_rejects_b6_runtime_feature_changes_and_transmit_relocation() {
         "use core::fmt;",
         "use core::fmt;\n// probe.transmit(forbidden)",
     );
-    tree.rejects("transmit call exists outside the four private fixed-plan adapters: bench/card-enrollment/src/b6.rs");
+    tree.rejects("transmit call exists outside the five private fixed-plan adapters: bench/card-enrollment/src/b6.rs");
 }
 
 #[test]

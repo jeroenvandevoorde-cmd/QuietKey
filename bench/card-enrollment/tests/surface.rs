@@ -16,6 +16,9 @@ const B6_ADAPTER: &str = include_str!("../src/pcsc_b6_adapter.rs");
 const TRANSCRIPT: &str = include_str!("../src/transcript.rs");
 const MAIN: &str = include_str!("../src/main.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
+const INTERRUPTION: &str = include_str!("../src/interruption.rs");
+const INTERRUPTION_TRANSCRIPT: &str = include_str!("../src/interruption_transcript.rs");
+const INTERRUPTION_ADAPTER: &str = include_str!("../src/pcsc_interruption_adapter.rs");
 
 #[test]
 fn production_roots_forbid_unsafe_code() {
@@ -25,6 +28,9 @@ fn production_roots_forbid_unsafe_code() {
         LIB,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
+        INTERRUPTION,
+        INTERRUPTION_TRANSCRIPT,
+        INTERRUPTION_ADAPTER,
         MODEL,
         ADAPTER,
         IDENTITY_ADAPTER,
@@ -47,11 +53,13 @@ fn production_roots_forbid_unsafe_code() {
 }
 
 #[test]
-fn safe_adapters_confine_transmits_to_the_four_private_paths() {
+fn safe_adapters_confine_transmits_to_the_five_private_paths() {
     for source in [
         LIB,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
+        INTERRUPTION,
+        INTERRUPTION_TRANSCRIPT,
         MODEL,
         ADAPTER,
         TRANSCRIPT,
@@ -69,10 +77,14 @@ fn safe_adapters_confine_transmits_to_the_four_private_paths() {
     assert_eq!(SITTING_ADAPTER.matches(".transmit(").count(), 1);
     assert_eq!(OBSERVATION_ADAPTER.matches(".transmit(").count(), 1);
     assert_eq!(B6_ADAPTER.matches(".transmit(").count(), 1);
+    assert_eq!(INTERRUPTION_ADAPTER.matches(".transmit(").count(), 1);
     for source in [
         LIB,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
+        INTERRUPTION,
+        INTERRUPTION_TRANSCRIPT,
+        INTERRUPTION_ADAPTER,
         MODEL,
         ADAPTER,
         IDENTITY_ADAPTER,
@@ -215,6 +227,8 @@ fn public_reexports_are_the_reviewed_boundary() {
     assert!(!SITTING.contains("apdu: &[u8]"));
     assert!(!OBSERVATION_ADAPTER.contains("pub struct"));
     assert!(OBSERVATION_ADAPTER.contains("pub fn execute_pcsc_management_observation("));
+    assert!(!INTERRUPTION_ADAPTER.contains("pub struct"));
+    assert!(!LIB.contains("PcscInterruptionBackend"));
 }
 
 #[test]
