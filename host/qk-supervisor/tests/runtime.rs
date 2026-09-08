@@ -384,10 +384,7 @@ fn actual_launcher_runs_all_modes_silently_and_fails_closed_on_each_child_or_con
 
     exact_inherited_descriptors_and_pretraffic_unlink_are_observed(&binaries, &supervisor, &root);
 
-    println!(
-        "QK-DEC-166 launcher-cycle evidence retained: {}",
-        root.display()
-    );
+    fs::remove_dir_all(&root).unwrap();
 }
 
 fn short_test_root(label: &str) -> PathBuf {
@@ -1195,10 +1192,7 @@ fn launcher_harness_ready_timeout_reaps_leader_and_descendant_and_retains_eviden
     assert!(!failure.cleanup_failed);
     assert_eq!(failure.directory, directory);
     assert_cleaned_fixture(&root, &directory, "LauncherHarnessTimeout");
-    println!(
-        "QK-DEC-166 deterministic timeout evidence: {}",
-        root.display()
-    );
+    fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -1219,10 +1213,7 @@ fn launcher_harness_ready_unwind_uses_the_same_bounded_cleanup() {
     });
     assert!(result.is_err());
     assert_cleaned_fixture(&root, &directory, "LauncherHarnessUnwind");
-    println!(
-        "QK-DEC-166 deterministic unwind evidence: {}",
-        root.display()
-    );
+    fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -1246,6 +1237,7 @@ fn launcher_harness_retains_ordinary_statuses_without_confusing_them_with_timeou
         assert!(record.contains("timed_out\tfalse\n"));
         assert_output(result, code);
     }
+    fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -1276,6 +1268,7 @@ fn launcher_harness_kills_a_ready_term_ignoring_leader_within_the_cleanup_bound(
     assert!(record.contains("launcher_signal\tSome(9)\n"), "{record}");
     assert!(record.contains("launcher_reaped\ttrue\n"), "{record}");
     assert!(record.contains("process_group_absent\ttrue\n"), "{record}");
+    fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -1300,6 +1293,7 @@ fn launcher_harness_spawn_failure_preserves_the_attempt_without_a_child() {
     assert!(!record.contains("launcher_pid\t"));
     assert!(directory.join("launcher.stdout").exists());
     assert!(directory.join("launcher.stderr").exists());
+    fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -1474,10 +1468,7 @@ fn inspector_named_failures_and_panic_keep_both_roles_and_stderr() {
             .is_empty());
     }
     programs.restore(&binaries);
-    println!(
-        "QK-DEC-163 injected failure evidence retained: {}",
-        root.display()
-    );
+    fs::remove_dir_all(&root).unwrap();
 }
 
 struct CpuWorkers(Vec<std::process::Child>);
