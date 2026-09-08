@@ -171,12 +171,24 @@ impl SittingMetadata {
         enrollment: ValidatedMetadata,
         output_path: PathBuf,
     ) -> Result<Self, SittingError> {
-        validate_sitting_binding(&enrollment)?;
-        validate_sitting_output_path(
-            mode,
-            &enrollment.inner().timestamp_utc,
-            output_path.as_path(),
-        )?;
+        let specimen = enrollment.inner().specimen_alias.as_deref();
+        match specimen {
+            Some("J3R180-02") => validate_sitting_binding(&enrollment)?,
+            Some("J3R180-03") => validate_specimen_binding(&enrollment, "J3R180-03")?,
+            _ => return Err(SittingError::SittingBindingMismatch),
+        }
+        let timestamp = &enrollment.inner().timestamp_utc;
+        if specimen == Some("J3R180-03") {
+            validate_named_output_path(
+                &format!(
+                    "qk-card-sitting-v1__{}__J3R180-03__{timestamp}.txt",
+                    mode.as_str()
+                ),
+                &output_path,
+            )?;
+        } else {
+            validate_sitting_output_path(mode, timestamp, &output_path)?;
+        }
         Ok(Self {
             mode,
             enrollment,
@@ -195,14 +207,31 @@ impl SittingMetadata {
     pub(crate) fn enrollment(&self) -> &ValidatedMetadata {
         &self.enrollment
     }
+
+    pub(crate) fn tool_version(&self) -> &'static str {
+        if self.enrollment.inner().specimen_alias.as_deref() == Some("J3R180-03") {
+            "0.0.8"
+        } else if self.mode == SittingMode::CommittedReadback {
+            "0.0.7"
+        } else {
+            crate::SITTING_TOOL_VERSION
+        }
+    }
 }
 
 pub fn validate_sitting_binding(metadata: &ValidatedMetadata) -> Result<(), SittingError> {
+    validate_specimen_binding(metadata, "J3R180-02")
+}
+
+pub(crate) fn validate_specimen_binding(
+    metadata: &ValidatedMetadata,
+    specimen: &str,
+) -> Result<(), SittingError> {
     let metadata = metadata.inner();
     if metadata.mode != EnrollmentMode::Enroll
         || metadata.host_alias != "iMac"
         || metadata.reader_alias != "SCR3310-01"
-        || metadata.specimen_alias.as_deref() != Some("J3R180-02")
+        || metadata.specimen_alias.as_deref() != Some(specimen)
         || metadata.selected_reader_name.as_deref() != Some(SITTING_READER_NAME)
         || metadata.source_commit != SITTING_CAMPAIGN_SOURCE_COMMIT
     {
@@ -223,13 +252,17 @@ pub fn validate_sitting_output_path(
     timestamp_utc: &str,
     path: &Path,
 ) -> Result<(), SittingError> {
+    validate_named_output_path(&sitting_output_basename(mode, timestamp_utc), path)
+}
+
+pub(crate) fn validate_named_output_path(expected: &str, path: &Path) -> Result<(), SittingError> {
     if !path.is_absolute() || path.parent().is_none() {
         return Err(SittingError::SittingOutputPathRejected);
     }
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return Err(SittingError::SittingOutputPathRejected);
     };
-    if name != sitting_output_basename(mode, timestamp_utc) {
+    if name != expected {
         return Err(SittingError::SittingOutputNameMismatch);
     }
     Ok(())

@@ -12,6 +12,52 @@ use qk_card_enrollment::{
 
 const UTC: &str = "2026-09-06T20:00:00Z";
 
+#[test]
+fn specimen_03_bindings_and_headers_do_not_widen_historical_paths() {
+    for mode in [
+        SittingMode::InstallInfo,
+        SittingMode::ProvisionGolden,
+        SittingMode::CommittedReadback,
+    ] {
+        for specimen in ["J3R180-02", "J3R180-03"] {
+            let enrolled = enrollment(
+                SITTING_CAMPAIGN_SOURCE_COMMIT,
+                specimen,
+                SITTING_READER_NAME,
+            )
+            .validate()
+            .unwrap();
+            let path = PathBuf::from("/tmp").join(format!(
+                "qk-card-sitting-v1__{}__{specimen}__{UTC}.txt",
+                mode.as_str()
+            ));
+            let metadata = SittingMetadata::new(mode, enrolled.clone(), path).unwrap();
+            let mut transcript = SittingTranscript::new(Vec::new());
+            transcript.write_header(&metadata).unwrap();
+            let text = String::from_utf8(transcript.into_inner()).unwrap();
+            let version = if specimen == "J3R180-03" {
+                "0.0.8"
+            } else if mode == SittingMode::CommittedReadback {
+                "0.0.7"
+            } else {
+                "0.0.4"
+            };
+            assert!(text.contains(&format!("tool_version={version}\n")));
+            assert!(text.contains(&format!("specimen_alias={specimen}\n")));
+            if specimen == "J3R180-03" {
+                assert_eq!(
+                    qk_card_enrollment::validate_sitting_binding(&enrolled),
+                    Err(SittingError::SittingBindingMismatch)
+                );
+                assert_eq!(
+                    SittingMetadata::new(mode, enrolled, output_path(mode)),
+                    Err(SittingError::SittingOutputNameMismatch)
+                );
+            }
+        }
+    }
+}
+
 fn enrollment(source_commit: &str, specimen: &str, reader: &[u8]) -> EnrollmentMetadata {
     EnrollmentMetadata {
         mode: EnrollmentMode::Enroll,
@@ -119,7 +165,7 @@ fn only_registered_modes_bindings_source_and_output_name_are_accepted() {
     );
 
     for (specimen, reader) in [
-        ("J3R180-03", SITTING_READER_NAME),
+        ("J3R180-01", SITTING_READER_NAME),
         ("J3R180-02", b"another reader".as_slice()),
     ] {
         let metadata = enrollment(SITTING_CAMPAIGN_SOURCE_COMMIT, specimen, reader)

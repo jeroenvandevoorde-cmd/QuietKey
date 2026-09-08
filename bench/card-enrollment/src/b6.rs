@@ -17,7 +17,7 @@ use crate::{
 
 pub const B6_MODE: &str = "sign-golden";
 pub const B6_PLAN_VERSION: &str = "1";
-pub const B6_TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const B6_TOOL_VERSION: &str = "0.0.7";
 pub const B6_TRANSCRIPT_VERSION: &str = "QK-CARD-B6-V1";
 pub const B6_TRANSCRIPT_LIMIT_ID: &str = "QK-LIM-BENCH-B6-TRANSCRIPT-V1";
 pub const MAX_B6_TRANSCRIPT_BYTES: usize = 2_097_152;

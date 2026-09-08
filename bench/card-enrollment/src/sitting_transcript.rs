@@ -8,7 +8,7 @@ use crate::{
     NegotiatedProtocol, SittingError, SittingExchange, CANONICAL_CAP_BYTES, CANONICAL_CAP_SHA256,
     GOLDEN_FIXTURE_BLOB, GOLDEN_FIXTURE_BYTES, GOLDEN_FIXTURE_LF, GOLDEN_FIXTURE_PATH,
     GOLDEN_FIXTURE_SHA256, MAX_SITTING_TRANSCRIPT_BYTES, SITTING_APPLET_SOURCE_COMMIT,
-    SITTING_CAMPAIGN_SOURCE_COMMIT, SITTING_PLAN_VERSION, SITTING_TOOL_VERSION,
+    SITTING_CAMPAIGN_SOURCE_COMMIT, SITTING_PLAN_VERSION,
 };
 
 pub const SITTING_TRANSCRIPT_VERSION: &str = "QK-CARD-SITTING-V1";
@@ -45,14 +45,7 @@ impl<W: Write> SittingTranscript<W> {
             .ok_or(SittingError::SittingOutputPathRejected)?;
         self.write_line(SITTING_TRANSCRIPT_VERSION)?;
         self.write_field("plan_version", SITTING_PLAN_VERSION)?;
-        self.write_field(
-            "tool_version",
-            if metadata.mode() == crate::SittingMode::CommittedReadback {
-                env!("CARGO_PKG_VERSION")
-            } else {
-                SITTING_TOOL_VERSION
-            },
-        )?;
+        self.write_field("tool_version", metadata.tool_version())?;
         self.write_field("source_commit", &enrollment.source_commit)?;
         self.write_field("campaign_source_commit", SITTING_CAMPAIGN_SOURCE_COMMIT)?;
         self.write_field("applet_source_commit", SITTING_APPLET_SOURCE_COMMIT)?;
