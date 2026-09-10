@@ -1192,7 +1192,7 @@ impl NormalSessionV2 {
 
     /// Test-only seam for placing one already-verified public fixture record
     /// in the bounded retained-response owner without advancing its cursor.
-    #[cfg(all(feature = "normal-process", any(test, feature = "fuzzing")))]
+    #[cfg(all(feature = "normal-process", feature = "fuzzing"))]
     pub(crate) fn fuzz_preseed_retained_card_signature(
         &mut self,
         der_signature: &mut [u8],
