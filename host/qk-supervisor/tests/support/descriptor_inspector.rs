@@ -10,6 +10,41 @@ use std::path::{Path, PathBuf};
 extern "C" {
     fn fcntl(fd: i32, command: i32, ...) -> i32;
     fn dup2(old: i32, new: i32) -> i32;
+    fn sigemptyset(set: *mut SigSet) -> i32;
+    fn sigaddset(set: *mut SigSet, signal: i32) -> i32;
+    fn sigprocmask(how: i32, set: *const SigSet, old: *mut SigSet) -> i32;
+}
+
+#[cfg(target_os = "macos")]
+type SigSet = u32;
+#[cfg(not(target_os = "macos"))]
+type SigSet = [u64; 16];
+
+const SIGTERM: i32 = 15;
+#[cfg(target_os = "macos")]
+const SIG_BLOCK: i32 = 1;
+#[cfg(target_os = "macos")]
+const SIG_UNBLOCK: i32 = 2;
+#[cfg(not(target_os = "macos"))]
+const SIG_BLOCK: i32 = 0;
+#[cfg(not(target_os = "macos"))]
+const SIG_UNBLOCK: i32 = 1;
+
+/// Hold the launcher's SIGTERM until the evidence is complete, so the
+/// product's 10 ms running proof does not truncate the decoy record on a
+/// slow host. The pending signal is delivered at the unblock.
+fn set_sigterm_blocked(blocked: bool) -> bool {
+    let mut set: SigSet = Default::default();
+    // SAFETY: `set` is one live sigset_t owned by this frame.
+    unsafe {
+        sigemptyset(&mut set) == 0
+            && sigaddset(&mut set, SIGTERM) == 0
+            && sigprocmask(
+                if blocked { SIG_BLOCK } else { SIG_UNBLOCK },
+                &set,
+                std::ptr::null_mut(),
+            ) == 0
+    }
 }
 
 struct DescriptorSnapshot {
@@ -323,6 +358,10 @@ fn run(snapshot: &Snapshot, evidence: &mut Evidence) -> bool {
 }
 
 fn main() {
+    if ROLE == "decoy" && !set_sigterm_blocked(true) {
+        diagnostic("sigterm_block\tFAIL\n");
+        std::process::exit(70);
+    }
     let (_, null_fds) = expected();
     let snapshot = Snapshot::capture(null_fds);
     let root = PathBuf::from(EVIDENCE_ROOT);
@@ -394,6 +433,10 @@ fn main() {
         std::process::exit(70);
     }
     if ROLE == "decoy" {
+        if !set_sigterm_blocked(false) {
+            diagnostic("sigterm_unblock\tFAIL\n");
+            std::process::exit(70);
+        }
         loop {
             std::thread::park();
         }
