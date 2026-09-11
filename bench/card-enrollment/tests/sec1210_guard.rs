@@ -3,7 +3,9 @@ use qk_card_enrollment::{
     SEC1210_STTY_ARGS, SEC1210_TOOL_VERSION,
 };
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::symlink;
+#[cfg(not(target_os = "linux"))]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);
