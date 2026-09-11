@@ -139,7 +139,7 @@ fn b6_is_not_a_legacy_sitting_mode_and_historical_versions_stay_literal() {
     assert_eq!(B6_TOOL_VERSION, "0.0.7");
     assert!(LIB.contains("pub const SITTING_TOOL_VERSION: &str = \"0.0.4\";"));
     assert!(LIB.contains("pub const MANAGEMENT_OBSERVATION_TOOL_VERSION: &str = \"0.0.5\";"));
-    assert!(MANIFEST.contains("version = \"0.0.8\""));
+    assert!(MANIFEST.contains("version = \"0.0.9\""));
 }
 
 #[test]

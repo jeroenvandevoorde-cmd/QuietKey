@@ -49,7 +49,6 @@ enum ArgumentError {
 }
 
 fn usage() {
-    eprintln!("   or: qk-card-enrollment sec1210-probe <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
     eprintln!(
         "usage: qk-card-enrollment enumerate <source-commit> <utc> <host-alias> <reader-alias>"
     );
@@ -66,6 +65,7 @@ fn usage() {
         "   or: qk-card-enrollment b6 <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>"
     );
     eprintln!("   or: qk-card-enrollment sitting <interrupt-golden|classify-golden|abort-staging-golden> <trial-id> <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>");
+    eprintln!("   or: qk-card-enrollment sec1210-probe <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
 }
 
 fn parse_lower_hex(value: &str) -> Option<Vec<u8>> {

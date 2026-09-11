@@ -1,3 +1,6 @@
+const UART: &str = include_str!("../src/uart_adapter.rs");
+const SEC1210: &str = include_str!("../src/sec1210.rs");
+const SEC1210_TRANSCRIPT: &str = include_str!("../src/sec1210_transcript.rs");
 const LIB: &str = include_str!("../src/lib.rs");
 const IDENTITY: &str = include_str!("../src/identity.rs");
 const IDENTITY_TRANSCRIPT: &str = include_str!("../src/identity_transcript.rs");
@@ -26,6 +29,9 @@ fn production_roots_forbid_unsafe_code() {
     assert_eq!(MAIN.matches("#![forbid(unsafe_code)]").count(), 1);
     for source in [
         LIB,
+        UART,
+        SEC1210,
+        SEC1210_TRANSCRIPT,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
         INTERRUPTION,
@@ -56,6 +62,9 @@ fn production_roots_forbid_unsafe_code() {
 fn safe_adapters_confine_transmits_to_the_five_private_paths() {
     for source in [
         LIB,
+        UART,
+        SEC1210,
+        SEC1210_TRANSCRIPT,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
         INTERRUPTION,
@@ -80,6 +89,9 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
     assert_eq!(INTERRUPTION_ADAPTER.matches(".transmit(").count(), 1);
     for source in [
         LIB,
+        UART,
+        SEC1210,
+        SEC1210_TRANSCRIPT,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
         INTERRUPTION,
@@ -177,12 +189,24 @@ fn manifest_has_exactly_the_reviewed_b6_runtime_dependencies() {
         "pcsc = { version = \"=2.9.0\" }",
         "qk-card-protocol = { path = \"../../host/qk-card-protocol\" }",
         "qk-secp = { path = \"../../host/qk-secp\", features = [\"card-signature-normalization\"] }",
+        "qk-sec1210-wire = { path = \"../../host/qk-sec1210-wire\" }",
     ]);
 }
 
 #[test]
 fn public_reexports_are_the_reviewed_boundary() {
     let expected = [
+        "run_sec1210",
+        "sec1210_output_basename",
+        "Sec1210Error",
+        "Sec1210Metadata",
+        "Sec1210Summary",
+        "Sec1210Transport",
+        "SEC1210_STTY_ARGS",
+        "SEC1210_TOOL_VERSION",
+        "SEC1210_TTY",
+        "Sec1210Transcript",
+        "execute_sec1210_probe",
         "authorize_operation",
         "run_enrollment",
         "CaptureAttempt",

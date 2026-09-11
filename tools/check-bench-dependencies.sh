@@ -59,7 +59,7 @@ package_shape=$(awk '
   $0 == "[package]" { package_sections++; in_package = 1; next }
   /^\[/ { in_package = 0; next }
   in_package && $0 == "name = \"qk-card-enrollment\"" { names++ }
-  in_package && $0 == "version = \"0.0.8\"" { versions++ }
+  in_package && $0 == "version = \"0.0.9\"" { versions++ }
   in_package && $0 == "publish = false" { publish++ }
   in_package && $0 == "edition = \"2021\"" { editions++ }
   in_package && $0 == "license = \"Apache-2.0\"" { licenses++ }
@@ -82,6 +82,7 @@ dependency_shape=$(awk '
     if ($0 == "pcsc = { version = \"=2.9.0\" }") pcsc++
     else if ($0 == "qk-card-protocol = { path = \"../../host/qk-card-protocol\" }") protocol++
     else if ($0 == "qk-secp = { path = \"../../host/qk-secp\", features = [\"card-signature-normalization\"] }") secp++
+    else if ($0 == "qk-sec1210-wire = { path = \"../../host/qk-sec1210-wire\" }") sec1210++
     else bad++
   }
   in_dev && $0 !~ /^[[:space:]]*(#|$)/ {
@@ -89,9 +90,9 @@ dependency_shape=$(awk '
     if ($0 == "qk-card-model = { path = \"../../host/qk-card-model\" }") model++
     else bad++
   }
-  END { print dependency_sections + 0, entries + 0, pcsc + 0, protocol + 0, secp + 0, dev_sections + 0, dev_entries + 0, model + 0, bad + 0, forbidden_sections + 0 }
+  END { print dependency_sections + 0, entries + 0, pcsc + 0, protocol + 0, secp + 0, sec1210 + 0, dev_sections + 0, dev_entries + 0, model + 0, bad + 0, forbidden_sections + 0 }
 ' "$manifest") || fail 'cannot inspect bench dependency declaration'
-[ "$dependency_shape" = '1 3 1 1 1 1 1 1 0 0' ] || \
+[ "$dependency_shape" = '1 4 1 1 1 1 1 1 1 0 0' ] || \
   fail 'bench direct dependencies are not exactly pcsc 2.9.0 plus the reviewed runtime and dev paths'
 
 workspace_shape=$(awk '
@@ -122,9 +123,12 @@ bench/card-enrollment/src/pcsc_identity_adapter.rs
 bench/card-enrollment/src/pcsc_interruption_adapter.rs
 bench/card-enrollment/src/pcsc_management_observation_adapter.rs
 bench/card-enrollment/src/pcsc_sitting_adapter.rs
+bench/card-enrollment/src/sec1210.rs
+bench/card-enrollment/src/sec1210_transcript.rs
 bench/card-enrollment/src/sitting.rs
 bench/card-enrollment/src/sitting_transcript.rs
 bench/card-enrollment/src/transcript.rs
+bench/card-enrollment/src/uart_adapter.rs
 bench/card-enrollment/tests/b6_guard.rs
 bench/card-enrollment/tests/b6_mock.rs
 bench/card-enrollment/tests/b6_transcript.rs
@@ -136,6 +140,9 @@ bench/card-enrollment/tests/management_observation_guard.rs
 bench/card-enrollment/tests/management_observation_mock.rs
 bench/card-enrollment/tests/management_observation_transcript.rs
 bench/card-enrollment/tests/mock.rs
+bench/card-enrollment/tests/sec1210_guard.rs
+bench/card-enrollment/tests/sec1210_mock.rs
+bench/card-enrollment/tests/sec1210_transcript.rs
 bench/card-enrollment/tests/sitting_guard.rs
 bench/card-enrollment/tests/sitting_mock.rs
 bench/card-enrollment/tests/sitting_model.rs
@@ -287,9 +294,9 @@ if ! awk -F '\t' '
   seen[$1 SUBSEP $2 SUBSEP $3]++ { bad = 1 }
   $1 == "registry" { registry_rows++ }
   $1 == "path" { path_rows++ }
-  END { exit (bad || registry_rows != 4 || path_rows != 3) ? 1 : 0 }
+  END { exit (bad || registry_rows != 4 || path_rows != 4) ? 1 : 0 }
 ' "$allowlist"; then
-  fail "$allowlist does not contain exactly four registry and three path rows"
+  fail "$allowlist does not contain exactly four registry and four path rows"
 fi
 
 allowlist_facts=$(awk -F '\t' '
@@ -306,9 +313,10 @@ path_facts=$(awk -F '\t' '$1 == "path" { print $2 "|" $3 "|" $4 "|" $5 "|" $6 }'
   fail 'cannot normalize bench test path facts'
 expected_path_facts='qk-card-model|0.0.1|cff6eea5fa8b3c66bee2173f406b348f8cb819217fa6cc1d51271badd8a39127|host/qk-card-model/Cargo.toml|Apache-2.0
 qk-card-protocol|0.0.1|dc58fd821c4409c7477ec9b471e469b24222ed76b4c50e8efc71cadefa9913b5|host/qk-card-protocol/Cargo.toml|Apache-2.0
+qk-sec1210-wire|0.0.1|95c27be925cc99d477bed34b74e12f62b1ea3b2b7779de04985d0ffabcc1cef5|host/qk-sec1210-wire/Cargo.toml|Apache-2.0
 qk-secp|0.0.1|4dd98b27cac64c0b4e90528e38e430cb98b1da225d8da793cece95b8079c59f0|host/qk-secp/Cargo.toml|Apache-2.0'
 [ "$path_facts" = "$expected_path_facts" ] || fail 'bench dev path allowlist differs from QK-DEC-165'
-for path_crate in qk-card-model qk-card-protocol qk-secp; do
+for path_crate in qk-card-model qk-card-protocol qk-secp qk-sec1210-wire; do
   path_manifest="host/$path_crate/Cargo.toml"
   [ -f "$path_manifest" ] && [ ! -L "$path_manifest" ] || fail "path manifest is missing or linked: $path_manifest"
   expected_hash=$(awk -F '\t' -v name="$path_crate" '$1 == "path" && $2 == name { print $4 }' "$allowlist")
@@ -373,9 +381,10 @@ expected_lock_facts='bitflags|2.13.1|registry+https://github.com/rust-lang/crate
 pcsc-sys|1.3.0|registry+https://github.com/rust-lang/crates.io-index|e14ef017e15d2e5592a9e39a346c1dbaea5120bab7ed7106b210ef58ebd97003
 pcsc|2.9.0|registry+https://github.com/rust-lang/crates.io-index|7dd833ecf8967e65934c49d3521a175929839bf6d0e497f3bd0d3a2ca08943da
 pkg-config|0.3.34|registry+https://github.com/rust-lang/crates.io-index|f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548
-qk-card-enrollment|0.0.8||
+qk-card-enrollment|0.0.9||
 qk-card-model|0.0.1||
 qk-card-protocol|0.0.1||
+qk-sec1210-wire|0.0.1||
 qk-secp|0.0.1||'
 [ "$(cat "$lock_facts_tmp")" = "$expected_lock_facts" ] || \
   fail 'bench Cargo.lock package set or checksum facts differ from QK-DEC-147'
@@ -397,11 +406,12 @@ normal_facts=$(normalize_tree "$normal_tree_tmp") || fail 'cannot normalize benc
 expected_normal_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
-qk-card-enrollment|0.0.8
+qk-card-enrollment|0.0.9
 qk-card-protocol|0.0.1
+qk-sec1210-wire|0.0.1
 qk-secp|0.0.1'
 [ "$normal_facts" = "$expected_normal_facts" ] || \
-  fail 'bench normal dependency closure is not the exact reviewed six-package set'
+  fail 'bench normal dependency closure is not the exact reviewed seven-package set'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path "$manifest" --locked --offline \
     --target "$host_target" --edges normal,build --prefix none --format '{p}' \
@@ -413,11 +423,12 @@ expected_build_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.8
+qk-card-enrollment|0.0.9
 qk-card-protocol|0.0.1
+qk-sec1210-wire|0.0.1
 qk-secp|0.0.1'
 [ "$build_facts" = "$expected_build_facts" ] || \
-  fail 'bench normal/build dependency closure is not the exact reviewed seven-package set'
+  fail 'bench normal/build dependency closure is not the exact reviewed eight-package set'
 
 if ! CARGO_NET_OFFLINE=true cargo tree --manifest-path "$manifest" --locked --offline \
     --target "$host_target" --edges normal,build,dev --prefix none --format '{p}' \
@@ -429,13 +440,14 @@ expected_test_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.8
+qk-card-enrollment|0.0.9
 qk-card-model|0.0.1
 qk-card-protocol|0.0.1
+qk-sec1210-wire|0.0.1
 qk-secp|0.0.1'
 [ "$test_facts" = "$expected_test_facts" ] || \
-  fail 'bench test closure is not the exact eight-package reviewed set'
-for path_crate in qk-card-protocol qk-secp; do
+  fail 'bench test closure is not the exact nine-package reviewed set'
+for path_crate in qk-card-protocol qk-secp qk-sec1210-wire; do
   grep -F "$path_crate v0.0.1 ($root/host/$path_crate)" "$normal_tree_tmp" >/dev/null 2>&1 || \
     fail "bench runtime crate did not resolve to its reviewed local path: $path_crate"
 done
