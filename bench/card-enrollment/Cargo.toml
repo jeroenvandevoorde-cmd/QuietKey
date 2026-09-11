@@ -9,6 +9,7 @@ license = "Apache-2.0"
 pcsc = { version = "=2.9.0" }
 qk-card-protocol = { path = "../../host/qk-card-protocol" }
 qk-secp = { path = "../../host/qk-secp", features = ["card-signature-normalization"] }
+qk-sec1210-wire = { path = "../../host/qk-sec1210-wire" }
 
 [dev-dependencies]
 qk-card-model = { path = "../../host/qk-card-model" }

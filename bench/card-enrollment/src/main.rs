@@ -17,6 +17,7 @@ use qk_card_enrollment::{
 };
 
 enum Command {
+    Sec1210(qk_card_enrollment::Sec1210Metadata),
     Interruption {
         mode: InterruptionMode,
         trial: InterruptionTrial,
@@ -41,12 +42,14 @@ enum Command {
 }
 
 enum ArgumentError {
+    Sec1210(qk_card_enrollment::Sec1210Error),
     Usage,
     Sitting(SittingError),
     Interruption(InterruptionError),
 }
 
 fn usage() {
+    eprintln!("   or: qk-card-enrollment sec1210-probe <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
     eprintln!(
         "usage: qk-card-enrollment enumerate <source-commit> <utc> <host-alias> <reader-alias>"
     );
@@ -95,6 +98,19 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
     let mut arguments = env::args();
     let _program = arguments.next().ok_or(ArgumentError::Usage)?;
     let mode = arguments.next().ok_or(ArgumentError::Usage)?;
+    if mode == "sec1210-probe" {
+        let source = arguments.next().ok_or(ArgumentError::Usage)?;
+        let utc = arguments.next().ok_or(ArgumentError::Usage)?;
+        let host = arguments.next().ok_or(ArgumentError::Usage)?;
+        let specimen = arguments.next().ok_or(ArgumentError::Usage)?;
+        let output = PathBuf::from(arguments.next().ok_or(ArgumentError::Usage)?);
+        if arguments.next().is_some() {
+            return Err(ArgumentError::Usage);
+        }
+        return qk_card_enrollment::Sec1210Metadata::new(source, utc, &host, &specimen, output)
+            .map(Command::Sec1210)
+            .map_err(ArgumentError::Sec1210);
+    }
     if mode == "sitting" {
         let sitting_name = arguments.next().ok_or(ArgumentError::Usage)?;
         let interruption_mode = InterruptionMode::parse(&sitting_name).ok();
@@ -221,6 +237,10 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
 
 fn main() -> ExitCode {
     let command = match parse_arguments() {
+        Err(ArgumentError::Sec1210(error)) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
         Ok(command) => command,
         Err(ArgumentError::Usage) => {
             usage();
@@ -236,6 +256,23 @@ fn main() -> ExitCode {
         }
     };
     match command {
+        Command::Sec1210(metadata) => {
+            std::panic::set_hook(Box::new(|_| {}));
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                qk_card_enrollment::execute_sec1210_probe(metadata)
+            }))
+            .unwrap_or(Err(qk_card_enrollment::Sec1210Error::BoundaryPanicked));
+            let failure = match result {
+                Ok(summary) => summary.failure,
+                Err(error) => Some(error),
+            };
+            if let Some(error) = failure {
+                eprintln!("result={}", error.name());
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
         Command::Interruption {
             mode,
             trial,

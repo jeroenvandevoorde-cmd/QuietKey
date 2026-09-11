@@ -40,6 +40,7 @@ dependencies = [
  "pcsc",
  "qk-card-model",
  "qk-card-protocol",
+ "qk-sec1210-wire",
  "qk-secp",
 ]
 
@@ -53,6 +54,10 @@ dependencies = [
 
 [[package]]
 name = "qk-card-protocol"
+version = "0.0.1"
+
+[[package]]
+name = "qk-sec1210-wire"
 version = "0.0.1"
 
 [[package]]

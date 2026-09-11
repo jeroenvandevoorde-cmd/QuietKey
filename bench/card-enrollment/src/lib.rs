@@ -24,9 +24,19 @@ mod pcsc_identity_adapter;
 mod pcsc_interruption_adapter;
 mod pcsc_management_observation_adapter;
 mod pcsc_sitting_adapter;
+mod sec1210;
+mod sec1210_transcript;
 mod sitting;
 mod sitting_transcript;
 mod transcript;
+mod uart_adapter;
+
+pub use sec1210::{
+    run_sec1210, sec1210_output_basename, Sec1210Error, Sec1210Metadata, Sec1210Summary,
+    Sec1210Transport, SEC1210_STTY_ARGS, SEC1210_TOOL_VERSION, SEC1210_TTY,
+};
+pub use sec1210_transcript::Sec1210Transcript;
+pub use uart_adapter::execute_sec1210_probe;
 
 pub use b6::{
     b6_exchange, b6_output_basename, run_b6, B6Error, B6Exchange, B6Metadata, B6Observer,
