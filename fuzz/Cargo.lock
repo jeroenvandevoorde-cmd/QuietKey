@@ -304,6 +304,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qk-sec1210-wire"
+version = "0.0.1"
+
+[[package]]
 name = "qk-secp"
 version = "0.0.1"
 
@@ -351,6 +355,7 @@ dependencies = [
  "qk-kit",
  "qk-provisioning",
  "qk-psbt",
+ "qk-sec1210-wire",
  "qk-secp",
  "qk-supervisor",
  "qk-update",
