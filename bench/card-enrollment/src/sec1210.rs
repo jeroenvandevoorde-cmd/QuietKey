@@ -255,8 +255,11 @@ pub fn run_sec1210<T: Sec1210Transport, W: Write>(
                 read_index += 1;
                 // Record bytes even when the read returned after the deadline.
                 let result = exchange.receive(&buffer[..length], elapsed);
-                for observation in &exchange.observations()[observation_index..] {
-                    transcript.observation(observation_index, observation)?;
+                for (offset, observation) in exchange.observations()[observation_index..]
+                    .iter()
+                    .enumerate()
+                {
+                    transcript.observation(observation_index + offset, observation)?;
                 }
                 observation_index = exchange.observations().len();
                 transcript.field(

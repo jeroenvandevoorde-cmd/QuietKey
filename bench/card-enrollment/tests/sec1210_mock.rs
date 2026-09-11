@@ -157,6 +157,36 @@ fn fixed_public_mock_sitting_passes_without_any_device() {
     assert!(t.contains("kernel_close_result=UNOBSERVED\n"));
 }
 #[test]
+fn coalesced_event_and_response_observation_indices_increase_across_reads() {
+    let mut coalesced = vec![0x50, 0x03];
+    coalesced.extend_from_slice(&status());
+    let mut m = Mock {
+        reads: VecDeque::from([(coalesced, 10), (atr(), 10)]),
+        ..Default::default()
+    };
+    let (s, t) = run(&mut m);
+    assert_eq!(s.failure, None);
+    assert_eq!(
+        (s.request_count, s.response_count, s.event_count),
+        (2, 2, 1)
+    );
+    assert_eq!(s.received_bytes, 43);
+    let observations: Vec<_> = t
+        .lines()
+        .filter_map(|line| line.strip_prefix("observation."))
+        .collect();
+    assert_eq!(
+        observations,
+        vec![
+            "0=SlotChange bitmap=03 slot1_bits=0",
+            "1=SlotStatus status=01 error=00 clock=00",
+            "2=AtrExactMatch"
+        ]
+    );
+    assert!(t.contains("read.0.rx_hex=500303068100000000000101000084\n"));
+    assert!(t.ends_with("first_failure=NONE\nresult=PASS\n"));
+}
+#[test]
 fn independently_repeated_public_inputs_reproduce_full_transcript() {
     let (s1, t1) = run(&mut Mock::default());
     let (s2, t2) = run(&mut Mock::default());
