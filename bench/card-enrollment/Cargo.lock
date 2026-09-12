@@ -35,13 +35,14 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "qk-card-enrollment"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "pcsc",
  "qk-card-model",
  "qk-card-protocol",
  "qk-sec1210-wire",
  "qk-secp",
+ "qk-t1",
 ]
 
 [[package]]
@@ -62,4 +63,8 @@ version = "0.0.1"
 
 [[package]]
 name = "qk-secp"
+version = "0.0.1"
+
+[[package]]
+name = "qk-t1"
 version = "0.0.1"

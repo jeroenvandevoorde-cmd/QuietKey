@@ -1,6 +1,8 @@
 const UART: &str = include_str!("../src/uart_adapter.rs");
 const SEC1210: &str = include_str!("../src/sec1210.rs");
 const SEC1210_TRANSCRIPT: &str = include_str!("../src/sec1210_transcript.rs");
+const READBACK: &str = include_str!("../src/sec1210_readback.rs");
+const READBACK_TRANSCRIPT: &str = include_str!("../src/sec1210_readback_transcript.rs");
 const LIB: &str = include_str!("../src/lib.rs");
 const IDENTITY: &str = include_str!("../src/identity.rs");
 const IDENTITY_TRANSCRIPT: &str = include_str!("../src/identity_transcript.rs");
@@ -32,6 +34,8 @@ fn production_roots_forbid_unsafe_code() {
         UART,
         SEC1210,
         SEC1210_TRANSCRIPT,
+        READBACK,
+        READBACK_TRANSCRIPT,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
         INTERRUPTION,
@@ -65,6 +69,8 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
         UART,
         SEC1210,
         SEC1210_TRANSCRIPT,
+        READBACK,
+        READBACK_TRANSCRIPT,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
         INTERRUPTION,
@@ -92,6 +98,8 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
         UART,
         SEC1210,
         SEC1210_TRANSCRIPT,
+        READBACK,
+        READBACK_TRANSCRIPT,
         IDENTITY,
         IDENTITY_TRANSCRIPT,
         INTERRUPTION,
@@ -190,6 +198,7 @@ fn manifest_has_exactly_the_reviewed_b6_runtime_dependencies() {
         "qk-card-protocol = { path = \"../../host/qk-card-protocol\" }",
         "qk-secp = { path = \"../../host/qk-secp\", features = [\"card-signature-normalization\"] }",
         "qk-sec1210-wire = { path = \"../../host/qk-sec1210-wire\" }",
+        "qk-t1 = { path = \"../../host/qk-t1\" }",
     ]);
 }
 
@@ -207,6 +216,18 @@ fn public_reexports_are_the_reviewed_boundary() {
         "SEC1210_TTY",
         "Sec1210Transcript",
         "execute_sec1210_probe",
+        "run_sec1210_readback",
+        "sec1210_readback_output_basename",
+        "Sec1210ReadbackError",
+        "Sec1210ReadbackMetadata",
+        "Sec1210ReadbackSummary",
+        "Sec1210ReadbackTransport",
+        "Sec1210ReadbackTranscript",
+        "SEC1210_READBACK_TOOL_VERSION",
+        "READBACK_PLAN_SHA256",
+        "READBACK_LIMITS",
+        "MAX_SEC1210_READBACK_TRANSCRIPT_BYTES",
+        "execute_sec1210_readback",
         "authorize_operation",
         "run_enrollment",
         "CaptureAttempt",

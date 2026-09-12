@@ -34,6 +34,7 @@ impl GuardTree {
             "host/qk-card-protocol/Cargo.toml",
             "host/qk-secp/Cargo.toml",
             "host/qk-sec1210-wire/Cargo.toml",
+            "host/qk-t1/Cargo.toml",
         ] {
             tree.copy(root, relative);
         }

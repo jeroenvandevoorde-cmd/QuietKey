@@ -125,3 +125,67 @@ pub fn execute_sec1210_probe(metadata: Sec1210Metadata) -> Result<Sec1210Summary
     let mut uart = Uart::default();
     Ok(run_sec1210(&metadata, &mut uart, &mut transcript))
 }
+
+// A separate invocation-wide clock leaves probe clock semantics unchanged.
+struct ReadbackUart {
+    uart: Uart,
+    epoch: std::time::Instant,
+}
+impl Sec1210Transport for ReadbackUart {
+    fn configure(&mut self) -> Result<i32, Sec1210Error> {
+        self.uart.configure()
+    }
+    fn open(&mut self) -> Result<(), Sec1210Error> {
+        self.uart.open()
+    }
+    fn write_once(&mut self, request: &[u8]) -> Result<usize, Sec1210Error> {
+        self.uart.write_once(request)
+    }
+    fn pause_after_write(&mut self) -> Result<(), Sec1210Error> {
+        self.uart.pause_after_write()
+    }
+    fn read(&mut self, buffer: &mut [u8]) -> Result<(usize, u64), Sec1210Error> {
+        self.uart.read(buffer)
+    }
+    fn release(&mut self) -> Result<bool, Sec1210Error> {
+        self.uart.release()
+    }
+}
+impl crate::Sec1210ReadbackTransport for ReadbackUart {
+    fn now_ms(&mut self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+}
+
+pub fn execute_sec1210_readback(
+    metadata: crate::Sec1210ReadbackMetadata,
+) -> Result<crate::Sec1210ReadbackSummary, crate::Sec1210ReadbackError> {
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(metadata.output())
+        .map_err(|_| Sec1210Error::OutputCreateFailed)?;
+    file.set_permissions(Permissions::from_mode(0o600))
+        .map_err(|_| Sec1210Error::OutputCreateFailed)?;
+    if file
+        .metadata()
+        .map_err(|_| Sec1210Error::OutputCreateFailed)?
+        .permissions()
+        .mode()
+        & 0o777
+        != 0o600
+    {
+        return Err(Sec1210Error::OutputCreateFailed.into());
+    }
+    let mut transcript = crate::Sec1210ReadbackTranscript::new(file);
+    let mut uart = ReadbackUart {
+        uart: Uart::default(),
+        epoch: std::time::Instant::now(),
+    };
+    Ok(crate::run_sec1210_readback(
+        &metadata,
+        &mut uart,
+        &mut transcript,
+    ))
+}

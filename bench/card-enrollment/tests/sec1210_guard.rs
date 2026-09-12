@@ -151,7 +151,7 @@ fn unsupported_platform_creates_private_refusal_without_device_access() {
 fn serial_vector_and_lane_version_are_exact_no_fallback() {
     assert_eq!(SEC1210_STTY_ARGS.join(" "),"-F /dev/ttyAMA0 115200 raw -echo -echonl cs8 -parenb cstopb cread clocal -hupcl -crtscts -parmrk -ignpar -inpck min 0 time 5");
     assert_eq!(SEC1210_TOOL_VERSION, "0.0.9");
-    assert!(include_str!("../Cargo.toml").contains("version = \"0.0.9\""));
+    assert!(include_str!("../Cargo.toml").contains("version = \"0.0.10\""));
     assert!(include_str!("../src/b6.rs").contains("B6_TOOL_VERSION: &str = \"0.0.7\""));
 }
 #[test]
