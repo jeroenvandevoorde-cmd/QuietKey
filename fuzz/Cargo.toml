@@ -27,6 +27,7 @@ legacy = [
     "qk-update/fuzzing",
 ]
 sec1210-wire = ["dep:qk-sec1210-wire"]
+t1-readback = ["dep:qk-sec1210-wire", "dep:qk-t1"]
 ipc = ["dep:qk-ipc", "qk-ipc/fuzzing"]
 card-s1-protocol = ["dep:qk-card-protocol", "qk-card-protocol/fuzzing"]
 card-s1-model = [
@@ -106,6 +107,7 @@ qk-psbt = { path = "../host/qk-psbt", version = "=0.0.1", optional = true }
 qk-sec1210-wire = { path = "../host/qk-sec1210-wire", version = "=0.0.1", optional = true }
 qk-secp = { path = "../host/qk-secp", version = "=0.0.1", optional = true }
 qk-supervisor = { path = "../host/qk-supervisor", version = "=0.0.1", optional = true }
+qk-t1 = { path = "../host/qk-t1", version = "=0.0.1", optional = true }
 qk-update = { path = "../host/qk-update", version = "=0.0.1", optional = true }
 
 [[bin]]
@@ -507,3 +509,11 @@ test = false
 doc = false
 bench = false
 required-features = ["sec1210-wire"]
+
+[[bin]]
+name = "qk_t1"
+path = "fuzz_targets/qk_t1.rs"
+test = false
+doc = false
+bench = false
+required-features = ["t1-readback"]

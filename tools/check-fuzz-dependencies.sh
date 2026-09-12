@@ -38,6 +38,8 @@ profile_flags=$(awk '
 
 [ "$(grep -Fxc 'sec1210-wire = ["dep:qk-sec1210-wire"]' fuzz/Cargo.toml)" = 1 ] || \
   fail 'sec1210-wire fuzz feature is not declared exactly once in canonical form'
+[ "$(grep -Fxc 't1-readback = ["dep:qk-sec1210-wire", "dep:qk-t1"]' fuzz/Cargo.toml)" = 1 ] || \
+  fail 't1-readback fuzz feature is not declared exactly once in canonical form'
 
 process_feature_counts=$(awk '
   $0 == "process-s2-decoy = [\"dep:qk-decoy\", \"qk-decoy/fuzzing\"]" { decoy++ }
@@ -140,7 +142,10 @@ card_s1_feature_counts=$(awk '
 if ! awk '
   function flush_bin() {
     if (!in_bin) return
-    if (name == "qk_sec1210_wire") {
+    if (name == "qk_t1") {
+      t1++
+      if (required != "t1-readback") bad = 1
+    } else if (name == "qk_sec1210_wire") {
       sec1210++
       if (required != "sec1210-wire") bad = 1
     } else if (name == "qk_decoy_calculator") {
@@ -179,7 +184,7 @@ if ! awk '
     } else if (name == "qk_card_model") {
       card_model++
       if (required != "card-s1-model") bad = 1
-    } else if (required == "sec1210-wire" || required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core" || required == "process-s9-wire" || required == "process-s9-core" || required == "card-s1-protocol" || required == "card-s1-model") {
+    } else if (required == "t1-readback" || required == "sec1210-wire" || required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core" || required == "process-s9-wire" || required == "process-s9-core" || required == "card-s1-protocol" || required == "card-s1-model") {
       bad = 1
     }
   }
@@ -208,7 +213,7 @@ if ! awk '
   }
   END {
     flush_bin()
-    exit (bad || sec1210 != 1 || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3 || process_s9_wire != 1 || process_s9_core != 1 || card_protocol != 1 || card_model != 1) ? 1 : 0
+    exit (bad || t1 != 1 || sec1210 != 1 || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3 || process_s9_wire != 1 || process_s9_core != 1 || card_protocol != 1 || card_model != 1) ? 1 : 0
   }
 ' fuzz/Cargo.toml; then
   fail 'process fuzz target-to-feature mapping is not exact'
@@ -221,6 +226,8 @@ dep_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency declarations'
 tree_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency tree'
 sec1210_raw_tmp=$(mktemp) || fail 'mktemp failed for raw SEC1210 fuzz closure'
 sec1210_tmp=$(mktemp) || fail 'mktemp failed for SEC1210 fuzz closure'
+t1_raw_tmp=$(mktemp) || fail 'mktemp failed for raw T=1 fuzz closure'
+t1_tmp=$(mktemp) || fail 'mktemp failed for T=1 fuzz closure'
 default_raw_tmp=$(mktemp) || fail 'mktemp failed for raw default fuzz dependency closure'
 default_tmp=$(mktemp) || fail 'mktemp failed for default fuzz dependency closure'
 ipc_raw_tmp=$(mktemp) || fail 'mktemp failed for raw IPC fuzz dependency closure'
@@ -259,7 +266,7 @@ host_core_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-core host dependen
 host_core_tmp=$(mktemp) || fail 'mktemp failed for qk-core host dependency closure'
 closure_raw_tmp=$(mktemp) || fail 'mktemp failed for raw union fuzz dependency closure'
 closure_tmp=$(mktemp) || fail 'mktemp failed for union fuzz dependency closure'
-trap 'rm -f "$sec1210_raw_tmp" "$sec1210_tmp" "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
+trap 'rm -f "$t1_raw_tmp" "$t1_tmp" "$sec1210_raw_tmp" "$sec1210_tmp" "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
   "$ipc_raw_tmp" "$ipc_tmp" "$decoy_raw_tmp" "$decoy_tmp" \
   "$supervisor_raw_tmp" "$supervisor_tmp" "$supervisor_s8_raw_tmp" "$supervisor_s8_tmp" \
   "$io_raw_tmp" "$io_tmp" "$host_decoy_raw_tmp" \
@@ -366,6 +373,7 @@ host_target=$(rustc -vV | sed -n 's/^host: //p')
 expected_path_set() {
   case "$1" in
     sec1210) printf '%s\n' 'qk-sec1210-wire|0.0.1' ;;
+    t1) printf '%s\n' 'qk-sec1210-wire|0.0.1' 'qk-t1|0.0.1' ;;
     decoy) printf '%s\n' 'qk-decoy|0.0.1' ;;
     supervisor) printf '%s\n' 'qk-ipc|0.0.1' 'qk-supervisor|0.0.1' ;;
     io) printf '%s\n' \
@@ -478,7 +486,7 @@ check_fuzz_closure() {
 
   case "$assertion" in
     default)
-      if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire" || $2 == "qk-card-protocol" || $2 == "qk-card-model" || $2 == "qk-sec1210-wire") { found = 1 } END { exit found ? 0 : 1 }' \
+      if awk -F '|' '$1 == "path" && ($2 == "qk-ipc" || $2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire" || $2 == "qk-card-protocol" || $2 == "qk-card-model" || $2 == "qk-sec1210-wire" || $2 == "qk-t1") { found = 1 } END { exit found ? 0 : 1 }' \
           "$normalized_output"; then
         fail 'a ring-fenced process dependency is reachable from the default fuzz dependency closure'
       fi
@@ -489,7 +497,7 @@ check_fuzz_closure() {
         "$normalized_output") || fail 'cannot inspect IPC-feature fuzz dependency closure'
       [ "$ipc_matches" = 1 ] || \
         fail 'qk-ipc 0.0.1 is not present exactly once in the IPC-feature fuzz dependency closure'
-      if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire" || $2 == "qk-card-protocol" || $2 == "qk-card-model" || $2 == "qk-sec1210-wire") { found = 1 } END { exit found ? 0 : 1 }' \
+      if awk -F '|' '$1 == "path" && ($2 == "qk-decoy" || $2 == "qk-supervisor" || $2 == "qk-io" || $2 == "qk-core" || $2 == "qk-device-wire" || $2 == "qk-card-protocol" || $2 == "qk-card-model" || $2 == "qk-sec1210-wire" || $2 == "qk-t1") { found = 1 } END { exit found ? 0 : 1 }' \
           "$normalized_output"; then
         fail 'a process dependency is reachable from the IPC-only fuzz dependency closure'
       fi
@@ -528,6 +536,7 @@ while IFS='|' read -r closure_id closure_label feature raw_output normalized_out
     "$normalized_output" "$assertion" "$expected_key" "$mismatch_message"
 done <<'EOF'
 sec1210|SEC1210|sec1210-wire|sec1210_raw_tmp|sec1210_tmp|exact|sec1210|SEC1210 path closure is not exactly qk-sec1210-wire 0.0.1
+t1|T=1 readback|t1-readback|t1_raw_tmp|t1_tmp|exact|t1|T=1 readback path closure is not exactly qk-sec1210-wire and qk-t1 0.0.1
 default|default|-|default_raw_tmp|default_tmp|default|-|-
 ipc|IPC-feature|ipc|ipc_raw_tmp|ipc_tmp|ipc|-|-
 process-s2-decoy|process-s2-decoy|process-s2-decoy|decoy_raw_tmp|decoy_tmp|decoy|decoy|process-s2-decoy path dependency closure is not exactly qk-decoy 0.0.1
@@ -544,7 +553,7 @@ card-s1-protocol|card-s1-protocol|card-s1-protocol|card_protocol_raw_tmp|card_pr
 card-s1-model|card-s1-model|card-s1-model|card_model_raw_tmp|card_model_tmp|exact|card_model|card-s1-model path dependency closure is not exactly qk-card-model, qk-card-protocol, and qk-secp
 EOF
 
-cat "$sec1210_tmp" "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
+cat "$t1_tmp" "$sec1210_tmp" "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
   "$io_tmp" "$core_tmp" \
   "$core_s5_tmp" "$core_s6_tmp" "$core_s7_tmp" "$process_s9_wire_tmp" \
   "$process_s9_core_tmp" "$card_protocol_tmp" "$card_model_tmp" > "$closure_raw_tmp" || \

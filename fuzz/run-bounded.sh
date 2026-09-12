@@ -6,6 +6,7 @@ target=$1
 runs=$2
 case "$target" in
   qk_sec1210_wire) max_len=4096; seed=167001 ;;
+  qk_t1) max_len=8192; seed=167003 ;;
   qk_psbt) max_len=4096; seed=21001 ;;
   qk_descriptor) max_len=891; seed=21002 ;;
   qk_a1) max_len=96; seed=21003 ;;
@@ -86,6 +87,9 @@ printf 'source=%s target=%s runs=%s seed=%s max_len=%s sanitizer=address\n' \
 case "$target" in
   qk_sec1210_wire)
     set -- --no-default-features --features sec1210-wire "$target" "fuzz/corpus/$target"
+    ;;
+  qk_t1)
+    set -- --no-default-features --features t1-readback "$target" "fuzz/corpus/$target"
     ;;
   qk_ipc_wire|qk_ipc_endpoint_state)
     set -- --features ipc "$target" "fuzz/corpus/$target"

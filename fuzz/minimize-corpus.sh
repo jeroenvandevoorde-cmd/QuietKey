@@ -6,6 +6,7 @@ target=$1
 corpus=$2
 case "$target" in
   qk_sec1210_wire) max_len=4096 ;;
+  qk_t1) max_len=8192 ;;
   qk_psbt) max_len=4096 ;;
   qk_descriptor) max_len=891 ;;
   qk_a1) max_len=96 ;;
@@ -78,6 +79,9 @@ export CARGO_NET_OFFLINE=true
 case "$target" in
   qk_sec1210_wire)
     set -- --no-default-features --features sec1210-wire "$target" "$corpus"
+    ;;
+  qk_t1)
+    set -- --no-default-features --features t1-readback "$target" "$corpus"
     ;;
   qk_ipc_wire|qk_ipc_endpoint_state)
     set -- --features ipc "$target" "$corpus"
