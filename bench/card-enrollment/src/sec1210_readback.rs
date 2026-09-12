@@ -164,7 +164,9 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
         let accepted = write
             .map_err(Sec1210ReadbackError::from)
             .and_then(|n| self.wire.written(n, written_at).map_err(Into::into));
-        self.first_failure = accepted.as_ref().err().copied();
+        if let Err(error) = accepted {
+            self.first_failure.get_or_insert(error);
+        }
         self.transcript.field(
             &format!("command.{index}.write_bytes"),
             &match write {
@@ -187,8 +189,9 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
             }
             let retained = length.min(READBACK_MAX_RECEIVED_BYTES - self.captured);
             if retained != length {
-                self.first_failure =
-                    Some(ReadbackError::Wire(qk_sec1210_wire::Error::ReceiveLimitExceeded).into());
+                self.first_failure.get_or_insert(
+                    ReadbackError::Wire(qk_sec1210_wire::Error::ReceiveLimitExceeded).into(),
+                );
             }
             self.transcript.field(
                 &format!("read.{}.elapsed_ms", self.read_index),
@@ -216,7 +219,9 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
             // record keeps arrival time; acceptance uses a fresh clock value.
             let validation_ms = self.transport.now_ms();
             let result = self.wire.receive(&buffer[..length], validation_ms);
-            self.first_failure = result.as_ref().err().map(|e| (*e).into());
+            if let Err(error) = result {
+                self.first_failure.get_or_insert(error.into());
+            }
             self.transcript.field(
                 &format!("read.{}.validation_ms", self.read_index),
                 &validation_ms.to_string(),
@@ -252,11 +257,13 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
         }
         self.transcript.header(metadata)?;
         let configured = self.transport.configure();
-        self.first_failure = match configured {
+        if let Some(error) = match configured {
             Err(e) => Some(e.into()),
             Ok(n) if n != 0 => Some(Sec1210Error::SttyFailed.into()),
             _ => None,
-        };
+        } {
+            self.first_failure.get_or_insert(error);
+        }
         self.transcript.field(
             "stty.exit",
             &match configured {
@@ -316,7 +323,9 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
                     response.payload(),
                 )?;
                 let checked = self.t1.receive(response.payload(), self.transport.now_ms());
-                self.first_failure = checked.as_ref().err().map(|e| (*e).into());
+                if let Err(error) = checked {
+                    self.first_failure.get_or_insert(error.into());
+                }
                 self.transcript.field(
                     &format!("t1.{}.comparison", self.wire.sequence()),
                     checked
@@ -388,4 +397,82 @@ pub fn run_sec1210_readback<T: Sec1210ReadbackTransport, W: Write>(
         summary.failure.get_or_insert(e);
     }
     summary
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct LaterStep {
+        configured: Result<i32, Sec1210Error>,
+    }
+    impl Sec1210Transport for LaterStep {
+        fn configure(&mut self) -> Result<i32, Sec1210Error> {
+            self.configured
+        }
+        fn open(&mut self) -> Result<(), Sec1210Error> {
+            Err(Sec1210Error::OpenFailed)
+        }
+        fn write_once(&mut self, _: &[u8]) -> Result<usize, Sec1210Error> {
+            panic!("no write authorized by this mock")
+        }
+        fn pause_after_write(&mut self) -> Result<(), Sec1210Error> {
+            panic!("no write authorized by this mock")
+        }
+        fn read(&mut self, _: &mut [u8]) -> Result<(usize, u64), Sec1210Error> {
+            panic!("no read authorized by this mock")
+        }
+        fn release(&mut self) -> Result<bool, Sec1210Error> {
+            panic!("no handle acquired by this mock")
+        }
+    }
+    impl Sec1210ReadbackTransport for LaterStep {
+        fn now_ms(&mut self) -> u64 {
+            0
+        }
+    }
+
+    #[test]
+    fn first_failure_name_survives_later_success_and_failure_steps() {
+        let utc = "2026-09-13T00:00:00Z";
+        let metadata = Sec1210ReadbackMetadata::new(
+            "a".repeat(40),
+            utc.into(),
+            "RIG-HOST-PI3B-01",
+            "J3R180-03",
+            std::env::temp_dir().join(sec1210_readback_output_basename(utc)),
+        )
+        .unwrap();
+        for (configured, later_error) in [
+            (Ok(0), Sec1210Error::OpenFailed),
+            (Ok(1), Sec1210Error::SttyFailed),
+            (
+                Err(Sec1210Error::SttyUnavailable),
+                Sec1210Error::SttyUnavailable,
+            ),
+        ] {
+            let mut transport = LaterStep { configured };
+            let mut transcript = Sec1210ReadbackTranscript::new(Vec::new());
+            // Seed the private invariant to exercise later bookkeeping; the
+            // public runner still returns immediately on failure, without retry.
+            let mut engine = Engine {
+                transport: &mut transport,
+                transcript: &mut transcript,
+                wire: ReadbackSession::default(),
+                t1: qk_t1::Session::default(),
+                read_index: 0,
+                observation_index: 0,
+                captured: 0,
+                apdu_transmits: 0,
+                apdu_active: false,
+                first_failure: Some(Sec1210Error::ReadFailed.into()),
+            };
+            assert_eq!(engine.run(&metadata), Err(later_error.into()));
+            assert_eq!(
+                engine.first_failure.map(Sec1210ReadbackError::name),
+                Some("Sec1210ReadFailed"),
+                "later configuration result: {configured:?}"
+            );
+        }
+    }
 }
