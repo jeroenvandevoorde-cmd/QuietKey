@@ -3,12 +3,19 @@
 
 mod codec;
 mod exchange;
+mod raw_session;
 mod readback;
 
 pub use codec::{Decoder, Error, Message, Response, MAX_CCID_BYTES, MAX_WIRE_BYTES};
 pub use exchange::{
     Command, Exchange, Observation, Phase, MAX_EVENTS, MAX_RECEIVED_BYTES, RECEIVE_BUDGET_MS,
     REGISTERED_ATR,
+};
+pub use raw_session::{
+    RawCommand, RawError, RawFrameSpan, RawObservation, RawPhase, RawRequest, RawSession,
+    RAW_APDU_BUDGET_MS, RAW_BWT_MS, RAW_COMMAND_BUDGET_MS, RAW_MAX_COMMANDS, RAW_MAX_EVENTS,
+    RAW_MAX_OUTGOING_TPDU_BYTES, RAW_MAX_RECEIVED_BYTES, RAW_MAX_TIME_EXTENSIONS,
+    RAW_MAX_WTX_MULTIPLIER,
 };
 pub use readback::{
     ReadbackCommand, ReadbackError, ReadbackObservation, ReadbackPhase, ReadbackRequest,
