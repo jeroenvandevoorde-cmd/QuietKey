@@ -3,6 +3,8 @@ const SEC1210: &str = include_str!("../src/sec1210.rs");
 const SEC1210_TRANSCRIPT: &str = include_str!("../src/sec1210_transcript.rs");
 const READBACK: &str = include_str!("../src/sec1210_readback.rs");
 const READBACK_TRANSCRIPT: &str = include_str!("../src/sec1210_readback_transcript.rs");
+const FIDI_READBACK: &str = include_str!("../src/sec1210_fidi_readback.rs");
+const FIDI_READBACK_TRANSCRIPT: &str = include_str!("../src/sec1210_fidi_readback_transcript.rs");
 const IFS_READBACK: &str = include_str!("../src/sec1210_ifs_readback.rs");
 const IFS_READBACK_TRANSCRIPT: &str = include_str!("../src/sec1210_ifs_readback_transcript.rs");
 const LIB: &str = include_str!("../src/lib.rs");
@@ -38,6 +40,8 @@ fn production_roots_forbid_unsafe_code() {
         SEC1210_TRANSCRIPT,
         READBACK,
         READBACK_TRANSCRIPT,
+        FIDI_READBACK,
+        FIDI_READBACK_TRANSCRIPT,
         IFS_READBACK,
         IFS_READBACK_TRANSCRIPT,
         IDENTITY,
@@ -75,6 +79,8 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
         SEC1210_TRANSCRIPT,
         READBACK,
         READBACK_TRANSCRIPT,
+        FIDI_READBACK,
+        FIDI_READBACK_TRANSCRIPT,
         IFS_READBACK,
         IFS_READBACK_TRANSCRIPT,
         IDENTITY,
@@ -106,6 +112,8 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
         SEC1210_TRANSCRIPT,
         READBACK,
         READBACK_TRANSCRIPT,
+        FIDI_READBACK,
+        FIDI_READBACK_TRANSCRIPT,
         IFS_READBACK,
         IFS_READBACK_TRANSCRIPT,
         IDENTITY,
@@ -236,6 +244,16 @@ fn public_reexports_are_the_reviewed_boundary() {
         "READBACK_LIMITS",
         "MAX_SEC1210_READBACK_TRANSCRIPT_BYTES",
         "execute_sec1210_readback",
+        "run_sec1210_fidi_readback",
+        "sec1210_fidi_readback_output_basename",
+        "Sec1210FidiReadbackError",
+        "Sec1210FidiReadbackMetadata",
+        "Sec1210FidiReadbackSummary",
+        "Sec1210FidiReadbackTranscript",
+        "SEC1210_FIDI_READBACK_TOOL_VERSION",
+        "FIDI_READBACK_LIMITS",
+        "MAX_SEC1210_FIDI_READBACK_TRANSCRIPT_BYTES",
+        "execute_sec1210_fidi_readback",
         "run_sec1210_ifs_readback",
         "sec1210_ifs_readback_output_basename",
         "Sec1210IfsReadbackError",

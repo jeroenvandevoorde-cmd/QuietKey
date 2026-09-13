@@ -222,3 +222,36 @@ pub fn execute_sec1210_ifs_readback(
         &mut transcript,
     ))
 }
+
+pub fn execute_sec1210_fidi_readback(
+    metadata: crate::Sec1210FidiReadbackMetadata,
+) -> Result<crate::Sec1210FidiReadbackSummary, crate::Sec1210FidiReadbackError> {
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(metadata.output())
+        .map_err(|_| Sec1210Error::OutputCreateFailed)?;
+    file.set_permissions(Permissions::from_mode(0o600))
+        .map_err(|_| Sec1210Error::OutputCreateFailed)?;
+    if file
+        .metadata()
+        .map_err(|_| Sec1210Error::OutputCreateFailed)?
+        .permissions()
+        .mode()
+        & 0o777
+        != 0o600
+    {
+        return Err(Sec1210Error::OutputCreateFailed.into());
+    }
+    let mut transcript = crate::Sec1210FidiReadbackTranscript::new(file);
+    let mut uart = ReadbackUart {
+        uart: Uart::default(),
+        epoch: std::time::Instant::now(),
+    };
+    Ok(crate::run_sec1210_fidi_readback(
+        &metadata,
+        &mut uart,
+        &mut transcript,
+    ))
+}
