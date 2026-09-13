@@ -7,6 +7,7 @@ pub const READBACK_MAX_EVENTS: usize = 64;
 pub const READBACK_MAX_RECEIVED_BYTES: usize = 8192;
 pub const READBACK_COMMAND_BUDGET_MS: u64 = 5000;
 pub const READBACK_MAX_OUTGOING_TPDU_BYTES: usize = 34;
+pub const FIDI_PARAMETERS: [u8; 7] = [0x18, 0x10, 0xff, 0x4d, 0x00, 0xfe, 0x00];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadbackError {
@@ -17,6 +18,7 @@ pub enum ReadbackError {
     ProtocolRejected,
     IfscRejected,
     LrcModeRejected,
+    SetParametersEchoRejected,
 }
 
 impl ReadbackError {
@@ -29,6 +31,7 @@ impl ReadbackError {
             Self::ProtocolRejected => "Sec1210ProtocolRejected",
             Self::IfscRejected => "Sec1210IfscRejected",
             Self::LrcModeRejected => "Sec1210LrcModeRejected",
+            Self::SetParametersEchoRejected => "Sec1210SetParametersEchoRejected",
         }
     }
 }
@@ -43,6 +46,7 @@ pub enum ReadbackCommand {
     GetSlotStatus,
     PowerOn,
     GetParameters,
+    SetParameters,
     XfrBlock,
 }
 
@@ -51,6 +55,7 @@ pub enum ReadbackPhase {
     ReadyStatus,
     ReadyPower,
     ReadyParameters,
+    ReadySetParameters,
     ReadyTransfer,
     Writing(ReadbackCommand),
     Receiving(ReadbackCommand),
@@ -99,6 +104,9 @@ pub struct ReadbackSession {
     last_now: Option<u64>,
     observations: Vec<ReadbackObservation>,
     response: Option<Box<Response>>,
+    fidi: bool,
+    set_parameters_accepted: bool,
+    set_parameters_reply_evidence: Option<Box<Response>>,
     failure: Option<ReadbackError>,
 }
 impl Default for ReadbackSession {
@@ -116,12 +124,35 @@ impl Default for ReadbackSession {
             last_now: None,
             observations: Vec::new(),
             response: None,
+            fidi: false,
+            set_parameters_accepted: false,
+            set_parameters_reply_evidence: None,
             failure: None,
         }
     }
 }
 
 impl ReadbackSession {
+    /// Require the one fixed SetParameters exchange after baseline parameters
+    /// and before any transfer. Default sessions retain their original path.
+    pub fn with_fidi() -> Self {
+        Self {
+            fidi: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn set_parameters_accepted(&self) -> bool {
+        self.set_parameters_accepted
+    }
+
+    /// A bounded, checksum-verified reply seen while SetParameters was pending.
+    /// Slot, sequence, status, type, protocol and payload may still be rejected.
+    /// This evidence survives failure and does not imply response acceptance.
+    pub fn set_parameters_reply_evidence(&self) -> Option<&Response> {
+        self.set_parameters_reply_evidence.as_deref()
+    }
+
     pub fn phase(&self) -> ReadbackPhase {
         self.phase
     }
@@ -185,9 +216,15 @@ impl ReadbackSession {
             ReadbackPhase::ReadyStatus => ReadbackCommand::GetSlotStatus,
             ReadbackPhase::ReadyPower => ReadbackCommand::PowerOn,
             ReadbackPhase::ReadyParameters => ReadbackCommand::GetParameters,
+            ReadbackPhase::ReadySetParameters => ReadbackCommand::SetParameters,
             _ => return self.reject(ReadbackError::StateRejected),
         };
-        self.claim(command, &[], now_ms)
+        let payload: &[u8] = if command == ReadbackCommand::SetParameters {
+            &FIDI_PARAMETERS
+        } else {
+            &[]
+        };
+        self.claim(command, payload, now_ms)
     }
 
     /// Only a complete bounded TPDU may be wrapped. This pure API performs no
@@ -233,12 +270,15 @@ impl ReadbackSession {
             ReadbackCommand::GetSlotStatus => 0x65,
             ReadbackCommand::PowerOn => 0x62,
             ReadbackCommand::GetParameters => 0x6c,
+            ReadbackCommand::SetParameters => 0x61,
             ReadbackCommand::XfrBlock => 0x6f,
         };
         request.bytes[3..7].copy_from_slice(&(payload.len() as u32).to_le_bytes());
         request.bytes[8] = self.sequence;
         if command == ReadbackCommand::PowerOn {
             request.bytes[9] = 2;
+        } else if command == ReadbackCommand::SetParameters {
+            request.bytes[9] = 1;
         }
         request.bytes[12..12 + payload.len()].copy_from_slice(payload);
         request.bytes[request.len - 1] = request.bytes[..request.len - 1]
@@ -322,6 +362,9 @@ impl ReadbackSession {
                     return self.reject(Error::HardwareError);
                 }
                 Message::Response(response) => {
+                    if command == ReadbackCommand::SetParameters {
+                        self.set_parameters_reply_evidence = Some(response.clone());
+                    }
                     if let Err(error) = self.validate(command, &response) {
                         return self.reject(error);
                     }
@@ -333,6 +376,13 @@ impl ReadbackSession {
                     self.phase = match command {
                         ReadbackCommand::GetSlotStatus => ReadbackPhase::ReadyPower,
                         ReadbackCommand::PowerOn => ReadbackPhase::ReadyParameters,
+                        ReadbackCommand::GetParameters if self.fidi => {
+                            ReadbackPhase::ReadySetParameters
+                        }
+                        ReadbackCommand::SetParameters => {
+                            self.set_parameters_accepted = true;
+                            ReadbackPhase::ReadyTransfer
+                        }
                         ReadbackCommand::GetParameters | ReadbackCommand::XfrBlock => {
                             ReadbackPhase::ReadyTransfer
                         }
@@ -366,7 +416,7 @@ impl ReadbackSession {
         }
         let kind = match command {
             ReadbackCommand::GetSlotStatus => 0x81,
-            ReadbackCommand::GetParameters => 0x82,
+            ReadbackCommand::GetParameters | ReadbackCommand::SetParameters => 0x82,
             ReadbackCommand::PowerOn | ReadbackCommand::XfrBlock => 0x80,
         };
         if response.message_type != kind {
@@ -424,6 +474,22 @@ impl ReadbackSession {
                 }
                 if bytes[1] & 1 != 0 {
                     return Err(ReadbackError::LrcModeRejected);
+                }
+                return Ok(());
+            }
+            ReadbackCommand::SetParameters => {
+                let Ok(bytes) = <[u8; 7]>::try_from(response.payload()) else {
+                    return Err(Error::PayloadRejected.into());
+                };
+                self.observations.push(ReadbackObservation::Parameters {
+                    protocol: response.parameter,
+                    bytes,
+                });
+                if response.parameter != 1 {
+                    return Err(ReadbackError::ProtocolRejected);
+                }
+                if bytes != FIDI_PARAMETERS {
+                    return Err(ReadbackError::SetParametersEchoRejected);
                 }
                 return Ok(());
             }
