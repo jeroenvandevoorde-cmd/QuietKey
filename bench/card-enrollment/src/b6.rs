@@ -438,7 +438,7 @@ where
     summary
 }
 
-fn validate_response<'a>(
+pub(crate) fn validate_response<'a>(
     exchange: &B6Exchange,
     response: &'a [u8],
 ) -> Result<Option<&'a [u8]>, B6Error> {
@@ -500,7 +500,7 @@ fn validate_response<'a>(
 }
 
 /// Parse canonical positive DER integers and return r as one fixed-width value.
-fn strict_der_r(der: &[u8]) -> Result<[u8; 32], B6Error> {
+pub(crate) fn strict_der_r(der: &[u8]) -> Result<[u8; 32], B6Error> {
     if !(8..=72).contains(&der.len()) || der[0] != 0x30 || usize::from(der[1]) != der.len() - 2 {
         return Err(B6Error::B6DerRejected);
     }

@@ -3,6 +3,8 @@ const SEC1210: &str = include_str!("../src/sec1210.rs");
 const SEC1210_TRANSCRIPT: &str = include_str!("../src/sec1210_transcript.rs");
 const READBACK: &str = include_str!("../src/sec1210_readback.rs");
 const READBACK_TRANSCRIPT: &str = include_str!("../src/sec1210_readback_transcript.rs");
+const FIDI_SIGN: &str = include_str!("../src/sec1210_fidi_sign.rs");
+const FIDI_SIGN_TRANSCRIPT: &str = include_str!("../src/sec1210_fidi_sign_transcript.rs");
 const FIDI_READBACK: &str = include_str!("../src/sec1210_fidi_readback.rs");
 const FIDI_READBACK_TRANSCRIPT: &str = include_str!("../src/sec1210_fidi_readback_transcript.rs");
 const IFS_READBACK: &str = include_str!("../src/sec1210_ifs_readback.rs");
@@ -41,6 +43,8 @@ fn production_roots_forbid_unsafe_code() {
         READBACK,
         READBACK_TRANSCRIPT,
         FIDI_READBACK,
+        FIDI_SIGN,
+        FIDI_SIGN_TRANSCRIPT,
         FIDI_READBACK_TRANSCRIPT,
         IFS_READBACK,
         IFS_READBACK_TRANSCRIPT,
@@ -80,6 +84,8 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
         READBACK,
         READBACK_TRANSCRIPT,
         FIDI_READBACK,
+        FIDI_SIGN,
+        FIDI_SIGN_TRANSCRIPT,
         FIDI_READBACK_TRANSCRIPT,
         IFS_READBACK,
         IFS_READBACK_TRANSCRIPT,
@@ -113,6 +119,8 @@ fn safe_adapters_confine_transmits_to_the_five_private_paths() {
         READBACK,
         READBACK_TRANSCRIPT,
         FIDI_READBACK,
+        FIDI_SIGN,
+        FIDI_SIGN_TRANSCRIPT,
         FIDI_READBACK_TRANSCRIPT,
         IFS_READBACK,
         IFS_READBACK_TRANSCRIPT,
@@ -244,6 +252,19 @@ fn public_reexports_are_the_reviewed_boundary() {
         "READBACK_LIMITS",
         "MAX_SEC1210_READBACK_TRANSCRIPT_BYTES",
         "execute_sec1210_readback",
+        "run_sec1210_fidi_sign",
+        "sec1210_fidi_sign_output_basename",
+        "Sec1210FidiSignError",
+        "Sec1210FidiSignMetadata",
+        "Sec1210FidiSignSummary",
+        "Sec1210FidiSignTransport",
+        "Sec1210FidiSignTranscript",
+        "SEC1210_FIDI_SIGN_TOOL_VERSION",
+        "FIDI_SIGN_LIMITS",
+        "FIDI_SIGN_PLAN_BYTES",
+        "FIDI_SIGN_PLAN_SHA256",
+        "MAX_SEC1210_FIDI_SIGN_TRANSCRIPT_BYTES",
+        "execute_sec1210_fidi_sign",
         "run_sec1210_fidi_readback",
         "sec1210_fidi_readback_output_basename",
         "Sec1210FidiReadbackError",

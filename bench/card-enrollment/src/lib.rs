@@ -27,6 +27,8 @@ mod pcsc_sitting_adapter;
 mod sec1210;
 mod sec1210_fidi_readback;
 mod sec1210_fidi_readback_transcript;
+mod sec1210_fidi_sign;
+mod sec1210_fidi_sign_transcript;
 mod sec1210_ifs_readback;
 mod sec1210_ifs_readback_transcript;
 mod sec1210_readback;
@@ -49,6 +51,14 @@ pub use sec1210_fidi_readback::{
 pub use sec1210_fidi_readback_transcript::{
     Sec1210FidiReadbackTranscript, MAX_SEC1210_FIDI_READBACK_TRANSCRIPT_BYTES,
 };
+pub use sec1210_fidi_sign::{
+    run_sec1210_fidi_sign, sec1210_fidi_sign_output_basename, Sec1210FidiSignError,
+    Sec1210FidiSignMetadata, Sec1210FidiSignSummary, Sec1210FidiSignTransport, FIDI_SIGN_LIMITS,
+    FIDI_SIGN_PLAN_BYTES, FIDI_SIGN_PLAN_SHA256, SEC1210_FIDI_SIGN_TOOL_VERSION,
+};
+pub use sec1210_fidi_sign_transcript::{
+    Sec1210FidiSignTranscript, MAX_SEC1210_FIDI_SIGN_TRANSCRIPT_BYTES,
+};
 pub use sec1210_ifs_readback::{
     run_sec1210_ifs_readback, sec1210_ifs_readback_output_basename, Sec1210IfsReadbackError,
     Sec1210IfsReadbackMetadata, Sec1210IfsReadbackSummary, IFS_READBACK_LIMITS,
@@ -67,6 +77,7 @@ pub use sec1210_readback_transcript::{
 };
 pub use sec1210_transcript::Sec1210Transcript;
 pub use uart_adapter::execute_sec1210_fidi_readback;
+pub use uart_adapter::execute_sec1210_fidi_sign;
 pub use uart_adapter::execute_sec1210_ifs_readback;
 pub use uart_adapter::execute_sec1210_probe;
 pub use uart_adapter::execute_sec1210_readback;

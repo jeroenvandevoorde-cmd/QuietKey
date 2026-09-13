@@ -6,12 +6,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);
-const UTC: &str = "2026-09-12T00:00:00Z";
+const UTC: &str = "2026-09-14T00:00:00Z";
 struct Root(PathBuf);
 impl Root {
     fn new() -> Self {
         let p = std::env::temp_dir().join(format!(
-            "qk-t1-ifs-readback-guard-{}-{}",
+            "qk-t1-fidi-sign-guard-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -19,10 +19,10 @@ impl Root {
         Self(p)
     }
     fn path(&self) -> PathBuf {
-        self.0.join(sec1210_ifs_readback_output_basename(UTC))
+        self.0.join(sec1210_fidi_sign_output_basename(UTC))
     }
-    fn metadata(&self) -> Sec1210IfsReadbackMetadata {
-        Sec1210IfsReadbackMetadata::new(
+    fn metadata(&self) -> Sec1210FidiSignMetadata {
+        Sec1210FidiSignMetadata::new(
             "a".repeat(40),
             UTC.into(),
             "RIG-HOST-PI3B-01",
@@ -84,7 +84,7 @@ fn source_apparatus_specimen_calendar_and_output_are_precontact_gates() {
             UTC,
             "RIG-HOST-PI3B-01",
             "J3R180-03",
-            PathBuf::from(sec1210_ifs_readback_output_basename(UTC)),
+            PathBuf::from(sec1210_fidi_sign_output_basename(UTC)),
         ),
         (
             "a".repeat(40),
@@ -98,11 +98,31 @@ fn source_apparatus_specimen_calendar_and_output_are_precontact_gates() {
             UTC,
             "RIG-HOST-PI3B-01",
             "J3R180-03",
-            r.0.join("../")
-                .join(sec1210_ifs_readback_output_basename(UTC)),
+            r.0.join(sec1210_readback_output_basename(UTC)),
+        ),
+        (
+            "a".repeat(40),
+            UTC,
+            "RIG-HOST-PI3B-01",
+            "J3R180-03",
+            r.0.join(sec1210_ifs_readback_output_basename(UTC)),
+        ),
+        (
+            "a".repeat(40),
+            UTC,
+            "RIG-HOST-PI3B-01",
+            "J3R180-03",
+            r.0.join(sec1210_fidi_readback_output_basename(UTC)),
+        ),
+        (
+            "a".repeat(40),
+            UTC,
+            "RIG-HOST-PI3B-01",
+            "J3R180-03",
+            r.0.join("../").join(sec1210_fidi_sign_output_basename(UTC)),
         ),
     ] {
-        assert!(Sec1210IfsReadbackMetadata::new(source, utc.into(), host, card, path).is_err());
+        assert!(Sec1210FidiSignMetadata::new(source, utc.into(), host, card, path).is_err());
     }
     assert_eq!(r.metadata().output(), r.path());
     assert_eq!(fs::read_dir(&r.0).unwrap().count(), 0);
@@ -112,16 +132,14 @@ fn existing_and_symlink_outputs_refuse_before_any_platform_action() {
     let r = Root::new();
     fs::write(r.path(), b"retained").unwrap();
     assert_eq!(
-        execute_sec1210_ifs_readback(r.metadata())
-            .unwrap_err()
-            .name(),
+        execute_sec1210_fidi_sign(r.metadata()).unwrap_err().name(),
         "Sec1210OutputCreateFailed"
     );
     assert_eq!(fs::read(r.path()).unwrap(), b"retained");
     let other = Root::new();
     symlink(r.path(), other.path()).unwrap();
     assert_eq!(
-        execute_sec1210_ifs_readback(other.metadata())
+        execute_sec1210_fidi_sign(other.metadata())
             .unwrap_err()
             .name(),
         "Sec1210OutputCreateFailed"
@@ -131,7 +149,7 @@ fn existing_and_symlink_outputs_refuse_before_any_platform_action() {
 #[cfg(not(target_os = "linux"))]
 fn non_linux_fails_closed_with_private_failure_evidence() {
     let r = Root::new();
-    let s = execute_sec1210_ifs_readback(r.metadata()).unwrap();
+    let s = execute_sec1210_fidi_sign(r.metadata()).unwrap();
     assert_eq!(s.failure.unwrap().name(), "Sec1210UnsupportedPlatform");
     assert_eq!(s.request_count, 0);
     assert_eq!(
@@ -145,10 +163,16 @@ fn non_linux_fails_closed_with_private_failure_evidence() {
 #[test]
 fn old_versions_plan_identity_and_single_uart_write_site_stay_pinned() {
     assert_eq!(env!("CARGO_PKG_VERSION"), "0.0.13");
+    assert_eq!(SEC1210_FIDI_SIGN_TOOL_VERSION, "0.0.13");
+    assert_eq!(SEC1210_FIDI_READBACK_TOOL_VERSION, "0.0.12");
     assert_eq!(SEC1210_IFS_READBACK_TOOL_VERSION, "0.0.11");
     assert_eq!(SEC1210_READBACK_TOOL_VERSION, "0.0.10");
     assert_eq!(SEC1210_TOOL_VERSION, "0.0.9");
     assert_eq!(B6_TOOL_VERSION, "0.0.7");
+    assert_eq!(
+        B6_PLAN_SHA256,
+        "44ca636942407f6523d5641cf1bf4396bb07b980ec534395514dee0abd31b348"
+    );
     assert_eq!(
         READBACK_PLAN_SHA256,
         "6cedbdc6f53c8100e042b8d3e06ebef2a2c56b42e98bbfa32b3a951f39084c36"
@@ -167,4 +191,54 @@ fn old_versions_plan_identity_and_single_uart_write_site_stay_pinned() {
         assert!(!uart.contains(forbidden));
     }
     assert_eq!(SEC1210_STTY_ARGS[8], "cstopb");
+}
+
+#[test]
+fn new_sources_offer_no_native_write_or_private_signing_operation() {
+    for source in [
+        include_str!("../src/sec1210_fidi_sign.rs"),
+        include_str!("../src/sec1210_fidi_sign_transcript.rs"),
+    ] {
+        for forbidden in [
+            ".transmit(",
+            "std::process::Command",
+            concat!("un", "safe {"),
+            "libc::",
+            "serialport",
+            "use nix::",
+            concat!("ecdsa", "_sign_rfc6979"),
+            concat!("secret", "_key_import"),
+            concat!("provisioning", "_secret_tweak_add"),
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "unexpected surface: {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cli_rejects_extra_caller_bytes_and_wrong_binding_before_output() {
+    let root = Root::new();
+    let output = root.path();
+    for (specimen, extra) in [("J3R180-03", true), ("J3R180-01", false)] {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_qk-card-enrollment"));
+        command.args([
+            "sec1210-fidi-sign",
+            &"a".repeat(40),
+            UTC,
+            "RIG-HOST-PI3B-01",
+            specimen,
+            output.to_str().unwrap(),
+        ]);
+        if extra {
+            command.arg("1810ff4d00fe00");
+        }
+        let report = command.output().unwrap();
+        assert_eq!(report.status.code(), Some(64));
+        assert!(!output.exists());
+        assert!(report.stdout.is_empty());
+    }
+    assert_eq!(fs::read_dir(&root.0).unwrap().count(), 0);
 }

@@ -141,7 +141,7 @@ fn non_linux_fails_closed_with_private_failure_evidence() {
 }
 #[test]
 fn old_versions_plan_identity_and_single_uart_write_site_stay_pinned() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "0.0.12");
+    assert_eq!(env!("CARGO_PKG_VERSION"), "0.0.13");
     assert_eq!(SEC1210_READBACK_TOOL_VERSION, "0.0.10");
     assert_eq!(SEC1210_TOOL_VERSION, "0.0.9");
     assert_eq!(B6_TOOL_VERSION, "0.0.7");
