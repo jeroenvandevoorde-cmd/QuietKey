@@ -2,6 +2,9 @@
 // Public-input, in-memory reference checks only. No UART, clocks or subprocesses.
 use libfuzzer_sys::fuzz_target;
 use qk_sec1210_wire::{Command, Decoder, Error, Exchange, Message, Observation, Phase};
+use qk_sec1210_wire::{
+    ReadbackError as RE, ReadbackObservation as RO, ReadbackPhase as RP, ReadbackSession,
+};
 
 const ATR: [u8; 15] = [
     0x3b, 0xd5, 0x18, 0xff, 0x81, 0x91, 0xfe, 0x1f, 0xc3, 0x80, 0x73, 0xc8, 0x21, 0x10, 0x0a,
@@ -361,6 +364,236 @@ fn ready(power: bool) -> (Exchange, Model) {
     (a, m)
 }
 
+fn readback_frame(kind: u8, sequence: u8, status: u8, parameter: u8, body: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![3, 6, kind];
+    bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&[0, sequence, status, 0, parameter]);
+    bytes.extend_from_slice(body);
+    bytes.push(bytes.iter().copied().fold(0, |sum, byte| sum ^ byte));
+    bytes
+}
+
+fn readback_ifs_pending() -> ReadbackSession {
+    let mut session = ReadbackSession::default();
+    for (index, raw) in [
+        readback_frame(0x81, 1, 1, 0xff, &[]),
+        readback_frame(0x80, 2, 0, 0, &ATR),
+        readback_frame(0x82, 3, 0, 1, &[0x18, 0x10, 0xff, 0x4d, 3, 0xfe, 0]),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let request = session.begin_initial(0).unwrap();
+        assert_eq!(request.sequence(), (index + 1) as u8);
+        session.written(13, 0).unwrap();
+        session.receive(raw, 0).unwrap();
+    }
+    let request = session
+        .begin_transfer(&[0, 0xc1, 1, 0xfe, 0x3e], 0)
+        .unwrap();
+    assert_eq!(
+        request.as_bytes(),
+        [3, 6, 0x6f, 5, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0xc1, 1, 0xfe, 0x3e, 0x6b,]
+    );
+    session.written(18, 0).unwrap();
+    session
+}
+
+// Independent batch oracle for the sequence-4 transfer. Its body stays opaque:
+// only qk-t1 may interpret an IFS response or activate the larger T=1 bound.
+#[derive(Default)]
+struct IfsWireModel {
+    pending: Vec<u8>,
+    received: usize,
+    events: usize,
+    observations: Vec<RO>,
+    accepted: Option<Vec<u8>>,
+    error: Option<RE>,
+    last: u64,
+}
+impl IfsWireModel {
+    fn reject(&mut self, error: Error) -> Result<(), RE> {
+        Err(*self.error.get_or_insert(error.into()))
+    }
+    fn receive(&mut self, raw: &[u8], now: u64) -> Result<(), RE> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        if now < self.last {
+            return self.reject(Error::ClockRegression);
+        }
+        self.last = now;
+        if self.accepted.is_none() && now >= 5000 {
+            return self.reject(if self.pending.is_empty() {
+                Error::DeadlineExceeded
+            } else {
+                Error::PartialFrameDeadline
+            });
+        }
+        if self.accepted.is_some() {
+            return self.reject(Error::UnsolicitedResponse);
+        }
+        if 61 + self.received + raw.len() > 8192 {
+            return self.reject(Error::ReceiveLimitExceeded);
+        }
+        self.received += raw.len();
+        self.pending.extend_from_slice(raw);
+        loop {
+            let (value, length) = match next(&self.pending) {
+                Ok(Some(value)) => value,
+                Ok(None) => return Ok(()),
+                Err(error) => return self.reject(error),
+            };
+            match value {
+                Fact::Bitmap(bitmap) => {
+                    self.events += 1;
+                    if self.events > 64 {
+                        return self.reject(Error::EventLimitExceeded);
+                    }
+                    self.observations.push(RO::SlotChange {
+                        bitmap,
+                        slot1_bits: bitmap / 4 % 4,
+                    });
+                    if bitmap > 15 {
+                        return self.reject(Error::EventBitmapRejected);
+                    }
+                    if bitmap % 2 == 0 {
+                        return self.reject(Error::CardAbsent);
+                    }
+                }
+                Fact::Hardware(slot, sequence, code) => {
+                    self.events += 1;
+                    if self.events > 64 {
+                        return self.reject(Error::EventLimitExceeded);
+                    }
+                    self.observations.push(RO::HardwareError {
+                        slot,
+                        sequence,
+                        code,
+                    });
+                    return self.reject(if slot != 0 {
+                        Error::SlotRejected
+                    } else if sequence != 4 {
+                        Error::SequenceRejected
+                    } else {
+                        Error::HardwareError
+                    });
+                }
+                Fact::Response(r) => {
+                    let checks = [
+                        (r[5] != 0, Error::SlotRejected),
+                        (r[6] != 4, Error::SequenceRejected),
+                        (
+                            r[7] & 60 != 0 || r[7] % 4 == 3 || r[7] / 64 == 3,
+                            Error::StatusReserved,
+                        ),
+                        (r[7] / 64 == 2, Error::TimeExtensionRejected),
+                        (r[7] / 64 == 1, Error::CommandFailed),
+                        (r[0] != 0x80, Error::ResponseTypeRejected),
+                        (r[8] != 0, Error::StatusErrorRejected),
+                        (r[7] % 4 == 2, Error::CardAbsent),
+                        (r[7] % 4 != 0, Error::IccStatusRejected),
+                        (r[9] != 0, Error::ChainingRejected),
+                    ];
+                    if let Some((_, error)) = checks.into_iter().find(|(bad, _)| *bad) {
+                        return self.reject(error);
+                    }
+                    self.observations.push(RO::Transfer {
+                        sequence: 4,
+                        payload_bytes: r.len() - 10,
+                    });
+                    if length != self.pending.len() {
+                        return self.reject(Error::TrailingData);
+                    }
+                    self.accepted = Some(r[10..].to_vec());
+                }
+            }
+            self.pending.drain(..length);
+            if self.pending.is_empty() {
+                return Ok(());
+            }
+        }
+    }
+    fn check(&self, actual: &ReadbackSession) {
+        assert_eq!(actual.failure(), self.error);
+        let expected_phase = if self.error.is_some() {
+            RP::Failed
+        } else if self.accepted.is_some() {
+            RP::ReadyTransfer
+        } else {
+            RP::Receiving(qk_sec1210_wire::ReadbackCommand::XfrBlock)
+        };
+        assert_eq!(actual.phase(), expected_phase);
+        assert_eq!(actual.sequence(), 4);
+        assert_eq!(actual.requests(), 4);
+        assert_eq!(actual.responses(), 3 + usize::from(self.accepted.is_some()));
+        assert_eq!(actual.received_bytes(), 61 + self.received);
+        assert_eq!(actual.events(), self.events);
+        assert_eq!(&actual.observations()[3..], self.observations);
+        assert_eq!(
+            actual.response().map(|r| r.payload().to_vec()),
+            self.accepted
+        );
+    }
+}
+
+fn ifs_wire_case(raw: &[u8], split: usize, now: u64) {
+    decoder_reference(raw);
+    let (mut actual, mut model) = (readback_ifs_pending(), IfsWireModel::default());
+    for (part, time) in [(&raw[..split], 1), (&raw[split..], now), (&[][..], 5000)] {
+        assert_eq!(actual.receive(part, time), model.receive(part, time));
+        model.check(&actual);
+    }
+    if let Some(error) = model.error {
+        assert_eq!(
+            actual.begin_transfer(&[0, 0xc1, 1, 0xfe, 0x3e], 5000),
+            Err(error)
+        );
+        assert_eq!(actual.written(18, 5000), Err(error));
+        assert_eq!(actual.tick(u64::MAX), Err(error));
+        model.check(&actual);
+    }
+}
+
+fn hostile_ifs_wire(input: &[u8]) {
+    let at = |index| input.get(index).copied().unwrap_or(0);
+    let echo = [0, 0xe1, 1, 0xfe, 0x1e];
+    let exact = readback_frame(0x80, 4, 0, 0, &echo);
+    assert_eq!(
+        exact,
+        [3, 6, 0x80, 5, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0xe1, 1, 0xfe, 0x1e, 0x84,]
+    );
+    ifs_wire_case(&exact, usize::from(at(0)) % (exact.len() + 1), 2);
+    ifs_wire_case(input, input.len() / 2, 2);
+
+    let length = [5, 36, 37, 258, 259, 261, 262][usize::from(at(1) % 7)];
+    let mut body: Vec<_> = (0..length).map(|index| at(index + 2)).collect();
+    if length == 5 {
+        body.copy_from_slice(&echo);
+        body[usize::from(at(2) % 5)] ^= at(3);
+    }
+    // Repaired outer checksums expose wire semantic precedence while leaving
+    // malformed S-block fields and 258/259-byte bodies opaque to the transport.
+    let mut raw = readback_frame(0x80, 4, 0, 0, &body);
+    if at(4) & 1 != 0 {
+        for pair in input.as_chunks::<2>().0.iter().take(8) {
+            let index = [2, 7, 8, 9, 10, 11][usize::from(pair[0] % 6)];
+            raw[index] ^= pair[1];
+        }
+        let last = raw.len() - 1;
+        raw[last] = raw[..last].iter().copied().fold(0, |a, b| a ^ b);
+    }
+    if at(5) & 1 != 0 {
+        raw.splice(..0, [0x50, 0x0f].repeat(usize::from(at(6) % 67)));
+    }
+    if at(7) & 1 != 0 {
+        raw.extend_from_slice(&exact); // Repeated/coalesced response.
+    }
+    let split = usize::from(at(8)) % (raw.len() + 1);
+    let time = [0, 2, 4999, 5000, u64::MAX][usize::from(at(9) % 5)];
+    ifs_wire_case(&raw, split, time);
+}
+
 fuzz_target!(|input: &[u8]| {
     if input.len() > 4096 {
         return;
@@ -417,4 +650,5 @@ fuzz_target!(|input: &[u8]| {
     written(&mut a, &mut m, 13);
     receive(&mut a, &mut m, &[0x50, 3], 1);
     receive(&mut a, &mut m, &response(true), 2);
+    hostile_ifs_wire(input);
 });

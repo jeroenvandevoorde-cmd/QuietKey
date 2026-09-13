@@ -30,11 +30,15 @@ fn tpdu(pcb: u8, body: &[u8]) -> Vec<u8> {
 enum TFact<'a> {
     I(u8, bool, &'a [u8]),
     R(u8),
+    Ifs,
 }
 
 // Table-oriented complete-block oracle, not the implementation's PCB decoder.
 fn t_decode(bytes: &[u8]) -> Result<TFact<'_>, T> {
-    if bytes.len() < 4 || bytes.len() > 36 || bytes.len() != usize::from(bytes[2]) + 4 {
+    t_decode_bound(bytes, 36, false)
+}
+fn t_decode_bound(bytes: &[u8], bound: usize, awaiting_ifs: bool) -> Result<TFact<'_>, T> {
+    if bytes.len() < 4 || bytes.len() > bound || bytes.len() != usize::from(bytes[2]) + 4 {
         return Err(T::BlockLengthRejected);
     }
     if lrc(bytes) != 0 {
@@ -60,6 +64,9 @@ fn t_decode(bytes: &[u8]) -> Result<TFact<'_>, T> {
             }
         }
         0xc0 | 0xe0 | 0xc1 | 0xe1 | 0xc2 | 0xe2 | 0xc3 | 0xe3 => {
+            if awaiting_ifs && bytes[1] == 0xe1 && payload == [0xfe] {
+                return Ok(TFact::Ifs);
+            }
             let (size, error) = match bytes[1] % 4 {
                 0 => (0, T::ResynchRejected),
                 1 => (1, T::IfsRejected),
@@ -103,8 +110,24 @@ struct TModel {
     start: u64,
     last: Option<u64>,
     error: Option<T>,
+    ifs_mode: bool,
+    ifs_pending: bool,
+    ifs_accepted: bool,
 }
 impl TModel {
+    fn with_ifs() -> Self {
+        Self {
+            ifs_mode: true,
+            ..Self::default()
+        }
+    }
+    fn bound(&self) -> usize {
+        if self.ifs_accepted {
+            258
+        } else {
+            36
+        }
+    }
     fn reject<U>(&mut self, error: T) -> Result<U, T> {
         self.stage = 5;
         Err(*self.error.get_or_insert(error))
@@ -117,13 +140,17 @@ impl TModel {
             return self.reject(T::ClockRegression);
         }
         self.last = Some(now);
-        if (1..=3).contains(&self.stage) && now - self.start >= 30_000 {
+        let budget = if self.ifs_pending { 5000 } else { 30_000 };
+        if (1..=3).contains(&self.stage) && now - self.start >= budget {
             return self.reject(T::DeadlineExceeded);
         }
         Ok(())
     }
     fn begin(&mut self, command: &[u8], wanted: &[u8], now: u64) -> Result<(), T> {
-        if self.error.is_some() || !matches!(self.stage, 0 | 4) {
+        if self.error.is_some()
+            || !matches!(self.stage, 0 | 4)
+            || (self.ifs_mode && !self.ifs_accepted)
+        {
             return self.reject(T::StateRejected);
         }
         self.clock(now)?;
@@ -142,6 +169,22 @@ impl TModel {
         self.exchanges = 0;
         self.start = now;
         self.outgoing = tpdu(64 * self.ns, command);
+        self.stage = 1;
+        Ok(())
+    }
+    fn begin_ifs(&mut self, now: u64) -> Result<(), T> {
+        if self.error.is_some()
+            || !self.ifs_mode
+            || self.ifs_pending
+            || self.ifs_accepted
+            || self.stage != 0
+        {
+            return self.reject(T::StateRejected);
+        }
+        self.clock(now)?;
+        self.ifs_pending = true;
+        self.start = now;
+        self.outgoing = vec![0, 0xc1, 1, 0xfe, 0x3e];
         self.stage = 1;
         Ok(())
     }
@@ -171,11 +214,32 @@ impl TModel {
     fn receive(&mut self, bytes: &[u8], now: u64) -> Result<(), T> {
         self.clock(now)?;
         if self.stage != 3 {
+            if self.ifs_mode {
+                if let Err(error) = t_decode_bound(bytes, self.bound(), false) {
+                    return self.reject(error);
+                }
+            }
             return self.reject(T::StateRejected);
         }
-        let (sequence, more, data) = match t_decode(bytes) {
+        let decoded = t_decode_bound(bytes, self.bound(), self.ifs_pending);
+        if self.ifs_pending {
+            match decoded {
+                Ok(TFact::Ifs) => {
+                    self.ifs_pending = false;
+                    self.ifs_accepted = true;
+                    self.outgoing.clear();
+                    self.stage = 0;
+                    return Ok(());
+                }
+                Ok(TFact::I(..)) => return self.reject(T::IfsRejected),
+                Ok(TFact::R(_)) => return self.reject(T::UnexpectedRBlock),
+                Err(error) => return self.reject(error),
+            }
+        }
+        let (sequence, more, data) = match decoded {
             Ok(TFact::I(s, m, d)) => (s, m, d),
             Ok(TFact::R(_)) => return self.reject(T::UnexpectedRBlock),
+            Ok(TFact::Ifs) => unreachable!("IFS is decoded only while negotiating"),
             Err(error) => return self.reject(error),
         };
         if sequence != self.nr {
@@ -226,6 +290,8 @@ impl TModel {
         assert_eq!(actual.exchanges(), self.exchanges);
         assert_eq!(actual.completed_apdus(), self.complete);
         assert_eq!(actual.response_prefix(), self.prefix);
+        assert_eq!(actual.ifs_accepted(), self.ifs_accepted);
+        assert_eq!(actual.receive_bound(), self.bound());
     }
 }
 
@@ -732,13 +798,159 @@ fn hostile_t1(input: &[u8]) {
     }
 }
 
+fn t_ifs_ready() -> (T1, TModel) {
+    let (mut actual, mut model) = (T1::with_ifs(), TModel::with_ifs());
+    assert_eq!(actual.begin_ifs(0), model.begin_ifs(0));
+    model.check(&actual);
+    assert_eq!(
+        actual.next_block(0).map(|block| block.as_bytes().to_vec()),
+        model.next(0)
+    );
+    model.check(&actual);
+    assert_eq!(actual.written(5, 0), model.written(5, 0));
+    model.check(&actual);
+    (actual, model)
+}
+
+fn t_receive(actual: &mut T1, model: &mut TModel, bytes: &[u8], now: u64) {
+    assert_eq!(actual.receive(bytes, now), model.receive(bytes, now));
+    model.check(actual);
+}
+
+fn hostile_ifs(input: &[u8]) {
+    // Whole input and field mutations run against a separate negotiation path.
+    // The exact echo is the only value that can change the model's bound.
+    let (mut actual, mut model) = t_ifs_ready();
+    t_receive(&mut actual, &mut model, input, 1);
+    assert_eq!(actual.begin_ifs(1), model.begin_ifs(1));
+    model.check(&actual);
+    t_receive(&mut actual, &mut model, &[0, 0xe1, 1, 0xfe, 0x1e], 5000);
+
+    let mut echo = vec![0, 0xe1, 1, 0xfe, 0x1e];
+    for pair in input.as_chunks::<2>().0.iter().take(16) {
+        echo[usize::from(pair[0] % 5)] ^= pair[1];
+    }
+    if byte(input, 2) & 1 == 0 {
+        echo[4] = lrc(&echo[..4]);
+    }
+    let alternative = match byte(input, 0) % 12 {
+        0 => echo,
+        1 => tpdu(0, &[0xfe]),
+        2 => tpdu(0x80, &[]),
+        3 => tpdu(0xc3, &[1]),
+        4 => tpdu(0xc0, &[]),
+        5 => tpdu(0xc2, &[]),
+        6 => tpdu(0xc1, &[0xfe]),
+        7 => tpdu(0xe1, &[byte(input, 1)]),
+        8 => tpdu(0xe1, &[]),
+        9 => tpdu(0xe1, &[0xfe, 0]),
+        10 => tpdu(0, &[0; 254]), // Complete 258-byte block before activation.
+        _ => tpdu(byte(input, 1), &[byte(input, 2)]),
+    };
+    let (mut actual, mut model) = t_ifs_ready();
+    t_receive(&mut actual, &mut model, &alternative, 1);
+    if let Some(error) = model.error {
+        assert_eq!(actual.next_block(1), Err(error));
+        assert_eq!(actual.tick(u64::MAX), Err(error));
+        assert_eq!(actual.begin(&[0], &[0], 1), Err(error));
+        model.check(&actual);
+    }
+
+    let (mut actual, mut model) = t_ifs_ready();
+    t_receive(&mut actual, &mut model, &[0, 0xe1, 1, 0xfe, 0x1e], 1);
+    assert_eq!(
+        actual.begin(&[0], &[0; 218], 1),
+        model.begin(&[0], &[0; 218], 1)
+    );
+    assert_eq!(
+        actual.next_block(1).map(|b| b.as_bytes().to_vec()),
+        model.next(1)
+    );
+    assert_eq!(actual.written(5, 1), model.written(5, 1));
+    model.check(&actual);
+    let size = [32, 33, 218, 219, 254, 255][usize::from(byte(input, 3) % 6)];
+    let large = tpdu(0, &vec![0; size]);
+    t_receive(&mut actual, &mut model, &large, 2);
+    // A valid 258-byte block reaches the narrower expected-response gate;
+    // a 259-byte block fails the active receive ceiling first.
+    if size == 254 {
+        assert_eq!(actual.failure(), Some(T::ResponseLengthRejected));
+    } else if size == 255 {
+        assert_eq!(actual.failure(), Some(T::BlockLengthRejected));
+    }
+
+    // Stateful programs include negotiation before/during/after APDU use,
+    // unsolicited/repeated echoes, partial writes and both budget boundaries.
+    let (mut actual, mut model) = (T1::with_ifs(), TModel::with_ifs());
+    for op in input.chunks(4).take(160) {
+        let y = byte(op, 1);
+        let now = [0, 1, 4999, 5000, 29_999, 30_000, u64::MAX][usize::from(y % 7)];
+        match byte(op, 0) % 9 {
+            0 => assert_eq!(actual.begin_ifs(now), model.begin_ifs(now)),
+            1 => assert_eq!(actual.begin(&[0], &[0], now), model.begin(&[0], &[0], now)),
+            2 => assert_eq!(
+                actual.next_block(now).map(|b| b.as_bytes().to_vec()),
+                model.next(now)
+            ),
+            3 => {
+                let count = if y & 1 == 0 {
+                    model.outgoing.len()
+                } else {
+                    usize::from(y)
+                };
+                assert_eq!(actual.written(count, now), model.written(count, now));
+            }
+            4 => t_receive(&mut actual, &mut model, &[0, 0xe1, 1, 0xfe, 0x1e], now),
+            5 => t_receive(&mut actual, &mut model, &alternative, now),
+            6 => {
+                let card = tpdu(64 * model.nr, &[0]);
+                t_receive(&mut actual, &mut model, &card, now);
+            }
+            7 => t_receive(&mut actual, &mut model, &[0, 0xc1, 1, 0xfe, 0x3e], now),
+            _ => assert_eq!(actual.tick(now), model.clock(now)),
+        }
+        model.check(&actual);
+    }
+}
+
 // Joint model exercise: up to eight synthetic public APDUs, with persistent
 // sequence bits, card chaining and independent CCID sequence/fragment handling.
 // It constructs requests itself and compares both models after every action.
 fn joint(input: &[u8]) {
+    joint_mode(input, false);
+}
+fn joint_mode(input: &[u8], ifs: bool) {
     let (mut wire, mut wm) = w_ready(3);
-    let (mut t1, mut tm) = (T1::default(), TModel::default());
-    let width = 1 + usize::from(byte(input, 1) % 32);
+    let (mut t1, mut tm) = if ifs {
+        (T1::with_ifs(), TModel::with_ifs())
+    } else {
+        (T1::default(), TModel::default())
+    };
+    if ifs {
+        assert_eq!(t1.begin_ifs(0), tm.begin_ifs(0));
+        assert_eq!(t1.next_block(0).map(|b| b.as_bytes().to_vec()), tm.next(0));
+        tm.check(&t1);
+        let request = [0, 0xc1, 1, 0xfe, 0x3e];
+        w_begin(&mut wire, &mut wm, Some(&request), 0);
+        w_written(&mut wire, &mut wm, 18, 0);
+        assert_eq!(t1.written(5, 0), tm.written(5, 0));
+        let reply = ccid(0x80, 4, 0, 0, &[0, 0xe1, 1, 0xfe, 0x1e]);
+        let split = usize::from(byte(input, 6)) % (reply.len() + 1);
+        w_receive(&mut wire, &mut wm, &reply[..split], 0);
+        if split != reply.len() {
+            w_receive(&mut wire, &mut wm, &reply[split..], 0);
+        }
+        t_receive(&mut t1, &mut tm, wire.response().unwrap().payload(), 0);
+        assert_eq!(
+            (
+                t1.send_sequence(),
+                t1.receive_sequence(),
+                t1.completed_apdus()
+            ),
+            (0, 0, 0)
+        );
+    }
+    let width = 1 + usize::from(byte(input, 1) % if ifs { 254 } else { 32 });
     let apdus = if byte(input, 2) == 0 {
         8
     } else {
@@ -857,4 +1069,6 @@ fuzz_target!(|input: &[u8]| {
     hostile_t1(input);
     hostile_wire(input);
     joint(input);
+    hostile_ifs(input);
+    joint_mode(input, true);
 });

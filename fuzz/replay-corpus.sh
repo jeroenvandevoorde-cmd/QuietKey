@@ -4,8 +4,8 @@ set -eu
 [ "$#" = 1 ] || { printf 'usage: %s TARGET\n' "$0" >&2; exit 2; }
 target=$1
 case "$target" in
-  qk_sec1210_wire) max_len=4096; seed=167001 ;;
-  qk_t1) max_len=8192; seed=167003 ;;
+  qk_sec1210_wire) max_len=4096; seed=167008 ;;
+  qk_t1) max_len=8192; seed=167007 ;;
   qk_psbt) max_len=4096; seed=21001 ;;
   qk_descriptor) max_len=891; seed=21002 ;;
   qk_a1) max_len=96; seed=21003 ;;
