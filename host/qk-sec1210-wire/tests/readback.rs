@@ -460,3 +460,82 @@ fn outgoing_transfer_is_one_bounded_complete_block() {
         );
     }
 }
+
+#[test]
+fn ifs_sequence_four_vectors_are_exact_and_fragmentation_preserves_payload() {
+    // Independent constants lock both XOR levels without invoking qk-t1.
+    let request_tpdu = [0, 0xc1, 1, 0xfe, 0x3e];
+    let response_tpdu = [0, 0xe1, 1, 0xfe, 0x1e];
+    let request_frame = [
+        3, 6, 0x6f, 5, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0xc1, 1, 0xfe, 0x3e, 0x6b,
+    ];
+    let response_frame = [
+        3, 6, 0x80, 5, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0xe1, 1, 0xfe, 0x1e, 0x84,
+    ];
+    assert_eq!(
+        response(0x80, 0, 4, 0, 0, 0, &response_tpdu),
+        response_frame
+    );
+    for split in 0..=response_frame.len() {
+        let mut session = initialized();
+        let request = session.begin_transfer(&request_tpdu, 10).unwrap();
+        assert_eq!(request.as_bytes(), request_frame);
+        session.written(request_frame.len(), 10).unwrap();
+        session.receive(&response_frame[..split], 11).unwrap();
+        if split != response_frame.len() {
+            session.receive(&response_frame[split..], 12).unwrap();
+        }
+        assert_eq!(session.response().unwrap().payload(), response_tpdu);
+        assert_eq!((session.requests(), session.responses()), (4, 4));
+        assert_eq!(session.received_bytes(), 79);
+        assert_eq!(session.begin_transfer(&TPDU, 13).unwrap().sequence(), 5);
+    }
+}
+
+#[test]
+fn ifs_payload_is_opaque_to_transport_even_when_t1_would_reject_it() {
+    // The readback transport does not negotiate IFSD or validate an S-block.
+    // Wrong PCB, LEN, INF, NAD and LRC are deliberately valid CCID payloads.
+    for payload in [
+        [0, 0, 1, 0xfe, 0xff],
+        [0, 0xe1, 2, 0xfe, 0x1d],
+        [0, 0xe1, 1, 0xfd, 0x1d],
+        [1, 0xe1, 1, 0xfe, 0x1f],
+        [0, 0xe1, 1, 0xfe, 0x1f],
+        [0, 0xc1, 1, 0xfe, 0x3e],
+    ] {
+        let mut session = initialized();
+        let request = session
+            .begin_transfer(&[0, 0xc1, 1, 0xfe, 0x3e], 0)
+            .unwrap();
+        session.written(request.as_bytes().len(), 0).unwrap();
+        let mut raw = vec![0x50, 0x0f];
+        raw.extend(response(0x80, 0, 4, 0, 0, 0, &payload));
+        session.receive(&raw, 1).unwrap();
+        assert_eq!(session.response().unwrap().payload(), payload);
+        assert_eq!(session.events(), 1);
+    }
+}
+
+#[test]
+fn transport_payload_ceiling_is_independent_of_the_negotiated_t1_ceiling() {
+    for length in [258, 259, 261] {
+        let mut session = pending_transfer();
+        let payload: Vec<_> = (0..length).map(|index| index as u8).collect();
+        let raw = response(0x80, 0, 4, 0, 0, 0, &payload);
+        session.receive(&raw[..7], 1).unwrap();
+        session.receive(&raw[7..], 2).unwrap();
+        assert_eq!(session.response().unwrap().payload(), payload);
+        assert_eq!(session.received_bytes(), 61 + 13 + length);
+    }
+    let mut session = pending_transfer();
+    let raw = response(0x80, 0, 4, 0, 0, 0, &[0; 262]);
+    assert_eq!(session.receive(&raw, 1), Err(E::Wire(W::LengthExceeded)));
+    assert_eq!(session.responses(), 3);
+    assert!(session.response().is_none());
+    assert_eq!(
+        session.begin_transfer(&TPDU, 1),
+        Err(E::Wire(W::LengthExceeded))
+    );
+    assert_eq!(session.receive(&[], 5000), Err(E::Wire(W::LengthExceeded)));
+}

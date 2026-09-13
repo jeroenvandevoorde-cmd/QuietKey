@@ -1,6 +1,12 @@
-use crate::{decode, encode_ack, encode_command, Block, Error, Received, MAX_RESPONSE_BYTES};
+use crate::codec::{
+    decode_bounded, encode_ifs_request, validate_ifs_response, IFS_MAX_BLOCK_BYTES,
+};
+use crate::{
+    encode_ack, encode_command, Block, Error, Received, MAX_BLOCK_BYTES, MAX_RESPONSE_BYTES,
+};
 
 pub const APDU_BUDGET_MS: u64 = 30_000;
+pub const IFS_BUDGET_MS: u64 = 5_000;
 pub const MAX_EXCHANGES: usize = 16;
 pub const MAX_APDUS: usize = 8;
 
@@ -14,8 +20,17 @@ pub enum Phase {
     Failed,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IfsState {
+    Disabled,
+    Required,
+    Pending,
+    Accepted,
+}
+
 pub struct Session {
     phase: Phase,
+    ifs: IfsState,
     send_sequence: u8,
     receive_sequence: u8,
     command_acked: bool,
@@ -35,6 +50,7 @@ impl Default for Session {
     fn default() -> Self {
         Self {
             phase: Phase::Idle,
+            ifs: IfsState::Disabled,
             send_sequence: 0,
             receive_sequence: 0,
             command_acked: false,
@@ -53,6 +69,27 @@ impl Default for Session {
 }
 
 impl Session {
+    /// Require the single SUP-007 IFSD 254 negotiation before any APDU.
+    /// The default session remains fixed at IFSD 32.
+    pub fn with_ifs() -> Self {
+        Self {
+            ifs: IfsState::Required,
+            ..Self::default()
+        }
+    }
+
+    pub fn ifs_accepted(&self) -> bool {
+        self.ifs == IfsState::Accepted
+    }
+
+    pub fn receive_bound(&self) -> usize {
+        if self.ifs_accepted() {
+            IFS_MAX_BLOCK_BYTES
+        } else {
+            MAX_BLOCK_BYTES
+        }
+    }
+
     pub fn phase(&self) -> Phase {
         self.phase
     }
@@ -91,11 +128,33 @@ impl Session {
             return self.reject(Error::ClockRegression);
         }
         self.last_now = Some(now_ms);
+        let budget = if self.ifs == IfsState::Pending {
+            IFS_BUDGET_MS
+        } else {
+            APDU_BUDGET_MS
+        };
         if matches!(self.phase, Phase::Ready | Phase::Writing | Phase::Receiving)
-            && now_ms - self.started >= APDU_BUDGET_MS
+            && now_ms - self.started >= budget
         {
             return self.reject(Error::DeadlineExceeded);
         }
+        Ok(())
+    }
+
+    /// Queue exactly one terminal-initiated S(IFS request), using the same
+    /// claim/write/receive path and caller clock as the APDU exchanges.
+    pub fn begin_ifs(&mut self, now_ms: u64) -> Result<(), Error> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        if self.ifs != IfsState::Required || self.phase != Phase::Idle {
+            return self.reject(Error::StateRejected);
+        }
+        self.tick(now_ms)?;
+        self.ifs = IfsState::Pending;
+        self.started = now_ms;
+        self.pending = Some(encode_ifs_request());
+        self.phase = Phase::Ready;
         Ok(())
     }
 
@@ -103,7 +162,9 @@ impl Session {
         if let Some(error) = self.failure {
             return Err(error);
         }
-        if !matches!(self.phase, Phase::Idle | Phase::Complete) {
+        if !matches!(self.phase, Phase::Idle | Phase::Complete)
+            || matches!(self.ifs, IfsState::Required | IfsState::Pending)
+        {
             return self.reject(Error::StateRejected);
         }
         self.tick(now_ms)?;
@@ -164,9 +225,26 @@ impl Session {
     pub fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<(), Error> {
         self.tick(now_ms)?;
         if self.phase != Phase::Receiving {
+            // On the explicit IFS path, unsolicited control blocks retain
+            // their named rejection even outside an outstanding exchange.
+            // The default session keeps its existing state-first behavior.
+            if self.ifs != IfsState::Disabled {
+                if let Err(error) = decode_bounded(bytes, self.receive_bound()) {
+                    return self.reject(error);
+                }
+            }
             return self.reject(Error::StateRejected);
         }
-        let block = match decode(bytes) {
+        if self.ifs == IfsState::Pending {
+            if let Err(error) = validate_ifs_response(bytes) {
+                return self.reject(error);
+            }
+            self.ifs = IfsState::Accepted;
+            self.pending = None;
+            self.phase = Phase::Idle;
+            return Ok(());
+        }
+        let block = match decode_bounded(bytes, self.receive_bound()) {
             Ok(block) => block,
             Err(error) => return self.reject(error),
         };

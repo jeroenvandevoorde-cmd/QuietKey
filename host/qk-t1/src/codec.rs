@@ -1,6 +1,7 @@
 use crate::{IFSD, MAX_COMMAND_BYTES};
 
 pub const MAX_BLOCK_BYTES: usize = IFSD + 4;
+pub(crate) const IFS_MAX_BLOCK_BYTES: usize = 254 + 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -110,10 +111,35 @@ pub fn encode_ack(sequence: u8) -> Result<Block, Error> {
     Ok(block)
 }
 
+pub(crate) fn encode_ifs_request() -> Block {
+    let mut block = Block {
+        bytes: [0; MAX_COMMAND_BYTES + 4],
+        len: 5,
+    };
+    block.bytes[..5].copy_from_slice(&[0x00, 0xc1, 0x01, 0xfe, 0x3e]);
+    block
+}
+
+/// Only the session awaiting its single fixed request may accept this echo.
+/// Ordinary decoding supplies the unchanged field-validation ordering first.
+pub(crate) fn validate_ifs_response(bytes: &[u8]) -> Result<(), Error> {
+    match decode(bytes) {
+        Err(Error::IfsRejected) if bytes == [0x00, 0xe1, 0x01, 0xfe, 0x1e] => Ok(()),
+        Err(error) => Err(error),
+        Ok(Received::R { .. }) => Err(Error::UnexpectedRBlock),
+        Ok(Received::I { .. }) => Err(Error::IfsRejected),
+    }
+}
+
 /// A complete reader TPDU, not a stream fragment. Bounds and exact LEN precede
 /// LRC; NAD, PCB and control semantics are inspected only after LRC succeeds.
 pub fn decode(bytes: &[u8]) -> Result<Received<'_>, Error> {
-    if !(4..=MAX_BLOCK_BYTES).contains(&bytes.len()) || usize::from(bytes[2]) + 4 != bytes.len() {
+    decode_bounded(bytes, MAX_BLOCK_BYTES)
+}
+
+/// This bound is selected only from the session's private negotiation state.
+pub(crate) fn decode_bounded(bytes: &[u8], receive_bound: usize) -> Result<Received<'_>, Error> {
+    if !(4..=receive_bound).contains(&bytes.len()) || usize::from(bytes[2]) + 4 != bytes.len() {
         return Err(Error::BlockLengthRejected);
     }
     if bytes.iter().fold(0, |a, b| a ^ b) != 0 {

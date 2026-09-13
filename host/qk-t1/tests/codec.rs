@@ -132,3 +132,37 @@ fn every_single_bit_corruption_is_detected() {
         }
     }
 }
+
+#[test]
+fn ordinary_decoder_never_accepts_ifs_or_the_negotiated_bound() {
+    assert_eq!(frame(0, 0xc1, &[0xfe]), [0, 0xc1, 1, 0xfe, 0x3e]);
+    assert_eq!(frame(0, 0xe1, &[0xfe]), [0, 0xe1, 1, 0xfe, 0x1e]);
+    for pcb in [0xc1, 0xe1] {
+        assert_eq!(decode(&frame(0, pcb, &[0xfe])), Err(E::IfsRejected));
+    }
+    let maximum = frame(0, 0, &[0x55; 254]);
+    assert_eq!(maximum.len(), 258);
+    assert_eq!(decode(&maximum), Err(E::BlockLengthRejected));
+    assert_eq!(
+        decode(&frame(0, 0, &[0x55; 255])),
+        Err(E::BlockLengthRejected)
+    );
+}
+
+#[test]
+fn ifs_control_validation_retains_field_precedence() {
+    let mut bytes = frame(1, 0xe5, &[0xfe]);
+    bytes[2] = 2;
+    assert_eq!(decode(&bytes), Err(E::BlockLengthRejected));
+    bytes[2] = 1;
+    bytes[4] ^= 1;
+    assert_eq!(decode(&bytes), Err(E::ChecksumRejected));
+    bytes[4] ^= 1;
+    assert_eq!(decode(&bytes), Err(E::NadRejected));
+    assert_eq!(decode(&frame(0, 0xe5, &[])), Err(E::PcbRejected));
+    for pcb in [0xc1, 0xe1] {
+        for inf in [&[][..], &[0xfe, 0xfe][..]] {
+            assert_eq!(decode(&frame(0, pcb, inf)), Err(E::ControlLengthRejected));
+        }
+    }
+}
