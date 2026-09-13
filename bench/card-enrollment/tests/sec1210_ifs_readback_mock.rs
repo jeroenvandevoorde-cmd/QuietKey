@@ -3,6 +3,83 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
+fn run_with_slow_diagnostic(marker: &'static [u8]) -> (Sec1210IfsReadbackSummary, usize, String) {
+    struct SlowDiagnostic {
+        bytes: Vec<u8>,
+        clock: Rc<Cell<u64>>,
+        marker: &'static [u8],
+    }
+    impl std::io::Write for SlowDiagnostic {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            if bytes.starts_with(self.marker) {
+                self.clock.set(self.clock.get() + 5000);
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut mock = Mock::new(274);
+    let mut transcript = Sec1210IfsReadbackTranscript::new(SlowDiagnostic {
+        bytes: vec![],
+        clock: mock.extra_clock.clone(),
+        marker,
+    });
+    let utc = "2026-09-12T00:00:00Z";
+    let metadata = Sec1210IfsReadbackMetadata::new(
+        "a".repeat(40),
+        utc.into(),
+        "RIG-HOST-PI3B-01",
+        "J3R180-03",
+        std::env::temp_dir().join(sec1210_ifs_readback_output_basename(utc)),
+    )
+    .unwrap();
+    let summary = run_sec1210_ifs_readback(&metadata, &mut mock, &mut transcript);
+    (
+        summary,
+        mock.writes.len(),
+        String::from_utf8(transcript.into_inner().bytes).unwrap(),
+    )
+}
+
+#[test]
+fn accepted_ifs_diagnostics_cannot_renew_the_command_deadline() {
+    let (summary, writes, text) = run_with_slow_diagnostic(b"ifs.comparison=");
+    assert_eq!(
+        summary.failure.map(|e| e.name()),
+        Some("Sec1210DeadlineExceeded")
+    );
+    assert_eq!(writes, 4);
+    assert_eq!(summary.apdu_transmit_count, 0);
+    assert!(summary.ifs_accepted && summary.local_handle_released);
+    assert!(text.contains("ifs.comparison=PASS\n"));
+    assert!(
+        text.ends_with("first_failure=Sec1210DeadlineExceeded\nresult=Sec1210DeadlineExceeded\n")
+    );
+}
+
+#[test]
+fn accepted_wire_diagnostics_cannot_renew_the_command_deadline() {
+    let (summary, writes, text) = run_with_slow_diagnostic(b"read.4.validation_ms=");
+    assert_eq!(
+        summary.failure.map(|e| e.name()),
+        Some("Sec1210DeadlineExceeded")
+    );
+    assert_eq!(writes, 5);
+    assert_eq!(
+        (summary.apdu_transmit_count, summary.apdu_response_count),
+        (1, 0)
+    );
+    assert!(summary.ifs_accepted && summary.local_handle_released);
+    assert!(text.contains("read.4.comparison=PASS\n"));
+    assert!(!text.contains("apdu.10.tx_hex="));
+    assert!(
+        text.ends_with("first_failure=Sec1210DeadlineExceeded\nresult=Sec1210DeadlineExceeded\n")
+    );
+}
+
 #[test]
 fn complete_unchained_transcripts_agree_and_counts_are_observed() {
     for width in [1, 2, 8, 274] {

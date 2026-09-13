@@ -131,17 +131,37 @@ struct Engine<'a, T, W: Write> {
     captured: usize,
     apdu_transmits: usize,
     continuations: usize,
-    t1_active: bool,
+    command_started: Option<u64>,
+    t1_started: Option<(u64, u64)>,
     first_failure: Option<Sec1210IfsReadbackError>,
 }
 impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
     fn clocks(&mut self) -> Result<u64, Sec1210IfsReadbackError> {
         let now = self.transport.now_ms();
         self.wire.tick(now)?;
-        if self.t1_active {
+        // Pure sessions finish as soon as payload validation succeeds. The
+        // bench retains both budgets until all related evidence is written.
+        if self
+            .command_started
+            .is_some_and(|started| now - started >= qk_sec1210_wire::READBACK_COMMAND_BUDGET_MS)
+        {
+            let error = ReadbackError::Wire(qk_sec1210_wire::Error::DeadlineExceeded).into();
+            return Err(*self.first_failure.get_or_insert(error));
+        }
+        if let Some((started, budget)) = self.t1_started {
             self.t1.tick(now)?;
+            if now - started >= budget {
+                return Err(*self
+                    .first_failure
+                    .get_or_insert(qk_t1::Error::DeadlineExceeded.into()));
+            }
         }
         Ok(now)
+    }
+    fn finish_command(&mut self) -> Result<(), Sec1210IfsReadbackError> {
+        self.clocks()?;
+        self.command_started = None;
+        Ok(())
     }
     fn exchange(
         &mut self,
@@ -282,11 +302,14 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
         while self.wire.phase() != ReadbackPhase::ReadyTransfer {
             let now = self.transport.now_ms();
             let request = self.wire.begin_initial(now)?;
+            self.command_started = Some(now);
             self.exchange(request, false, false)?;
+            self.finish_command()?;
         }
         // IFS is exactly one explicit transaction before any application block.
-        self.t1.begin_ifs(self.transport.now_ms())?;
-        self.t1_active = true;
+        let now = self.transport.now_ms();
+        self.t1.begin_ifs(now)?;
+        self.t1_started = Some((now, qk_t1::IFS_BUDGET_MS));
         self.transcript.field(
             "ifs.receive_bound_before",
             &self.t1.receive_bound().to_string(),
@@ -302,9 +325,9 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
         let now = self.clocks()?;
         let block = self.t1.next_block(now)?;
         self.transcript.hex("ifs.request_hex", block.as_bytes())?;
-        let request = self
-            .wire
-            .begin_transfer(block.as_bytes(), self.transport.now_ms())?;
+        let now = self.clocks()?;
+        let request = self.wire.begin_transfer(block.as_bytes(), now)?;
+        self.command_started = Some(now);
         self.exchange(request, false, false)?;
         self.t1
             .written(block.as_bytes().len(), self.transport.now_ms())?;
@@ -338,14 +361,13 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
             &self.t1.receive_sequence().to_string(),
         )?;
         checked?;
-        self.t1_active = false;
+        self.finish_command()?;
+        self.t1_started = None;
         for apdu in plan.exchanges() {
-            self.t1_active = true;
-            self.t1.begin(
-                apdu.request(),
-                apdu.expected_response(),
-                self.transport.now_ms(),
-            )?;
+            let now = self.transport.now_ms();
+            self.t1
+                .begin(apdu.request(), apdu.expected_response(), now)?;
+            self.t1_started = Some((now, qk_t1::APDU_BUDGET_MS));
             self.transcript
                 .hex(&format!("apdu.{}.tx_hex", apdu.index()), apdu.request())?;
             let mut first_block = true;
@@ -364,9 +386,9 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
                     &format!("t1.{}.receive_sequence", self.wire.sequence() + 1),
                     &self.t1.receive_sequence().to_string(),
                 )?;
-                let request = self
-                    .wire
-                    .begin_transfer(block.as_bytes(), self.transport.now_ms())?;
+                let now = self.clocks()?;
+                let request = self.wire.begin_transfer(block.as_bytes(), now)?;
+                self.command_started = Some(now);
                 self.exchange(request, first_block, !first_block)?;
                 // A single full CCID write carried this block; no resending.
                 self.t1
@@ -392,14 +414,18 @@ impl<T: Sec1210ReadbackTransport, W: Write> Engine<'_, T, W> {
                         .unwrap_or_else(|e| e.name()),
                 )?;
                 checked?;
+                if self.t1.phase() != qk_t1::Phase::Complete {
+                    self.finish_command()?;
+                }
             }
-            self.t1_active = false;
             self.transcript.hex(
                 &format!("apdu.{}.rx_hex", apdu.index()),
                 self.t1.response_prefix(),
             )?;
             self.transcript
                 .field(&format!("apdu.{}.comparison", apdu.index()), "PASS")?;
+            self.finish_command()?;
+            self.t1_started = None;
         }
         Ok(())
     }
@@ -420,7 +446,8 @@ pub fn run_sec1210_ifs_readback<T: Sec1210ReadbackTransport, W: Write>(
         captured: 0,
         apdu_transmits: 0,
         continuations: 0,
-        t1_active: false,
+        command_started: None,
+        t1_started: None,
         first_failure: None,
     };
     let result = catch_unwind(AssertUnwindSafe(|| engine.run(metadata)))
@@ -506,7 +533,8 @@ mod tests {
             captured: READBACK_MAX_RECEIVED_BYTES - 2,
             apdu_transmits: 0,
             continuations: 0,
-            t1_active: false,
+            command_started: None,
+            t1_started: None,
             first_failure: None,
         };
         let request = engine.wire.begin_initial(0).unwrap();
@@ -582,7 +610,8 @@ mod tests {
                 captured: 0,
                 apdu_transmits: 0,
                 continuations: 0,
-                t1_active: false,
+                command_started: None,
+                t1_started: None,
                 first_failure: Some(Sec1210Error::ReadFailed.into()),
             };
             assert_eq!(engine.run(&metadata), Err(later_error.into()));
