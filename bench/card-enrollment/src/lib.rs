@@ -25,6 +25,8 @@ mod pcsc_interruption_adapter;
 mod pcsc_management_observation_adapter;
 mod pcsc_sitting_adapter;
 mod sec1210;
+mod sec1210_ifs_readback;
+mod sec1210_ifs_readback_transcript;
 mod sec1210_readback;
 mod sec1210_readback_transcript;
 mod sec1210_transcript;
@@ -37,6 +39,14 @@ pub use sec1210::{
     run_sec1210, sec1210_output_basename, Sec1210Error, Sec1210Metadata, Sec1210Summary,
     Sec1210Transport, SEC1210_STTY_ARGS, SEC1210_TOOL_VERSION, SEC1210_TTY,
 };
+pub use sec1210_ifs_readback::{
+    run_sec1210_ifs_readback, sec1210_ifs_readback_output_basename, Sec1210IfsReadbackError,
+    Sec1210IfsReadbackMetadata, Sec1210IfsReadbackSummary, IFS_READBACK_LIMITS,
+    SEC1210_IFS_READBACK_TOOL_VERSION,
+};
+pub use sec1210_ifs_readback_transcript::{
+    Sec1210IfsReadbackTranscript, MAX_SEC1210_IFS_READBACK_TRANSCRIPT_BYTES,
+};
 pub use sec1210_readback::{
     run_sec1210_readback, sec1210_readback_output_basename, Sec1210ReadbackError,
     Sec1210ReadbackMetadata, Sec1210ReadbackSummary, Sec1210ReadbackTransport, READBACK_LIMITS,
@@ -46,6 +56,7 @@ pub use sec1210_readback_transcript::{
     Sec1210ReadbackTranscript, MAX_SEC1210_READBACK_TRANSCRIPT_BYTES,
 };
 pub use sec1210_transcript::Sec1210Transcript;
+pub use uart_adapter::execute_sec1210_ifs_readback;
 pub use uart_adapter::execute_sec1210_probe;
 pub use uart_adapter::execute_sec1210_readback;
 

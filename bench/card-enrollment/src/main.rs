@@ -17,6 +17,7 @@ use qk_card_enrollment::{
 };
 
 enum Command {
+    Sec1210IfsReadback(qk_card_enrollment::Sec1210IfsReadbackMetadata),
     Sec1210Readback(qk_card_enrollment::Sec1210ReadbackMetadata),
     Sec1210(qk_card_enrollment::Sec1210Metadata),
     Interruption {
@@ -43,6 +44,7 @@ enum Command {
 }
 
 enum ArgumentError {
+    Sec1210IfsReadback(qk_card_enrollment::Sec1210IfsReadbackError),
     Sec1210Readback(qk_card_enrollment::Sec1210ReadbackError),
     Sec1210(qk_card_enrollment::Sec1210Error),
     Usage,
@@ -69,6 +71,7 @@ fn usage() {
     eprintln!("   or: qk-card-enrollment sitting <interrupt-golden|classify-golden|abort-staging-golden> <trial-id> <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>");
     eprintln!("   or: qk-card-enrollment sec1210-probe <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
     eprintln!("   or: qk-card-enrollment sec1210-readback <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
+    eprintln!("   or: qk-card-enrollment sec1210-ifs-readback <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
 }
 
 fn parse_lower_hex(value: &str) -> Option<Vec<u8>> {
@@ -101,6 +104,21 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
     let mut arguments = env::args();
     let _program = arguments.next().ok_or(ArgumentError::Usage)?;
     let mode = arguments.next().ok_or(ArgumentError::Usage)?;
+    if mode == "sec1210-ifs-readback" {
+        let source = arguments.next().ok_or(ArgumentError::Usage)?;
+        let utc = arguments.next().ok_or(ArgumentError::Usage)?;
+        let host = arguments.next().ok_or(ArgumentError::Usage)?;
+        let specimen = arguments.next().ok_or(ArgumentError::Usage)?;
+        let output = PathBuf::from(arguments.next().ok_or(ArgumentError::Usage)?);
+        if arguments.next().is_some() {
+            return Err(ArgumentError::Usage);
+        }
+        return qk_card_enrollment::Sec1210IfsReadbackMetadata::new(
+            source, utc, &host, &specimen, output,
+        )
+        .map(Command::Sec1210IfsReadback)
+        .map_err(ArgumentError::Sec1210IfsReadback);
+    }
     if mode == "sec1210-readback" {
         let source = arguments.next().ok_or(ArgumentError::Usage)?;
         let utc = arguments.next().ok_or(ArgumentError::Usage)?;
@@ -255,6 +273,10 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
 
 fn main() -> ExitCode {
     let command = match parse_arguments() {
+        Err(ArgumentError::Sec1210IfsReadback(error)) => {
+            eprintln!("result={}", error.name());
+            return ExitCode::from(64);
+        }
         Err(ArgumentError::Sec1210Readback(error)) => {
             eprintln!("result={}", error.name());
             return ExitCode::from(64);
@@ -278,6 +300,25 @@ fn main() -> ExitCode {
         }
     };
     match command {
+        Command::Sec1210IfsReadback(metadata) => {
+            std::panic::set_hook(Box::new(|_| {}));
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                qk_card_enrollment::execute_sec1210_ifs_readback(metadata)
+            }))
+            .unwrap_or(Err(
+                qk_card_enrollment::Sec1210Error::BoundaryPanicked.into()
+            ));
+            let failure = match result {
+                Ok(summary) => summary.failure,
+                Err(error) => Some(error),
+            };
+            if let Some(error) = failure {
+                eprintln!("result={}", error.name());
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
         Command::Sec1210Readback(metadata) => {
             std::panic::set_hook(Box::new(|_| {}));
             let result = catch_unwind(AssertUnwindSafe(|| {

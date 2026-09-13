@@ -59,7 +59,7 @@ package_shape=$(awk '
   $0 == "[package]" { package_sections++; in_package = 1; next }
   /^\[/ { in_package = 0; next }
   in_package && $0 == "name = \"qk-card-enrollment\"" { names++ }
-  in_package && $0 == "version = \"0.0.10\"" { versions++ }
+  in_package && $0 == "version = \"0.0.11\"" { versions++ }
   in_package && $0 == "publish = false" { publish++ }
   in_package && $0 == "edition = \"2021\"" { editions++ }
   in_package && $0 == "license = \"Apache-2.0\"" { licenses++ }
@@ -125,6 +125,8 @@ bench/card-enrollment/src/pcsc_interruption_adapter.rs
 bench/card-enrollment/src/pcsc_management_observation_adapter.rs
 bench/card-enrollment/src/pcsc_sitting_adapter.rs
 bench/card-enrollment/src/sec1210.rs
+bench/card-enrollment/src/sec1210_ifs_readback.rs
+bench/card-enrollment/src/sec1210_ifs_readback_transcript.rs
 bench/card-enrollment/src/sec1210_readback.rs
 bench/card-enrollment/src/sec1210_readback_transcript.rs
 bench/card-enrollment/src/sec1210_transcript.rs
@@ -144,6 +146,9 @@ bench/card-enrollment/tests/management_observation_mock.rs
 bench/card-enrollment/tests/management_observation_transcript.rs
 bench/card-enrollment/tests/mock.rs
 bench/card-enrollment/tests/sec1210_guard.rs
+bench/card-enrollment/tests/sec1210_ifs_readback_guard.rs
+bench/card-enrollment/tests/sec1210_ifs_readback_mock.rs
+bench/card-enrollment/tests/sec1210_ifs_readback_transcript.rs
 bench/card-enrollment/tests/sec1210_mock.rs
 bench/card-enrollment/tests/sec1210_readback_guard.rs
 bench/card-enrollment/tests/sec1210_readback_mock.rs
@@ -388,7 +393,7 @@ expected_lock_facts='bitflags|2.13.1|registry+https://github.com/rust-lang/crate
 pcsc-sys|1.3.0|registry+https://github.com/rust-lang/crates.io-index|e14ef017e15d2e5592a9e39a346c1dbaea5120bab7ed7106b210ef58ebd97003
 pcsc|2.9.0|registry+https://github.com/rust-lang/crates.io-index|7dd833ecf8967e65934c49d3521a175929839bf6d0e497f3bd0d3a2ca08943da
 pkg-config|0.3.34|registry+https://github.com/rust-lang/crates.io-index|f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548
-qk-card-enrollment|0.0.10||
+qk-card-enrollment|0.0.11||
 qk-card-model|0.0.1||
 qk-card-protocol|0.0.1||
 qk-sec1210-wire|0.0.1||
@@ -414,7 +419,7 @@ normal_facts=$(normalize_tree "$normal_tree_tmp") || fail 'cannot normalize benc
 expected_normal_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
-qk-card-enrollment|0.0.10
+qk-card-enrollment|0.0.11
 qk-card-protocol|0.0.1
 qk-sec1210-wire|0.0.1
 qk-secp|0.0.1
@@ -432,7 +437,7 @@ expected_build_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.10
+qk-card-enrollment|0.0.11
 qk-card-protocol|0.0.1
 qk-sec1210-wire|0.0.1
 qk-secp|0.0.1
@@ -450,7 +455,7 @@ expected_test_facts='bitflags|2.13.1
 pcsc-sys|1.3.0
 pcsc|2.9.0
 pkg-config|0.3.34
-qk-card-enrollment|0.0.10
+qk-card-enrollment|0.0.11
 qk-card-model|0.0.1
 qk-card-protocol|0.0.1
 qk-sec1210-wire|0.0.1

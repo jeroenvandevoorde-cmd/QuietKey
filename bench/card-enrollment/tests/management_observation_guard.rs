@@ -126,7 +126,7 @@ fn management_mode_does_not_change_the_two_frozen_sitting_modes_or_versions() {
     assert_eq!(SITTING_TOOL_VERSION, "0.0.4");
     assert_eq!(MANAGEMENT_OBSERVATION_TOOL_VERSION, "0.0.5");
     assert!(LIB.contains("pub const SITTING_TOOL_VERSION: &str = \"0.0.4\";"));
-    assert!(MANIFEST.contains("version = \"0.0.10\""));
+    assert!(MANIFEST.contains("version = \"0.0.11\""));
     assert!(!SITTING.contains("ManagementObserve"));
     assert!(!SITTING.contains("management-observe"));
     assert!(MAIN.contains("if sitting_name == \"management-observe\""));
