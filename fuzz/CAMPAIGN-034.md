@@ -1,6 +1,11 @@
 # Campaign 034 - bounded IFSD-254 readback
 
-Status: PREREGISTERED - qualifying runs not yet executed.
+Status: EXECUTED — QUALIFYING RUN COMPLETE.
+
+The recipe and exact added-seed table were preregistered in
+`34358b84c2ff88e848716f19a15a8e0a2b1c3ffc` before either run. The
+completed results below are the subsequent qualification record; statements
+about the preregistration boundary preserve that earlier state.
 
 ## Boundary and fixed recipe
 
@@ -153,8 +158,103 @@ added bytes are retained independently before any qualification or promotion.
 | `qk_t1` | `a4fc8186ccdc6fa7696bda2ca82e703f5eb8eaa6` | 258 | `0000fe5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5afe` |
 | `qk_t1` | `63801b41dc524ff996c98c9b017438b913383ad4` | 259 | `0000ff5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5aa5` |
 
-## Results
+## Execution and results
 
-Pending the published-source runs, two-copy minimizations, promotion and
-complete replay. No qualification, physical sitting or Gate claim is made
-by this preregistration.
+Both qualifying runs and all 26 minimization calls used published source
+`999ccdf4b2db07e04681e455b4c84495e08a4038` on 2026-09-13. It is the
+campaign_source of both rendered manifests. The platform was macOS 15.7.9,
+Darwin 24.6.0, x86_64; Linux-only UART paths are outside these pure closures
+and were not exercised. No source change occurred between the two runs or
+any minimization pass.
+
+| Target | Start files/bytes | Inputs executed | Exit | Persisted post-run files/bytes | New engine units | Peak RSS MiB | Artifacts |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `qk_t1` | 491 / 10,935 | 100,000 | 0 | 850 / 27,053 | 701 | 574 | 0 |
+| `qk_sec1210_wire` | 314 / 27,294 | 100,000 | 0 | 463 / 42,921 | 344 | 471 | 0 |
+
+The T=1 engine reported 115 seconds, 869 inputs/s, coverage 1,964, features
+7,725 and a live corpus of 687/21Kb; wire reported 21 seconds, 4,761 inputs/s,
+coverage 1,225, features 3,323 and a live corpus of 329/27Kb. Live-corpus
+values are quoted engine output, not persisted file counts. Recorded command
+wall times were 115.876 and 21.883 seconds respectively. Both reported a
+slowest input of zero seconds. T=1 ran from 00:27:06.325712Z to
+00:29:02.205445Z; wire from 00:29:03.795499Z to 00:29:25.685461Z.
+No finding, timeout, sanitizer error or artifact occurred.
+
+| Post-run root | Listing bytes | Listing SHA-256 | Entries SHA-256 |
+|---|---:|---|---|
+| `qk_t1` | 57669 | `6e693ed3ca7d5e0f846d84f75126b70c6c48ee6b445441533a40adec84a108c4` | `8279dc1e28a2ade517061126c914a24dc7780cab935f6cd4cf22639928ca8643` |
+| `qk_sec1210_wire` | 31545 | `ab2b1c3d8332bb78bc560ad5698a2dd354604c5f4bf2fb4a7d408d1eb9b9fa0b` | `575788092395f59dad71c21babb3ac763cb2273813fe2613be54eedb622b8f66` |
+
+## Two-copy minimization and promotion
+
+Each exact post-run root was copied independently to A and B. Every call
+below used the same published source and the unchanged registered wrapper;
+all 26 exited zero. The two copies agreed byte for byte after every pass.
+T=1 passes 6 and 7 and wire passes 5 and 6 were consecutive unchanged
+confirmations. No independent-copy disagreement occurred.
+
+```text
+fuzz/minimize-corpus.sh qk_t1 <absolute-copy>
+fuzz/minimize-corpus.sh qk_sec1210_wire <absolute-copy>
+```
+
+### qk_t1
+
+| Pass, on each copy | Files | Bytes | Listing bytes | Listing SHA-256 | Unchanged |
+|---|---:|---:|---:|---|---|
+| 1 | 638 | 18746 | 43268 | `9360f015f6a9213b39f6ed51356291bd37f9a09c3eb97902d60569e2f2edeb3c` | no |
+| 2 | 619 | 18450 | 41983 | `e6a8d48dcf98d0bb7342715168fcfac9a40d592389c3b583ec30c98d0cbc7764` | no |
+| 3 | 614 | 18330 | 41644 | `44a77e08692a86d606d3b301782124821b49992e6f2dccf361286b38b55de52c` | no |
+| 4 | 607 | 18195 | 41168 | `841fc9469bd52c584aaee37040f5147fb7546c128172aec4c43fd7a93f753936` | no |
+| 5 | 601 | 18065 | 40762 | `afa9cf4c08875f74b15ddf93d1b2551479fa6af4ec14324e6e6ddc8dba0f74f8` | no |
+| 6 | 601 | 18065 | 40762 | `afa9cf4c08875f74b15ddf93d1b2551479fa6af4ec14324e6e6ddc8dba0f74f8` | yes |
+| 7 | 601 | 18065 | 40762 | `afa9cf4c08875f74b15ddf93d1b2551479fa6af4ec14324e6e6ddc8dba0f74f8` | yes |
+
+### qk_sec1210_wire
+
+| Pass, on each copy | Files | Bytes | Listing bytes | Listing SHA-256 | Unchanged |
+|---|---:|---:|---:|---|---|
+| 1 | 317 | 27173 | 21575 | `293cdf2a183f08631b741b0aa0076cf76f374e4578db7fa3c208f7c02cd45159` | no |
+| 2 | 314 | 27014 | 21370 | `957c7cea898f9d870a174666c706016bccbadf7e6953a9eaefc13af9652933c9` | no |
+| 3 | 310 | 26955 | 21099 | `6535e52db6c1975f768933ba25fe04f6c412918df39e8604c59a226fb8cba34d` | no |
+| 4 | 307 | 26860 | 20896 | `d92096d781ac591750589030c31208afce1faa112e2d220c044b31b495faffee` | no |
+| 5 | 307 | 26860 | 20896 | `d92096d781ac591750589030c31208afce1faa112e2d220c044b31b495faffee` | yes |
+| 6 | 307 | 26860 | 20896 | `d92096d781ac591750589030c31208afce1faa112e2d220c044b31b495faffee` | yes |
+
+Only the two agreeing fixed points were promoted. Baselines, seeded starts,
+exact post-run roots, both independent minimized-copy histories, every log
+and execution record remain retained outside Git. The displaced repository
+post-run roots were moved into retained evidence, not deleted. The other
+52 roots remained byte-frozen.
+
+| Promoted target | Files/bytes | Entries SHA-256 |
+|---|---:|---|
+| `qk_t1` | 601 / 18065 | `d9fa64ffb1fa2c94cf063b1a471cd3df0e851058e4ea54142d67a68dcf8ccf15` |
+| `qk_sec1210_wire` | 307 / 26860 | `093ee1c346e2d7a0a5b2a692740a334dcb0ec5dee28f17971b7e62096f540e97` |
+
+Both existing manifests were rendered at the qualification source with the
+registered renderer; rendered and installed bytes compare equal.
+
+| Manifest | Bytes | LF | SHA-256 |
+|---|---:|---:|---|
+| `fuzz/CORPUS-MANIFEST-T1-R2.tsv` | 84410 | 608 | `aa6f40832b1adaa3103ae9f9db932b02ee348f35b87fe9ea6f70dd9b3c7c6342` |
+| `fuzz/CORPUS-MANIFEST-SEC1210-R2A.tsv` | 49542 | 314 | `b94983f3497a3574a0bf94c5b015430d96388b6b50318da3f60ccc6ff0b6c124` |
+
+## Complete registered replay
+
+All 54 roots replayed with the existing `fuzz/replay-corpus.sh TARGET`
+wrapper at source `999ccdf4b2db07e04681e455b4c84495e08a4038`, in
+sorted target order, on the same macOS x86_64 platform. Actual registered
+files total 8,761 / 617,426 bytes; executed units total 8,824. Those quantities
+are not interchangeable. Every target exited zero and produced zero
+artifacts. T=1 replayed 601 files / 18,065 bytes / 602 executed units; wire
+replayed 307 / 26,860 / 308. Every corpus matched the promoted inventory
+before and after; the other 52 also matched the pre-campaign baseline.
+Source files, wrapper and HEAD remained unchanged throughout replay.
+
+Replay ran on 2026-09-13 from 00:33:55.955Z to 00:37:04.813Z; the replay
+processes totaled 186.305 seconds. Individual logs, source fingerprints,
+per-target exits/statistics and complete before/after hash inventories remain
+in retained evidence outside Git. No sitting transcript, card operation,
+physical transport or Gate claim is part of this qualification.
