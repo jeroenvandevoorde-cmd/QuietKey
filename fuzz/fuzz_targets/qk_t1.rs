@@ -12,6 +12,8 @@ const ATR: [u8; 15] = [
     0x3b, 0xd5, 0x18, 0xff, 0x81, 0x91, 0xfe, 0x1f, 0xc3, 0x80, 0x73, 0xc8, 0x21, 0x10, 0x0a,
 ];
 const PARAMS: [u8; 7] = [0x18, 0x10, 0xff, 0x4d, 3, 0xfe, 0];
+// Reference bytes are not imported from the implementation constant.
+const FIDI: [u8; 7] = [0x18, 0x10, 0xff, 0x4d, 0, 0xfe, 0];
 
 fn byte(input: &[u8], index: usize) -> u8 {
     input.get(index).copied().unwrap_or(0)
@@ -383,8 +385,34 @@ struct WModel {
     start: u64,
     last: Option<u64>,
     error: Option<E>,
+    fidi: bool,
+    parameters_evidence: Option<Vec<u8>>,
+    parameters_accepted: bool,
 }
 impl WModel {
+    fn with_fidi() -> Self {
+        Self {
+            fidi: true,
+            ..Self::default()
+        }
+    }
+    fn setting_parameters(&self) -> bool {
+        self.fidi && self.command == 3
+    }
+    fn transfer_index(&self) -> usize {
+        if self.fidi {
+            4
+        } else {
+            3
+        }
+    }
+    fn reply(&self, payload: &[u8]) -> Vec<u8> {
+        if self.setting_parameters() {
+            ccid(0x82, self.seq, 0, 1, &FIDI)
+        } else {
+            response(self.command, self.seq, payload)
+        }
+    }
     fn reject<U>(&mut self, error: impl Into<E>) -> Result<U, E> {
         self.stage = 3;
         Err(*self.error.get_or_insert(error.into()))
@@ -408,10 +436,14 @@ impl WModel {
     }
     fn begin(&mut self, payload: Option<&[u8]>, now: u64) -> Result<Vec<u8>, E> {
         self.clock(now)?;
-        if self.stage != 0 || payload.is_some() != (self.command == 3) {
+        if self.stage != 0 || payload.is_some() != (self.command == self.transfer_index()) {
             return self.reject(E::StateRejected);
         }
-        let body = payload.unwrap_or(&[]);
+        let body = payload.unwrap_or(if self.setting_parameters() {
+            &FIDI
+        } else {
+            &[]
+        });
         if payload.is_some()
             && (body.len() < 4
                 || body.len() > 34
@@ -425,9 +457,17 @@ impl WModel {
         }
         self.seq = (self.requests + 1) as u8;
         let value = ccid(
-            [0x65, 0x62, 0x6c, 0x6f][self.command],
+            if self.setting_parameters() {
+                0x61
+            } else {
+                [0x65, 0x62, 0x6c, 0x6f][self.command.min(3)]
+            },
             self.seq,
-            if self.command == 1 { 2 } else { 0 },
+            if self.command == 1 {
+                2
+            } else {
+                u8::from(self.setting_parameters())
+            },
             0,
             body,
         );
@@ -460,7 +500,11 @@ impl WModel {
             (r[7] / 64 == 2, W::TimeExtensionRejected),
             (r[7] / 64 == 1, W::CommandFailed),
             (
-                r[0] != [0x81, 0x80, 0x82, 0x80][self.command],
+                r[0] != if self.setting_parameters() {
+                    0x82
+                } else {
+                    [0x81, 0x80, 0x82, 0x80][self.command.min(3)]
+                },
                 W::ResponseTypeRejected,
             ),
             (r[8] != 0, W::StatusErrorRejected),
@@ -482,7 +526,7 @@ impl WModel {
                     clock: r[9],
                 });
             }
-            1 | 3 => {
+            c if c == 1 || c == self.transfer_index() => {
                 if r[9] != 0 {
                     return Err(W::ChainingRejected.into());
                 }
@@ -510,6 +554,12 @@ impl WModel {
                 });
                 if r[9] != 1 {
                     return Err(E::ProtocolRejected);
+                }
+                if self.setting_parameters() {
+                    if bytes != FIDI {
+                        return Err(E::SetParametersEchoRejected);
+                    }
+                    return Ok(());
                 }
                 if bytes[5] != 254 {
                     return Err(E::IfscRejected);
@@ -573,6 +623,9 @@ impl WModel {
                     return self.reject(W::HardwareError);
                 }
                 WireFact::Response(r) => {
+                    if self.setting_parameters() {
+                        self.parameters_evidence = Some(r.clone());
+                    }
                     if let Err(error) = self.validate(&r) {
                         return self.reject(error);
                     }
@@ -580,8 +633,11 @@ impl WModel {
                         return self.reject(W::TrailingData);
                     }
                     self.responses += 1;
+                    if self.setting_parameters() {
+                        self.parameters_accepted = true;
+                    }
                     self.accepted = Some(r);
-                    self.command = (self.command + 1).min(3);
+                    self.command = (self.command + 1).min(self.transfer_index());
                     self.stage = 0;
                 }
             }
@@ -592,14 +648,19 @@ impl WModel {
         }
     }
     fn check(&self, actual: &Wire) {
-        let c = [C::GetSlotStatus, C::PowerOn, C::GetParameters, C::XfrBlock][self.command];
+        let c = if self.setting_parameters() {
+            C::SetParameters
+        } else {
+            [C::GetSlotStatus, C::PowerOn, C::GetParameters, C::XfrBlock][self.command.min(3)]
+        };
         let phase = match self.stage {
+            0 if self.setting_parameters() => P::ReadySetParameters,
             0 => [
                 P::ReadyStatus,
                 P::ReadyPower,
                 P::ReadyParameters,
                 P::ReadyTransfer,
-            ][self.command],
+            ][self.command.min(3)],
             1 => P::Writing(c),
             2 => P::Receiving(c),
             _ => P::Failed,
@@ -621,6 +682,15 @@ impl WModel {
             v
         });
         assert_eq!(got, self.accepted);
+        let evidence = actual.set_parameters_reply_evidence().map(|r| {
+            let mut v = vec![r.message_type];
+            v.extend_from_slice(&(r.payload().len() as u32).to_le_bytes());
+            v.extend_from_slice(&[r.slot, r.sequence, r.status, r.error, r.parameter]);
+            v.extend_from_slice(r.payload());
+            v
+        });
+        assert_eq!(evidence, self.parameters_evidence);
+        assert_eq!(actual.set_parameters_accepted(), self.parameters_accepted);
     }
 }
 
@@ -641,13 +711,102 @@ fn w_receive(a: &mut Wire, m: &mut WModel, bytes: &[u8], now: u64) {
     m.check(a);
 }
 fn w_ready(command: usize) -> (Wire, WModel) {
-    let (mut a, mut m) = (Wire::default(), WModel::default());
-    for c in 0..command {
+    w_ready_mode(command, false)
+}
+fn w_ready_mode(command: usize, fidi: bool) -> (Wire, WModel) {
+    let (mut a, mut m) = if fidi {
+        (Wire::with_fidi(), WModel::with_fidi())
+    } else {
+        (Wire::default(), WModel::default())
+    };
+    for _ in 0..command {
         w_begin(&mut a, &mut m, None, 0);
-        w_written(&mut a, &mut m, 13, 0);
-        w_receive(&mut a, &mut m, &response(c, c as u8 + 1, &[]), 0);
+        let count = m.request_len;
+        w_written(&mut a, &mut m, count, 0);
+        let raw = m.reply(&[]);
+        w_receive(&mut a, &mut m, &raw, 0);
     }
     (a, m)
+}
+
+fn hostile_fidi_wire(input: &[u8]) {
+    // The whole hostile input reaches the opt-in Parameters gate, not only
+    // default initialization. Repaired-checksum cases expose precedence and
+    // preserve the raw bError evidence independently of response acceptance.
+    let mut mutated = ccid(0x82, 4, 0, 1, &FIDI);
+    for pair in input.as_chunks::<2>().0.iter().take(24) {
+        let index = [2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18][usize::from(pair[0] % 13)];
+        mutated[index] ^= pair[1];
+    }
+    let last = mutated.len() - 1;
+    mutated[last] = lrc(&mutated[..last]);
+    let mut alternative = match byte(input, 0) % 6 {
+        0 => mutated,
+        1 => ccid(0x82, 4, 0x40, 1, &[]),
+        2 => ccid(0x81, 4, 0x80, 0, &[]),
+        3 => ccid(0x82, 4, 0, 1, &input[..input.len().min(261)]),
+        4 => ccid(0x82, 4, 0, 1, &FIDI[..usize::from(byte(input, 1) % 7)]),
+        _ => ccid(0x82, 4, 0, 1, &FIDI),
+    };
+    if matches!(byte(input, 0) % 6, 1 | 2) {
+        alternative[10] = byte(input, 2);
+        let last = alternative.len() - 1;
+        alternative[last] = lrc(&alternative[..last]);
+    }
+    if byte(input, 3) & 1 != 0 {
+        alternative.splice(..0, [0x50, 0x0f]);
+    }
+    if byte(input, 4) & 1 != 0 {
+        alternative.extend_from_slice(&ccid(0x82, 4, 0, 1, &FIDI));
+    }
+    for raw in [input, alternative.as_slice()] {
+        let (mut actual, mut model) = w_ready_mode(3, true);
+        w_begin(&mut actual, &mut model, None, 0);
+        w_written(&mut actual, &mut model, 20, 0);
+        let split = usize::from(byte(input, 5)) % (raw.len() + 1);
+        w_receive(&mut actual, &mut model, &raw[..split], 1);
+        let now = [1, 2, 4999, 5000, u64::MAX][usize::from(byte(input, 6) % 5)];
+        w_receive(&mut actual, &mut model, &raw[split..], now);
+        w_begin(&mut actual, &mut model, None, now);
+        w_receive(&mut actual, &mut model, &[], u64::MAX);
+    }
+
+    // Starting before or after baseline initialization gives the operation
+    // program both premature and post-ATR SetParameters ordering to attack.
+    for start in [0, 3, 4] {
+        let (mut actual, mut model) = w_ready_mode(start, true);
+        for op in input.chunks(4).take(160) {
+            let y = byte(op, 1);
+            let now = [0, 1, 4999, 5000, u64::MAX][usize::from(y % 5)];
+            match byte(op, 0) % 7 {
+                0 => w_begin(&mut actual, &mut model, None, now),
+                1 => w_begin(
+                    &mut actual,
+                    &mut model,
+                    Some(&[0, 0xc1, 1, 0xfe, 0x3e]),
+                    now,
+                ),
+                2 => {
+                    let n = if y & 1 == 0 {
+                        model.request_len
+                    } else {
+                        usize::from(y)
+                    };
+                    w_written(&mut actual, &mut model, n, now);
+                }
+                3 => {
+                    let raw = model.reply(&[0, 0xe1, 1, 0xfe, 0x1e]);
+                    w_receive(&mut actual, &mut model, &raw, now);
+                }
+                4 => w_receive(&mut actual, &mut model, &alternative, now),
+                5 => w_receive(&mut actual, &mut model, &[0x50, y], now),
+                _ => {
+                    assert_eq!(actual.tick(now), model.clock(now));
+                    model.check(&actual);
+                }
+            }
+        }
+    }
 }
 
 fn hostile_wire(input: &[u8]) {
@@ -917,10 +1076,10 @@ fn hostile_ifs(input: &[u8]) {
 // sequence bits, card chaining and independent CCID sequence/fragment handling.
 // It constructs requests itself and compares both models after every action.
 fn joint(input: &[u8]) {
-    joint_mode(input, false);
+    joint_mode(input, false, false);
 }
-fn joint_mode(input: &[u8], ifs: bool) {
-    let (mut wire, mut wm) = w_ready(3);
+fn joint_mode(input: &[u8], ifs: bool, fidi: bool) {
+    let (mut wire, mut wm) = w_ready_mode(if fidi { 4 } else { 3 }, fidi);
     let (mut t1, mut tm) = if ifs {
         (T1::with_ifs(), TModel::with_ifs())
     } else {
@@ -934,7 +1093,13 @@ fn joint_mode(input: &[u8], ifs: bool) {
         w_begin(&mut wire, &mut wm, Some(&request), 0);
         w_written(&mut wire, &mut wm, 18, 0);
         assert_eq!(t1.written(5, 0), tm.written(5, 0));
-        let reply = ccid(0x80, 4, 0, 0, &[0, 0xe1, 1, 0xfe, 0x1e]);
+        let reply = ccid(
+            0x80,
+            if fidi { 5 } else { 4 },
+            0,
+            0,
+            &[0, 0xe1, 1, 0xfe, 0x1e],
+        );
         let split = usize::from(byte(input, 6)) % (reply.len() + 1);
         w_receive(&mut wire, &mut wm, &reply[..split], 0);
         if split != reply.len() {
@@ -1070,5 +1235,7 @@ fuzz_target!(|input: &[u8]| {
     hostile_wire(input);
     joint(input);
     hostile_ifs(input);
-    joint_mode(input, true);
+    joint_mode(input, true, false);
+    hostile_fidi_wire(input);
+    joint_mode(input, true, true);
 });

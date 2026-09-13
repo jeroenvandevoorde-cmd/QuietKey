@@ -9,6 +9,8 @@ use qk_sec1210_wire::{
 const ATR: [u8; 15] = [
     0x3b, 0xd5, 0x18, 0xff, 0x81, 0x91, 0xfe, 0x1f, 0xc3, 0x80, 0x73, 0xc8, 0x21, 0x10, 0x0a,
 ];
+// Independently pinned reference payload, not the exported product constant.
+const FIDI: [u8; 7] = [0x18, 0x10, 0xff, 0x4d, 0, 0xfe, 0];
 
 #[derive(Debug, PartialEq, Eq)]
 enum Fact {
@@ -374,7 +376,14 @@ fn readback_frame(kind: u8, sequence: u8, status: u8, parameter: u8, body: &[u8]
 }
 
 fn readback_ifs_pending() -> ReadbackSession {
-    let mut session = ReadbackSession::default();
+    readback_pending(false)
+}
+fn readback_pending(fidi: bool) -> ReadbackSession {
+    let mut session = if fidi {
+        ReadbackSession::with_fidi()
+    } else {
+        ReadbackSession::default()
+    };
     for (index, raw) in [
         readback_frame(0x81, 1, 1, 0xff, &[]),
         readback_frame(0x80, 2, 0, 0, &ATR),
@@ -388,19 +397,29 @@ fn readback_ifs_pending() -> ReadbackSession {
         session.written(13, 0).unwrap();
         session.receive(raw, 0).unwrap();
     }
-    let request = session
-        .begin_transfer(&[0, 0xc1, 1, 0xfe, 0x3e], 0)
-        .unwrap();
-    assert_eq!(
-        request.as_bytes(),
-        [3, 6, 0x6f, 5, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0xc1, 1, 0xfe, 0x3e, 0x6b,]
-    );
-    session.written(18, 0).unwrap();
+    if fidi {
+        assert_eq!(qk_sec1210_wire::FIDI_PARAMETERS, FIDI);
+        let request = session.begin_initial(0).unwrap();
+        assert_eq!(
+            request.as_bytes(),
+            [3, 6, 0x61, 7, 0, 0, 0, 0, 4, 1, 0, 0, 0x18, 0x10, 0xff, 0x4d, 0, 0xfe, 0, 0x22]
+        );
+        session.written(20, 0).unwrap();
+    } else {
+        let request = session
+            .begin_transfer(&[0, 0xc1, 1, 0xfe, 0x3e], 0)
+            .unwrap();
+        assert_eq!(
+            request.as_bytes(),
+            [3, 6, 0x6f, 5, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0xc1, 1, 0xfe, 0x3e, 0x6b,]
+        );
+        session.written(18, 0).unwrap();
+    }
     session
 }
 
-// Independent batch oracle for the sequence-4 transfer. Its body stays opaque:
-// only qk-t1 may interpret an IFS response or activate the larger T=1 bound.
+// Independent batch oracle for sequence 4: default transfer or opt-in fixed
+// SetParameters. A transfer body stays opaque: only qk-t1 interprets IFS.
 #[derive(Default)]
 struct IfsWireModel {
     pending: Vec<u8>,
@@ -410,9 +429,11 @@ struct IfsWireModel {
     accepted: Option<Vec<u8>>,
     error: Option<RE>,
     last: u64,
+    fidi: bool,
+    evidence: Option<Vec<u8>>,
 }
 impl IfsWireModel {
-    fn reject(&mut self, error: Error) -> Result<(), RE> {
+    fn reject(&mut self, error: impl Into<RE>) -> Result<(), RE> {
         Err(*self.error.get_or_insert(error.into()))
     }
     fn receive(&mut self, raw: &[u8], now: u64) -> Result<(), RE> {
@@ -480,6 +501,9 @@ impl IfsWireModel {
                     });
                 }
                 Fact::Response(r) => {
+                    if self.fidi {
+                        self.evidence = Some(r.clone());
+                    }
                     let checks = [
                         (r[5] != 0, Error::SlotRejected),
                         (r[6] != 4, Error::SequenceRejected),
@@ -489,19 +513,40 @@ impl IfsWireModel {
                         ),
                         (r[7] / 64 == 2, Error::TimeExtensionRejected),
                         (r[7] / 64 == 1, Error::CommandFailed),
-                        (r[0] != 0x80, Error::ResponseTypeRejected),
+                        (
+                            r[0] != if self.fidi { 0x82 } else { 0x80 },
+                            Error::ResponseTypeRejected,
+                        ),
                         (r[8] != 0, Error::StatusErrorRejected),
                         (r[7] % 4 == 2, Error::CardAbsent),
                         (r[7] % 4 != 0, Error::IccStatusRejected),
-                        (r[9] != 0, Error::ChainingRejected),
+                        (!self.fidi && r[9] != 0, Error::ChainingRejected),
                     ];
                     if let Some((_, error)) = checks.into_iter().find(|(bad, _)| *bad) {
                         return self.reject(error);
                     }
-                    self.observations.push(RO::Transfer {
-                        sequence: 4,
-                        payload_bytes: r.len() - 10,
-                    });
+                    if self.fidi {
+                        if r.len() != 17 {
+                            return self.reject(Error::PayloadRejected);
+                        }
+                        let mut bytes = [0; 7];
+                        bytes.copy_from_slice(&r[10..]);
+                        self.observations.push(RO::Parameters {
+                            protocol: r[9],
+                            bytes,
+                        });
+                        if r[9] != 1 {
+                            return self.reject(RE::ProtocolRejected);
+                        }
+                        if bytes != FIDI {
+                            return self.reject(RE::SetParametersEchoRejected);
+                        }
+                    } else {
+                        self.observations.push(RO::Transfer {
+                            sequence: 4,
+                            payload_bytes: r.len() - 10,
+                        });
+                    }
                     if length != self.pending.len() {
                         return self.reject(Error::TrailingData);
                     }
@@ -521,7 +566,11 @@ impl IfsWireModel {
         } else if self.accepted.is_some() {
             RP::ReadyTransfer
         } else {
-            RP::Receiving(qk_sec1210_wire::ReadbackCommand::XfrBlock)
+            RP::Receiving(if self.fidi {
+                qk_sec1210_wire::ReadbackCommand::SetParameters
+            } else {
+                qk_sec1210_wire::ReadbackCommand::XfrBlock
+            })
         };
         assert_eq!(actual.phase(), expected_phase);
         assert_eq!(actual.sequence(), 4);
@@ -534,12 +583,35 @@ impl IfsWireModel {
             actual.response().map(|r| r.payload().to_vec()),
             self.accepted
         );
+        let evidence = actual.set_parameters_reply_evidence().map(|r| {
+            let mut v = vec![r.message_type];
+            v.extend_from_slice(&(r.payload().len() as u32).to_le_bytes());
+            v.extend_from_slice(&[r.slot, r.sequence, r.status, r.error, r.parameter]);
+            v.extend_from_slice(r.payload());
+            v
+        });
+        assert_eq!(evidence, self.evidence);
+        assert_eq!(
+            actual.set_parameters_accepted(),
+            self.fidi && self.accepted.is_some()
+        );
     }
 }
 
 fn ifs_wire_case(raw: &[u8], split: usize, now: u64) {
+    readback_case(raw, split, now, false);
+}
+fn readback_case(raw: &[u8], split: usize, now: u64, fidi: bool) {
     decoder_reference(raw);
-    let (mut actual, mut model) = (readback_ifs_pending(), IfsWireModel::default());
+    let mut actual = if fidi {
+        readback_pending(true)
+    } else {
+        readback_ifs_pending()
+    };
+    let mut model = IfsWireModel {
+        fidi,
+        ..IfsWireModel::default()
+    };
     for (part, time) in [(&raw[..split], 1), (&raw[split..], now), (&[][..], 5000)] {
         assert_eq!(actual.receive(part, time), model.receive(part, time));
         model.check(&actual);
@@ -553,6 +625,59 @@ fn ifs_wire_case(raw: &[u8], split: usize, now: u64) {
         assert_eq!(actual.tick(u64::MAX), Err(error));
         model.check(&actual);
     }
+}
+
+fn hostile_fidi_wire(input: &[u8]) {
+    let at = |index| input.get(index).copied().unwrap_or(0);
+    let exact = readback_frame(0x82, 4, 0, 1, &FIDI);
+    assert_eq!(
+        exact,
+        [3, 6, 0x82, 7, 0, 0, 0, 0, 4, 0, 0, 1, 0x18, 0x10, 0xff, 0x4d, 0, 0xfe, 0, 0xc1]
+    );
+    readback_case(&exact, usize::from(at(0)) % 21, 2, true);
+    readback_case(input, input.len() / 2, 2, true);
+
+    let size = [0, 6, 7, 8, 261, 262][usize::from(at(1) % 6)];
+    let mut body = vec![0; size];
+    for (index, value) in body.iter_mut().enumerate() {
+        *value = at(index + 2);
+    }
+    if size == 7 {
+        body.copy_from_slice(&FIDI);
+        body[usize::from(at(2) % 7)] ^= at(3);
+    }
+    let mut raw = readback_frame(0x82, 4, 0, 1, &body);
+    // CCID error precedence is tested with independently preserved bError,
+    // not by inferring an echo rejection from any nonmatching payload.
+    match at(4) % 5 {
+        0 => (),
+        1 => {
+            raw[9] = 0x40;
+            raw[10] = at(5);
+        }
+        2 => {
+            raw[2] = 0x81;
+            raw[9] = 0x80;
+            raw[10] = at(5);
+        }
+        _ => {
+            for pair in input.as_chunks::<2>().0.iter().take(12) {
+                let index = [2, 7, 8, 9, 10, 11][usize::from(pair[0] % 6)];
+                raw[index] ^= pair[1];
+            }
+        }
+    }
+    let last = raw.len() - 1;
+    raw[last] = raw[..last].iter().copied().fold(0, |a, b| a ^ b);
+    if at(6) & 1 != 0 {
+        raw.splice(..0, [0x50, 0x0f].repeat(usize::from(at(7) % 67)));
+    }
+    if at(8) & 1 != 0 {
+        raw.extend_from_slice(&exact);
+    }
+    let split = usize::from(at(9)) % (raw.len() + 1);
+    let now = [0, 2, 4999, 5000, u64::MAX][usize::from(at(10) % 5)];
+    readback_case(&raw, split, now, true);
 }
 
 fn hostile_ifs_wire(input: &[u8]) {
@@ -651,4 +776,5 @@ fuzz_target!(|input: &[u8]| {
     receive(&mut a, &mut m, &[0x50, 3], 1);
     receive(&mut a, &mut m, &response(true), 2);
     hostile_ifs_wire(input);
+    hostile_fidi_wire(input);
 });
