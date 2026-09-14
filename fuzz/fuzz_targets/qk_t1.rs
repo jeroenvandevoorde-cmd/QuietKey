@@ -1238,4 +1238,909 @@ fuzz_target!(|input: &[u8]| {
     joint_mode(input, true, false);
     hostile_fidi_wire(input);
     joint_mode(input, true, true);
+    raw_oracle::exercise(input);
 });
+
+// SUP-013 additions use an independently expressed table/state oracle. The
+// frozen decoders, state models and all their calls above remain unchanged.
+mod raw_oracle {
+    use super::{byte, ccid, lrc, t_decode_bound, tpdu, wire_next, TFact, WireFact, ATR, FIDI};
+    use qk_sec1210_wire::{
+        Error as WireError, RawCommand, RawError as WireRawError, RawFrameSpan, RawPhase,
+        RawRequest, RawSession as RawWire,
+    };
+    use qk_t1::{Error, Phase, RawError, RawSession};
+
+    const IFS_ECHO: [u8; 5] = [0, 0xe1, 1, 0xfe, 0x1e];
+
+    #[derive(Default)]
+    struct Model {
+        // Table states: idle, ready, writing, receiving, complete, failed.
+        stage: usize,
+        // 0 required, 1 pending, 2 accepted. Separate from the phase table.
+        ifs: u8,
+        ns: u8,
+        nr: u8,
+        outgoing: Vec<u8>,
+        bwi: u8,
+        response: Vec<u8>,
+        exchanges: usize,
+        complete: usize,
+        started: u64,
+        last: Option<u64>,
+        deadline: Option<u64>,
+        wtx: Vec<u8>,
+        total_wtx: usize,
+        error: Option<RawError>,
+    }
+
+    fn add_time(start: u64, duration: u64) -> u64 {
+        start.checked_add(duration).unwrap_or(u64::MAX)
+    }
+
+    impl Model {
+        fn bound(&self) -> usize {
+            if self.ifs == 2 {
+                258
+            } else {
+                36
+            }
+        }
+
+        fn fail<U>(&mut self, error: impl Into<RawError>) -> Result<U, RawError> {
+            self.stage = 5;
+            Err(*self.error.get_or_insert(error.into()))
+        }
+
+        fn clock(&mut self, now: u64) -> Result<(), RawError> {
+            if let Some(error) = self.error {
+                return Err(error);
+            }
+            if self.last.is_some_and(|previous| previous > now) {
+                return self.fail(Error::ClockRegression);
+            }
+            self.last = Some(now);
+            if (1..=3).contains(&self.stage) {
+                let duration = if self.ifs == 1 { 5000 } else { 30_000 };
+                if now >= add_time(self.started, duration) {
+                    return self.fail(Error::DeadlineExceeded);
+                }
+            }
+            Ok(())
+        }
+
+        fn begin_ifs(&mut self, now: u64) -> Result<(), RawError> {
+            self.clock(now)?;
+            if self.stage != 0 || self.ifs != 0 {
+                return self.fail(Error::StateRejected);
+            }
+            self.ifs = 1;
+            self.started = now;
+            self.outgoing = vec![0, 0xc1, 1, 0xfe, 0x3e];
+            self.bwi = 0;
+            self.stage = 1;
+            Ok(())
+        }
+
+        fn begin(&mut self, command: &[u8], now: u64) -> Result<(), RawError> {
+            self.clock(now)?;
+            if self.ifs != 2 || !matches!(self.stage, 0 | 4) {
+                return self.fail(Error::StateRejected);
+            }
+            if self.complete == 128 {
+                return self.fail(Error::ApduLimitExceeded);
+            }
+            if command.is_empty() || command.len() > 254 {
+                return self.fail(Error::CommandLengthRejected);
+            }
+            self.response.clear();
+            self.exchanges = 0;
+            self.wtx.clear();
+            self.started = now;
+            self.deadline = Some(add_time(now, 30_000));
+            self.outgoing = tpdu(64 * self.ns, command);
+            self.bwi = 0;
+            self.stage = 1;
+            Ok(())
+        }
+
+        fn next(&mut self, now: u64) -> Result<(Vec<u8>, u8, u64), RawError> {
+            self.clock(now)?;
+            if self.stage != 1 || self.outgoing.is_empty() {
+                return self.fail(Error::StateRejected);
+            }
+            if self.exchanges == 16 {
+                return self.fail(Error::ExchangeLimitExceeded);
+            }
+            self.stage = 2;
+            let allowance = 5000u64.max(u64::from(self.bwi) * 1190);
+            Ok((self.outgoing.clone(), self.bwi, allowance))
+        }
+
+        fn written(&mut self, count: usize, now: u64) -> Result<(), RawError> {
+            self.clock(now)?;
+            if self.stage != 2 {
+                return self.fail(Error::StateRejected);
+            }
+            if count != self.outgoing.len() {
+                return self.fail(Error::PartialWrite);
+            }
+            self.exchanges += 1;
+            self.stage = 3;
+            Ok(())
+        }
+
+        fn receive(&mut self, raw: &[u8], now: u64) -> Result<(), RawError> {
+            self.clock(now)?;
+            if self.stage != 3 {
+                match t_decode_bound(raw, self.bound(), false) {
+                    Err(Error::IfsRejected) => return self.fail(Error::IfsRejected),
+                    Err(Error::WtxRejected) if raw[1] == 0xe3 => {
+                        return self.fail(RawError::WtxResponseRejected);
+                    }
+                    _ => return self.fail(Error::StateRejected),
+                }
+            }
+            if self.ifs == 1 {
+                match t_decode_bound(raw, 36, true) {
+                    Ok(TFact::Ifs) => {
+                        self.ifs = 2;
+                        self.stage = 0;
+                        self.outgoing.clear();
+                        return Ok(());
+                    }
+                    Ok(TFact::I(..)) => return self.fail(Error::IfsRejected),
+                    Ok(TFact::R(_)) => return self.fail(Error::UnexpectedRBlock),
+                    Err(error) => return self.fail(error),
+                }
+            }
+            let (sequence, chained, data) = match t_decode_bound(raw, 258, false) {
+                Ok(TFact::I(sequence, chained, data)) => (sequence, chained, data),
+                Ok(TFact::R(_)) => return self.fail(Error::UnexpectedRBlock),
+                Ok(TFact::Ifs) => unreachable!("IFS fact requires negotiation mode"),
+                Err(Error::WtxRejected) if raw[1] == 0xc3 => {
+                    let multiplier = raw[3];
+                    if multiplier == 0 || multiplier > 24 {
+                        return self.fail(RawError::WtxMultiplierRejected);
+                    }
+                    if self.wtx.len() == 8 {
+                        return self.fail(RawError::WtxLimitExceeded);
+                    }
+                    self.wtx.push(multiplier);
+                    self.total_wtx += 1;
+                    self.outgoing = tpdu(0xe3, &[multiplier]);
+                    self.bwi = multiplier;
+                    self.stage = 1;
+                    return Ok(());
+                }
+                Err(Error::WtxRejected) => return self.fail(RawError::WtxResponseRejected),
+                Err(error) => return self.fail(error),
+            };
+            if sequence != self.nr {
+                return self.fail(Error::SequenceRejected);
+            }
+            if chained {
+                return self.fail(RawError::ChainingRejected);
+            }
+            if data.len() > 254 {
+                return self.fail(Error::ResponseLengthRejected);
+            }
+            self.response = data.to_vec();
+            self.ns = 1 - self.ns;
+            self.nr = 1 - self.nr;
+            self.outgoing.clear();
+            self.complete += 1;
+            self.stage = 4;
+            Ok(())
+        }
+
+        fn check(&self, actual: &RawSession) {
+            let phases = [
+                Phase::Idle,
+                Phase::Ready,
+                Phase::Writing,
+                Phase::Receiving,
+                Phase::Complete,
+                Phase::Failed,
+            ];
+            assert_eq!(actual.phase(), phases[self.stage]);
+            assert_eq!(actual.failure(), self.error);
+            assert_eq!(actual.ifs_accepted(), self.ifs == 2);
+            assert_eq!(actual.receive_bound(), self.bound());
+            assert_eq!(actual.send_sequence(), self.ns);
+            assert_eq!(actual.receive_sequence(), self.nr);
+            assert_eq!(actual.response(), self.response);
+            assert_eq!(actual.exchanges(), self.exchanges);
+            assert_eq!(actual.completed_apdus(), self.complete);
+            assert_eq!(actual.apdu_deadline_ms(), self.deadline);
+            assert_eq!(actual.wtx_multipliers(), self.wtx);
+            assert_eq!(actual.wtx_count(), self.wtx.len());
+            assert_eq!(actual.total_wtx_count(), self.total_wtx);
+        }
+    }
+
+    fn begin_ifs(actual: &mut RawSession, model: &mut Model, now: u64) {
+        assert_eq!(actual.begin_ifs(now), model.begin_ifs(now));
+        model.check(actual);
+    }
+
+    fn begin(actual: &mut RawSession, model: &mut Model, command: &[u8], now: u64) {
+        assert_eq!(actual.begin(command, now), model.begin(command, now));
+        model.check(actual);
+    }
+
+    fn next(actual: &mut RawSession, model: &mut Model, now: u64) {
+        assert_eq!(
+            actual.next_block(now).map(|block| (
+                block.as_bytes().to_vec(),
+                block.bwi(),
+                block.command_allowance_ms(),
+            )),
+            model.next(now)
+        );
+        model.check(actual);
+    }
+
+    fn written(actual: &mut RawSession, model: &mut Model, count: usize, now: u64) {
+        assert_eq!(actual.written(count, now), model.written(count, now));
+        model.check(actual);
+    }
+
+    fn receive(actual: &mut RawSession, model: &mut Model, raw: &[u8], now: u64) {
+        assert_eq!(actual.receive(raw, now), model.receive(raw, now));
+        model.check(actual);
+    }
+
+    fn clock(actual: &mut RawSession, model: &mut Model, now: u64) {
+        assert_eq!(actual.tick(now), model.clock(now));
+        model.check(actual);
+    }
+
+    // Prepared states are reached solely through the public APIs, with model
+    // expectations checked at every transition. No private state is seeded.
+    fn ready(depth: u8) -> (RawSession, Model) {
+        let (mut actual, mut model) = (RawSession::default(), Model::default());
+        if depth == 0 {
+            return (actual, model);
+        }
+        begin_ifs(&mut actual, &mut model, 0);
+        next(&mut actual, &mut model, 0);
+        written(&mut actual, &mut model, 5, 0);
+        if depth == 1 {
+            return (actual, model);
+        }
+        receive(&mut actual, &mut model, &IFS_ECHO, 1);
+        if depth == 2 {
+            return (actual, model);
+        }
+        begin(&mut actual, &mut model, &[0x80, 0x15], 2);
+        next(&mut actual, &mut model, 2);
+        written(&mut actual, &mut model, 6, 2);
+        if depth == 4 {
+            receive(&mut actual, &mut model, &tpdu(0xc3, &[2]), 3);
+        }
+        (actual, model)
+    }
+
+    fn sticky(actual: &mut RawSession, model: &mut Model) {
+        if model.error.is_none() {
+            return;
+        }
+        clock(actual, model, u64::MAX);
+        begin_ifs(actual, model, 0);
+        begin(actual, model, &[], u64::MAX);
+        next(actual, model, 0);
+        written(actual, model, usize::MAX, 0);
+        receive(actual, model, &IFS_ECHO, 0);
+    }
+
+    fn constructed(input: &[u8]) -> Vec<u8> {
+        let multiplier = byte(input, 1);
+        let size = [0, 1, 32, 33, 132, 165, 254, 255][usize::from(byte(input, 2) % 8)];
+        let data: Vec<u8> = (0..size).map(|index| byte(input, index + 3)).collect();
+        match byte(input, 0) % 16 {
+            0 => tpdu(0xc3, &[multiplier]),
+            1 => tpdu(0xe3, &[multiplier]),
+            2 => tpdu(0, &data),
+            3 => tpdu(0x20, &data),
+            4 => tpdu(0x40, &data),
+            5 => tpdu(0x80, &[]),
+            6 => tpdu(0x81, &[]),
+            7 => tpdu(0xc0, &[]),
+            8 => tpdu(0xc1, &[multiplier]),
+            9 => tpdu(0xe1, &[multiplier]),
+            10 => tpdu(0xc2, &[]),
+            11 => tpdu(0xc3, &data),
+            12 => {
+                let mut raw = tpdu(0, &data);
+                raw[0] = multiplier;
+                let last = raw.len() - 1;
+                raw[last] = lrc(&raw[..last]);
+                raw
+            }
+            13 => {
+                let mut raw = tpdu(0, &data);
+                raw[2] ^= multiplier;
+                let last = raw.len() - 1;
+                raw[last] = lrc(&raw[..last]);
+                raw
+            }
+            14 => {
+                let mut raw = tpdu(0, &data);
+                let last = raw.len() - 1;
+                raw[last] ^= multiplier;
+                raw
+            }
+            _ => tpdu(multiplier, &data),
+        }
+    }
+
+    fn program(input: &[u8], frame: &[u8]) {
+        let (mut actual, mut model) = ready(byte(input, 0) % 5);
+        for op in input.chunks(4).take(160) {
+            let selector = byte(op, 1);
+            let now = match selector % 10 {
+                0 => 0,
+                1 => model.last.unwrap_or(0),
+                2 => add_time(model.last.unwrap_or(0), 1),
+                3 => model.last.unwrap_or(0).saturating_sub(1),
+                4 => add_time(model.started, 4999),
+                5 => add_time(model.started, 5000),
+                6 => add_time(model.started, 29_999),
+                7 => add_time(model.started, 30_000),
+                8 => u64::MAX - 1,
+                _ => u64::MAX,
+            };
+            match byte(op, 0) % 9 {
+                0 => begin_ifs(&mut actual, &mut model, now),
+                1 => {
+                    let len = [0, 1, 132, 254, 255][usize::from(byte(op, 2) % 5)];
+                    begin(&mut actual, &mut model, &vec![byte(op, 3); len], now);
+                }
+                2 => next(&mut actual, &mut model, now),
+                3 => {
+                    let count = if byte(op, 2) & 1 == 0 {
+                        model.outgoing.len()
+                    } else {
+                        usize::from(byte(op, 3))
+                    };
+                    written(&mut actual, &mut model, count, now);
+                }
+                4 => receive(&mut actual, &mut model, frame, now),
+                5 => receive(&mut actual, &mut model, &IFS_ECHO, now),
+                6 => {
+                    let len = [0, 1, 165, 254, 255][usize::from(byte(op, 2) % 5)];
+                    let raw = tpdu(64 * model.nr, &vec![byte(op, 3); len]);
+                    receive(&mut actual, &mut model, &raw, now);
+                }
+                7 => receive(&mut actual, &mut model, &tpdu(0xc3, &[byte(op, 2)]), now),
+                _ => clock(&mut actual, &mut model, now),
+            }
+        }
+        sticky(&mut actual, &mut model);
+    }
+
+    // Compact public seed programs select long traversals. Only one selected
+    // branch runs, instead of making all fuzz inputs traverse every ceiling.
+    fn boundary(input: &[u8]) {
+        if byte(input, 0) != 0xf6 {
+            return;
+        }
+        let (mut actual, mut model) = ready(2);
+        match byte(input, 1) % 4 {
+            0 => {
+                let count = [127, 128, 129][usize::from(byte(input, 2) % 3)];
+                let command_len = [1, 132, 254][usize::from(byte(input, 3) % 3)];
+                for apdu in 0..count {
+                    let now = apdu as u64 + 2;
+                    begin(&mut actual, &mut model, &vec![0x5a; command_len], now);
+                    if model.error.is_some() {
+                        break;
+                    }
+                    next(&mut actual, &mut model, now);
+                    written(&mut actual, &mut model, command_len + 4, now);
+                    let raw = tpdu(64 * model.nr, &[0x90, 0]);
+                    receive(&mut actual, &mut model, &raw, now);
+                }
+            }
+            1 => {
+                let count = [7, 8, 9][usize::from(byte(input, 2) % 3)];
+                let multiplier = [0, 1, 2, 24, 25, 255][usize::from(byte(input, 3) % 6)];
+                begin(&mut actual, &mut model, &[0x15], 2);
+                next(&mut actual, &mut model, 2);
+                written(&mut actual, &mut model, 5, 2);
+                for _ in 0..count {
+                    receive(&mut actual, &mut model, &tpdu(0xc3, &[multiplier]), 3);
+                    if model.error.is_some() {
+                        break;
+                    }
+                    next(&mut actual, &mut model, 3);
+                    written(&mut actual, &mut model, 5, 3);
+                }
+                if model.error.is_none() {
+                    let raw = tpdu(64 * model.nr, &[0x90, 0]);
+                    receive(&mut actual, &mut model, &raw, 4);
+                    // New APDU resets only the per-APDU list, not its total.
+                    begin(&mut actual, &mut model, &[0], 4);
+                }
+            }
+            2 => {
+                let started = if byte(input, 2) & 1 == 0 {
+                    2
+                } else {
+                    u64::MAX - 2
+                };
+                begin(&mut actual, &mut model, &[0], started);
+                next(&mut actual, &mut model, started);
+                written(&mut actual, &mut model, 5, started);
+                receive(&mut actual, &mut model, &tpdu(0xc3, &[24]), started);
+                next(&mut actual, &mut model, started);
+                written(&mut actual, &mut model, 5, started);
+                let elapsed = [5000, 28_560, 29_999, 30_000][usize::from(byte(input, 3) % 4)];
+                let now = add_time(started, elapsed);
+                receive(&mut actual, &mut model, &tpdu(0, &[0x90, 0]), now);
+                // Completion retains the deadline but no longer times it.
+                clock(&mut actual, &mut model, u64::MAX);
+            }
+            _ => {
+                let size = [0, 1, 32, 33, 165, 254, 255][usize::from(byte(input, 2) % 7)];
+                begin(&mut actual, &mut model, &[0; 254], 2);
+                next(&mut actual, &mut model, 2);
+                written(&mut actual, &mut model, 258, 2);
+                let raw = tpdu(byte(input, 3), &vec![0xa5; size]);
+                receive(&mut actual, &mut model, &raw, 3);
+            }
+        }
+        sticky(&mut actual, &mut model);
+    }
+
+    // The joint path has its own counters, framing cursor and timing facts.
+    // It never imports the bench engine or uses actual getters as expectations.
+    struct Joint {
+        wire: RawWire,
+        t1: RawSession,
+        model: Model,
+        now: u64,
+        requests: usize,
+        responses: usize,
+        rx: usize,
+        events: usize,
+        te_total: usize,
+        te_apdu: usize,
+        apdu_deadline: Option<u64>,
+        command_deadline: u64,
+        allowance: u64,
+        sequence: u8,
+    }
+
+    struct PacketFacts {
+        responses: usize,
+        extensions: usize,
+        events: usize,
+        reply: Option<Vec<u8>>,
+        span: Option<RawFrameSpan>,
+        error: Option<WireRawError>,
+    }
+
+    // Independent batch interpretation of the prefix visible after a read.
+    // All generated joint frames have fixed valid semantics; corruption is
+    // injected into the checksum, while raw hostile semantics live above and
+    // in the independent wire target. The cursor still checks complete frames.
+    fn packet_facts(raw: &[u8], origin: usize, previous_te: usize) -> PacketFacts {
+        let mut facts = PacketFacts {
+            responses: 0,
+            extensions: 0,
+            events: 0,
+            reply: None,
+            span: None,
+            error: None,
+        };
+        let mut cursor = 0;
+        while cursor < raw.len() {
+            match wire_next(&raw[cursor..]) {
+                Ok(None) => break,
+                Err(error) => {
+                    facts.error = Some(error.into());
+                    break;
+                }
+                Ok(Some((fact, consumed))) => {
+                    let start = cursor;
+                    cursor += consumed;
+                    match fact {
+                        WireFact::Response(response) => {
+                            facts.span = Some(RawFrameSpan {
+                                start_rx_offset: origin + start,
+                                end_rx_offset: origin + cursor,
+                            });
+                            let extension = response[0] == 0x80 && response[7] == 0x80;
+                            facts.reply = Some(response);
+                            if extension {
+                                if previous_te + facts.extensions == 8 {
+                                    facts.error = Some(WireRawError::TimeExtensionLimitExceeded);
+                                    break;
+                                }
+                                facts.extensions += 1;
+                            } else {
+                                facts.responses += 1;
+                                if cursor != raw.len() {
+                                    facts.error = Some(WireError::TrailingData.into());
+                                }
+                                break;
+                            }
+                        }
+                        WireFact::Bitmap(bitmap) => {
+                            assert_eq!(bitmap, 3);
+                            facts.events += 1;
+                        }
+                        WireFact::Hardware(..) => unreachable!("not a generated joint event"),
+                    }
+                }
+            }
+        }
+        facts
+    }
+
+    impl Joint {
+        fn new() -> Self {
+            Self {
+                wire: RawWire::new(),
+                t1: RawSession::default(),
+                model: Model::default(),
+                now: 0,
+                requests: 0,
+                responses: 0,
+                rx: 0,
+                events: 0,
+                te_total: 0,
+                te_apdu: 0,
+                apdu_deadline: None,
+                command_deadline: 0,
+                allowance: 0,
+                sequence: 0,
+            }
+        }
+
+        fn counters(&self) {
+            assert_eq!(self.wire.requests(), self.requests);
+            assert_eq!(self.wire.responses(), self.responses);
+            assert_eq!(self.wire.ordinal(), self.requests);
+            assert_eq!(self.wire.sequence(), self.sequence);
+            assert_eq!(self.wire.received_bytes(), self.rx);
+            assert_eq!(self.wire.events(), self.events);
+            assert_eq!(self.wire.time_extension_count(), self.te_total);
+            assert_eq!(self.wire.apdu_time_extension_count(), self.te_apdu);
+            assert_eq!(self.wire.apdu_deadline_ms(), self.apdu_deadline);
+            assert_eq!(self.wire.command_deadline_ms(), self.command_deadline);
+            assert_eq!(self.wire.host_allowance_ms(), self.allowance);
+            self.model.check(&self.t1);
+        }
+
+        fn terminal(&mut self, expected: WireRawError) {
+            assert_eq!(self.wire.failure(), Some(expected));
+            assert_eq!(self.wire.phase(), RawPhase::Failed);
+            assert_eq!(self.wire.tick(u64::MAX), Err(expected));
+            assert_eq!(self.wire.begin_initial(0), Err(expected));
+            assert_eq!(self.wire.begin_ifs_transfer(&[], 0), Err(expected));
+            assert_eq!(self.wire.accept_ifs(0), Err(expected));
+            assert_eq!(self.wire.begin_apdu(0), Err(expected));
+            assert_eq!(self.wire.begin_transfer(&[], 255, 0), Err(expected));
+            assert_eq!(self.wire.written(usize::MAX, 0), Err(expected));
+            assert_eq!(self.wire.receive(&IFS_ECHO, 0), Err(expected));
+            assert_eq!(self.wire.end_apdu(0), Err(expected));
+            self.counters();
+        }
+
+        fn request(
+            &mut self,
+            actual: Result<RawRequest, WireRawError>,
+            command: RawCommand,
+            payload: &[u8],
+            bwi: u8,
+        ) -> bool {
+            if self.requests == 512 {
+                assert_eq!(actual, Err(WireRawError::CommandLimitExceeded));
+                self.terminal(WireRawError::CommandLimitExceeded);
+                return false;
+            }
+            let actual = actual.expect("model has a valid claim before the ceiling");
+            let ordinal = self.requests + 1;
+            let sequence = (ordinal % 256) as u8;
+            let kind = match command {
+                RawCommand::GetSlotStatus => 0x65,
+                RawCommand::PowerOn => 0x62,
+                RawCommand::GetParameters => 0x6c,
+                RawCommand::SetParameters => 0x61,
+                RawCommand::XfrBlock => 0x6f,
+            };
+            let specific = match command {
+                RawCommand::PowerOn => 2,
+                RawCommand::SetParameters => 1,
+                RawCommand::XfrBlock => bwi,
+                _ => 0,
+            };
+            let frame = ccid(kind, sequence, specific, 0, payload);
+            let allowance = 5000u64.max(u64::from(bwi) * 1190);
+            let unbounded = add_time(self.now, allowance);
+            let deadline = self
+                .apdu_deadline
+                .map_or(unbounded, |cap| cap.min(unbounded));
+            assert_eq!(actual.as_bytes(), frame);
+            assert_eq!(actual.command(), command);
+            assert_eq!(actual.ordinal(), ordinal);
+            assert_eq!(actual.sequence(), sequence);
+            assert_eq!(actual.bwi(), bwi);
+            assert_eq!(actual.host_allowance_ms(), allowance);
+            assert_eq!(actual.deadline_ms(), deadline);
+            assert_eq!(actual.apdu_deadline_ms(), self.apdu_deadline);
+            assert_eq!(self.wire.phase(), RawPhase::Writing(command));
+            assert!(self.wire.reply_evidence().is_none());
+            assert!(self.wire.last_reply_span().is_none());
+            assert_eq!(self.wire.written(frame.len(), self.now), Ok(()));
+            self.requests = ordinal;
+            self.sequence = sequence;
+            self.allowance = allowance;
+            self.command_deadline = deadline;
+            assert_eq!(self.wire.phase(), RawPhase::Receiving(command));
+            self.counters();
+            true
+        }
+
+        fn deliver(
+            &mut self,
+            packet: &[u8],
+            split: usize,
+            command: RawCommand,
+            next_phase: RawPhase,
+        ) -> bool {
+            let base_rx = self.rx;
+            let base_responses = self.responses;
+            let base_events = self.events;
+            let base_te = self.te_total;
+            let base_apdu_te = self.te_apdu;
+            let mut end = 0;
+            for chunk in packet.chunks(split) {
+                self.now += 1;
+                end += chunk.len();
+                let facts = packet_facts(&packet[..end], base_rx, base_apdu_te);
+                let expected = facts.error.map_or(Ok(()), Err);
+                assert_eq!(self.wire.receive(chunk, self.now), expected);
+                self.rx = base_rx + end;
+                self.responses = base_responses + facts.responses;
+                self.events = base_events + facts.events;
+                self.te_total = base_te + facts.extensions;
+                self.te_apdu = base_apdu_te + facts.extensions;
+                assert_eq!(self.wire.last_reply_span(), facts.span);
+                match (self.wire.reply_evidence(), facts.reply.as_ref()) {
+                    (None, None) => (),
+                    (Some(actual), Some(raw)) => {
+                        assert_eq!(actual.message_type, raw[0]);
+                        assert_eq!(actual.slot, raw[5]);
+                        assert_eq!(actual.sequence, raw[6]);
+                        assert_eq!(actual.status, raw[7]);
+                        assert_eq!(actual.error, raw[8]);
+                        assert_eq!(actual.parameter, raw[9]);
+                        assert_eq!(actual.payload(), &raw[10..]);
+                    }
+                    _ => panic!("independent reply evidence differs"),
+                }
+                self.counters();
+                if let Some(error) = facts.error {
+                    self.terminal(error);
+                    return false;
+                }
+                assert_eq!(
+                    self.wire.phase(),
+                    if facts.responses == 0 {
+                        RawPhase::Receiving(command)
+                    } else {
+                        next_phase
+                    }
+                );
+            }
+            assert_eq!(self.responses, base_responses + 1);
+            true
+        }
+
+        fn initialize(&mut self, split: usize) {
+            let steps = [
+                (RawCommand::GetSlotStatus, RawPhase::ReadyPower),
+                (RawCommand::PowerOn, RawPhase::ReadyParameters),
+                (RawCommand::GetParameters, RawPhase::ReadySetParameters),
+                (RawCommand::SetParameters, RawPhase::ReadyIfs),
+            ];
+            for (index, (command, phase)) in steps.into_iter().enumerate() {
+                let payload = if index == 3 { FIDI.as_slice() } else { &[] };
+                let request = self.wire.begin_initial(self.now);
+                assert!(self.request(request, command, payload, 0));
+                let seq = (index + 1) as u8;
+                let response = match index {
+                    0 => ccid(0x81, seq, 1, 1, &[]),
+                    1 => ccid(0x80, seq, 0, 0, &ATR),
+                    2 => ccid(0x82, seq, 0, 1, &[0x11, 0x10, 0xff, 0x4d, 0, 0xfe, 0]),
+                    _ => ccid(0x82, seq, 0, 1, &FIDI),
+                };
+                assert!(self.deliver(&response, split, command, phase));
+            }
+            assert!(self.wire.set_parameters_accepted());
+            begin_ifs(&mut self.t1, &mut self.model, self.now);
+            next(&mut self.t1, &mut self.model, self.now);
+            let request = self.wire.begin_ifs_transfer(&self.model.outgoing, self.now);
+            let payload = self.model.outgoing.clone();
+            assert!(self.request(request, RawCommand::XfrBlock, &payload, 0));
+            written(&mut self.t1, &mut self.model, 5, self.now);
+            let response = ccid(0x80, 5, 0, 0, &IFS_ECHO);
+            assert!(self.deliver(
+                &response,
+                split,
+                RawCommand::XfrBlock,
+                RawPhase::AwaitIfsAcceptance,
+            ));
+            let payload = self.wire.response().unwrap().payload().to_vec();
+            receive(&mut self.t1, &mut self.model, &payload, self.now);
+            assert_eq!(self.wire.accept_ifs(self.now), Ok(()));
+            assert!(self.wire.ifs_accepted());
+            self.counters();
+        }
+    }
+
+    fn joint(input: &[u8]) {
+        let deep = byte(input, 0) == 0xf7;
+        let scenario = if deep { 0 } else { byte(input, 0) % 14 };
+        let split = if deep {
+            32
+        } else {
+            1 + usize::from(byte(input, 3) % 32)
+        };
+        let mut pair = Joint::new();
+        pair.initialize(split);
+        let apdus = if deep {
+            64
+        } else {
+            1 + usize::from(byte(input, 1) % 3)
+        };
+        for _ in 0..apdus {
+            pair.now += 1;
+            let command_len = if deep {
+                1
+            } else {
+                [1, 132, 254][usize::from(byte(input, 2) % 3)]
+            };
+            let command = vec![0x5a; command_len];
+            begin(&mut pair.t1, &mut pair.model, &command, pair.now);
+            assert_eq!(pair.wire.begin_apdu(pair.now), Ok(()));
+            pair.apdu_deadline = Some(add_time(pair.now, 30_000));
+            pair.te_apdu = 0;
+            let wtx_goal = if deep {
+                7
+            } else {
+                match scenario {
+                    1..=4 => 1,
+                    5 => 9,
+                    _ => 0,
+                }
+            };
+            let multiplier = match scenario {
+                1 => 1,
+                3 => 24,
+                4 => 25,
+                _ => 2,
+            };
+            let mut card_wtx = 0;
+            loop {
+                let expected = pair.model.next(pair.now).unwrap();
+                let block = pair.t1.next_block(pair.now).unwrap();
+                assert_eq!(block.as_bytes(), expected.0);
+                assert_eq!(block.bwi(), expected.1);
+                assert_eq!(block.command_allowance_ms(), expected.2);
+                pair.model.check(&pair.t1);
+                let request = pair
+                    .wire
+                    .begin_transfer(block.as_bytes(), block.bwi(), pair.now);
+                if !pair.request(request, RawCommand::XfrBlock, &expected.0, expected.1) {
+                    return;
+                }
+                written(
+                    &mut pair.t1,
+                    &mut pair.model,
+                    block.as_bytes().len(),
+                    pair.now,
+                );
+                if matches!(scenario, 8 | 9 | 13) {
+                    pair.now = match scenario {
+                        8 => pair.command_deadline,
+                        9 => pair.apdu_deadline.unwrap(),
+                        _ => pair.now - 1,
+                    };
+                    let error = match scenario {
+                        8 => WireError::DeadlineExceeded.into(),
+                        9 => WireRawError::ApduDeadlineExceeded,
+                        _ => WireError::ClockRegression.into(),
+                    };
+                    assert_eq!(pair.wire.receive(&[3], pair.now), Err(error));
+                    pair.terminal(error);
+                    return;
+                }
+                let card = if card_wtx < wtx_goal {
+                    card_wtx += 1;
+                    tpdu(0xc3, &[multiplier])
+                } else {
+                    let response_len = if deep {
+                        0
+                    } else {
+                        [0, 165, 254][usize::from(byte(input, 2) % 3)]
+                    };
+                    let pcb = match scenario {
+                        10 => 0x20 + 64 * pair.model.nr,
+                        11 => 64 * (1 - pair.model.nr),
+                        _ => 64 * pair.model.nr,
+                    };
+                    tpdu(pcb, &vec![0xa5; response_len])
+                };
+                let mut packet = Vec::new();
+                if !deep && byte(input, 4) & 1 != 0 {
+                    packet.extend_from_slice(&[0x50, 3]);
+                }
+                let extensions = match scenario {
+                    6 => 1,
+                    7 => 9,
+                    _ => 0,
+                };
+                for _ in 0..extensions {
+                    let mut extension = ccid(0x80, pair.sequence, 0x80, 0, &[]);
+                    extension[10] = byte(input, 5);
+                    let last = extension.len() - 1;
+                    extension[last] = lrc(&extension[..last]);
+                    packet.extend_from_slice(&extension);
+                }
+                let mut response = ccid(0x80, pair.sequence, 0, 0, &card);
+                if scenario == 12 {
+                    let last = response.len() - 1;
+                    response[last] ^= 1;
+                }
+                packet.extend_from_slice(&response);
+                if !pair.deliver(
+                    &packet,
+                    split,
+                    RawCommand::XfrBlock,
+                    RawPhase::ReadyTransfer,
+                ) {
+                    return;
+                }
+                let received = pair.wire.response().unwrap().payload().to_vec();
+                assert_eq!(received, card);
+                receive(&mut pair.t1, &mut pair.model, &received, pair.now);
+                if pair.model.error.is_some() {
+                    let sent = pair.requests;
+                    sticky(&mut pair.t1, &mut pair.model);
+                    assert_eq!(pair.wire.requests(), sent);
+                    return;
+                }
+                if pair.model.stage == 4 {
+                    assert_eq!(pair.wire.end_apdu(pair.now), Ok(()));
+                    pair.apdu_deadline = None;
+                    pair.counters();
+                    break;
+                }
+                assert_eq!(pair.model.stage, 1);
+            }
+        }
+    }
+
+    pub(super) fn exercise(input: &[u8]) {
+        // Complete hostile input reaches both pre-IFS and post-IFS boundaries.
+        for depth in [1, 3] {
+            let (mut actual, mut model) = ready(depth);
+            receive(&mut actual, &mut model, input, 4);
+            sticky(&mut actual, &mut model);
+        }
+        let frame = constructed(input);
+        for depth in [0, 1, 3] {
+            let (mut actual, mut model) = ready(depth);
+            receive(&mut actual, &mut model, &frame, 4);
+            sticky(&mut actual, &mut model);
+        }
+        program(input, &frame);
+        boundary(input);
+        joint(input);
+    }
+}
