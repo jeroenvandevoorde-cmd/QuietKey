@@ -73,7 +73,7 @@ fn usage() {
         "   or: qk-card-enrollment b6 <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>"
     );
     eprintln!("   or: qk-card-enrollment sitting <interrupt-golden|classify-golden|abort-staging-golden> <trial-id> <campaign-source> <utc> <host-alias> <reader-alias> <specimen-alias> <reader-name-lowerhex> <absolute-new-output>");
-    eprintln!("   or: qk-card-enrollment sec1210-probe <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
+    eprintln!("   or: qk-card-enrollment sec1210-probe <tool-source-commit> <UTC> <RIG-HOST-PI3B-01|RIG-HOST-ZERO2W-01> J3R180-03 <absolute-new-output>");
     eprintln!("   or: qk-card-enrollment sec1210-readback <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
     eprintln!("   or: qk-card-enrollment sec1210-fidi-readback <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
     eprintln!("   or: qk-card-enrollment sec1210-fidi-sign <tool-source-commit> <UTC> RIG-HOST-PI3B-01 J3R180-03 <absolute-new-output>");
@@ -179,9 +179,11 @@ fn parse_arguments() -> Result<Command, ArgumentError> {
         if arguments.next().is_some() {
             return Err(ArgumentError::Usage);
         }
-        return qk_card_enrollment::Sec1210Metadata::new(source, utc, &host, &specimen, output)
-            .map(Command::Sec1210)
-            .map_err(ArgumentError::Sec1210);
+        return qk_card_enrollment::Sec1210Metadata::new_probe(
+            source, utc, &host, &specimen, output,
+        )
+        .map(Command::Sec1210)
+        .map_err(ArgumentError::Sec1210);
     }
     if mode == "sitting" {
         let sitting_name = arguments.next().ok_or(ArgumentError::Usage)?;

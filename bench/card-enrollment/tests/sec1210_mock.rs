@@ -14,6 +14,16 @@ fn metadata() -> Sec1210Metadata {
     )
     .unwrap()
 }
+fn probe_metadata(host: &str) -> Sec1210Metadata {
+    Sec1210Metadata::new_probe(
+        "a".repeat(40),
+        "2026-09-11T00:00:00Z".into(),
+        host,
+        "J3R180-03",
+        std::env::temp_dir().join(sec1210_output_basename("2026-09-11T00:00:00Z")),
+    )
+    .unwrap()
+}
 fn frame(kind: u8, seq: u8, status: u8, payload: &[u8]) -> Vec<u8> {
     let mut b = vec![3, 6, kind];
     b.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -24,6 +34,9 @@ fn frame(kind: u8, seq: u8, status: u8, payload: &[u8]) -> Vec<u8> {
 }
 fn status() -> Vec<u8> {
     frame(0x81, 1, 1, &[])
+}
+fn absent_status() -> Vec<u8> {
+    frame(0x81, 1, 2, &[])
 }
 fn atr() -> Vec<u8> {
     frame(
@@ -115,8 +128,11 @@ impl Sec1210Transport for Mock {
     }
 }
 fn run(mock: &mut Mock) -> (Sec1210Summary, String) {
+    run_with_metadata(&metadata(), mock)
+}
+fn run_with_metadata(metadata: &Sec1210Metadata, mock: &mut Mock) -> (Sec1210Summary, String) {
     let mut t = Sec1210Transcript::new(Vec::new());
-    let s = run_sec1210(&metadata(), mock, &mut t);
+    let s = run_sec1210(metadata, mock, &mut t);
     (s, String::from_utf8(t.into_inner()).unwrap())
 }
 
@@ -155,6 +171,97 @@ fn fixed_public_mock_sitting_passes_without_any_device() {
     assert!(t.contains("tool_version=0.0.9\n"));
     assert!(t.contains("apdu_transmit_count=0\n"));
     assert!(t.contains("kernel_close_result=UNOBSERVED\n"));
+}
+#[test]
+fn exact_probe_success_shape_records_each_validated_host_alias() {
+    let (legacy_summary, legacy) = run(&mut Mock::default());
+    let (probe_pi_summary, probe_pi) =
+        run_with_metadata(&probe_metadata("RIG-HOST-PI3B-01"), &mut Mock::default());
+    let (zero_summary, zero) =
+        run_with_metadata(&probe_metadata("RIG-HOST-ZERO2W-01"), &mut Mock::default());
+    assert_eq!(legacy_summary, probe_pi_summary);
+    assert_eq!(legacy, probe_pi);
+    assert_eq!(zero_summary, legacy_summary);
+    assert_eq!(
+        zero,
+        legacy.replacen(
+            "host_alias=RIG-HOST-PI3B-01\n",
+            "host_alias=RIG-HOST-ZERO2W-01\n",
+            1,
+        )
+    );
+    assert_eq!(zero.matches("host_alias=").count(), 1);
+}
+#[test]
+fn exact_zero2w_absent_shape_retains_response_and_sends_nothing_later() {
+    let mut m = Mock {
+        reads: VecDeque::from([(absent_status(), 10)]),
+        ..Default::default()
+    };
+    let (s, t) = run_with_metadata(&probe_metadata("RIG-HOST-ZERO2W-01"), &mut m);
+    assert_eq!(s.failure, Some(E::Wire(qk_sec1210_wire::Error::CardAbsent)));
+    assert_eq!(
+        (
+            s.request_count,
+            s.response_count,
+            s.event_count,
+            s.received_bytes,
+            s.local_handle_released,
+        ),
+        (1, 0, 0, 13, true)
+    );
+    assert_eq!(m.writes.len(), 1);
+    assert_eq!(
+        m.calls,
+        vec!["configure", "open", "write", "pause", "read", "release"]
+    );
+    assert_eq!(
+        t.lines().collect::<Vec<_>>(),
+        vec![
+            "QK-CARD-SITTING-V1",
+            "visibility=PRIVATE_CUSTODY_ONLY",
+            "allowlist=QK-DEC-167",
+            "tool_version=0.0.9",
+            "source_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "timestamp_utc=2026-09-11T00:00:00Z",
+            "host_alias=RIG-HOST-ZERO2W-01",
+            "specimen_alias=J3R180-03",
+            "mode=sec1210-probe",
+            "transport=sec1210-uart",
+            "tty=/dev/ttyAMA0",
+            "slot=0",
+            "power_select=02",
+            "applet_source_commit=d706e0dbe4826bb2b65a5e00ed61ccd8921cc22c",
+            "canonical_cap_bytes=40914",
+            "canonical_cap_sha256=edad47ec29421b5802281f6426d72a8c5994831cc7a265d223ede6234310b8ae",
+            "output_basename=qk-card-sitting-v1__sec1210-probe__J3R180-03__2026-09-11T00:00:00Z.txt",
+            "stty.program=stty",
+            "stty.argv=-F /dev/ttyAMA0 115200 raw -echo -echonl cs8 -parenb cstopb cread clocal -hupcl -crtscts -parmrk -ignpar -inpck min 0 time 5",
+            "receive_budget_ms=5000",
+            "outer_watchdog_required_seconds=300",
+            "stty.exit=0",
+            "stream.open=PASS",
+            "command.1.request_hex=03066500000000000100000061",
+            "command.1.write_bytes=13",
+            "command.1.post_send_pause_ms=10",
+            "read.0.elapsed_ms=10",
+            "read.0.rx_hex=03068100000000000102000087",
+            "read.0.comparison=Sec1210CardAbsent",
+            "request_count=1",
+            "response_count=0",
+            "event_count=0",
+            "captured_rx_bytes=13",
+            "apdu_transmit_count=0",
+            "local_handle_released=PASS",
+            "kernel_close_result=UNOBSERVED",
+            "transcript_overflow=FALSE",
+            "first_failure=Sec1210CardAbsent",
+            "result=Sec1210CardAbsent",
+        ]
+    );
+    assert!(!t.contains("observation."));
+    assert!(!t.contains("command.2."));
+    assert!(t.ends_with('\n'));
 }
 #[test]
 fn coalesced_event_and_response_observation_indices_increase_across_reads() {

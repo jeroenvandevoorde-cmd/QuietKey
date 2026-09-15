@@ -80,6 +80,7 @@ impl From<qk_sec1210_wire::Error> for Sec1210Error {
 pub struct Sec1210Metadata {
     source: String,
     utc: String,
+    host: String,
     output: PathBuf,
 }
 impl Sec1210Metadata {
@@ -90,11 +91,44 @@ impl Sec1210Metadata {
         specimen: &str,
         output: PathBuf,
     ) -> Result<Self, Sec1210Error> {
+        Self::new_for_host(
+            source,
+            utc,
+            host,
+            specimen,
+            output,
+            host == "RIG-HOST-PI3B-01",
+        )
+    }
+    pub fn new_probe(
+        source: String,
+        utc: String,
+        host: &str,
+        specimen: &str,
+        output: PathBuf,
+    ) -> Result<Self, Sec1210Error> {
+        Self::new_for_host(
+            source,
+            utc,
+            host,
+            specimen,
+            output,
+            matches!(host, "RIG-HOST-PI3B-01" | "RIG-HOST-ZERO2W-01"),
+        )
+    }
+    fn new_for_host(
+        source: String,
+        utc: String,
+        host: &str,
+        specimen: &str,
+        output: PathBuf,
+        host_allowed: bool,
+    ) -> Result<Self, Sec1210Error> {
         if source.len() != 40
             || !source
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            || host != "RIG-HOST-PI3B-01"
+            || !host_allowed
             || specimen != "J3R180-03"
             || !valid_utc(&utc)
         {
@@ -113,6 +147,7 @@ impl Sec1210Metadata {
         Ok(Self {
             source,
             utc,
+            host: host.to_string(),
             output,
         })
     }
@@ -121,6 +156,9 @@ impl Sec1210Metadata {
     }
     pub fn utc(&self) -> &str {
         &self.utc
+    }
+    pub fn host(&self) -> &str {
+        &self.host
     }
     pub fn output(&self) -> &Path {
         &self.output

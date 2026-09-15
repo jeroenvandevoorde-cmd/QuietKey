@@ -1,6 +1,9 @@
 use qk_card_enrollment::{
-    execute_sec1210_probe, sec1210_output_basename, Sec1210Error as E, Sec1210Metadata,
-    SEC1210_STTY_ARGS, SEC1210_TOOL_VERSION,
+    execute_sec1210_probe, sec1210_fidi_readback_output_basename,
+    sec1210_fidi_sign_output_basename, sec1210_ifs_readback_output_basename,
+    sec1210_output_basename, sec1210_readback_output_basename, Sec1210Error as E,
+    Sec1210FidiReadbackMetadata, Sec1210FidiSignMetadata, Sec1210IfsReadbackMetadata,
+    Sec1210Metadata, Sec1210ReadbackMetadata, SEC1210_STTY_ARGS, SEC1210_TOOL_VERSION,
 };
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -81,6 +84,125 @@ fn metadata_pins_only_registered_apparatus_specimen_and_new_basename() {
     }
 }
 #[test]
+fn probe_metadata_accepts_only_the_two_exact_apparatus_aliases() {
+    let root = Root::new();
+    for host in ["RIG-HOST-PI3B-01", "RIG-HOST-ZERO2W-01"] {
+        let metadata = Sec1210Metadata::new_probe(
+            "a".repeat(40),
+            "2026-09-11T00:00:00Z".into(),
+            host,
+            "J3R180-03",
+            root.output(),
+        )
+        .unwrap();
+        assert_eq!(metadata.host(), host);
+    }
+    for host in [
+        "rig-host-zero2w-01",
+        "RIG-HOST-ZERO2W-1",
+        "RIG-HOST-ZERO2W-01A",
+        "XRIG-HOST-ZERO2W-01",
+        "RIG-HOST-ZERO2W-01\n",
+        "RIG-HOST-PI3B-02",
+    ] {
+        assert!(Sec1210Metadata::new_probe(
+            "a".repeat(40),
+            "2026-09-11T00:00:00Z".into(),
+            host,
+            "J3R180-03",
+            root.output(),
+        )
+        .is_err());
+    }
+    assert!(Sec1210Metadata::new(
+        "a".repeat(40),
+        "2026-09-11T00:00:00Z".into(),
+        "RIG-HOST-ZERO2W-01",
+        "J3R180-03",
+        root.output(),
+    )
+    .is_err());
+}
+#[test]
+fn probe_constructor_keeps_source_calendar_specimen_and_output_gates() {
+    let root = Root::new();
+    for (source, utc, specimen, output) in [
+        (
+            "A".repeat(40),
+            "2026-09-11T00:00:00Z",
+            "J3R180-03",
+            root.output(),
+        ),
+        (
+            "a".repeat(40),
+            "2026-09-31T00:00:00Z",
+            "J3R180-03",
+            root.output(),
+        ),
+        (
+            "a".repeat(40),
+            "2026-09-11T00:00:00Z",
+            "J3R180-02",
+            root.output(),
+        ),
+        (
+            "a".repeat(40),
+            "2026-09-11T00:00:00Z",
+            "J3R180-03",
+            root.0.join("wrong.txt"),
+        ),
+    ] {
+        assert!(Sec1210Metadata::new_probe(
+            source,
+            utc.into(),
+            "RIG-HOST-ZERO2W-01",
+            specimen,
+            output,
+        )
+        .is_err());
+    }
+}
+#[test]
+fn every_later_sec1210_mode_stays_pi3b_only() {
+    let root = Root::new();
+    let utc = "2026-09-11T00:00:00Z";
+    let source = "a".repeat(40);
+    let host = "RIG-HOST-ZERO2W-01";
+    let specimen = "J3R180-03";
+    assert!(Sec1210ReadbackMetadata::new(
+        source.clone(),
+        utc.into(),
+        host,
+        specimen,
+        root.0.join(sec1210_readback_output_basename(utc)),
+    )
+    .is_err());
+    assert!(Sec1210IfsReadbackMetadata::new(
+        source.clone(),
+        utc.into(),
+        host,
+        specimen,
+        root.0.join(sec1210_ifs_readback_output_basename(utc)),
+    )
+    .is_err());
+    assert!(Sec1210FidiReadbackMetadata::new(
+        source.clone(),
+        utc.into(),
+        host,
+        specimen,
+        root.0.join(sec1210_fidi_readback_output_basename(utc)),
+    )
+    .is_err());
+    assert!(Sec1210FidiSignMetadata::new(
+        source,
+        utc.into(),
+        host,
+        specimen,
+        root.0.join(sec1210_fidi_sign_output_basename(utc)),
+    )
+    .is_err());
+}
+#[test]
 fn source_and_calendar_validation_refuse_injection_before_contact() {
     let root = Root::new();
     for source in [
@@ -153,6 +275,9 @@ fn serial_vector_and_lane_version_are_exact_no_fallback() {
     assert_eq!(SEC1210_TOOL_VERSION, "0.0.9");
     assert!(include_str!("../Cargo.toml").contains("version = \"0.0.13\""));
     assert!(include_str!("../src/b6.rs").contains("B6_TOOL_VERSION: &str = \"0.0.7\""));
+    let cli = include_str!("../src/main.rs");
+    assert!(cli.contains("<RIG-HOST-PI3B-01|RIG-HOST-ZERO2W-01> J3R180-03"));
+    assert_eq!(cli.matches("Sec1210Metadata::new_probe").count(), 1);
 }
 #[test]
 fn native_write_is_private_and_source_has_no_added_command_path() {

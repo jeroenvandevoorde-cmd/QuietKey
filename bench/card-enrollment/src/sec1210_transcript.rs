@@ -83,7 +83,7 @@ impl<W: Write> Sec1210Transcript<W> {
         self.field("tool_version", SEC1210_TOOL_VERSION)?;
         self.field("source_commit", m.source())?;
         self.field("timestamp_utc", m.utc())?;
-        self.field("host_alias", "RIG-HOST-PI3B-01")?;
+        self.field("host_alias", m.host())?;
         self.field("specimen_alias", "J3R180-03")?;
         self.field("mode", "sec1210-probe")?;
         self.field("transport", "sec1210-uart")?;
