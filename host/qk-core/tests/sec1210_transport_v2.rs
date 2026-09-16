@@ -1304,13 +1304,17 @@ mod linux_pty {
         };
         // SAFETY: descriptor is one initialized pollfd and remains live.
         let result = unsafe { poll(&mut descriptor, 1, timeout_ms) };
-        if result < 0 || descriptor.revents & (POLLERR | POLLNVAL) != 0 {
+        if result < 0 || descriptor.revents & POLLNVAL != 0 {
             return Err(());
         }
         if result == 0 {
             return Ok(false);
         }
-        Ok(descriptor.revents & (events | POLLHUP) != 0)
+        let ready = descriptor.revents & (events | POLLHUP) != 0;
+        if descriptor.revents & POLLERR != 0 && !ready {
+            return Err(());
+        }
+        Ok(ready)
     }
 
     struct PtyDescriptor(File);
