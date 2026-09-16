@@ -1190,3 +1190,629 @@ fn public_errors_are_fieldless_and_names_are_fixed_ascii() {
         assert_eq!(format!("{error:?}"), error.name());
     }
 }
+
+#[cfg(target_os = "linux")]
+mod linux_pty {
+    use super::*;
+    #[cfg(feature = "normal-process")]
+    use std::collections::BTreeMap;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+    use std::ptr;
+    use std::thread;
+    #[cfg(feature = "normal-process")]
+    use std::time::Instant;
+
+    #[cfg(feature = "normal-process")]
+    use qk_card_protocol::{
+        parse_response, DescriptorSelector, Instruction, ResponseRef, DESCRIPTOR_BYTES,
+    };
+    #[cfg(feature = "normal-process")]
+    use qk_core::{bind_normal_card_v1, CardInfoV1, NormalProfileV2};
+    #[cfg(feature = "normal-process")]
+    use qk_device_wire::{
+        encode_frame, parse_frame, BodyRef, Capability, MessageKind, HEADER_BYTES,
+    };
+
+    #[cfg(feature = "normal-process")]
+    const QKDV_FIXTURE: &str =
+        include_str!("../../qk-card-protocol/tests/fixtures/card_protocol_v1.txt");
+    #[cfg(feature = "normal-process")]
+    const CCID_ORACLE: &str = include_str!(
+        "../../../bench/card-enrollment/tests/fixtures/sitting_committed_readback_v1.tsv"
+    );
+    const POLLIN: i16 = 0x0001;
+    const POLLOUT: i16 = 0x0004;
+    const POLLERR: i16 = 0x0008;
+    const POLLHUP: i16 = 0x0010;
+    const POLLNVAL: i16 = 0x0020;
+    const TCSANOW: i32 = 0;
+    const SERVER_WAIT_MS: i32 = 2_000;
+
+    #[repr(C)]
+    struct PollFd {
+        fd: i32,
+        events: i16,
+        revents: i16,
+    }
+
+    #[repr(align(16))]
+    struct TermiosStorage([u8; 256]);
+
+    #[cfg_attr(target_env = "gnu", link(name = "util"))]
+    extern "C" {
+        fn openpty(
+            master: *mut i32,
+            slave: *mut i32,
+            name: *mut i8,
+            termios: *const core::ffi::c_void,
+            winsize: *const core::ffi::c_void,
+        ) -> i32;
+        fn tcgetattr(fd: i32, termios: *mut core::ffi::c_void) -> i32;
+        fn cfmakeraw(termios: *mut core::ffi::c_void);
+        fn tcsetattr(fd: i32, action: i32, termios: *const core::ffi::c_void) -> i32;
+        fn poll(fds: *mut PollFd, count: usize, timeout_ms: i32) -> i32;
+    }
+
+    fn pty_pair() -> (File, File) {
+        let mut master = -1;
+        let mut slave = -1;
+        // SAFETY: both output pointers are live, the optional name and settings
+        // pointers are null, and successful descriptors are immediately owned.
+        let opened = unsafe {
+            openpty(
+                &mut master,
+                &mut slave,
+                ptr::null_mut(),
+                ptr::null(),
+                ptr::null(),
+            )
+        };
+        assert_eq!(
+            opened,
+            0,
+            "openpty failed: {}",
+            std::io::Error::last_os_error()
+        );
+        assert!(
+            master >= 0 && slave >= 0,
+            "openpty returned invalid descriptors"
+        );
+        // SAFETY: openpty returned two fresh, owned descriptors.
+        let master = unsafe { File::from_raw_fd(master) };
+        // SAFETY: openpty returned two fresh, owned descriptors.
+        let slave = unsafe { File::from_raw_fd(slave) };
+
+        let mut storage = TermiosStorage([0; 256]);
+        let termios = storage.0.as_mut_ptr().cast::<core::ffi::c_void>();
+        // SAFETY: storage is aligned and larger than Linux termios; tcgetattr
+        // initializes it before cfmakeraw and tcsetattr consume it.
+        assert_eq!(unsafe { tcgetattr(slave.as_raw_fd(), termios) }, 0);
+        // SAFETY: termios now contains one initialized Linux termios value.
+        unsafe { cfmakeraw(termios) };
+        // SAFETY: termios remains initialized and live for this call.
+        assert_eq!(unsafe { tcsetattr(slave.as_raw_fd(), TCSANOW, termios) }, 0);
+        (master, slave)
+    }
+
+    fn poll_ready(fd: RawFd, events: i16, timeout_ms: i32) -> Result<bool, ()> {
+        let mut descriptor = PollFd {
+            fd,
+            events,
+            revents: 0,
+        };
+        // SAFETY: descriptor is one initialized pollfd and remains live.
+        let result = unsafe { poll(&mut descriptor, 1, timeout_ms) };
+        if result < 0 || descriptor.revents & (POLLERR | POLLNVAL) != 0 {
+            return Err(());
+        }
+        if result == 0 {
+            return Ok(false);
+        }
+        Ok(descriptor.revents & (events | POLLHUP) != 0)
+    }
+
+    struct PtyDescriptor(File);
+
+    impl Sec1210DescriptorV2 for PtyDescriptor {
+        fn write(
+            &mut self,
+            bytes: &[u8],
+            maximum_wait_ms: u64,
+        ) -> Result<Sec1210DescriptorWriteV2, Sec1210DescriptorErrorV2> {
+            let timeout = i32::try_from(maximum_wait_ms).unwrap_or(i32::MAX);
+            match poll_ready(self.0.as_raw_fd(), POLLOUT, timeout) {
+                Ok(false) => return Ok(Sec1210DescriptorWriteV2::TimedOut),
+                Err(()) => return Err(Sec1210DescriptorErrorV2),
+                Ok(true) => {}
+            }
+            self.0
+                .write(bytes)
+                .map(Sec1210DescriptorWriteV2::Bytes)
+                .map_err(|_| Sec1210DescriptorErrorV2)
+        }
+
+        fn read(
+            &mut self,
+            bytes: &mut [u8],
+            maximum_wait_ms: u64,
+        ) -> Result<Sec1210DescriptorReadV2, Sec1210DescriptorErrorV2> {
+            let timeout = i32::try_from(maximum_wait_ms).unwrap_or(i32::MAX);
+            match poll_ready(self.0.as_raw_fd(), POLLIN, timeout) {
+                Ok(false) => return Ok(Sec1210DescriptorReadV2::TimedOut),
+                Err(()) => return Err(Sec1210DescriptorErrorV2),
+                Ok(true) => {}
+            }
+            match self.0.read(bytes) {
+                Ok(0) => Ok(Sec1210DescriptorReadV2::EndOfStream),
+                Ok(count) => Ok(Sec1210DescriptorReadV2::Bytes(count)),
+                Err(_) => Err(Sec1210DescriptorErrorV2),
+            }
+        }
+    }
+
+    #[cfg(feature = "normal-process")]
+    struct InstantClock(Instant);
+
+    #[cfg(feature = "normal-process")]
+    impl InstantClock {
+        fn new() -> Self {
+            Self(Instant::now())
+        }
+    }
+
+    #[cfg(feature = "normal-process")]
+    impl Sec1210MonotonicClockV2 for InstantClock {
+        fn now_ms(&mut self) -> Result<u64, Sec1210ClockErrorV2> {
+            u64::try_from(self.0.elapsed().as_millis()).map_err(|_| Sec1210ClockErrorV2)
+        }
+    }
+
+    struct ServerExchange {
+        expected: Vec<u8>,
+        response: Vec<u8>,
+    }
+
+    fn read_exact_bounded(file: &mut File, output: &mut [u8]) {
+        let mut offset = 0;
+        while offset < output.len() {
+            assert_eq!(
+                poll_ready(file.as_raw_fd(), POLLIN, SERVER_WAIT_MS),
+                Ok(true),
+                "fake reader timed out waiting for a request"
+            );
+            let count = file.read(&mut output[offset..]).expect("fake reader read");
+            assert!(count > 0, "fake reader saw request EOF");
+            offset += count;
+        }
+    }
+
+    fn read_request(file: &mut File) -> Vec<u8> {
+        let mut header = [0u8; 12];
+        read_exact_bounded(file, &mut header);
+        assert_eq!(&header[..2], &[0x03, 0x06]);
+        let payload = u32::from_le_bytes(header[3..7].try_into().expect("CCID length"));
+        let payload = usize::try_from(payload).expect("bounded CCID request length");
+        assert!(payload <= 254, "fake reader request exceeds production INF");
+        let mut frame = header.to_vec();
+        let mut tail = vec![0u8; payload + 1];
+        read_exact_bounded(file, &mut tail);
+        frame.extend_from_slice(&tail);
+        assert_eq!(frame.iter().fold(0u8, |value, byte| value ^ byte), 0);
+        frame
+    }
+
+    fn write_all_bounded(file: &mut File, bytes: &[u8]) {
+        for fragment in bytes.chunks(7) {
+            assert_eq!(
+                poll_ready(file.as_raw_fd(), POLLOUT, SERVER_WAIT_MS),
+                Ok(true),
+                "fake reader timed out writing a response"
+            );
+            file.write_all(fragment)
+                .expect("fake reader response write");
+        }
+    }
+
+    fn serve(mut master: File, exchanges: Vec<ServerExchange>) -> Vec<Vec<u8>> {
+        let mut requests = Vec::new();
+        for exchange in exchanges {
+            let request = read_request(&mut master);
+            assert_eq!(request, exchange.expected);
+            requests.push(request);
+            if exchange.response.is_empty() {
+                return requests;
+            }
+            write_all_bounded(&mut master, &exchange.response);
+        }
+        requests
+    }
+
+    fn with_pty<T, C>(
+        exchanges: Vec<ServerExchange>,
+        clock: C,
+        client: impl FnOnce(&mut Sec1210TransportV2<PtyDescriptor, C>) -> T,
+    ) -> (T, Vec<Vec<u8>>)
+    where
+        C: Sec1210MonotonicClockV2,
+    {
+        let (master, slave) = pty_pair();
+        let master_guard = exchanges
+            .iter()
+            .all(|exchange| !exchange.response.is_empty())
+            .then(|| master.try_clone().expect("fake reader master clone"));
+        let server = thread::spawn(move || serve(master, exchanges));
+        let mut transport = Sec1210TransportV2::new(PtyDescriptor(slave), clock);
+        let result = client(&mut transport);
+        drop(transport);
+        drop(master_guard);
+        let requests = server.join().expect("fake SEC1210 reader thread");
+        (result, requests)
+    }
+
+    fn request(message_type: u8, sequence: u8, parameters: [u8; 3], payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![0x03, 0x06, message_type];
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(&[0, sequence]);
+        frame.extend_from_slice(&parameters);
+        frame.extend_from_slice(payload);
+        let checksum = frame.iter().fold(0u8, |value, byte| value ^ byte);
+        frame.push(checksum);
+        frame
+    }
+
+    fn initialization_exchanges() -> Vec<ServerExchange> {
+        vec![
+            ServerExchange {
+                expected: request(0x65, 1, [0, 0, 0], &[]),
+                response: response(0x81, 1, 1, 0, 1, &[]),
+            },
+            ServerExchange {
+                expected: request(0x62, 2, [2, 0, 0], &[]),
+                response: data(2, &ATR),
+            },
+            ServerExchange {
+                expected: request(0x6c, 3, [0, 0, 0], &[]),
+                response: response(0x82, 3, 0, 0, 1, &GET_PARAMETERS),
+            },
+            ServerExchange {
+                expected: request(0x61, 4, [1, 0, 0], &SET_PARAMETERS),
+                response: response(0x82, 4, 0, 0, 1, &SET_PARAMETERS),
+            },
+            ServerExchange {
+                expected: request(0x6f, 5, [0, 0, 0], &[0, 0xc1, 1, 0xfe, 0x3e]),
+                response: data(5, &IFS_RESPONSE),
+            },
+        ]
+    }
+
+    #[cfg(feature = "normal-process")]
+    fn fixture_fields() -> BTreeMap<&'static str, &'static str> {
+        QKDV_FIXTURE
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| line.split_once(": ").expect("QKDV fixture field"))
+            .collect()
+    }
+
+    #[cfg(feature = "normal-process")]
+    fn normal_pairs() -> Vec<(Instruction, Vec<u8>, Vec<u8>)> {
+        let fields = fixture_fields();
+        [
+            (Instruction::Select, "normal_select"),
+            (Instruction::OpenSession, "normal_open"),
+            (Instruction::GetInfo, "normal_info"),
+            (Instruction::ReadDChunk, "normal_read_1_0"),
+            (Instruction::ReadDChunk, "normal_read_1_192"),
+            (Instruction::ReadDChunk, "normal_read_2_0"),
+            (Instruction::ReadDChunk, "normal_read_2_192"),
+            (Instruction::ExportA2, "normal_a2"),
+        ]
+        .into_iter()
+        .map(|(instruction, prefix)| {
+            let request_name = format!("{prefix}_request_hex");
+            let response_name = format!("{prefix}_response_hex");
+            (
+                instruction,
+                hex(fields[request_name.as_str()]),
+                hex(fields[response_name.as_str()]),
+            )
+        })
+        .collect()
+    }
+
+    #[cfg(feature = "normal-process")]
+    fn oracle_pairs() -> Vec<(Vec<u8>, Vec<u8>)> {
+        CCID_ORACLE
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("index"))
+            .map(|line| {
+                let fields = line.split('\t').collect::<Vec<_>>();
+                assert_eq!(fields.len(), 5);
+                (hex(fields[3]), hex(fields[4]))
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "normal-process")]
+    fn qkdv_body(capability: Capability, kind: MessageKind, sequence: u32, body: &[u8]) -> Vec<u8> {
+        let mut encoded = vec![0u8; HEADER_BYTES + body.len()];
+        let count = encode_frame(capability, kind, sequence, body, &mut encoded)
+            .expect("QKDV fixture frame");
+        encoded.truncate(count);
+        let parsed = parse_frame(capability, &encoded).expect("QKDV fixture parse");
+        match parsed.parsed_body().expect("QKDV fixture body") {
+            BodyRef::CardApduRequest(value) | BodyRef::CardApduResponse(value) => value.to_vec(),
+            _ => panic!("wrong QKDV card body"),
+        }
+    }
+
+    #[cfg(feature = "normal-process")]
+    #[test]
+    fn linux_pty_pass_matches_qkdv_and_registered_ccid_application_boundaries() {
+        let normal = normal_pairs();
+        let oracle = oracle_pairs();
+        assert_eq!(normal.len(), 8);
+        assert_eq!(oracle.len(), 8);
+        for index in [0usize, 2, 3, 4, 5, 6] {
+            assert_eq!(normal[index].1, oracle[index].0, "request {index}");
+        }
+        for index in [0usize, 1, 3, 4, 5, 6] {
+            assert_eq!(normal[index].2, oracle[index].1, "response {index}");
+        }
+        let mut normal_open = oracle[1].0.clone();
+        normal_open[6] = 0x02;
+        assert_eq!(normal_open, normal[1].1);
+        let mut oracle_info = normal[2].2.clone();
+        let info_mask_low = oracle_info.len() - 3;
+        oracle_info[info_mask_low] = 0x07;
+        assert_eq!(oracle_info, oracle[2].1);
+        let mut oracle_a2_request = normal[7].1.clone();
+        let purpose = oracle_a2_request.len() - 2;
+        oracle_a2_request[purpose] = 0x01;
+        assert_eq!(oracle_a2_request, oracle[7].0);
+        let mut oracle_a2_response = normal[7].2.clone();
+        oracle_a2_response[21] = 0x01;
+        assert_eq!(oracle_a2_response, oracle[7].1);
+
+        let mut exchanges = initialization_exchanges();
+        for (index, (_, command, reply)) in normal.iter().enumerate() {
+            let sequence = 6u8.wrapping_add(index as u8);
+            exchanges.push(ServerExchange {
+                expected: request(0x6f, sequence, [0, 0, 0], &t1_i((index & 1) as u8, command)),
+                response: data(sequence, &t1_i((index & 1) as u8, reply)),
+            });
+        }
+        let (responses, requests) = with_pty(exchanges, InstantClock::new(), |transport| {
+            transport.initialize().expect("PTY initialization");
+            let mut responses = Vec::new();
+            for (index, (_, command, reply)) in normal.iter().enumerate() {
+                assert_eq!(
+                    qkdv_body(
+                        Capability::CardRequest,
+                        MessageKind::CardApduRequest,
+                        index as u32 + 1,
+                        command,
+                    ),
+                    *command
+                );
+                let accepted = transport.transmit_apdu(command).expect("PTY APDU");
+                assert_eq!(accepted.bytes(), reply);
+                assert_eq!(
+                    qkdv_body(
+                        Capability::CardResponse,
+                        MessageKind::CardApduResponse,
+                        index as u32 + 1,
+                        accepted.bytes(),
+                    ),
+                    *reply
+                );
+                responses.push(accepted.bytes().to_vec());
+            }
+            assert_eq!(transport.controller_command_count(), 13);
+            assert_eq!(transport.application_apdu_count(), 8);
+            assert_eq!(transport.received_byte_count(), 1_192);
+            assert_eq!(transport.event_count(), 0);
+            assert_eq!(transport.failure(), None);
+            responses
+        });
+        assert_eq!(requests.len(), 13);
+
+        let info = CardInfoV1::try_from_response(
+            parse_response(Instruction::GetInfo, &responses[2]).expect("typed INFO"),
+        )
+        .expect("owned INFO");
+        let mut descriptors = [[0u8; DESCRIPTOR_BYTES]; 2];
+        for (instruction, response) in [
+            Instruction::ReadDChunk,
+            Instruction::ReadDChunk,
+            Instruction::ReadDChunk,
+            Instruction::ReadDChunk,
+        ]
+        .into_iter()
+        .zip(&responses[3..7])
+        {
+            let ResponseRef::ReadDChunk {
+                selector,
+                offset,
+                bytes,
+                ..
+            } = parse_response(instruction, response).expect("typed descriptor")
+            else {
+                panic!("wrong descriptor response")
+            };
+            let descriptor = match selector {
+                DescriptorSelector::Receive => &mut descriptors[0],
+                DescriptorSelector::Change => &mut descriptors[1],
+            };
+            let start = usize::from(offset);
+            descriptor[start..start + bytes.len()].copy_from_slice(bytes);
+        }
+        let ResponseRef::ExportA2 { a2, .. } =
+            parse_response(Instruction::ExportA2, &responses[7]).expect("typed A2")
+        else {
+            panic!("wrong A2 response")
+        };
+        let mut a2 = *a2;
+        let expected_wallet = info.wallet_id();
+        let expected_xpub = fixture_fields()["account_xpub_text"].as_bytes();
+        let bound =
+            bind_normal_card_v1(NormalProfileV2::SimpleRecovery, info, descriptors, &mut a2)
+                .expect("qk-core card facts");
+        assert_eq!(bound.wallet_id().as_slice(), expected_wallet);
+        assert_eq!(bound.account_xpub().as_slice(), expected_xpub);
+        assert_eq!(bound.descriptors(), &descriptors);
+        assert!(a2.iter().all(|byte| *byte == 0));
+    }
+
+    fn initialization_error(exchanges: Vec<ServerExchange>, expected: CardTransportErrorV2) {
+        let (actual, _) = with_pty(exchanges, StepClock::ticking(), |transport| {
+            transport.initialize()
+        });
+        assert_eq!(actual, Err(expected), "{}", expected.name());
+    }
+
+    #[test]
+    fn linux_pty_wire_event_and_initialization_gate_families_are_named() {
+        let mut cases = Vec::new();
+        let mut checksum = response(0x81, 1, 1, 0, 1, &[]);
+        *checksum.last_mut().expect("checksum") ^= 1;
+        cases.push((
+            vec![ServerExchange {
+                expected: request(0x65, 1, [0, 0, 0], &[]),
+                response: checksum,
+            }],
+            CardTransportErrorV2::Sec1210ChecksumRejected,
+        ));
+        cases.push((
+            vec![ServerExchange {
+                expected: request(0x65, 1, [0, 0, 0], &[]),
+                response: vec![0x03, 0x15, 0x16],
+            }],
+            CardTransportErrorV2::Sec1210Nack,
+        ));
+        cases.push((
+            vec![ServerExchange {
+                expected: request(0x65, 1, [0, 0, 0], &[]),
+                response: vec![0x50, 0x02],
+            }],
+            CardTransportErrorV2::Sec1210CardRemoved,
+        ));
+
+        let mut atr = initialization_exchanges();
+        atr.truncate(2);
+        atr[1].response = data(2, &[0x3f, 0x00]);
+        cases.push((atr, CardTransportErrorV2::Sec1210AtrProfileRejected));
+        let mut parameters = initialization_exchanges();
+        parameters.truncate(3);
+        let mut wrong_ifsc = GET_PARAMETERS;
+        wrong_ifsc[5] = 0xff;
+        parameters[2].response = response(0x82, 3, 0, 0, 1, &wrong_ifsc);
+        cases.push((parameters, CardTransportErrorV2::Sec1210ParametersRejected));
+        let mut set = initialization_exchanges();
+        set.truncate(4);
+        set[3].response = response(0x82, 4, 0, 0, 1, &GET_PARAMETERS);
+        cases.push((set, CardTransportErrorV2::Sec1210SetParametersEchoRejected));
+        let mut ifs = initialization_exchanges();
+        ifs[4].response = data(5, &t1_control(0xe1, &[0xfd]));
+        cases.push((ifs, CardTransportErrorV2::T1IfsRejected));
+
+        for (exchanges, expected) in cases {
+            initialization_error(exchanges, expected);
+        }
+    }
+
+    #[test]
+    fn linux_pty_t1_wtx_and_time_extension_families_are_named() {
+        let mut checksum = t1_i(0, &[0x90, 0x00]);
+        *checksum.last_mut().expect("T=1 checksum") ^= 1;
+        for (block, expected) in [
+            (checksum, CardTransportErrorV2::T1ChecksumRejected),
+            (
+                t1_control(0x80, &[]),
+                CardTransportErrorV2::T1UnexpectedRBlock,
+            ),
+            (t1_wtx(25), CardTransportErrorV2::T1WtxMultiplierRejected),
+            (
+                t1_control(0x20, &[0x90, 0]),
+                CardTransportErrorV2::T1ChainingRejected,
+            ),
+        ] {
+            let mut exchanges = initialization_exchanges();
+            exchanges.push(ServerExchange {
+                expected: request(0x6f, 6, [0, 0, 0], &t1_i(0, &[0])),
+                response: data(6, &block),
+            });
+            let (actual, _) = with_pty(exchanges, StepClock::ticking(), |transport| {
+                transport.initialize().expect("PTY initialization");
+                transport.transmit_apdu(&[0]).map(|_| ())
+            });
+            assert_eq!(actual, Err(expected), "{}", expected.name());
+        }
+
+        let mut exchanges = initialization_exchanges();
+        let mut extensions = Vec::new();
+        for _ in 0..9 {
+            extensions.extend(response(0x80, 6, 0x80, 1, 0, &[]));
+        }
+        exchanges.push(ServerExchange {
+            expected: request(0x6f, 6, [0, 0, 0], &t1_i(0, &[0])),
+            response: extensions,
+        });
+        let (actual, _) = with_pty(exchanges, StepClock::ticking(), |transport| {
+            transport.initialize().expect("PTY initialization");
+            transport.transmit_apdu(&[0]).map(|_| ())
+        });
+        assert_eq!(
+            actual,
+            Err(CardTransportErrorV2::Sec1210TimeExtensionLimitExceeded)
+        );
+    }
+
+    fn closed_first_exchange() -> Vec<ServerExchange> {
+        vec![ServerExchange {
+            expected: request(0x65, 1, [0, 0, 0], &[]),
+            response: Vec::new(),
+        }]
+    }
+
+    #[test]
+    fn linux_pty_descriptor_and_deterministic_clock_boundaries_fail_closed() {
+        for (values, expected) in [
+            (
+                vec![Ok(0), Ok(0), Ok(0), Ok(4_999)],
+                CardTransportErrorV2::Sec1210DescriptorClosed,
+            ),
+            (
+                vec![Ok(0), Ok(0), Ok(0), Ok(5_000)],
+                CardTransportErrorV2::Sec1210DeadlineExceeded,
+            ),
+            (
+                vec![Ok(2), Ok(2), Ok(2), Ok(1)],
+                CardTransportErrorV2::Sec1210ClockRegression,
+            ),
+        ] {
+            let (actual, requests) = with_pty(
+                closed_first_exchange(),
+                StepClock::scripted(values),
+                |transport| transport.initialize(),
+            );
+            assert_eq!(actual, Err(expected), "{}", expected.name());
+            assert_eq!(requests.len(), 1);
+        }
+
+        let (master, slave) = pty_pair();
+        drop(master);
+        let mut transport = Sec1210TransportV2::new(PtyDescriptor(slave), StepClock::ticking());
+        assert_eq!(
+            transport.initialize(),
+            Err(CardTransportErrorV2::Sec1210DescriptorWriteFailed)
+        );
+        assert_eq!(
+            transport.initialize(),
+            Err(CardTransportErrorV2::Sec1210DescriptorWriteFailed),
+            "first descriptor failure remains sticky"
+        );
+    }
+}
