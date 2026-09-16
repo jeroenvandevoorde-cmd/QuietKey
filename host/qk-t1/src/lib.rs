@@ -1,11 +1,13 @@
 //! QK-DEC-167-SUP-003/007's bounded, fail-first T=1 readback subset.
 //! Explicit sessions permit one fixed IFSD negotiation. No I/O,
 //! retransmission, or recovery is performed.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod codec;
 mod raw_session;
 mod session;
+#[allow(unsafe_code)]
+mod wipe;
 
 pub use codec::{decode, encode_ack, encode_command, Block, Error, Received, MAX_BLOCK_BYTES};
 pub use raw_session::{

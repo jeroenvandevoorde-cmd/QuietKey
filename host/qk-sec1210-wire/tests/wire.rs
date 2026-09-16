@@ -1,5 +1,10 @@
 use qk_sec1210_wire::{Command, Decoder, Error, Message, MAX_WIRE_BYTES};
 
+const LIB_SOURCE: &str = include_str!("../src/lib.rs");
+const CODEC_SOURCE: &str = include_str!("../src/codec.rs");
+const RAW_SESSION_SOURCE: &str = include_str!("../src/raw_session.rs");
+const WIPE_SOURCE: &str = include_str!("../src/wipe.rs");
+
 fn frame(payload: &[u8]) -> Vec<u8> {
     let mut bytes = vec![3, 6, 0x80];
     bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -118,4 +123,18 @@ fn unknown_prefix_never_resynchronizes() {
     let mut bytes = vec![0];
     bytes.extend(frame(&[]));
     assert_eq!(decode(&bytes), Err(Error::PrefixRejected));
+}
+
+#[test]
+fn hardened_contact_sources_confine_unsafe_and_heap_storage() {
+    assert!(LIB_SOURCE.contains("#![deny(unsafe_code)]"));
+    assert!(LIB_SOURCE.contains("#[allow(unsafe_code)]\nmod wipe;"));
+    for source in [CODEC_SOURCE, RAW_SESSION_SOURCE] {
+        assert!(!source.contains("unsafe"));
+    }
+    assert!(!RAW_SESSION_SOURCE.contains("Vec<"));
+    assert!(!RAW_SESSION_SOURCE.contains("Box<"));
+    assert_eq!(WIPE_SOURCE.matches("unsafe {").count(), 2);
+    assert_eq!(WIPE_SOURCE.matches("ptr::write_volatile").count(), 2);
+    assert!(WIPE_SOURCE.contains("compiler_fence(Ordering::SeqCst);"));
 }

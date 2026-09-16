@@ -1,10 +1,12 @@
 //! QK-DEC-167: mock-first status/ATR framing, not an APDU transport.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod codec;
 mod exchange;
 mod raw_session;
 mod readback;
+#[allow(unsafe_code)]
+mod wipe;
 
 pub use codec::{Decoder, Error, Message, Response, MAX_CCID_BYTES, MAX_WIRE_BYTES};
 pub use exchange::{
@@ -14,8 +16,8 @@ pub use exchange::{
 pub use raw_session::{
     RawCommand, RawError, RawFrameSpan, RawObservation, RawPhase, RawRequest, RawSession,
     RAW_APDU_BUDGET_MS, RAW_BWT_MS, RAW_COMMAND_BUDGET_MS, RAW_MAX_COMMANDS, RAW_MAX_EVENTS,
-    RAW_MAX_OUTGOING_TPDU_BYTES, RAW_MAX_RECEIVED_BYTES, RAW_MAX_TIME_EXTENSIONS,
-    RAW_MAX_WTX_MULTIPLIER,
+    RAW_MAX_OBSERVATIONS, RAW_MAX_OUTGOING_TPDU_BYTES, RAW_MAX_RECEIVED_BYTES,
+    RAW_MAX_TIME_EXTENSIONS, RAW_MAX_WTX_MULTIPLIER,
 };
 pub use readback::{
     ReadbackCommand, ReadbackError, ReadbackObservation, ReadbackPhase, ReadbackRequest,

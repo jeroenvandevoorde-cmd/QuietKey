@@ -4,10 +4,13 @@
 //! `accept_ifs`. For each APDU it calls `begin_apdu`, wraps each block produced
 //! by that T=1 session, and calls `end_apdu` only after T=1 accepts the final
 //! I-block. Neither a reader extension nor a WTX exchange resets that boundary.
-use crate::{Decoder, Error, Message, Response, FIDI_PARAMETERS, REGISTERED_ATR};
+use crate::codec::FixedMessage;
+use crate::wipe;
+use crate::{Decoder, Error, Response, FIDI_PARAMETERS, REGISTERED_ATR};
 
 pub const RAW_MAX_COMMANDS: usize = 512;
 pub const RAW_MAX_EVENTS: usize = 64;
+pub const RAW_MAX_OBSERVATIONS: usize = RAW_MAX_COMMANDS + RAW_MAX_EVENTS;
 pub const RAW_MAX_RECEIVED_BYTES: usize = 32_768;
 pub const RAW_MAX_OUTGOING_TPDU_BYTES: usize = 258;
 pub const RAW_COMMAND_BUDGET_MS: u64 = 5_000;
@@ -129,6 +132,23 @@ impl RawRequest {
     }
 }
 
+impl Drop for RawRequest {
+    fn drop(&mut self) {
+        wipe::values(
+            core::slice::from_mut(&mut self.command),
+            RawCommand::GetSlotStatus,
+        );
+        wipe::values(core::slice::from_mut(&mut self.ordinal), 0);
+        wipe::values(core::slice::from_mut(&mut self.sequence), 0);
+        wipe::values(core::slice::from_mut(&mut self.bwi), 0);
+        wipe::values(core::slice::from_mut(&mut self.host_allowance_ms), 0);
+        wipe::values(core::slice::from_mut(&mut self.deadline_ms), 0);
+        wipe::values(core::slice::from_mut(&mut self.apdu_deadline_ms), None);
+        wipe::bytes(&mut self.bytes);
+        wipe::values(core::slice::from_mut(&mut self.len), 0);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RawObservation {
     SlotChange {
@@ -167,6 +187,75 @@ pub enum RawObservation {
     },
 }
 
+const EMPTY_OBSERVATION: RawObservation = RawObservation::SlotChange {
+    bitmap: 0,
+    slot1_bits: 0,
+};
+
+impl RawObservation {
+    fn wipe(&mut self) {
+        match self {
+            Self::SlotChange { bitmap, slot1_bits } => {
+                wipe::values(core::slice::from_mut(bitmap), 0);
+                wipe::values(core::slice::from_mut(slot1_bits), 0);
+            }
+            Self::HardwareError {
+                slot,
+                sequence,
+                code,
+            } => {
+                wipe::values(core::slice::from_mut(slot), 0);
+                wipe::values(core::slice::from_mut(sequence), 0);
+                wipe::values(core::slice::from_mut(code), 0);
+            }
+            Self::SlotStatus {
+                status,
+                error,
+                clock,
+            } => {
+                wipe::values(core::slice::from_mut(status), 0);
+                wipe::values(core::slice::from_mut(error), 0);
+                wipe::values(core::slice::from_mut(clock), 0);
+            }
+            Self::Atr(bytes) => wipe::bytes(bytes),
+            Self::Parameters { protocol, bytes } => {
+                wipe::values(core::slice::from_mut(protocol), 0);
+                wipe::bytes(bytes);
+            }
+            Self::Transfer {
+                ordinal,
+                sequence,
+                payload_bytes,
+            } => {
+                wipe::values(core::slice::from_mut(ordinal), 0);
+                wipe::values(core::slice::from_mut(sequence), 0);
+                wipe::values(core::slice::from_mut(payload_bytes), 0);
+            }
+            Self::TimeExtension {
+                ordinal,
+                sequence,
+                multiplier,
+                apdu_count,
+                invocation_count,
+                command_deadline_ms,
+                apdu_deadline_ms,
+                span,
+            } => {
+                wipe::values(core::slice::from_mut(ordinal), 0);
+                wipe::values(core::slice::from_mut(sequence), 0);
+                wipe::values(core::slice::from_mut(multiplier), 0);
+                wipe::values(core::slice::from_mut(apdu_count), 0);
+                wipe::values(core::slice::from_mut(invocation_count), 0);
+                wipe::values(core::slice::from_mut(command_deadline_ms), 0);
+                wipe::values(core::slice::from_mut(apdu_deadline_ms), 0);
+                wipe::values(core::slice::from_mut(&mut span.start_rx_offset), 0);
+                wipe::values(core::slice::from_mut(&mut span.end_rx_offset), 0);
+            }
+        }
+        *self = EMPTY_OBSERVATION;
+    }
+}
+
 /// Half-open byte offsets in this invocation's received UART byte stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RawFrameSpan {
@@ -188,12 +277,16 @@ pub struct RawSession {
     command_deadline: u64,
     apdu_deadline: Option<u64>,
     last_now: Option<u64>,
-    observations: Vec<RawObservation>,
-    response: Option<Box<Response>>,
-    reply_evidence: Option<Box<Response>>,
+    observations: [RawObservation; RAW_MAX_OBSERVATIONS],
+    observation_len: usize,
+    response: Response,
+    response_present: bool,
+    reply_evidence: Response,
+    reply_evidence_present: bool,
     frame_start_rx_offset: usize,
     last_reply_span: Option<RawFrameSpan>,
-    set_parameters_reply_evidence: Option<Box<Response>>,
+    set_parameters_reply_evidence: Response,
+    set_parameters_reply_evidence_present: bool,
     set_parameters_accepted: bool,
     ifs_accepted: bool,
     ifs_pending: bool,
@@ -220,12 +313,16 @@ impl Default for RawSession {
             command_deadline: 0,
             apdu_deadline: None,
             last_now: None,
-            observations: Vec::new(),
-            response: None,
-            reply_evidence: None,
+            observations: [const { EMPTY_OBSERVATION }; RAW_MAX_OBSERVATIONS],
+            observation_len: 0,
+            response: Response::zeroed(),
+            response_present: false,
+            reply_evidence: Response::zeroed(),
+            reply_evidence_present: false,
             frame_start_rx_offset: 0,
             last_reply_span: None,
-            set_parameters_reply_evidence: None,
+            set_parameters_reply_evidence: Response::zeroed(),
+            set_parameters_reply_evidence_present: false,
             set_parameters_accepted: false,
             ifs_accepted: false,
             ifs_pending: false,
@@ -284,21 +381,22 @@ impl RawSession {
     }
     /// Bounded by the received-byte, command and asynchronous-event ceilings.
     pub fn observations(&self) -> &[RawObservation] {
-        &self.observations
+        &self.observations[..self.observation_len]
     }
     pub fn response(&self) -> Option<&Response> {
-        self.response.as_deref()
+        self.response_present.then_some(&self.response)
     }
     /// The current command's last complete checksum-verified reply, even if
     /// semantic gates fail. The next claim clears this and its matching span.
     pub fn reply_evidence(&self) -> Option<&Response> {
-        self.reply_evidence.as_deref()
+        self.reply_evidence_present.then_some(&self.reply_evidence)
     }
     pub fn last_reply_span(&self) -> Option<RawFrameSpan> {
         self.last_reply_span
     }
     pub fn set_parameters_reply_evidence(&self) -> Option<&Response> {
-        self.set_parameters_reply_evidence.as_deref()
+        self.set_parameters_reply_evidence_present
+            .then_some(&self.set_parameters_reply_evidence)
     }
     pub fn set_parameters_accepted(&self) -> bool {
         self.set_parameters_accepted
@@ -311,6 +409,15 @@ impl RawSession {
         let error = *self.failure.get_or_insert(error.into());
         self.phase = RawPhase::Failed;
         Err(error)
+    }
+
+    fn push_observation(&mut self, observation: RawObservation) -> Result<(), RawError> {
+        if self.observation_len == RAW_MAX_OBSERVATIONS {
+            return Err(RawError::CommandLimitExceeded);
+        }
+        self.observations[self.observation_len] = observation;
+        self.observation_len += 1;
+        Ok(())
     }
 
     pub fn tick(&mut self, now_ms: u64) -> Result<(), RawError> {
@@ -498,8 +605,10 @@ impl RawSession {
             .iter()
             .fold(0, |sum, byte| sum ^ byte);
         self.request_len = request.len;
-        self.response = None;
-        self.reply_evidence = None;
+        self.response.clear();
+        self.response_present = false;
+        self.reply_evidence.clear();
+        self.reply_evidence_present = false;
         self.last_reply_span = None;
         self.phase = RawPhase::Writing(command);
         Ok(request)
@@ -532,21 +641,24 @@ impl RawSession {
             if self.decoder.pending_bytes() == 0 {
                 self.frame_start_rx_offset = fragment_start + index;
             }
-            let message = match self.decoder.push(*byte) {
+            let message = match self.decoder.push_fixed(*byte) {
                 Ok(Some(message)) => message,
                 Ok(None) => continue,
                 Err(error) => return self.reject(error),
             };
             match message {
-                Message::SlotChange { bitmap } => {
-                    self.events += 1;
-                    if self.events > RAW_MAX_EVENTS {
+                FixedMessage::SlotChange { bitmap } => {
+                    if self.events == RAW_MAX_EVENTS {
+                        self.events += 1;
                         return self.reject(Error::EventLimitExceeded);
                     }
-                    self.observations.push(RawObservation::SlotChange {
+                    if let Err(error) = self.push_observation(RawObservation::SlotChange {
                         bitmap,
                         slot1_bits: (bitmap >> 2) & 3,
-                    });
+                    }) {
+                        return self.reject(error);
+                    }
+                    self.events += 1;
                     if bitmap & 0xf0 != 0 {
                         return self.reject(Error::EventBitmapRejected);
                     }
@@ -554,20 +666,23 @@ impl RawSession {
                         return self.reject(Error::CardAbsent);
                     }
                 }
-                Message::HardwareError {
+                FixedMessage::HardwareError {
                     slot,
                     sequence,
                     code,
                 } => {
-                    self.events += 1;
-                    if self.events > RAW_MAX_EVENTS {
+                    if self.events == RAW_MAX_EVENTS {
+                        self.events += 1;
                         return self.reject(Error::EventLimitExceeded);
                     }
-                    self.observations.push(RawObservation::HardwareError {
+                    if let Err(error) = self.push_observation(RawObservation::HardwareError {
                         slot,
                         sequence,
                         code,
-                    });
+                    }) {
+                        return self.reject(error);
+                    }
+                    self.events += 1;
                     if slot != 0 {
                         return self.reject(Error::SlotRejected);
                     }
@@ -576,14 +691,22 @@ impl RawSession {
                     }
                     return self.reject(Error::HardwareError);
                 }
-                Message::Response(response) => {
-                    self.reply_evidence = Some(response.clone());
+                FixedMessage::Response => {
+                    if self.observation_len == RAW_MAX_OBSERVATIONS {
+                        self.decoder.discard_fixed_response();
+                        return self.reject(RawError::CommandLimitExceeded);
+                    }
+                    let mut response = Response::zeroed();
+                    self.decoder.take_fixed_response_into(&mut response);
+                    self.reply_evidence.copy_from(&response);
+                    self.reply_evidence_present = true;
                     self.last_reply_span = Some(RawFrameSpan {
                         start_rx_offset: self.frame_start_rx_offset,
                         end_rx_offset: fragment_start + index + 1,
                     });
                     if command == RawCommand::SetParameters {
-                        self.set_parameters_reply_evidence = Some(response.clone());
+                        self.set_parameters_reply_evidence.copy_from(&response);
+                        self.set_parameters_reply_evidence_present = true;
                     }
                     let extension = match self.validate(command, &response) {
                         Ok(extension) => extension,
@@ -600,7 +723,8 @@ impl RawSession {
                         self.apdu_has_transfer = true;
                         self.awaiting_wtx = wtx_multiplier(response.payload());
                     }
-                    self.response = Some(response);
+                    self.response.copy_from(&response);
+                    self.response_present = true;
                     self.phase = match command {
                         RawCommand::GetSlotStatus => RawPhase::ReadyPower,
                         RawCommand::PowerOn => RawPhase::ReadyParameters,
@@ -666,20 +790,22 @@ impl RawSession {
             if self.apdu_time_extensions == RAW_MAX_TIME_EXTENSIONS {
                 return Err(RawError::TimeExtensionLimitExceeded);
             }
-            self.apdu_time_extensions += 1;
-            self.time_extensions += 1;
-            self.observations.push(RawObservation::TimeExtension {
+            let apdu_count = self.apdu_time_extensions + 1;
+            let invocation_count = self.time_extensions + 1;
+            self.push_observation(RawObservation::TimeExtension {
                 ordinal: self.ordinal,
                 sequence: self.sequence,
                 multiplier: response.error,
-                apdu_count: self.apdu_time_extensions,
-                invocation_count: self.time_extensions,
+                apdu_count,
+                invocation_count,
                 command_deadline_ms: self.command_deadline,
                 apdu_deadline_ms: self.apdu_deadline.expect("active application exchange"),
                 span: self
                     .last_reply_span
                     .expect("complete checksum-verified reply"),
-            });
+            })?;
+            self.apdu_time_extensions = apdu_count;
+            self.time_extensions = invocation_count;
             return Ok(true);
         }
         let observation = match command {
@@ -706,10 +832,10 @@ impl RawSession {
                 let Ok(bytes) = <[u8; 7]>::try_from(response.payload()) else {
                     return Err(Error::PayloadRejected.into());
                 };
-                self.observations.push(RawObservation::Parameters {
+                self.push_observation(RawObservation::Parameters {
                     protocol: response.parameter,
                     bytes,
-                });
+                })?;
                 if response.parameter != 1 {
                     return Err(RawError::ProtocolRejected);
                 }
@@ -738,8 +864,20 @@ impl RawSession {
                 }
             }
         };
-        self.observations.push(observation);
+        self.push_observation(observation)?;
         Ok(false)
+    }
+}
+
+impl Drop for RawSession {
+    fn drop(&mut self) {
+        self.response_present = false;
+        self.reply_evidence_present = false;
+        self.set_parameters_reply_evidence_present = false;
+        for observation in &mut self.observations {
+            observation.wipe();
+        }
+        self.observation_len = 0;
     }
 }
 
@@ -748,4 +886,156 @@ fn wtx_multiplier(payload: &[u8]) -> Option<u8> {
         && payload[..3] == [0, 0xc3, 1]
         && payload.iter().fold(0, |sum, byte| sum ^ byte) == 0)
         .then(|| payload[3])
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::{
+        RawFrameSpan, RawObservation, RawSession, EMPTY_OBSERVATION, RAW_MAX_OBSERVATIONS,
+    };
+    use crate::codec::FixedMessage;
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+    use crate::{Decoder, MAX_WIRE_BYTES};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    fn expected_session_wipe() -> usize {
+        // Every unused slot is the two-byte sentinel. The decoder owns one
+        // response slot, and the session owns current, reply and parameters
+        // response slots; all four are fixed-capacity storage.
+        let response = 6 + 261 + size_of::<usize>();
+        RAW_MAX_OBSERVATIONS * 2 + MAX_WIRE_BYTES + 4 * response
+    }
+
+    fn observation_variant_wipe() -> usize {
+        2 + 3
+            + 3
+            + 15
+            + 8
+            + (2 * size_of::<usize>() + 1)
+            + (5 * size_of::<usize>() + 2 + 2 * size_of::<u64>())
+    }
+
+    fn populated_session() -> RawSession {
+        const FRAME: [u8; 13] = [3, 6, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x85];
+        let mut decoder = Decoder::default();
+        let mut decoded = None;
+        for byte in FRAME {
+            decoded = decoder.push_fixed(byte).unwrap().or(decoded);
+        }
+        let Some(FixedMessage::Response) = decoded else {
+            panic!("fixed response");
+        };
+        let mut response = crate::Response::zeroed();
+        decoder.take_fixed_response_into(&mut response);
+        let mut session = RawSession::new();
+        session.response.copy_from(&response);
+        session.response_present = true;
+        session.reply_evidence.copy_from(&response);
+        session.reply_evidence_present = true;
+        session.set_parameters_reply_evidence.copy_from(&response);
+        session.set_parameters_reply_evidence_present = true;
+        session.observations[..7].clone_from_slice(&observation_variants());
+        session.observation_len = 7;
+        session
+    }
+
+    fn observation_variants() -> [RawObservation; 7] {
+        [
+            RawObservation::SlotChange {
+                bitmap: 3,
+                slot1_bits: 0,
+            },
+            RawObservation::HardwareError {
+                slot: 0,
+                sequence: 9,
+                code: 1,
+            },
+            RawObservation::SlotStatus {
+                status: 1,
+                error: 0,
+                clock: 1,
+            },
+            RawObservation::Atr([0xa5; 15]),
+            RawObservation::Parameters {
+                protocol: 1,
+                bytes: [0xa5; 7],
+            },
+            RawObservation::Transfer {
+                ordinal: 9,
+                sequence: 9,
+                payload_bytes: 258,
+            },
+            RawObservation::TimeExtension {
+                ordinal: 9,
+                sequence: 9,
+                multiplier: 2,
+                apdu_count: 1,
+                invocation_count: 1,
+                command_deadline_ms: 5_000,
+                apdu_deadline_ms: 30_000,
+                span: RawFrameSpan {
+                    start_rx_offset: 9,
+                    end_rx_offset: 22,
+                },
+            },
+        ]
+    }
+
+    #[test]
+    fn request_and_session_fixed_storage_clear_on_drop() {
+        let mut session = RawSession::new();
+        let request = session.begin_initial(0).unwrap();
+        reset_wiped_bytes();
+        drop(request);
+        assert!(wiped_bytes() >= 13 + super::RAW_MAX_OUTGOING_TPDU_BYTES);
+
+        drop(session);
+        reset_wiped_bytes();
+        drop(RawSession::new());
+        assert_eq!(wiped_bytes(), expected_session_wipe());
+    }
+
+    #[test]
+    fn next_claim_clears_current_and_reply_response_storage() {
+        let mut session = populated_session();
+        let response = 6 + 261 + size_of::<usize>();
+        reset_wiped_bytes();
+        let request = session.begin_initial(0).unwrap();
+        assert_eq!(wiped_bytes(), 2 * response);
+        assert!(session.response().is_none());
+        assert!(session.reply_evidence().is_none());
+        assert!(session.set_parameters_reply_evidence().is_some());
+        drop(request);
+    }
+
+    #[test]
+    fn session_fixed_storage_clears_during_caught_unwind() {
+        let populated_wipe = expected_session_wipe() - 7 * 2 + observation_variant_wipe();
+        let session = populated_session();
+        reset_wiped_bytes();
+        drop(session);
+        assert_eq!(wiped_bytes(), populated_wipe);
+
+        let session = populated_session();
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _session = session;
+            panic!("test-only caught unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), populated_wipe);
+    }
+
+    #[test]
+    fn every_live_observation_variant_clears_its_fields() {
+        let mut observations = observation_variants();
+        reset_wiped_bytes();
+        for observation in &mut observations {
+            observation.wipe();
+        }
+        assert!(observations
+            .iter()
+            .all(|observation| observation == &EMPTY_OBSERVATION));
+        assert_eq!(wiped_bytes(), observation_variant_wipe());
+    }
 }

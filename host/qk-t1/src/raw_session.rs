@@ -1,5 +1,6 @@
 //! SUP-013's caller-clocked, raw-response session. No I/O or response oracle.
 use crate::codec::{decode_bounded, validate_ifs_response};
+use crate::wipe;
 use crate::{Error, Phase, Received, MAX_BLOCK_BYTES};
 
 pub const RAW_MAX_COMMAND_BYTES: usize = 254;
@@ -41,7 +42,7 @@ impl From<Error> for RawError {
 }
 
 /// The session alone constructs these blocks and their associated bBWI value.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RawBlock {
     bytes: [u8; RAW_MAX_BLOCK_BYTES],
     len: usize,
@@ -78,6 +79,14 @@ impl RawBlock {
     }
 }
 
+impl Drop for RawBlock {
+    fn drop(&mut self) {
+        wipe::bytes(&mut self.bytes);
+        self.len = 0;
+        self.bwi = 0;
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum IfsState {
     Required,
@@ -93,6 +102,7 @@ pub struct RawSession {
     response: [u8; RAW_MAX_RESPONSE_BYTES],
     response_len: usize,
     pending: Option<RawBlock>,
+    write_len: usize,
     exchanges: usize,
     completed: usize,
     started: u64,
@@ -114,6 +124,7 @@ impl Default for RawSession {
             response: [0; RAW_MAX_RESPONSE_BYTES],
             response_len: 0,
             pending: None,
+            write_len: 0,
             exchanges: 0,
             completed: 0,
             started: 0,
@@ -179,6 +190,16 @@ impl RawSession {
         Err(error)
     }
 
+    fn reset_apdu_storage(&mut self) {
+        wipe::bytes(&mut self.response);
+        self.response_len = 0;
+        self.pending = None;
+        self.write_len = 0;
+        self.exchanges = 0;
+        wipe::bytes(&mut self.wtx);
+        self.wtx_len = 0;
+    }
+
     /// Includes lower-layer writes, pauses, reads and evidence work.
     pub fn tick(&mut self, now_ms: u64) -> Result<(), RawError> {
         if let Some(error) = self.failure {
@@ -224,9 +245,7 @@ impl RawSession {
         if command.is_empty() || command.len() > RAW_MAX_COMMAND_BYTES {
             return self.reject(Error::CommandLengthRejected);
         }
-        self.response_len = 0;
-        self.exchanges = 0;
-        self.wtx_len = 0;
+        self.reset_apdu_storage();
         self.started = now_ms;
         self.apdu_deadline = Some(now_ms.saturating_add(RAW_APDU_BUDGET_MS));
         self.pending = Some(RawBlock::encode(self.send_sequence << 6, command, 0));
@@ -242,9 +261,10 @@ impl RawSession {
         if self.exchanges == RAW_MAX_EXCHANGES {
             return self.reject(Error::ExchangeLimitExceeded);
         }
-        let Some(block) = self.pending.clone() else {
+        let Some(block) = self.pending.take() else {
             return self.reject(Error::StateRejected);
         };
+        self.write_len = block.as_bytes().len();
         self.phase = Phase::Writing;
         Ok(block)
     }
@@ -254,9 +274,10 @@ impl RawSession {
         if self.phase != Phase::Writing {
             return self.reject(Error::StateRejected);
         }
-        if self.pending.as_ref().map(|block| block.as_bytes().len()) != Some(bytes) {
+        if self.write_len != bytes {
             return self.reject(Error::PartialWrite);
         }
+        self.write_len = 0;
         self.exchanges += 1;
         self.phase = Phase::Receiving;
         Ok(())
@@ -327,8 +348,96 @@ impl RawSession {
         self.send_sequence ^= 1;
         self.receive_sequence ^= 1;
         self.pending = None;
+        self.write_len = 0;
         self.completed += 1;
         self.phase = Phase::Complete;
         Ok(())
+    }
+}
+
+impl Drop for RawSession {
+    fn drop(&mut self) {
+        self.pending = None;
+        wipe::bytes(&mut self.response);
+        self.response_len = 0;
+        wipe::bytes(&mut self.wtx);
+        self.wtx_len = 0;
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::{RawBlock, RawSession, RAW_MAX_BLOCK_BYTES, RAW_MAX_RESPONSE_BYTES, RAW_MAX_WTX};
+    use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    fn initialized() -> RawSession {
+        let mut session = RawSession::default();
+        session.begin_ifs(0).unwrap();
+        let block = session.next_block(0).unwrap();
+        session.written(block.as_bytes().len(), 0).unwrap();
+        session.receive(&[0, 0xe1, 1, 0xfe, 0x1e], 1).unwrap();
+        session
+    }
+
+    fn pending_after_wtx() -> RawSession {
+        let mut session = initialized();
+        session.begin(&[0xaa], 2).unwrap();
+        let block = session.next_block(2).unwrap();
+        session.written(block.as_bytes().len(), 2).unwrap();
+        session.receive(&[0, 0xc3, 1, 2, 0xc0], 3).unwrap();
+        session
+    }
+
+    #[test]
+    fn block_drop_and_accepted_apdu_reset_clear_full_capacities() {
+        let mut block = RawBlock::encode(0, &[0xa5; 17], 0);
+        block.bytes[RAW_MAX_BLOCK_BYTES - 1] = 0xa5;
+        reset_wiped_bytes();
+        drop(block);
+        assert_eq!(wiped_bytes(), RAW_MAX_BLOCK_BYTES);
+
+        let mut session = initialized();
+        session.begin(&[0xaa], 2).unwrap();
+        let block = session.next_block(2).unwrap();
+        session.written(block.as_bytes().len(), 2).unwrap();
+        session.receive(&[0, 0xc3, 1, 2, 0xc0], 3).unwrap();
+        let block = session.next_block(3).unwrap();
+        session.written(block.as_bytes().len(), 3).unwrap();
+        session.receive(&[0, 0, 1, 0x55, 0x54], 4).unwrap();
+        reset_wiped_bytes();
+        session.begin(&[0xbb], 5).unwrap();
+        assert_eq!(wiped_bytes(), RAW_MAX_RESPONSE_BYTES + RAW_MAX_WTX);
+    }
+
+    #[test]
+    fn session_storage_clears_on_drop_and_unwind() {
+        let expected = RAW_MAX_RESPONSE_BYTES + RAW_MAX_WTX;
+        reset_wiped_bytes();
+        drop(RawSession::default());
+        assert_eq!(wiped_bytes(), expected);
+
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _session = RawSession::default();
+            panic!("test-only caught unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), expected);
+
+        let expected_live = RAW_MAX_BLOCK_BYTES + expected;
+        let session = pending_after_wtx();
+        reset_wiped_bytes();
+        drop(session);
+        assert_eq!(wiped_bytes(), expected_live);
+
+        let session = pending_after_wtx();
+        reset_wiped_bytes();
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _session = session;
+            panic!("test-only caught unwind");
+        }));
+        assert!(result.is_err());
+        assert_eq!(wiped_bytes(), expected_live);
     }
 }

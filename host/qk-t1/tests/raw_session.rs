@@ -5,6 +5,10 @@ use qk_t1::{
     RAW_MAX_WTX_MULTIPLIER,
 };
 
+const LIB_SOURCE: &str = include_str!("../src/lib.rs");
+const RAW_SESSION_SOURCE: &str = include_str!("../src/raw_session.rs");
+const WIPE_SOURCE: &str = include_str!("../src/wipe.rs");
+
 fn frame(pcb: u8, inf: &[u8]) -> Vec<u8> {
     let mut bytes = vec![0, pcb, inf.len() as u8];
     bytes.extend_from_slice(inf);
@@ -426,4 +430,35 @@ fn every_new_error_has_its_pinned_name() {
     assert_eq!(E::WtxResponseRejected.name(), "T1WtxResponseRejected");
     assert_eq!(E::ChainingRejected.name(), "T1ChainingRejected");
     assert_eq!(E::T1(Error::ChecksumRejected).name(), "T1ChecksumRejected");
+}
+
+#[test]
+fn hardened_contact_sources_confine_unsafe_and_remain_heap_free() {
+    assert!(LIB_SOURCE.contains("#![deny(unsafe_code)]"));
+    assert!(LIB_SOURCE.contains("#[allow(unsafe_code)]\nmod wipe;"));
+    assert!(!RAW_SESSION_SOURCE.contains("unsafe"));
+    assert!(!RAW_SESSION_SOURCE.contains("Vec<"));
+    assert!(!RAW_SESSION_SOURCE.contains("Box<"));
+    assert_eq!(WIPE_SOURCE.matches("unsafe {").count(), 1);
+    assert_eq!(WIPE_SOURCE.matches("ptr::write_volatile").count(), 1);
+    assert!(WIPE_SOURCE.contains("compiler_fence(Ordering::SeqCst);"));
+}
+
+#[test]
+fn accepted_next_apdu_resets_current_storage_but_preserves_session_totals() {
+    let mut session = pending();
+    session.receive(&frame(0xc3, &[2]), 11).unwrap();
+    send(&mut session, 11);
+    session.receive(&frame(0, &[0xa5, 0x90, 0]), 12).unwrap();
+    assert_eq!(session.response(), [0xa5, 0x90, 0]);
+    assert_eq!(session.wtx_multipliers(), [2]);
+    assert_eq!(session.total_wtx_count(), 1);
+
+    session.begin(&[0x5a], 13).unwrap();
+    assert!(session.response().is_empty());
+    assert!(session.wtx_multipliers().is_empty());
+    assert_eq!(session.total_wtx_count(), 1);
+    assert_eq!(send(&mut session, 13).as_bytes(), frame(0x40, &[0x5a]));
+    session.receive(&frame(0x40, &[0x90, 0]), 14).unwrap();
+    assert_eq!(session.response(), [0x90, 0]);
 }

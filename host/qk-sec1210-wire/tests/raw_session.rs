@@ -1,8 +1,8 @@
 use qk_sec1210_wire::{
     Error as W, RawCommand as C, RawError as E, RawObservation as O, RawPhase as P,
     RawSession as S, FIDI_PARAMETERS, RAW_APDU_BUDGET_MS, RAW_BWT_MS, RAW_COMMAND_BUDGET_MS,
-    RAW_MAX_COMMANDS, RAW_MAX_EVENTS, RAW_MAX_OUTGOING_TPDU_BYTES, RAW_MAX_RECEIVED_BYTES,
-    RAW_MAX_TIME_EXTENSIONS, RAW_MAX_WTX_MULTIPLIER, REGISTERED_ATR,
+    RAW_MAX_COMMANDS, RAW_MAX_EVENTS, RAW_MAX_OBSERVATIONS, RAW_MAX_OUTGOING_TPDU_BYTES,
+    RAW_MAX_RECEIVED_BYTES, RAW_MAX_TIME_EXTENSIONS, RAW_MAX_WTX_MULTIPLIER, REGISTERED_ATR,
 };
 
 const IFS: [u8; 5] = [0, 0xc1, 1, 0xfe, 0x3e];
@@ -923,4 +923,65 @@ fn semantically_rejected_reply_retains_verified_frame_span() {
         })
     );
     assert_eq!(session.reply_evidence().unwrap().sequence, 7);
+}
+
+#[test]
+fn fixed_observation_storage_accepts_576_and_rejects_577_before_storage_mutation() {
+    assert_eq!(RAW_MAX_OBSERVATIONS, RAW_MAX_COMMANDS + RAW_MAX_EVENTS);
+    assert_eq!(RAW_MAX_OBSERVATIONS, 576);
+    let mut session = ready();
+    assert_eq!(session.observations().len(), 5);
+
+    for _ in 0..506 {
+        session.begin_apdu(0).unwrap();
+        let request = session.begin_transfer(&TPDU, 0, 0).unwrap();
+        session.written(request.as_bytes().len(), 0).unwrap();
+        session
+            .receive(&response(0x80, session.sequence(), 0, 0, 0, &TPDU), 0)
+            .unwrap();
+        session.end_apdu(0).unwrap();
+    }
+    assert_eq!(
+        (session.requests(), session.observations().len()),
+        (511, 511)
+    );
+
+    session.begin_apdu(0).unwrap();
+    let request = session.begin_transfer(&TPDU, 0, 0).unwrap();
+    session.written(request.as_bytes().len(), 0).unwrap();
+    for _ in 0..RAW_MAX_EVENTS {
+        session.receive(&[0x50, 3], 0).unwrap();
+    }
+    assert_eq!((session.events(), session.observations().len()), (64, 575));
+    session.receive(&extension(&session, 1), 0).unwrap();
+    assert_eq!(session.observations().len(), RAW_MAX_OBSERVATIONS);
+    assert_eq!(session.time_extension_count(), 1);
+
+    let responses = session.responses();
+    let events = session.events();
+    let time_extensions = session.time_extension_count();
+    let ordinal = session.ordinal();
+    let sequence = session.sequence();
+    let reply_evidence = session.reply_evidence().unwrap().clone();
+    let reply_span = session.last_reply_span();
+    let received_before = session.received_bytes();
+    let final_frame = response(0x80, session.sequence(), 0, 0, 0, &TPDU);
+    assert_eq!(
+        session.receive(&final_frame, 0),
+        Err(E::CommandLimitExceeded)
+    );
+    assert_eq!(session.observations().len(), RAW_MAX_OBSERVATIONS);
+    assert_eq!(session.responses(), responses);
+    assert_eq!(session.events(), events);
+    assert_eq!(session.time_extension_count(), time_extensions);
+    assert_eq!(session.ordinal(), ordinal);
+    assert_eq!(session.sequence(), sequence);
+    assert_eq!(session.reply_evidence(), Some(&reply_evidence));
+    assert_eq!(session.last_reply_span(), reply_span);
+    assert_eq!(
+        session.received_bytes(),
+        received_before + final_frame.len()
+    );
+    assert_eq!(session.phase(), P::Failed);
+    assert_eq!(session.failure(), Some(E::CommandLimitExceeded));
 }
