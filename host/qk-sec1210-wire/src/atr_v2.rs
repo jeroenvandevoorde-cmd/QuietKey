@@ -4,8 +4,8 @@ use crate::codec::{FixedMessage, Response};
 use crate::wipe;
 use crate::{Decoder, Error, MAX_WIRE_BYTES};
 
-/// Largest complete ATR accepted by the production profile.
-pub const MAX_PRODUCTION_ATR_BYTES: usize = 15;
+/// ISO/IEC 7816-3 maximum: TS plus at most 32 following ATR bytes.
+pub const MAX_PRODUCTION_ATR_BYTES: usize = 33;
 
 const DIRECT_CONVENTION: u8 = 0x3b;
 const REQUIRED_FIDI: u8 = 0x18;

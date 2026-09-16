@@ -15,6 +15,12 @@ fn changed(index: usize, value: u8) -> Vec<u8> {
     atr
 }
 
+fn with_tck<const N: usize>(mut atr: [u8; N]) -> [u8; N] {
+    let last = atr.len() - 1;
+    atr[last] = atr[1..last].iter().fold(0u8, |sum, byte| sum ^ byte);
+    atr
+}
+
 #[test]
 fn registered_and_distinct_structural_profiles_pass() {
     assert_eq!(validate_production_atr(&REGISTERED_ATR), Ok(()));
@@ -22,6 +28,44 @@ fn registered_and_distinct_structural_profiles_pass() {
     assert_eq!(validate_production_atr(&STRUCTURAL_ALTERNATIVE), Ok(()));
     assert_eq!(
         validate_production_atr(&TA2_IFSC_SPOOF),
+        Err(Sec1210AtrProfileRejected)
+    );
+}
+
+#[test]
+fn iso_maximum_is_structural_and_not_the_registered_atr_length() {
+    let registered_plus_historical = with_tck([
+        0x3b, 0xd6, 0x18, 0xff, 0x81, 0x91, 0xfe, 0x1f, 0xc3, 0x80, 0x73, 0xc8, 0x21, 0x10, 0x42,
+        0x00,
+    ]);
+    assert_eq!(validate_production_atr(&REGISTERED_ATR), Ok(()));
+    assert_eq!(validate_production_atr(&registered_plus_historical), Ok(()));
+
+    let explicit_lrc_tc3 = with_tck([
+        0x3b, 0x96, 0x18, 0x81, 0xd1, 0xfe, 0x00, 0x1f, 0x02, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+        0x00,
+    ]);
+    let mut explicit_crc_tc3 = explicit_lrc_tc3;
+    explicit_crc_tc3[6] = 0x01;
+    explicit_crc_tc3 = with_tck(explicit_crc_tc3);
+    assert_eq!(validate_production_atr(&explicit_lrc_tc3), Ok(()));
+    assert_eq!(
+        validate_production_atr(&explicit_crc_tc3),
+        Err(Sec1210AtrProfileRejected)
+    );
+
+    let maximum = with_tck([
+        0x3b, 0xff, 0x18, 0x00, 0xff, 0x81, 0xf1, 0xfe, 0x00, 0x00, 0xd1, 0x00, 0x00, 0x7f, 0x02,
+        0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+        0x0d, 0x0e, 0x00,
+    ]);
+    assert_eq!(maximum.len(), MAX_PRODUCTION_ATR_BYTES);
+    assert_eq!(validate_production_atr(&maximum), Ok(()));
+
+    let mut maximum_plus_one = [0u8; MAX_PRODUCTION_ATR_BYTES + 1];
+    maximum_plus_one[..MAX_PRODUCTION_ATR_BYTES].copy_from_slice(&maximum);
+    assert_eq!(
+        validate_production_atr(&maximum_plus_one),
         Err(Sec1210AtrProfileRejected)
     );
 }
