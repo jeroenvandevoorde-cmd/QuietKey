@@ -8,7 +8,7 @@
 use crate::wipe;
 use qk_sec1210_wire::{
     validate_production_atr, Error as WireError, ProductionDecoder, ProductionMessageKind,
-    ProductionRequest, ProductionResponse, MAX_WIRE_BYTES,
+    ProductionRequest, ProductionResponse, MAX_PRODUCTION_ATR_BYTES, MAX_WIRE_BYTES,
 };
 use qk_t1::{Error as T1Error, Phase as T1Phase, RawError as T1RawError, RawSession as T1Session};
 
@@ -24,8 +24,9 @@ pub const QK_LIM_APDU_015_MAX_WTX_PER_APDU: usize = 8;
 pub const QK_LIM_APDU_016_MAX_TIME_EXTENSIONS_PER_APDU: usize = 8;
 /// QK-LIM-APDU-017: 5 setup commands plus 108 times 9 APDU commands.
 pub const QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS: usize = 977;
-/// QK-LIM-APDU-018: 52,519 compositional bytes plus 278 diagnostic bytes.
-pub const QK_LIM_APDU_018_MAX_RECEIVED_BYTES: usize = 52_797;
+/// QK-LIM-APDU-018: compositional receive envelope plus terminal diagnostics.
+pub const QK_LIM_APDU_018_MAX_RECEIVED_BYTES: usize =
+    PRE_HEADROOM_RECEIVED_BYTES + TERMINAL_DIAGNOSTIC_BYTES;
 /// QK-LIM-APDU-019: base wait for one controller command.
 pub const QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS: u64 = 5_000;
 /// QK-LIM-APDU-020: absolute deadline for one application APDU.
@@ -37,10 +38,27 @@ const MAX_EVENTS: usize = 64;
 const MAX_CONTROLLER_COMMANDS_PER_APDU: usize = 1 + QK_LIM_APDU_015_MAX_WTX_PER_APDU;
 const MAX_APPLICATION_COMMAND_BYTES: usize = qk_card_protocol::MAX_REQUEST_BYTES;
 const MAX_APPLICATION_RESPONSE_BYTES: usize = qk_card_protocol::MAX_RESPONSE_BYTES;
-const SETUP_RECEIVED_BYTES: usize = 13 + 28 + 20 + 20 + 18;
-const FINAL_APPLICATION_RESPONSE_BYTES: usize = 235;
-const WTX_RESPONSE_BYTES: usize = 18;
-const TIME_EXTENSION_RESPONSE_BYTES: usize = 13;
+const CONTROLLER_RESPONSE_OVERHEAD_BYTES: usize = 13;
+const T1_BLOCK_OVERHEAD_BYTES: usize = 4;
+const T1_CONTROL_INF_BYTES: usize = 1;
+const SLOT_STATUS_RESPONSE_BYTES: usize = CONTROLLER_RESPONSE_OVERHEAD_BYTES;
+const POWER_ON_RESPONSE_BYTES: usize = 13 + MAX_PRODUCTION_ATR_BYTES;
+const GET_PARAMETERS_RESPONSE_BYTES: usize =
+    CONTROLLER_RESPONSE_OVERHEAD_BYTES + FIDI_PARAMETERS.len();
+const SET_PARAMETERS_RESPONSE_BYTES: usize =
+    CONTROLLER_RESPONSE_OVERHEAD_BYTES + FIDI_PARAMETERS.len();
+const IFS_RESPONSE_BYTES: usize =
+    CONTROLLER_RESPONSE_OVERHEAD_BYTES + T1_BLOCK_OVERHEAD_BYTES + T1_CONTROL_INF_BYTES;
+const SETUP_RECEIVED_BYTES: usize = SLOT_STATUS_RESPONSE_BYTES
+    + POWER_ON_RESPONSE_BYTES
+    + GET_PARAMETERS_RESPONSE_BYTES
+    + SET_PARAMETERS_RESPONSE_BYTES
+    + IFS_RESPONSE_BYTES;
+const FINAL_APPLICATION_RESPONSE_BYTES: usize =
+    CONTROLLER_RESPONSE_OVERHEAD_BYTES + T1_BLOCK_OVERHEAD_BYTES + MAX_APPLICATION_RESPONSE_BYTES;
+const WTX_RESPONSE_BYTES: usize =
+    CONTROLLER_RESPONSE_OVERHEAD_BYTES + T1_BLOCK_OVERHEAD_BYTES + T1_CONTROL_INF_BYTES;
+const TIME_EXTENSION_RESPONSE_BYTES: usize = CONTROLLER_RESPONSE_OVERHEAD_BYTES;
 const EVENT_RECORD_BYTES: usize = 4;
 const PRE_HEADROOM_RECEIVED_BYTES: usize = SETUP_RECEIVED_BYTES
     + MAX_APPLICATION_APDUS
@@ -57,18 +75,11 @@ const _: () = assert!(QK_LIM_APDU_014_MAX_WTX_MULTIPLIER == qk_t1::RAW_MAX_WTX_M
 const _: () = assert!(QK_LIM_APDU_015_MAX_WTX_PER_APDU == qk_t1::RAW_MAX_WTX);
 const _: () = assert!(QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS == qk_t1::RAW_BASE_COMMAND_BUDGET_MS);
 const _: () = assert!(QK_LIM_APDU_020_APDU_DEADLINE_MS == qk_t1::RAW_APDU_BUDGET_MS);
-const _: () = assert!(SETUP_COMMANDS == 5);
-const _: () = assert!(MAX_APPLICATION_APDUS == 108);
 const _: () = assert!(
     QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS
         == SETUP_COMMANDS + MAX_APPLICATION_APDUS * MAX_CONTROLLER_COMMANDS_PER_APDU
 );
-const _: () = assert!(SETUP_RECEIVED_BYTES == 99);
-const _: () = assert!(PRE_HEADROOM_RECEIVED_BYTES == 52_519);
-const _: () = assert!(TERMINAL_DIAGNOSTIC_BYTES == 278);
-const _: () = assert!(
-    QK_LIM_APDU_018_MAX_RECEIVED_BYTES == PRE_HEADROOM_RECEIVED_BYTES + TERMINAL_DIAGNOSTIC_BYTES
-);
+const _: () = assert!(QK_LIM_APDU_018_MAX_RECEIVED_BYTES == 52_815);
 
 /// Fieldless descriptor failure supplied by the trusted platform adapter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1062,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn receive_limit_accepts_exact_capacity_and_rejects_byte_52798() {
+    fn receive_limit_accepts_exact_capacity_and_rejects_byte_52816() {
         let mut transport = Sec1210TransportV2::new(NoDescriptor, NoClock);
         transport.received_bytes = QK_LIM_APDU_018_MAX_RECEIVED_BYTES - 1;
         assert_eq!(transport.accept_received_bytes(1), Ok(()));

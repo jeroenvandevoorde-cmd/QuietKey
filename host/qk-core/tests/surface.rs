@@ -138,7 +138,7 @@ fn sec1210_production_public_surface_and_backend_boundary_are_exact() {
             "pub const QK_LIM_APDU_015_MAX_WTX_PER_APDU: usize = 8;",
             "pub const QK_LIM_APDU_016_MAX_TIME_EXTENSIONS_PER_APDU: usize = 8;",
             "pub const QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS: usize = 977;",
-            "pub const QK_LIM_APDU_018_MAX_RECEIVED_BYTES: usize = 52_797;",
+            "pub const QK_LIM_APDU_018_MAX_RECEIVED_BYTES: usize =",
             "pub const QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS: u64 = 5_000;",
             "pub const QK_LIM_APDU_020_APDU_DEADLINE_MS: u64 = 30_000;",
             "pub struct Sec1210DescriptorErrorV2;",
@@ -152,6 +152,9 @@ fn sec1210_production_public_surface_and_backend_boundary_are_exact() {
             "pub struct Sec1210TransportV2<D, C> {",
         ]
     );
+    assert!(SEC1210_TRANSPORT.contains(
+        "pub const QK_LIM_APDU_018_MAX_RECEIVED_BYTES: usize =\n    PRE_HEADROOM_RECEIVED_BYTES + TERMINAL_DIAGNOSTIC_BYTES;"
+    ));
     for required in [
         "fn write(",
         "maximum_wait_ms: u64,",

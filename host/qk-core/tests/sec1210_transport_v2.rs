@@ -9,6 +9,7 @@ use qk_core::{
     QK_LIM_APDU_018_MAX_RECEIVED_BYTES, QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS,
     QK_LIM_APDU_020_APDU_DEADLINE_MS,
 };
+use qk_sec1210_wire::MAX_PRODUCTION_ATR_BYTES;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -199,6 +200,12 @@ fn replace_checked_byte(frame: &mut [u8], index: usize, value: u8) {
         .fold(0u8, |current, byte| current ^ byte);
 }
 
+fn with_tck<const N: usize>(mut atr: [u8; N]) -> [u8; N] {
+    let last = atr.len() - 1;
+    atr[last] = atr[1..last].iter().fold(0u8, |sum, byte| sum ^ byte);
+    atr
+}
+
 fn data(sequence: u8, payload: &[u8]) -> Vec<u8> {
     response(0x80, sequence, 0, 0, 0, payload)
 }
@@ -282,7 +289,7 @@ fn production_limits_and_exact_five_initialization_writes_are_pinned() {
     assert_eq!(QK_LIM_APDU_015_MAX_WTX_PER_APDU, 8);
     assert_eq!(QK_LIM_APDU_016_MAX_TIME_EXTENSIONS_PER_APDU, 8);
     assert_eq!(QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS, 977);
-    assert_eq!(QK_LIM_APDU_018_MAX_RECEIVED_BYTES, 52_797);
+    assert_eq!(QK_LIM_APDU_018_MAX_RECEIVED_BYTES, 52_815);
     assert_eq!(QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS, 5_000);
     assert_eq!(QK_LIM_APDU_020_APDU_DEADLINE_MS, 30_000);
 
@@ -326,6 +333,26 @@ fn structural_atr_profile_is_not_a_registered_byte_pin() {
         transport.initialize(),
         Err(CardTransportErrorV2::Sec1210AtrProfileRejected)
     );
+}
+
+#[test]
+fn maximum_structural_atr_drives_the_setup_receive_bound() {
+    let atr = with_tck([
+        0x3b, 0xff, 0x18, 0x00, 0xff, 0x81, 0xf1, 0xfe, 0x00, 0x00, 0xd1, 0x00, 0x00, 0x7f, 0x02,
+        0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+        0x0d, 0x0e, 0x00,
+    ]);
+    assert_eq!(atr.len(), MAX_PRODUCTION_ATR_BYTES);
+    let trace = WriteTrace::new();
+    let descriptor = MockDescriptor::new(initialization_reads_with_atr(&atr), trace.clone());
+    let mut transport = Sec1210TransportV2::new(descriptor, StepClock::ticking());
+
+    assert_eq!(transport.initialize(), Ok(()));
+    assert_eq!(transport.controller_command_count(), 5);
+    assert_eq!(transport.received_byte_count(), 117);
+    assert_eq!(transport.event_count(), 0);
+    assert_eq!(transport.failure(), None);
+    assert_eq!(trace.values().len(), 5);
 }
 
 #[test]
