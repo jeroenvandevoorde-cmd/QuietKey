@@ -15,6 +15,7 @@ const NORMAL_PROCESS: &str = include_str!("../src/normal_process_v2.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const PROCESS: &str = include_str!("../src/process.rs");
 const PROCESS_BIN: &str = include_str!("../src/bin/qk-core-host.rs");
+const SEC1210_TRANSPORT: &str = include_str!("../src/sec1210_transport_v2.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
 const SETUP: &str = include_str!("../src/setup_v2.rs");
@@ -36,11 +37,11 @@ fn direct_product_and_dev_dependencies_are_exact() {
     assert_eq!(CARGO.matches(binary).count(), 1);
     assert_eq!(
         cargo_section(CARGO, "[features]", Some("[dependencies]")).trim(),
-        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nlegacy-normal-factor-fixture = [\"qk-device-wire/legacy-normal-factor-fixture\"]\nnormal-process = [\n    \"normal-v3\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]"
+        "default = [\"normal-v3\", \"kit-v3\"]\nfuzzing = [\"normal-v3\", \"kit-v3\", \"qk-ipc/fuzzing\"]\nhost-runtime = [\"qk-ipc/host-runtime\", \"normal-process\"]\nlegacy-normal-factor-fixture = [\n    \"dep:qk-device-wire\",\n    \"qk-device-wire/legacy-normal-factor-fixture\",\n]\nnormal-process = [\n    \"normal-v3\",\n    \"dep:qk-device-wire\",\n    \"qk-secp/card-signature-normalization\",\n]\nnormal-v3 = [\"qk-psbt/normal-v3\", \"qk-wallet-v2/normal-v3\"]\nkit-v3 = [\"normal-v3\", \"qk-kit/process-v3\"]\nsec1210-production = [\"dep:qk-sec1210-wire\", \"dep:qk-t1\"]"
     );
     assert_eq!(
         cargo_section(CARGO, "[dependencies]", Some("[dev-dependencies]")).trim(),
-        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-bip32 = { path = \"../qk-bip32\" }\nqk-card-protocol = { path = \"../qk-card-protocol\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\" }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-secp = { path = \"../qk-secp\" }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
+        "qk-a1 = { path = \"../qk-a1\" }\nqk-bbqr = { path = \"../qk-bbqr\" }\nqk-bip32 = { path = \"../qk-bip32\" }\nqk-card-protocol = { path = \"../qk-card-protocol\" }\nqk-descriptor = { path = \"../qk-descriptor\" }\nqk-device-wire = { path = \"../qk-device-wire\", optional = true }\nqk-ipc = { path = \"../qk-ipc\" }\nqk-kit = { path = \"../qk-kit\" }\nqk-psbt = { path = \"../qk-psbt\" }\nqk-provisioning = { path = \"../qk-provisioning\" }\nqk-secp = { path = \"../qk-secp\" }\nqk-sec1210-wire = { path = \"../qk-sec1210-wire\", optional = true }\nqk-t1 = { path = \"../qk-t1\", optional = true }\nqk-wallet-v2 = { path = \"../qk-wallet-v2\" }"
     );
     assert_eq!(
         cargo_section(CARGO, "[dev-dependencies]", None).trim(),
@@ -110,6 +111,110 @@ fn normal_and_kit_modules_and_exports_are_feature_locked() {
 }
 
 #[test]
+fn sec1210_production_module_and_exports_are_feature_locked() {
+    let module = "#[cfg(feature = \"sec1210-production\")]\nmod sec1210_transport_v2;";
+    let exports = "#[cfg(feature = \"sec1210-production\")]\npub use sec1210_transport_v2::{\n    CardTransportErrorV2, CardTransportResponseV2, Sec1210ClockErrorV2, Sec1210DescriptorErrorV2,\n    Sec1210DescriptorReadV2, Sec1210DescriptorV2, Sec1210DescriptorWriteV2,\n    Sec1210MonotonicClockV2, Sec1210TransportV2, QK_LIM_APDU_012_COMMAND_INF_BYTES,\n    QK_LIM_APDU_013_RESPONSE_INF_BYTES, QK_LIM_APDU_014_MAX_WTX_MULTIPLIER,\n    QK_LIM_APDU_015_MAX_WTX_PER_APDU, QK_LIM_APDU_016_MAX_TIME_EXTENSIONS_PER_APDU,\n    QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS, QK_LIM_APDU_018_MAX_RECEIVED_BYTES,\n    QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS, QK_LIM_APDU_020_APDU_DEADLINE_MS,\n};";
+    assert_eq!(LIB.matches(module).count(), 1);
+    assert_eq!(LIB.matches(exports).count(), 1);
+    assert_eq!(
+        LIB.matches("#[cfg(feature = \"sec1210-production\")]")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn sec1210_production_public_surface_and_backend_boundary_are_exact() {
+    let public_declarations: Vec<&str> = SEC1210_TRANSPORT
+        .lines()
+        .filter(|line| line.starts_with("pub "))
+        .collect();
+    assert_eq!(
+        public_declarations,
+        [
+            "pub const QK_LIM_APDU_012_COMMAND_INF_BYTES: usize = 254;",
+            "pub const QK_LIM_APDU_013_RESPONSE_INF_BYTES: usize = 254;",
+            "pub const QK_LIM_APDU_014_MAX_WTX_MULTIPLIER: u8 = 24;",
+            "pub const QK_LIM_APDU_015_MAX_WTX_PER_APDU: usize = 8;",
+            "pub const QK_LIM_APDU_016_MAX_TIME_EXTENSIONS_PER_APDU: usize = 8;",
+            "pub const QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS: usize = 977;",
+            "pub const QK_LIM_APDU_018_MAX_RECEIVED_BYTES: usize = 52_797;",
+            "pub const QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS: u64 = 5_000;",
+            "pub const QK_LIM_APDU_020_APDU_DEADLINE_MS: u64 = 30_000;",
+            "pub struct Sec1210DescriptorErrorV2;",
+            "pub struct Sec1210ClockErrorV2;",
+            "pub enum Sec1210DescriptorReadV2 {",
+            "pub enum Sec1210DescriptorWriteV2 {",
+            "pub trait Sec1210DescriptorV2 {",
+            "pub trait Sec1210MonotonicClockV2 {",
+            "pub enum CardTransportErrorV2 {",
+            "pub struct CardTransportResponseV2 {",
+            "pub struct Sec1210TransportV2<D, C> {",
+        ]
+    );
+    for required in [
+        "fn write(",
+        "maximum_wait_ms: u64,",
+        ") -> Result<Sec1210DescriptorWriteV2, Sec1210DescriptorErrorV2>;",
+        "fn read(",
+        "fn now_ms(&mut self) -> Result<u64, Sec1210ClockErrorV2>;",
+    ] {
+        assert!(
+            SEC1210_TRANSPORT.contains(required),
+            "missing descriptor or clock grant surface {required}"
+        );
+    }
+    for forbidden in [
+        "qk_device_wire",
+        "qk-device-wire",
+        "QKDV",
+        "qk_bip32",
+        "qk_card_trace",
+        "qk_host_model",
+        "qk_host_sim",
+        "qk_io::",
+        "qk_update",
+        "MessageKind::Card",
+        "CardApduRequest",
+        "CardApduResponse",
+        "NormalDeviceRuntime",
+        "run_normal_core_host_process",
+        "process::",
+        "fallback",
+        "SecretKey",
+        "PrivateKey",
+        "SigningKey",
+        "Vec<",
+        "Box<",
+        "/dev/",
+        "ttyAMA",
+        "stty",
+        "GPIO",
+        "pinctrl",
+        "std::fs",
+        "std::os",
+        "std::process",
+        "Command::new",
+        "UnixStream",
+        "UnixListener",
+        "TcpStream",
+        "UdpSocket",
+        "recvmsg(",
+        "sendmsg(",
+        "println!",
+        "eprintln!",
+        "dbg!",
+        "unsafe {",
+        "extern \"C\"",
+    ] {
+        assert!(
+            !SEC1210_TRANSPORT.contains(forbidden),
+            "production SEC1210 transport contains forbidden backend token {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
     let public_lines: Vec<&str> = LIB
         .lines()
@@ -133,6 +238,7 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
             "pub use normal_v2::{",
             "pub use process::{run_core_host_process, run_normal_core_host_process, CoreHostProcessError};",
             "pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};",
+            "pub use sec1210_transport_v2::{",
             "pub use session::{",
             "pub use setup_v2::{",
             "pub const INNER_VERSION: u8 = 1;",
@@ -672,6 +778,24 @@ fn every_public_method_entry_is_pinned() {
         "#[cfg(any(test, feature = \"legacy-normal-factor-fixture\"))]\n    pub fn reject_card("
     ));
     assert_eq!(
+        public_methods(SEC1210_TRANSPORT),
+        [
+            "pub const fn name(self) -> &'static str {",
+            "pub fn bytes(&self) -> &[u8] {",
+            "pub fn new(descriptor: D, clock: C) -> Self {",
+            "pub const fn failure(&self) -> Option<CardTransportErrorV2> {",
+            "pub const fn controller_command_count(&self) -> usize {",
+            "pub const fn received_byte_count(&self) -> usize {",
+            "pub const fn event_count(&self) -> usize {",
+            "pub const fn application_apdu_count(&self) -> usize {",
+            "pub const fn reader_time_extension_count(&self) -> usize {",
+            "pub fn wtx_count(&self) -> usize {",
+            "pub fn initialize(&mut self) -> Result<(), CardTransportErrorV2> {",
+            "pub fn transmit_apdu(",
+            "pub fn reset(&mut self) {",
+        ]
+    );
+    assert_eq!(
         public_methods(SESSION),
         [
             "pub const fn consumed(&self) -> usize {",
@@ -943,6 +1067,7 @@ fn unsafe_is_confined_to_the_existing_volatile_wipe_module() {
     assert!(!NORMAL_ARTIFACT.contains("unsafe {"));
     assert!(!NORMAL_PROCESS.contains("unsafe {"));
     assert!(!NORMAL.contains("unsafe {"));
+    assert!(!SEC1210_TRANSPORT.contains("unsafe {"));
     assert!(!SESSION.contains("unsafe {"));
     assert!(!SESSION_ID.contains("unsafe {"));
     assert!(!SETUP.contains("unsafe {"));

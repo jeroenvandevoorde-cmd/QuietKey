@@ -38,6 +38,8 @@ mod normal_process_v2;
 mod normal_v2;
 #[cfg(feature = "host-runtime")]
 mod process;
+#[cfg(feature = "sec1210-production")]
+mod sec1210_transport_v2;
 mod session;
 mod session_id;
 mod setup_artifact_v2;
@@ -106,6 +108,16 @@ pub use normal_v2::{
 pub use process::{run_core_host_process, run_normal_core_host_process, CoreHostProcessError};
 #[cfg(feature = "kit-v3")]
 pub use qk_kit::{KitRestoreDispositionV2, SurvivingBFactorV2};
+#[cfg(feature = "sec1210-production")]
+pub use sec1210_transport_v2::{
+    CardTransportErrorV2, CardTransportResponseV2, Sec1210ClockErrorV2, Sec1210DescriptorErrorV2,
+    Sec1210DescriptorReadV2, Sec1210DescriptorV2, Sec1210DescriptorWriteV2,
+    Sec1210MonotonicClockV2, Sec1210TransportV2, QK_LIM_APDU_012_COMMAND_INF_BYTES,
+    QK_LIM_APDU_013_RESPONSE_INF_BYTES, QK_LIM_APDU_014_MAX_WTX_MULTIPLIER,
+    QK_LIM_APDU_015_MAX_WTX_PER_APDU, QK_LIM_APDU_016_MAX_TIME_EXTENSIONS_PER_APDU,
+    QK_LIM_APDU_017_MAX_CONTROLLER_COMMANDS, QK_LIM_APDU_018_MAX_RECEIVED_BYTES,
+    QK_LIM_APDU_019_BASE_COMMAND_WAIT_MS, QK_LIM_APDU_020_APDU_DEADLINE_MS,
+};
 pub use session::{
     CoreMode, CoreOutbound, CoreReceiveEvent, CoreReceiveOutcome, CoreSession, CoreState,
     HostileIngress,

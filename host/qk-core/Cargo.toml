@@ -15,13 +15,18 @@ required-features = ["host-runtime"]
 default = ["normal-v3", "kit-v3"]
 fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]
 host-runtime = ["qk-ipc/host-runtime", "normal-process"]
-legacy-normal-factor-fixture = ["qk-device-wire/legacy-normal-factor-fixture"]
+legacy-normal-factor-fixture = [
+    "dep:qk-device-wire",
+    "qk-device-wire/legacy-normal-factor-fixture",
+]
 normal-process = [
     "normal-v3",
+    "dep:qk-device-wire",
     "qk-secp/card-signature-normalization",
 ]
 normal-v3 = ["qk-psbt/normal-v3", "qk-wallet-v2/normal-v3"]
 kit-v3 = ["normal-v3", "qk-kit/process-v3"]
+sec1210-production = ["dep:qk-sec1210-wire", "dep:qk-t1"]
 
 [dependencies]
 qk-a1 = { path = "../qk-a1" }
@@ -29,12 +34,14 @@ qk-bbqr = { path = "../qk-bbqr" }
 qk-bip32 = { path = "../qk-bip32" }
 qk-card-protocol = { path = "../qk-card-protocol" }
 qk-descriptor = { path = "../qk-descriptor" }
-qk-device-wire = { path = "../qk-device-wire" }
+qk-device-wire = { path = "../qk-device-wire", optional = true }
 qk-ipc = { path = "../qk-ipc" }
 qk-kit = { path = "../qk-kit" }
 qk-psbt = { path = "../qk-psbt" }
 qk-provisioning = { path = "../qk-provisioning" }
 qk-secp = { path = "../qk-secp" }
+qk-sec1210-wire = { path = "../qk-sec1210-wire", optional = true }
+qk-t1 = { path = "../qk-t1", optional = true }
 qk-wallet-v2 = { path = "../qk-wallet-v2" }
 
 [dev-dependencies]

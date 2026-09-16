@@ -1,6 +1,7 @@
 //! QK-DEC-167: mock-first status/ATR framing, not an APDU transport.
 #![deny(unsafe_code)]
 
+mod atr_v2;
 mod codec;
 mod exchange;
 mod raw_session;
@@ -8,6 +9,11 @@ mod readback;
 #[allow(unsafe_code)]
 mod wipe;
 
+pub use atr_v2::{
+    validate_production_atr, ProductionDecoder, ProductionMessage, ProductionMessageKind,
+    ProductionRequest, ProductionResponse, Sec1210AtrProfileRejected, MAX_PRODUCTION_ATR_BYTES,
+    MAX_PRODUCTION_TPDU_BYTES,
+};
 pub use codec::{Decoder, Error, Message, Response, MAX_CCID_BYTES, MAX_WIRE_BYTES};
 pub use exchange::{
     Command, Exchange, Observation, Phase, MAX_EVENTS, MAX_RECEIVED_BYTES, RECEIVE_BUDGET_MS,
