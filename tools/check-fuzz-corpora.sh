@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..134/QK-DEC-136/QK-DEC-140/QK-DEC-142/QK-DEC-144/QK-DEC-145/QK-DEC-151/QK-DEC-154/QK-DEC-156/QK-DEC-161 corpus registries.
+# Recompute and verify the partitioned QK-DEC-106/QK-DEC-109..113/QK-DEC-116/QK-DEC-118..134/QK-DEC-136/QK-DEC-140/QK-DEC-142/QK-DEC-144/QK-DEC-145/QK-DEC-151/QK-DEC-154/QK-DEC-156/QK-DEC-161/QK-DEC-169 corpus registries.
 set -u
 
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
@@ -308,11 +308,13 @@ process_s8_new_targets='qk_supervisor_process_lifecycle'
 process_s9_targets='qk_device_wire qk_core_normal_process'
 card_s1_targets='qk_card_protocol qk_card_model qk_device_wire qk_core_normal_process'
 card_s1_new_targets='qk_card_protocol qk_card_model'
-sec1210_r2a_manifest='fuzz/CORPUS-MANIFEST-SEC1210-R2A.tsv'
-sec1210_r2a_campaign='fuzz/CAMPAIGN-036.md'
-sec1210_r2a_target='fuzz/fuzz_targets/qk_sec1210_wire.rs'
-sec1210_r2a_targets='qk_sec1210_wire'
-sec1210_r2a_order='qk_sec1210_wire'
+sec1210_production_manifest='fuzz/CORPUS-MANIFEST-SEC1210-PRODUCTION-V1.tsv'
+sec1210_production_campaign='fuzz/CAMPAIGN-037.md'
+sec1210_historical_manifest='fuzz/CORPUS-MANIFEST-SEC1210-R2A.tsv'
+sec1210_production_wire_target='fuzz/fuzz_targets/qk_sec1210_wire.rs'
+sec1210_production_core_target='fuzz/fuzz_targets/qk_core_sec1210_transport.rs'
+sec1210_production_targets='qk_sec1210_wire qk_core_sec1210_transport'
+sec1210_production_order='qk_sec1210_wire,qk_core_sec1210_transport'
 t1_r2_manifest='fuzz/CORPUS-MANIFEST-T1-R2.tsv'
 t1_r2_campaign='fuzz/CAMPAIGN-036.md'
 t1_r2_target='fuzz/fuzz_targets/qk_t1.rs'
@@ -350,7 +352,7 @@ process_s8_order='qk_supervisor_lifecycle,qk_supervisor_process_lifecycle'
 process_s9_order='qk_device_wire,qk_core_normal_process'
 card_s1_order='qk_card_protocol,qk_card_model,qk_device_wire,qk_core_normal_process'
 
-usage='usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT | --render-card-s1 SOURCE_COMMIT | --render-sec1210-r2a SOURCE_COMMIT | --render-t1-r2 SOURCE_COMMIT]'
+usage='usage: check-fuzz-corpora.sh [--render SOURCE_COMMIT | --render-qk-descriptor SOURCE_COMMIT | --render-qk-psbt-v3 SOURCE_COMMIT | --render-m22 SOURCE_COMMIT | --render-m23 SOURCE_COMMIT | --render-m24 SOURCE_COMMIT | --render-m25 SOURCE_COMMIT | --render-m26 SOURCE_COMMIT | --render-m27 SOURCE_COMMIT | --render-m28 SOURCE_COMMIT | --render-m29 SOURCE_COMMIT | --render-m30 SOURCE_COMMIT | --render-v2-s4 SOURCE_COMMIT | --render-v2-s5 SOURCE_COMMIT | --render-v2-s6 SOURCE_COMMIT | --render-v2-s7 SOURCE_COMMIT | --render-v2-s8 SOURCE_COMMIT | --render-v2-s9 SOURCE_COMMIT | --render-v2-s10 SOURCE_COMMIT | --render-v2-s11 SOURCE_COMMIT | --render-firmware-v1 SOURCE_COMMIT | --render-process-s1 SOURCE_COMMIT | --render-process-s2 SOURCE_COMMIT | --render-process-s3 SOURCE_COMMIT | --render-process-s4 SOURCE_COMMIT | --render-process-s5 SOURCE_COMMIT | --render-process-s6 SOURCE_COMMIT | --render-process-s7 SOURCE_COMMIT | --render-process-s8 SOURCE_COMMIT | --render-process-s9 SOURCE_COMMIT | --render-card-s1 SOURCE_COMMIT | --render-sec1210-production SOURCE_COMMIT | --render-t1-r2 SOURCE_COMMIT]'
 
 # id | report label | manifest version | registration flag | target-source target |
 # manifest-ownership check. This is the single ordered partition registry used
@@ -394,7 +396,7 @@ process_s7|process slice-7|QK-PROCESS-S7-CORPUS-MANIFEST-V1|process_s7_registere
 process_s8|process slice-8|QK-PROCESS-S8-CORPUS-MANIFEST-V1|process_s8_registered||no
 process_s9|process slice-9|QK-PROCESS-S9-CORPUS-MANIFEST-V1|process_s9_registered|qk_core_normal_process|yes
 card_s1|card slice-1|QK-CARD-S1-CORPUS-MANIFEST-V1|card_s1_registered|qk_card_model qk_core_normal_process|no
-sec1210_r2a|SEC1210 R2a|QK-SEC1210-R2A-CORPUS-MANIFEST-V1|sec1210_r2a_registered||yes
+sec1210_production|SEC1210 production|QK-SEC1210-PRODUCTION-V1-CORPUS-MANIFEST-V1|sec1210_production_registered||yes
 t1_r2|T=1 R2|QK-T1-R2-CORPUS-MANIFEST-V1|t1_r2_registered||yes
 PARTITIONS
 
@@ -463,7 +465,7 @@ select_render_mode() {
 --render-process-s8|render_process_s8|process_s8|
 --render-process-s9|render_process_s9|process_s9|
 --render-card-s1|render_card_s1|card_s1|qk_card_model
---render-sec1210-r2a|render_sec1210_r2a|sec1210_r2a|
+--render-sec1210-production|render_sec1210_production|sec1210_production|
 --render-t1-r2|render_t1_r2|t1_r2|
 RENDER_MODES
   [ -n "$mode" ] || fail "$usage"
@@ -487,17 +489,17 @@ case "$#" in
   *) fail "$usage" ;;
 esac
 
-# QK-DEC-167 independent pre-campaign renderer; old partitions are untouched.
-if [ "$mode" = render_sec1210_r2a ]; then
-  sec1210_r2a_entries=$(mktemp) || fail 'mktemp failed for SEC1210 entries'
-  sec1210_r2a_expected=$(mktemp) || fail 'mktemp failed for SEC1210 manifest'
-  target_tmp=$(mktemp) || fail 'mktemp failed for SEC1210 target entries'
-  trap 'rm -f "$sec1210_r2a_entries" "$sec1210_r2a_expected" "$target_tmp"' EXIT HUP INT TERM
-  emit_partition_entries "$sec1210_r2a_targets" "$sec1210_r2a_entries"
-  render_partition 'QK-SEC1210-R2A-CORPUS-MANIFEST-V1' "$render_source" \
-    "$sec1210_r2a_targets" "$sec1210_r2a_order" "$sec1210_r2a_entries" \
-    "$sec1210_r2a_expected"
-  sed -n 'p' "$sec1210_r2a_expected"
+# QK-DEC-169 independent pre-campaign renderer; historical evidence remains frozen.
+if [ "$mode" = render_sec1210_production ]; then
+  sec1210_production_entries=$(mktemp) || fail 'mktemp failed for production SEC1210 entries'
+  sec1210_production_expected=$(mktemp) || fail 'mktemp failed for production SEC1210 manifest'
+  target_tmp=$(mktemp) || fail 'mktemp failed for production SEC1210 target entries'
+  trap 'rm -f "$sec1210_production_entries" "$sec1210_production_expected" "$target_tmp"' EXIT HUP INT TERM
+  emit_partition_entries "$sec1210_production_targets" "$sec1210_production_entries"
+  render_partition 'QK-SEC1210-PRODUCTION-V1-CORPUS-MANIFEST-V1' "$render_source" \
+    "$sec1210_production_targets" "$sec1210_production_order" \
+    "$sec1210_production_entries" "$sec1210_production_expected"
+  sed -n 'p' "$sec1210_production_expected"
   exit 0
 fi
 
@@ -583,8 +585,8 @@ if [ "$mode" = render_card_s1 ]; then
   exit 0
 fi
 
-sec1210_r2a_registered=no
-sec1210_r2a_active=no
+sec1210_production_registered=no
+sec1210_production_active=no
 t1_r2_registered=no
 t1_r2_active=no
 firmware_registered=no
@@ -766,27 +768,51 @@ if [ "$mode" = check ]; then
        [ -e "$process_s8_manifest" ] || [ -L "$process_s8_manifest" ]; then
     fail 'process slice-8 evidence exists before its target is tracked'
   fi
-  if git ls-files --error-unmatch -- "$sec1210_r2a_target" >/dev/null 2>&1; then
-    for file in "$sec1210_r2a_target" "$sec1210_r2a_campaign"; do
-      [ -f "$file" ] && [ ! -L "$file" ] || fail "$file is not a regular non-symlink file"
-      git ls-files --error-unmatch -- "$file" >/dev/null 2>&1 || fail "$file is untracked"
-    done
-    sec1210_r2a_active=yes
-    if [ -e "$sec1210_r2a_manifest" ] || [ -L "$sec1210_r2a_manifest" ]; then
-      [ -f "$sec1210_r2a_manifest" ] && [ ! -L "$sec1210_r2a_manifest" ] || \
-        fail "$sec1210_r2a_manifest is not a regular non-symlink file"
-      git ls-files --error-unmatch -- "$sec1210_r2a_manifest" >/dev/null 2>&1 || \
-        fail "$sec1210_r2a_manifest is untracked"
-      grep -Fqx 'Status: EXECUTED — QUALIFYING RUN COMPLETE.' "$sec1210_r2a_campaign" || \
-        fail 'registered SEC1210 corpus requires completed campaign status'
-      sec1210_r2a_registered=yes
-    else
-      grep -Fqx 'Status: PLANNED — NOT EXECUTED.' "$sec1210_r2a_campaign" || \
-        fail 'SEC1210 manifest absent without planned campaign status'
+  sec1210_production_tracked=0
+  for target_path in "$sec1210_production_wire_target" "$sec1210_production_core_target"; do
+    if git ls-files --error-unmatch -- "$target_path" >/dev/null 2>&1; then
+      sec1210_production_tracked=$((sec1210_production_tracked + 1))
+      [ -f "$target_path" ] || fail "$target_path is missing or is not a regular file"
+      [ ! -L "$target_path" ] || fail "$target_path must not be a symlink"
     fi
-  elif [ -e "$sec1210_r2a_campaign" ] || [ -L "$sec1210_r2a_campaign" ] || \
-       [ -e "$sec1210_r2a_manifest" ] || [ -L "$sec1210_r2a_manifest" ]; then
-    fail 'SEC1210 target or evidence set is incomplete'
+  done
+  if [ "$sec1210_production_tracked" = 2 ]; then
+    [ -f "$sec1210_historical_manifest" ] || \
+      fail "$sec1210_historical_manifest is not a regular file"
+    [ ! -L "$sec1210_historical_manifest" ] || \
+      fail "$sec1210_historical_manifest must not be a symlink"
+    git ls-files --error-unmatch -- "$sec1210_historical_manifest" >/dev/null 2>&1 || \
+      fail "$sec1210_historical_manifest is untracked"
+    [ -f "$sec1210_production_campaign" ] || \
+      fail "$sec1210_production_campaign is not a regular file"
+    [ ! -L "$sec1210_production_campaign" ] || \
+      fail "$sec1210_production_campaign must not be a symlink"
+    git ls-files --error-unmatch -- "$sec1210_production_campaign" >/dev/null 2>&1 || \
+      fail "$sec1210_production_campaign is untracked"
+    sec1210_production_active=yes
+    if [ -e "$sec1210_production_manifest" ] || [ -L "$sec1210_production_manifest" ]; then
+      [ -f "$sec1210_production_manifest" ] || \
+        fail "$sec1210_production_manifest is not a regular file"
+      [ ! -L "$sec1210_production_manifest" ] || \
+        fail "$sec1210_production_manifest must not be a symlink"
+      git ls-files --error-unmatch -- "$sec1210_production_manifest" >/dev/null 2>&1 || \
+        fail "$sec1210_production_manifest is untracked"
+      grep -Fqx 'Status: EXECUTED — QUALIFYING RUN COMPLETE.' \
+        "$sec1210_production_campaign" || \
+        fail 'registered production SEC1210 corpus requires completed campaign status'
+      sec1210_production_registered=yes
+    else
+      grep -Fqx 'Status: PLANNED — NOT EXECUTED.' "$sec1210_production_campaign" || \
+        fail 'production SEC1210 manifest absent without planned campaign status'
+    fi
+  elif [ "$sec1210_production_tracked" != 0 ] || \
+       git ls-files --error-unmatch -- "$sec1210_production_campaign" >/dev/null 2>&1 || \
+       git ls-files --error-unmatch -- "$sec1210_production_manifest" >/dev/null 2>&1 || \
+       [ -e "$sec1210_production_core_target" ] || \
+       [ -L "$sec1210_production_core_target" ] || \
+       [ -e "$sec1210_production_campaign" ] || [ -L "$sec1210_production_campaign" ] || \
+       [ -e "$sec1210_production_manifest" ] || [ -L "$sec1210_production_manifest" ]; then
+    fail 'production SEC1210 target or evidence set is incomplete'
   fi
   if git ls-files --error-unmatch -- "$t1_r2_target" >/dev/null 2>&1; then
     for file in "$t1_r2_target" "$t1_r2_campaign"; do
@@ -952,13 +978,13 @@ else
   done
 fi
 
-if [ "$sec1210_r2a_active" = yes ]; then
-  all_targets="$all_targets $sec1210_r2a_targets"
+if [ "$sec1210_production_active" = yes ]; then
+  all_targets="$all_targets $sec1210_production_targets"
 else
-  for target in $sec1210_r2a_targets; do
+  for target in $sec1210_production_targets; do
     if [ -e "fuzz/corpus/$target" ] || [ -L "fuzz/corpus/$target" ] || \
        [ -e "fuzz/findings/$target" ] || [ -L "fuzz/findings/$target" ]; then
-      fail "unregistered SEC1210 corpus or finding root: $target"
+      fail "unregistered production SEC1210 corpus or finding root: $target"
     fi
   done
 fi
@@ -977,7 +1003,8 @@ fi
 [ -d fuzz/corpus ] || fail 'fuzz/corpus is missing or is not a directory'
 [ ! -L fuzz/corpus ] || fail 'fuzz/corpus must not be a symlink'
 unexpected=$(find fuzz/corpus -mindepth 1 -maxdepth 1 \
-  ! -name qk_t1 ! -name qk_sec1210_wire ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
+  ! -name qk_t1 ! -name qk_sec1210_wire ! -name qk_core_sec1210_transport \
+  ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
   ! -name qk_a1_codec ! -name qk_card_trace \
   ! -name qk_bbqr_codec ! -name qk_bbqr_reassembly \
   ! -name qk_psbt_m23 ! -name qk_host_sim_m23 \
@@ -1022,7 +1049,8 @@ fi
 if [ -d fuzz/findings ]; then
   [ ! -L fuzz/findings ] || fail 'fuzz/findings must not be a symlink'
   unexpected=$(find fuzz/findings -mindepth 1 -maxdepth 1 \
-    ! -name qk_t1 ! -name qk_sec1210_wire ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
+    ! -name qk_t1 ! -name qk_sec1210_wire ! -name qk_core_sec1210_transport \
+    ! -name qk_psbt ! -name qk_descriptor ! -name qk_a1 \
     ! -name qk_a1_codec ! -name qk_card_trace \
     ! -name qk_bbqr_codec ! -name qk_bbqr_reassembly \
     ! -name qk_psbt_m23 ! -name qk_host_sim_m23 \
@@ -1064,10 +1092,12 @@ if [ -d fuzz/findings ]; then
   done
 fi
 
-sec1210_r2a_entries=$(mktemp) || fail 'mktemp failed for SEC1210 entries'
-sec1210_r2a_expected=$(mktemp) || fail 'mktemp failed for SEC1210 manifest'
-sec1210_r2a_paths=$(mktemp) || fail 'mktemp failed for SEC1210 paths'
-manifest_sec1210_r2a_paths=$(mktemp) || fail 'mktemp failed for SEC1210 manifest paths'
+sec1210_production_entries=$(mktemp) || fail 'mktemp failed for production SEC1210 entries'
+sec1210_production_expected=$(mktemp) || fail 'mktemp failed for production SEC1210 manifest'
+sec1210_production_paths=$(mktemp) || fail 'mktemp failed for production SEC1210 paths'
+sec1210_historical_entries=$(mktemp) || fail 'mktemp failed for historical SEC1210 entries'
+manifest_sec1210_production_paths=$(mktemp) || \
+  fail 'mktemp failed for production SEC1210 manifest paths'
 t1_r2_entries=$(mktemp) || fail 'mktemp failed for T=1 entries'
 t1_r2_expected=$(mktemp) || fail 'mktemp failed for T=1 manifest'
 t1_r2_paths=$(mktemp) || fail 'mktemp failed for T=1 paths'
@@ -1194,7 +1224,7 @@ manifest_process_s7_paths=$(mktemp) || fail 'mktemp failed for process slice-7 m
 manifest_process_s8_paths=$(mktemp) || fail 'mktemp failed for process slice-8 manifest paths'
 manifest_process_s9_paths=$(mktemp) || fail 'mktemp failed for process slice-9 manifest paths'
 manifest_card_s1_paths=$(mktemp) || fail 'mktemp failed for card slice-1 manifest paths'
-trap 'rm -f "$t1_r2_entries" "$t1_r2_expected" "$t1_r2_paths" "$manifest_t1_r2_paths" "$sec1210_r2a_entries" "$sec1210_r2a_expected" "$sec1210_r2a_paths" "$manifest_sec1210_r2a_paths" "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
+trap 'rm -f "$t1_r2_entries" "$t1_r2_expected" "$t1_r2_paths" "$manifest_t1_r2_paths" "$sec1210_production_entries" "$sec1210_production_expected" "$sec1210_production_paths" "$sec1210_historical_entries" "$manifest_sec1210_production_paths" "$m21_entries" "$m22_entries" "$m21_expected" "$m22_expected" \
   "$m23_entries" "$m23_expected" "$m24_entries" "$m24_expected" \
   "$m25_entries" "$m25_expected" "$m26_entries" "$m26_expected" \
   "$m27_entries" "$m27_expected" "$m28_entries" "$m28_expected" \
@@ -1237,10 +1267,25 @@ trap 'rm -f "$t1_r2_entries" "$t1_r2_expected" "$t1_r2_paths" "$manifest_t1_r2_p
   "$manifest_process_s7_paths" "$manifest_process_s8_paths" \
   "$manifest_process_s9_paths" "$manifest_card_s1_paths"' EXIT HUP INT TERM
 
-if [ "$sec1210_r2a_active" = yes ]; then
-  emit_partition_entries "$sec1210_r2a_targets" "$sec1210_r2a_entries"
+if [ "$sec1210_production_active" = yes ]; then
+  emit_partition_entries "$sec1210_production_targets" "$sec1210_production_entries"
+  awk -F '\t' '$1 == "corpus" && $2 == "qk_sec1210_wire" { print }' \
+    "$sec1210_historical_manifest" > "$sec1210_historical_entries" || \
+    fail 'cannot extract historical SEC1210 corpus entries'
+  historical_count=$(wc -l < "$sec1210_historical_entries" | tr -d ' ')
+  historical_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' \
+    "$sec1210_historical_entries")
+  historical_hash=$(sha256_file "$sec1210_historical_entries") || \
+    fail 'cannot hash historical SEC1210 corpus entries'
+  [ "$historical_count:$historical_bytes:$historical_hash" = \
+    '565:43252:37e77b5c3de454a819ee1e4acb999be21630e8543d9b1b06f6aef02b4689df92' ] || \
+    fail 'historical SEC1210 corpus manifest identity changed'
+  awk 'NR == FNR { current[$0] = 1; next } !($0 in current) { exit 1 }' \
+    "$sec1210_production_entries" "$sec1210_historical_entries" || \
+    fail 'production SEC1210 corpus does not preserve every historical wire entry'
 else
-  : > "$sec1210_r2a_entries" || fail 'cannot initialize SEC1210 entries'
+  : > "$sec1210_production_entries" || \
+    fail 'cannot initialize production SEC1210 entries'
 fi
 if [ "$t1_r2_active" = yes ]; then
   emit_partition_entries "$t1_r2_targets" "$t1_r2_entries"
@@ -1338,12 +1383,16 @@ if [ "$card_s1_active" = yes ] && [ "$card_s1_registered" = no ]; then
     '393:26341:4213ac2a6bb1bbd22cd01bd3fdffb3cda9089c3d3f0ce0f9e025c8d6fd18fce9' ] || \
     fail 'card slice-1 starting corpora do not match the preregistered bytes'
 fi
-if [ "$sec1210_r2a_active" = yes ] && [ "$sec1210_r2a_registered" = no ]; then
-  planned_count=$(wc -l < "$sec1210_r2a_entries" | tr -d ' ')
-  planned_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' "$sec1210_r2a_entries")
-  planned_hash=$(sha256_file "$sec1210_r2a_entries") || fail 'cannot hash SEC1210 starting entries'
-  [ "$planned_count:$planned_bytes:$planned_hash" = '2:33:f75773d19797a686d46d217bc95744ada528ee750dec708b76fd7313267024c3' ] || \
-    fail 'SEC1210 starting corpus differs from its preregistered identity'
+if [ "$sec1210_production_active" = yes ] && \
+   [ "$sec1210_production_registered" = no ]; then
+  planned_count=$(wc -l < "$sec1210_production_entries" | tr -d ' ')
+  planned_bytes=$(awk -F '\t' '{ sum += $3 } END { print sum + 0 }' \
+    "$sec1210_production_entries")
+  planned_hash=$(sha256_file "$sec1210_production_entries") || \
+    fail 'cannot hash production SEC1210 starting entries'
+  [ "$planned_count:$planned_bytes:$planned_hash" = \
+    '590:43328:b4e0e226fb47ee3a8c1b6e37561b8767926e59ccfb76f82c823f2c1641fa90eb' ] || \
+    fail 'production SEC1210 starting corpora differ from their preregistered identity'
 fi
 if [ "$t1_r2_active" = yes ] && [ "$t1_r2_registered" = no ]; then
   planned_count=$(wc -l < "$t1_r2_entries" | tr -d ' ')
@@ -1352,7 +1401,8 @@ if [ "$t1_r2_active" = yes ] && [ "$t1_r2_registered" = no ]; then
   [ "$planned_count:$planned_bytes:$planned_hash" = '2:28:3276696359db695227aeaefb9406cd79dfefe9186332ee7fc3fab1f882d03de8' ] || \
     fail 'T=1 starting corpus differs from its preregistered identity'
 fi
-cut -f 5 "$sec1210_r2a_entries" | LC_ALL=C sort > "$sec1210_r2a_paths" || fail 'cannot list SEC1210 paths'
+cut -f 5 "$sec1210_production_entries" | LC_ALL=C sort > "$sec1210_production_paths" || \
+  fail 'cannot list production SEC1210 paths'
 cut -f 5 "$t1_r2_entries" | LC_ALL=C sort > "$t1_r2_paths" || fail 'cannot list T=1 paths'
 cut -f 5 "$m21_entries" | LC_ALL=C sort > "$m21_paths" || fail 'cannot list M21 corpus paths'
 cut -f 5 "$m22_entries" | LC_ALL=C sort > "$m22_paths" || fail 'cannot list M22 corpus paths'
@@ -1402,7 +1452,7 @@ cut -f 5 "$process_s9_entries" | LC_ALL=C sort > "$process_s9_paths" || \
   fail 'cannot list process slice-9 corpus paths'
 cut -f 5 "$card_s1_new_entries" | LC_ALL=C sort > "$card_s1_paths" || \
   fail 'cannot list card slice-1 corpus paths'
-cat "$t1_r2_paths" "$sec1210_r2a_paths" "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
+cat "$t1_r2_paths" "$sec1210_production_paths" "$m21_paths" "$m22_paths" "$m23_paths" "$m24_paths" "$m25_paths" \
   "$m26_paths" "$m27_paths" "$m28_paths" "$m29_paths" "$m30_paths" \
   "$v2s4_paths" "$v2s5_paths" "$v2s6_paths" "$v2s7_paths" "$v2s8_paths" \
   "$v2s9_paths" "$v2s10_paths" "$v2s11_paths" "$firmware_paths" \

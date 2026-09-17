@@ -4,7 +4,8 @@ set -eu
 [ "$#" = 1 ] || { printf 'usage: %s TARGET\n' "$0" >&2; exit 2; }
 target=$1
 case "$target" in
-  qk_sec1210_wire) max_len=4096; seed=167012 ;;
+  qk_sec1210_wire) max_len=4096; seed=169001 ;;
+  qk_core_sec1210_transport) max_len=65536; seed=169002 ;;
   qk_t1) max_len=8192; seed=167011 ;;
   qk_psbt) max_len=4096; seed=21001 ;;
   qk_descriptor) max_len=891; seed=21002 ;;
@@ -83,6 +84,9 @@ export CARGO_NET_OFFLINE=true
 case "$target" in
   qk_sec1210_wire)
     set -- --no-default-features --features sec1210-wire "$target" "fuzz/corpus/$target"
+    ;;
+  qk_core_sec1210_transport)
+    set -- --no-default-features --features sec1210-production "$target" "fuzz/corpus/$target"
     ;;
   qk_t1)
     set -- --no-default-features --features t1-readback "$target" "fuzz/corpus/$target"

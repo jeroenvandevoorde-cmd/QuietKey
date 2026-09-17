@@ -38,6 +38,8 @@ profile_flags=$(awk '
 
 [ "$(grep -Fxc 'sec1210-wire = ["dep:qk-sec1210-wire"]' fuzz/Cargo.toml)" = 1 ] || \
   fail 'sec1210-wire fuzz feature is not declared exactly once in canonical form'
+[ "$(grep -Fxc 'sec1210-production = ["dep:qk-core", "qk-core/sec1210-production"]' fuzz/Cargo.toml)" = 1 ] || \
+  fail 'sec1210-production fuzz feature is not declared exactly once in canonical form'
 [ "$(grep -Fxc 't1-readback = ["dep:qk-sec1210-wire", "dep:qk-t1"]' fuzz/Cargo.toml)" = 1 ] || \
   fail 't1-readback fuzz feature is not declared exactly once in canonical form'
 
@@ -148,6 +150,9 @@ if ! awk '
     } else if (name == "qk_sec1210_wire") {
       sec1210++
       if (required != "sec1210-wire") bad = 1
+    } else if (name == "qk_core_sec1210_transport") {
+      sec1210_production++
+      if (required != "sec1210-production") bad = 1
     } else if (name == "qk_decoy_calculator") {
       decoy++
       if (required != "process-s2-decoy") bad = 1
@@ -184,7 +189,7 @@ if ! awk '
     } else if (name == "qk_card_model") {
       card_model++
       if (required != "card-s1-model") bad = 1
-    } else if (required == "t1-readback" || required == "sec1210-wire" || required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core" || required == "process-s9-wire" || required == "process-s9-core" || required == "card-s1-protocol" || required == "card-s1-model") {
+    } else if (required == "t1-readback" || required == "sec1210-wire" || required == "sec1210-production" || required == "process-s2-decoy" || required == "process-s2-supervisor" || required == "process-s8-supervisor" || required == "process-s3-io" || required == "process-s4-core" || required == "process-s5-core" || required == "process-s6-core" || required == "process-s7-core" || required == "process-s9-wire" || required == "process-s9-core" || required == "card-s1-protocol" || required == "card-s1-model") {
       bad = 1
     }
   }
@@ -213,7 +218,7 @@ if ! awk '
   }
   END {
     flush_bin()
-    exit (bad || t1 != 1 || sec1210 != 1 || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3 || process_s9_wire != 1 || process_s9_core != 1 || card_protocol != 1 || card_model != 1) ? 1 : 0
+    exit (bad || t1 != 1 || sec1210 != 1 || sec1210_production != 1 || decoy != 1 || supervisor != 1 || supervisor_s8 != 1 || io != 3 || core_s4 != 2 || core_s5 != 2 || core_s6 != 2 || core_s7 != 3 || process_s9_wire != 1 || process_s9_core != 1 || card_protocol != 1 || card_model != 1) ? 1 : 0
   }
 ' fuzz/Cargo.toml; then
   fail 'process fuzz target-to-feature mapping is not exact'
@@ -226,6 +231,8 @@ dep_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency declarations'
 tree_tmp=$(mktemp) || fail 'mktemp failed for fuzz dependency tree'
 sec1210_raw_tmp=$(mktemp) || fail 'mktemp failed for raw SEC1210 fuzz closure'
 sec1210_tmp=$(mktemp) || fail 'mktemp failed for SEC1210 fuzz closure'
+sec1210_production_raw_tmp=$(mktemp) || fail 'mktemp failed for raw production SEC1210 fuzz closure'
+sec1210_production_tmp=$(mktemp) || fail 'mktemp failed for production SEC1210 fuzz closure'
 t1_raw_tmp=$(mktemp) || fail 'mktemp failed for raw T=1 fuzz closure'
 t1_tmp=$(mktemp) || fail 'mktemp failed for T=1 fuzz closure'
 default_raw_tmp=$(mktemp) || fail 'mktemp failed for raw default fuzz dependency closure'
@@ -266,7 +273,7 @@ host_core_raw_tmp=$(mktemp) || fail 'mktemp failed for raw qk-core host dependen
 host_core_tmp=$(mktemp) || fail 'mktemp failed for qk-core host dependency closure'
 closure_raw_tmp=$(mktemp) || fail 'mktemp failed for raw union fuzz dependency closure'
 closure_tmp=$(mktemp) || fail 'mktemp failed for union fuzz dependency closure'
-trap 'rm -f "$t1_raw_tmp" "$t1_tmp" "$sec1210_raw_tmp" "$sec1210_tmp" "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
+trap 'rm -f "$t1_raw_tmp" "$t1_tmp" "$sec1210_raw_tmp" "$sec1210_tmp" "$sec1210_production_raw_tmp" "$sec1210_production_tmp" "$dep_tmp" "$tree_tmp" "$default_raw_tmp" "$default_tmp" \
   "$ipc_raw_tmp" "$ipc_tmp" "$decoy_raw_tmp" "$decoy_tmp" \
   "$supervisor_raw_tmp" "$supervisor_tmp" "$supervisor_s8_raw_tmp" "$supervisor_s8_tmp" \
   "$io_raw_tmp" "$io_tmp" "$host_decoy_raw_tmp" \
@@ -393,6 +400,21 @@ expected_path_set() {
       'qk-provisioning|0.0.1' \
       'qk-psbt|0.0.1' \
       'qk-secp|0.0.1' \
+      'qk-wallet-v2|0.0.1' ;;
+    core_sec1210) printf '%s\n' \
+      'qk-a1|0.0.1' \
+      'qk-bbqr|0.0.1' \
+      'qk-bip32|0.0.1' \
+      'qk-card-protocol|0.0.1' \
+      'qk-core|0.0.1' \
+      'qk-descriptor|0.0.1' \
+      'qk-ipc|0.0.1' \
+      'qk-kit|0.0.1' \
+      'qk-provisioning|0.0.1' \
+      'qk-psbt|0.0.1' \
+      'qk-sec1210-wire|0.0.1' \
+      'qk-secp|0.0.1' \
+      'qk-t1|0.0.1' \
       'qk-wallet-v2|0.0.1' ;;
     core_normal) printf '%s\n' \
       'qk-a1|0.0.1' \
@@ -535,6 +557,7 @@ while IFS='|' read -r closure_id closure_label feature raw_output normalized_out
     "$normalized_output" "$assertion" "$expected_key" "$mismatch_message"
 done <<'EOF'
 sec1210|SEC1210|sec1210-wire|sec1210_raw_tmp|sec1210_tmp|exact|sec1210|SEC1210 path closure is not exactly qk-sec1210-wire 0.0.1
+sec1210-production|production SEC1210 transport|sec1210-production|sec1210_production_raw_tmp|sec1210_production_tmp|exact|core_sec1210|production SEC1210 transport path closure is not the exact fourteen-crate qk-core closure
 t1|T=1 readback|t1-readback|t1_raw_tmp|t1_tmp|exact|t1|T=1 readback path closure is not exactly qk-sec1210-wire and qk-t1 0.0.1
 default|default|-|default_raw_tmp|default_tmp|default|-|-
 ipc|IPC-feature|ipc|ipc_raw_tmp|ipc_tmp|ipc|-|-
@@ -552,7 +575,7 @@ card-s1-protocol|card-s1-protocol|card-s1-protocol|card_protocol_raw_tmp|card_pr
 card-s1-model|card-s1-model|card-s1-model|card_model_raw_tmp|card_model_tmp|exact|card_model|card-s1-model path dependency closure is not exactly qk-card-model, qk-card-protocol, and qk-secp
 EOF
 
-cat "$t1_tmp" "$sec1210_tmp" "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
+cat "$t1_tmp" "$sec1210_tmp" "$sec1210_production_tmp" "$default_tmp" "$ipc_tmp" "$decoy_tmp" "$supervisor_tmp" "$supervisor_s8_tmp" \
   "$io_tmp" "$core_tmp" \
   "$core_s5_tmp" "$core_s6_tmp" "$core_s7_tmp" "$process_s9_wire_tmp" \
   "$process_s9_core_tmp" "$card_protocol_tmp" "$card_model_tmp" > "$closure_raw_tmp" || \

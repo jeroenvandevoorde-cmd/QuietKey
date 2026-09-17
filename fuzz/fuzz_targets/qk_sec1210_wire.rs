@@ -1,7 +1,11 @@
 #![no_main]
 // Public-input, in-memory reference checks only. No UART, clocks or subprocesses.
 use libfuzzer_sys::fuzz_target;
-use qk_sec1210_wire::{Command, Decoder, Error, Exchange, Message, Observation, Phase};
+use qk_sec1210_wire::{
+    validate_production_atr, Command, Decoder, Error, Exchange, Message, Observation, Phase,
+    ProductionDecoder, ProductionMessage, ProductionMessageKind, ProductionRequest,
+    MAX_PRODUCTION_ATR_BYTES,
+};
 use qk_sec1210_wire::{
     ReadbackError as RE, ReadbackObservation as RO, ReadbackPhase as RP, ReadbackSession,
 };
@@ -84,6 +88,115 @@ fn fact(message: Message) -> Fact {
             code,
         } => Fact::Hardware(slot, sequence, code),
     }
+}
+
+fn production_fact(message: ProductionMessage) -> Fact {
+    match message.kind() {
+        ProductionMessageKind::Response => {
+            let response = message
+                .response()
+                .expect("response kind carries fixed response storage");
+            let mut value = vec![response.message_type()];
+            value.extend_from_slice(&(response.payload().len() as u32).to_le_bytes());
+            value.extend_from_slice(&[
+                response.slot(),
+                response.sequence(),
+                response.status(),
+                response.error(),
+                response.parameter(),
+            ]);
+            value.extend_from_slice(response.payload());
+            Fact::Response(value)
+        }
+        ProductionMessageKind::SlotChange { bitmap } => Fact::Bitmap(bitmap),
+        ProductionMessageKind::HardwareError {
+            slot,
+            sequence,
+            code,
+        } => Fact::Hardware(slot, sequence, code),
+    }
+}
+
+fn production_decoder_equivalence(bytes: &[u8]) {
+    let mut boxed = Decoder::default();
+    let mut fixed = ProductionDecoder::default();
+    for byte in bytes {
+        assert_eq!(
+            boxed.push(*byte).map(|value| value.map(fact)),
+            fixed.push(*byte).map(|value| value.map(production_fact))
+        );
+        assert_eq!(boxed.pending_bytes(), fixed.pending_bytes());
+    }
+    assert_eq!(boxed.finish(), fixed.finish());
+}
+
+fn production_request_frame(
+    message_type: u8,
+    sequence: u8,
+    parameter: u8,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut frame = vec![3, 6, message_type];
+    frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    frame.extend_from_slice(&[0, sequence, parameter, 0, 0]);
+    frame.extend_from_slice(payload);
+    frame.push(frame.iter().copied().fold(0, |sum, byte| sum ^ byte));
+    frame
+}
+
+fn production_requests(input: &[u8]) {
+    let sequence = input.first().copied().unwrap_or(0);
+    let expected = [
+        (
+            ProductionRequest::get_slot_status(sequence),
+            production_request_frame(0x65, sequence, 0, &[]),
+        ),
+        (
+            ProductionRequest::power_on_3v(sequence),
+            production_request_frame(0x62, sequence, 2, &[]),
+        ),
+        (
+            ProductionRequest::get_parameters(sequence),
+            production_request_frame(0x6c, sequence, 0, &[]),
+        ),
+        (
+            ProductionRequest::set_fidi_parameters(sequence),
+            production_request_frame(0x61, sequence, 1, &FIDI),
+        ),
+    ];
+    for (request, expected) in expected {
+        assert_eq!(request.as_bytes(), expected);
+    }
+
+    let bwi = input.get(1).copied().unwrap_or(0);
+    let accepted = (4..=258).contains(&input.len())
+        && usize::from(input[2]) + 4 == input.len()
+        && input.iter().copied().fold(0, |sum, byte| sum ^ byte) == 0;
+    let request = ProductionRequest::xfr_block(sequence, bwi, input);
+    assert_eq!(request.is_ok(), accepted);
+    if let Ok(request) = request {
+        assert_eq!(
+            request.as_bytes(),
+            production_request_frame(0x6f, sequence, bwi, input)
+        );
+    }
+
+    let mut exact = vec![0, 0, 254];
+    exact.extend(std::iter::repeat_n(0xa5, 254));
+    exact.push(exact.iter().copied().fold(0, |sum, byte| sum ^ byte));
+    let exact_request = ProductionRequest::xfr_block(sequence, bwi, &exact)
+        .expect("the exact 258-byte production TPDU bound is accepted");
+    assert_eq!(
+        exact_request.as_bytes(),
+        production_request_frame(0x6f, sequence, bwi, &exact)
+    );
+    let mut excess = vec![0, 0, 255];
+    excess.extend(std::iter::repeat_n(0xa5, 255));
+    excess.push(excess.iter().copied().fold(0, |sum, byte| sum ^ byte));
+    assert_eq!(
+        ProductionRequest::xfr_block(sequence, bwi, &excess).err(),
+        Some(Error::PayloadRejected)
+    );
 }
 
 fn decoder_reference(bytes: &[u8]) {
@@ -719,11 +832,31 @@ fn hostile_ifs_wire(input: &[u8]) {
     ifs_wire_case(&raw, split, time);
 }
 
+fn production_atr_oracle(input: &[u8]) {
+    match validate_production_atr(input) {
+        Ok(()) => {
+            assert!((2..=MAX_PRODUCTION_ATR_BYTES).contains(&input.len()));
+            assert_eq!(input[0], 0x3b);
+            assert_eq!(
+                input[1..].iter().copied().fold(0u8, |sum, byte| sum ^ byte),
+                0
+            );
+        }
+        Err(error) => {
+            assert_eq!(error.name(), "Sec1210AtrProfileRejected");
+            assert_eq!(format!("{error:?}"), error.name());
+        }
+    }
+}
+
 fuzz_target!(|input: &[u8]| {
     if input.len() > 4096 {
         return;
     }
     decoder_reference(input);
+    production_decoder_equivalence(input);
+    production_atr_oracle(input);
+    production_requests(input);
     let power = input.first().copied().unwrap_or(0) & 1 != 0;
     let (mut a, mut m) = ready(power);
     // Whole hostile input including oversize, NACK and async event sequences.
@@ -860,7 +993,7 @@ mod raw_oracle {
     }
 
     fn add(left: u64, right: u64) -> u64 {
-        left.checked_add(right).unwrap_or(u64::MAX)
+        left.saturating_add(right)
     }
 
     impl Model {

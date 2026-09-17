@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-fifty-two libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+fifty-five libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -223,6 +223,18 @@ covered all 52 registered roots, 7,853 files and 7,914 executed units with zero
 failures and zero artifacts; no card, converter, device or hardware action
 occurred.
 
+QK-DEC-169 adds `qk_core_sec1210_transport`, a pure in-memory target for the
+production qk-core SEC1210 descriptor-and-clock loop composed with the bounded
+SEC1210 and T=1 crates. It injects synthetic descriptor reads, writes and
+monotonic-clock results; independently assembles public CCID and T=1 bytes;
+and checks request framing, initialization, application exchange, WTX, reader
+time extension, event, descriptor, clock, exact-limit, sticky-failure and
+no-post-failure-write behavior. It opens no descriptor and reaches no process,
+UART, GPIO, apparatus, card operation or secret. Campaign 037 requalifies the
+changed `qk_sec1210_wire` target and qualifies this joint production target;
+their fixed points replace the active SEC1210 corpus partition together while
+the Campaign 036 manifest remains immutable historical evidence.
+
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
 implemented inner response parser, one complete valid ingress transfer, outer
@@ -276,7 +288,7 @@ runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `ipc`, `process-s2-decoy`, `process-s2-supervisor`, `process-s8-supervisor`,
 `process-s3-io`, `process-s4-core`, `process-s5-core`, `process-s6-core`, and
 `process-s7-core`, `process-s9-wire`, `process-s9-core`, `card-s1-protocol`,
-and `card-s1-model`
+`card-s1-model`, `sec1210-wire`, `sec1210-production`, and `t1-readback`
 normal/build closures
 with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
 `qk-decoy`, `qk-supervisor`, `qk-io`, `qk-core`, `qk-device-wire`,
@@ -284,9 +296,12 @@ with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
 optional and absent from the default closure; each target selects only its
 named non-default feature. `process-s9-wire` reaches only qk-device-wire;
 `process-s9-core` adds qk-device-wire to the existing qk-core closure.
+`sec1210-wire` reaches only qk-sec1210-wire, `t1-readback` reaches only
+qk-sec1210-wire and qk-t1, and `sec1210-production` reaches the exact
+fourteen-crate qk-core production SEC1210 closure without qk-device-wire.
 `Cargo.lock`
 also contains Cargo's inactive cross-target resolutions. The dependency guard
-proves the fourteen fuzz closures remain isolated, qk-decoy's host closure is
+proves the seventeen fuzz closures remain isolated, qk-decoy's host closure is
 dependency-free, qk-supervisor's host closure is exactly qk-supervisor plus
 qk-ipc, and qk-io's default fuzz closure is exactly qk-io plus qk-ipc and
 qk-bbqr while its HOST runtime closure adds only qk-device-wire. The
@@ -368,6 +383,9 @@ fuzz/run-bounded.sh qk_device_wire 100000
 fuzz/run-bounded.sh qk_card_protocol 100000
 fuzz/run-bounded.sh qk_card_model 100000
 fuzz/run-bounded.sh qk_core_normal_process 100000
+fuzz/run-bounded.sh qk_sec1210_wire 100000
+fuzz/run-bounded.sh qk_core_sec1210_transport 100000
+fuzz/run-bounded.sh qk_t1 100000
 ```
 
 Each target has a fixed public campaign seed in `run-bounded.sh`. After a
