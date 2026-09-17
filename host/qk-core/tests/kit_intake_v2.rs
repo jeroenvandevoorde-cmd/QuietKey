@@ -1,5 +1,7 @@
 //! Process-slice-7 qk-core Kit intake behavior.
 
+#![cfg(feature = "kit-v3")]
+
 use qk_core::{
     CardPresence, CoreDeviceGrants, CoreMode, CoreReceiveEvent, CoreScreen, CoreSession, CoreState,
     Interruption, KitDoorV2, KitForeignInputV2, KitInputModeV2, KitIntakeErrorV2,

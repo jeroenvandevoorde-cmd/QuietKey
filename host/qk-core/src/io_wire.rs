@@ -21,14 +21,23 @@ const KIT_PRINT_BYTES_U32: u32 = 829;
 const PRINT_SINK: u8 = 0x03;
 const A1_PRINT_ARTIFACT: u8 = 0x04;
 const KIT_PRINT_ARTIFACT: u8 = 0x05;
+#[cfg(feature = "normal-v3")]
 const SD_SINK: u8 = 0x01;
+#[cfg(feature = "normal-v3")]
 const BBQR_SINK: u8 = 0x02;
+#[cfg(feature = "normal-v3")]
 const FINALIZED_PSBT_ARTIFACT: u8 = 0x01;
+#[cfg(feature = "normal-v3")]
 const RAW_TRANSACTION_ARTIFACT: u8 = 0x02;
+#[cfg(feature = "normal-v3")]
 const NORMAL_SD_RECEIPT_BYTES: usize = 6;
+#[cfg(feature = "normal-v3")]
 const NORMAL_BBQR_RECEIPT_PREFIX_BYTES: usize = 8;
+#[cfg(feature = "normal-v3")]
 const NORMAL_BBQR_FRAME_MIN_BYTES: usize = 9;
+#[cfg(feature = "normal-v3")]
 const NORMAL_BBQR_FRAME_MAX_BYTES: usize = 4_296;
+#[cfg(feature = "normal-v3")]
 const NORMAL_BBQR_FRAME_MAX_COUNT: u16 = 256;
 
 /// Exact ingress operation byte.
@@ -188,12 +197,14 @@ pub(crate) enum PrintResponse {
 }
 
 /// Exact purpose-bound normal-wallet export sink.
+#[cfg(feature = "normal-v3")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NormalEgressSinkV2 {
     Sd,
     Bbqr,
 }
 
+#[cfg(feature = "normal-v3")]
 impl NormalEgressSinkV2 {
     pub(crate) const fn wire_value(self) -> u8 {
         match self {
@@ -204,12 +215,14 @@ impl NormalEgressSinkV2 {
 }
 
 /// Exact purpose-bound normal-wallet export artifact.
+#[cfg(feature = "normal-v3")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NormalEgressArtifactV2 {
     FinalizedPsbt,
     RawTransaction,
 }
 
+#[cfg(feature = "normal-v3")]
 impl NormalEgressArtifactV2 {
     pub(crate) const fn wire_value(self) -> u8 {
         match self {
@@ -220,6 +233,7 @@ impl NormalEgressArtifactV2 {
 }
 
 /// Exact expected success shape for one normal-wallet export operation.
+#[cfg(feature = "normal-v3")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ExpectedNormalEgressResponseV2 {
     Begin {
@@ -238,6 +252,7 @@ pub(crate) enum ExpectedNormalEgressResponseV2 {
     },
 }
 
+#[cfg(feature = "normal-v3")]
 impl ExpectedNormalEgressResponseV2 {
     const fn operation(self) -> Operation {
         match self {
@@ -249,6 +264,7 @@ impl ExpectedNormalEgressResponseV2 {
 }
 
 /// One completely parsed successful normal-wallet export response.
+#[cfg(feature = "normal-v3")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NormalEgressResponseV2<'a> {
     Begin,
@@ -418,6 +434,7 @@ const fn encode_print_finish() -> [u8; 8] {
 }
 
 /// Form one contiguous bounded normal-wallet EgressWrite request.
+#[cfg(feature = "normal-v3")]
 pub(crate) fn encode_normal_egress_write(
     offset: u32,
     chunk: &[u8],
@@ -555,6 +572,7 @@ pub(crate) fn parse_print_response(
 }
 
 /// Parse one exact hostile response for a purpose-bound normal export.
+#[cfg(feature = "normal-v3")]
 pub(crate) fn parse_normal_egress_response<'a>(
     bytes: &'a [u8],
     expected: ExpectedNormalEgressResponseV2,
@@ -656,6 +674,7 @@ pub(crate) fn parse_normal_egress_response<'a>(
     }
 }
 
+#[cfg(feature = "normal-v3")]
 fn validate_normal_bbqr_frames(bytes: &[u8], frame_count: u16) -> Result<(), CoreError> {
     let mut cursor = 0usize;
     for _ in 0..frame_count {
@@ -991,6 +1010,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "normal-v3")]
     #[test]
     fn normal_export_write_request_is_byte_exact() {
         let mut write = [0xa5; 19];
@@ -1004,6 +1024,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "normal-v3")]
     #[test]
     fn normal_export_success_bodies_are_exact() {
         let begin = success(Operation::EgressBegin.wire_value(), &[]);

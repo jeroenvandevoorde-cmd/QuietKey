@@ -78,7 +78,7 @@ impl WipingVec {
         self.0.len()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "normal-v3"))]
     pub(crate) fn allocation_bytes(&self) -> usize {
         self.0.capacity()
     }
@@ -106,8 +106,10 @@ impl Drop for WipingVec {
 ///
 /// This remains crate-private: it exists only to extend the established wipe
 /// boundary to bookkeeping vectors whose values can point at secret bytes.
+#[cfg(any(test, feature = "normal-v3"))]
 pub(crate) struct WipingValueVec<T>(Vec<T>);
 
+#[cfg(any(test, feature = "normal-v3"))]
 impl<T> WipingValueVec<T> {
     pub(crate) fn try_with_capacity(capacity: usize) -> Result<Self, ()> {
         let mut value = Vec::new();
@@ -115,6 +117,7 @@ impl<T> WipingValueVec<T> {
         Ok(Self(value))
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn from_vec(value: Vec<T>) -> Self {
         Self(value)
     }
@@ -127,10 +130,12 @@ impl<T> WipingValueVec<T> {
         Ok(())
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn as_slice(&self) -> &[T] {
         self.0.as_slice()
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
@@ -141,6 +146,7 @@ impl<T> WipingValueVec<T> {
     }
 }
 
+#[cfg(any(test, feature = "normal-v3"))]
 impl<T> Drop for WipingValueVec<T> {
     fn drop(&mut self) {
         let byte_count = self.0.capacity().saturating_mul(core::mem::size_of::<T>());
@@ -160,6 +166,7 @@ impl<T> Drop for WipingValueVec<T> {
 pub(crate) struct WipingArray<const N: usize>([u8; N]);
 
 impl<const N: usize> WipingArray<N> {
+    #[cfg(any(test, feature = "normal-v3"))]
     pub(crate) const fn zeroed() -> Self {
         Self([0; N])
     }
@@ -170,10 +177,12 @@ impl<const N: usize> WipingArray<N> {
         Self(value)
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) const fn as_array(&self) -> &[u8; N] {
         &self.0
     }
 
+    #[cfg(any(test, feature = "normal-v3"))]
     pub(crate) fn as_mut_array(&mut self) -> &mut [u8; N] {
         &mut self.0
     }

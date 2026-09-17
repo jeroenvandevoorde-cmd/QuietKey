@@ -7,9 +7,13 @@
 #![forbid(unsafe_code)]
 
 use crate::error::CoreError;
-use crate::wipe::{self, WipingArray, WipingValueVec, WipingVec};
+use crate::wipe::{self, WipingVec};
+#[cfg(feature = "normal-v3")]
+use crate::wipe::{WipingArray, WipingValueVec};
+#[cfg(feature = "kit-v3")]
 use qk_kit::{KitRestoreDispositionV2, ReplacementBViewV2};
 
+#[cfg(feature = "normal-v3")]
 const MAX_NORMAL_INPUTS: usize = 100;
 const MAX_DER_SIGNATURE_BYTES: usize = 72;
 
@@ -293,11 +297,14 @@ pub struct NormalCardBDataV2 {
     descriptors: [[u8; 306]; 2],
     wallet_id: [u8; 32],
     account_xpub: [u8; 111],
+    #[cfg(feature = "normal-v3")]
     a2: WipingArray<32>,
+    #[cfg(feature = "normal-v3")]
     signatures: WipingValueVec<NormalCardBSignatureV2>,
 }
 
 impl NormalCardBDataV2 {
+    #[cfg(feature = "normal-v3")]
     pub fn try_new(
         descriptors: [[u8; 306]; 2],
         wallet_id: [u8; 32],
@@ -333,10 +340,12 @@ impl NormalCardBDataV2 {
         &self.account_xpub
     }
 
+    #[cfg(feature = "normal-v3")]
     pub fn signatures(&self) -> &[NormalCardBSignatureV2] {
         self.signatures.as_slice()
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) const fn a2(&self) -> &[u8; 32] {
         self.a2.as_array()
     }
@@ -449,7 +458,9 @@ pub struct MockCardSlot {
     fail_next: bool,
     required_binding: Option<CardBPublicBindingV2>,
     spare_binding: Option<CardBPublicBindingV2>,
+    #[cfg(feature = "normal-v3")]
     normal_data: Option<NormalCardBDataV2>,
+    #[cfg(feature = "kit-v3")]
     replacement_b_used: bool,
 }
 
@@ -460,13 +471,16 @@ impl MockCardSlot {
             fail_next: false,
             required_binding: None,
             spare_binding: None,
+            #[cfg(feature = "normal-v3")]
             normal_data: None,
+            #[cfg(feature = "kit-v3")]
             replacement_b_used: false,
         }
     }
 
     /// Construct a slot preloaded with one move-only authenticated mock
     /// factor. The factor can be consumed by exactly one normal session.
+    #[cfg(feature = "normal-v3")]
     pub fn with_normal_data(presence: CardPresence, normal_data: NormalCardBDataV2) -> Self {
         Self {
             presence,
@@ -474,6 +488,7 @@ impl MockCardSlot {
             required_binding: None,
             spare_binding: None,
             normal_data: Some(normal_data),
+            #[cfg(feature = "kit-v3")]
             replacement_b_used: false,
         }
     }
@@ -529,6 +544,7 @@ impl MockCardSlot {
         }
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn take_normal_data(&mut self) -> Result<NormalCardBDataV2, NormalCardMockErrorV2> {
         if self.take_failure() {
             return Err(NormalCardMockErrorV2::CardAccessFailed);
@@ -546,6 +562,7 @@ impl MockCardSlot {
     /// Absence, an injected capability failure, or any second call rejects.
     /// No card command, secret key, payload byte, or signing operation crosses
     /// this boundary.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn replace_b(&mut self, _view: ReplacementBViewV2<'_>) -> KitRestoreDispositionV2 {
         if self.replacement_b_used {
             return KitRestoreDispositionV2::Rejected;

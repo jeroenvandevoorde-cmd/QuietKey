@@ -1433,6 +1433,7 @@ const fn map_card_error(error: CardMockErrorV2) -> SetupErrorV2 {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::capability::{MockCardSlot, MockDisplay, MockKeypad};

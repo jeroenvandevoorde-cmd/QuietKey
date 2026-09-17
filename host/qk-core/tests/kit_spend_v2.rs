@@ -1,5 +1,7 @@
 //! QK-DEC-151 Kit-Spend process-owner tests.
 
+#![cfg(feature = "kit-v3")]
+
 use qk_core::{
     CardPresence, CoordinatorCompletenessStatementV2, CoreDeviceGrants, CoreMode, CoreScreen,
     CoreSession, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2, KitIntakeSessionV2,

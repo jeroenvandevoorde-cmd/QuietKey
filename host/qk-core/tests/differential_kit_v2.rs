@@ -1,5 +1,7 @@
 //! Product-process Kit flows compared with the byte-frozen HOST simulator.
 
+#![cfg(feature = "kit-v3")]
+
 use qk_core as product;
 use qk_host_sim as simulator;
 use qk_io::{BrokerSession, MockInput, Source as IoSource};

@@ -1,5 +1,7 @@
 //! QK-DEC-151 raw-only Kit-Spend delivery through the qk-io mock peer.
 
+#![cfg(feature = "kit-v3")]
+
 use qk_bbqr::{encode_typed_frame, encoded_part_count, BbqrFileType, MAX_FRAME_TEXT_BYTES};
 use qk_core::{
     CardPresence, CoordinatorCompletenessStatementV2, CoreDeviceGrants, CoreMode, CoreReceiveEvent,

@@ -1,5 +1,7 @@
 //! QK-DEC-151 Kit-Restore product-owner behavior over frozen public facts.
 
+#![cfg(feature = "kit-v3")]
+
 use qk_core::{
     CardPresence, CardRemainsStatementV2, CoreDeviceGrants, CoreMode, CoreScreen, CoreSession,
     HumanAssertionDigitV2, Interruption, KeypadKey, KitDoorV2, KitInputModeV2, KitIntakeOutcomeV2,

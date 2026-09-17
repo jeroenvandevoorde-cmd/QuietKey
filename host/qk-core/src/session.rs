@@ -2,8 +2,9 @@
 
 use crate::capability::{
     CardBPublicBindingV2, CardMockErrorV2, CardPresence, CoreDeviceGrants, CoreScreen, KeypadKey,
-    NormalCardBDataV2, NormalCardMockErrorV2,
 };
+#[cfg(feature = "normal-v3")]
+use crate::capability::{NormalCardBDataV2, NormalCardMockErrorV2};
 use crate::error::{CoreError, Interruption};
 use crate::io_wire::{
     encode_a1_print_begin, encode_a1_print_finish, encode_a1_print_write, encode_ingress_begin,
@@ -16,6 +17,7 @@ use crate::session_id::DeterministicSessionIdMint;
 use crate::session_id::{mint_session_id, SessionId, SessionIdError};
 use crate::wipe::{self, WipingArray, WipingVec};
 use qk_ipc::{CoreEvent, CoreProtocol, IpcError, OutboundFrame, StreamDecoder};
+#[cfg(feature = "kit-v3")]
 use qk_kit::{KitRestoreDispositionV2, ReplacementBViewV2};
 
 /// Product-flow family selected by the supervisor for this HOST shell.
@@ -81,10 +83,13 @@ pub enum CoreReceiveEvent {
 enum OutstandingResponse {
     Ingress(ExpectedResponse),
     Print(ExpectedPrintResponse),
+    #[cfg(feature = "normal-v3")]
     NormalEgress,
+    #[cfg(feature = "kit-v3")]
     KitEgress,
 }
 
+#[cfg(feature = "kit-v3")]
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum KitFlowLifecycleV2 {
     Unclaimed,
@@ -104,12 +109,14 @@ pub struct CoreReceiveOutcome {
 }
 
 /// Crate-private stream fact for the purpose-bound normal egress path.
+#[cfg(feature = "normal-v3")]
 pub(crate) struct NormalCoreReceiveOutcome {
     pub(crate) consumed: usize,
     pub(crate) response_ready: bool,
 }
 
 /// Crate-private stream fact for the purpose-bound Kit egress path.
+#[cfg(feature = "kit-v3")]
 pub(crate) struct KitCoreReceiveOutcome {
     pub(crate) consumed: usize,
     pub(crate) response_ready: bool,
@@ -168,10 +175,12 @@ impl HostileIngress {
         self.bytes.len() == 0
     }
 
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn into_normal_parts(self) -> (Source, WipingVec) {
         (self.source, self.bytes)
     }
 
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn into_kit_parts(self) -> (Source, WipingVec) {
         (self.source, self.bytes)
     }
@@ -192,6 +201,7 @@ struct IngressTransfer {
 
 /// Exact one-use Kit approval identity retained by the process shell while
 /// every transport, capability, and screen operation is closed.
+#[cfg(feature = "kit-v3")]
 struct KitApprovalLockV2 {
     session_identity: WipingArray<16>,
     review_hash: WipingArray<32>,
@@ -199,12 +209,14 @@ struct KitApprovalLockV2 {
     phase: KitNoYieldPhaseV2,
 }
 
+#[cfg(feature = "kit-v3")]
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum KitNoYieldPhaseV2 {
     Completeness,
     Assertion,
 }
 
+#[cfg(feature = "kit-v3")]
 impl KitApprovalLockV2 {
     fn new(mut session_identity: [u8; 16], mut review_hash: [u8; 32], cycle: u64) -> Self {
         let mut cycle = cycle.to_le_bytes();
@@ -285,8 +297,11 @@ pub struct CoreSession {
     normal_response: Option<WipingVec>,
     kit_response: Option<WipingVec>,
     print_artifact: Option<PrintArtifact>,
+    #[cfg(feature = "kit-v3")]
     kit_approval: Option<KitApprovalLockV2>,
+    #[cfg(feature = "kit-v3")]
     kit_post_approval_yield: bool,
+    #[cfg(feature = "kit-v3")]
     kit_flow: KitFlowLifecycleV2,
     grants: CoreDeviceGrants,
 }
@@ -324,8 +339,11 @@ impl CoreSession {
             normal_response: None,
             kit_response: None,
             print_artifact: None,
+            #[cfg(feature = "kit-v3")]
             kit_approval: None,
+            #[cfg(feature = "kit-v3")]
             kit_post_approval_yield: false,
+            #[cfg(feature = "kit-v3")]
             kit_flow: KitFlowLifecycleV2::Unclaimed,
             grants,
         };
@@ -354,6 +372,7 @@ impl CoreSession {
 
     /// Borrow the exact QKIP identity solely for purpose-bound approval-token
     /// provenance. No public shell surface exposes this retained copy.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn normal_session_identity(&mut self) -> Result<&[u8; 16], CoreError> {
         self.require_normal_live()?;
         if self.session_identity.is_none() {
@@ -367,6 +386,7 @@ impl CoreSession {
 
     /// Borrow the exact QKIP identity solely for the purpose-bound Kit review
     /// and approval provenance. No public shell surface exposes this copy.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn kit_session_identity(&mut self) -> Result<&[u8; 16], CoreError> {
         self.require_kit_live()?;
         if self.session_identity.is_none() {
@@ -380,6 +400,7 @@ impl CoreSession {
 
     /// Verify one purpose owner against this exact live Kit process session.
     /// A mismatch is a cross-session handoff and consumes the receiving shell.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn require_kit_identity(
         &mut self,
         session_identity: &[u8; 16],
@@ -397,6 +418,7 @@ impl CoreSession {
     }
 
     /// Claim the one Kit flow permitted on this process shell.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn begin_kit_intake(&mut self) -> Result<[u8; 16], CoreError> {
         self.require_kit_live()?;
         if self.state != CoreState::Ready || self.kit_flow != KitFlowLifecycleV2::Unclaimed {
@@ -411,6 +433,7 @@ impl CoreSession {
         Ok(identity)
     }
 
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn finish_kit_intake(
         &mut self,
         session_identity: &[u8; 16],
@@ -428,6 +451,7 @@ impl CoreSession {
         Ok(())
     }
 
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn begin_kit_restore(
         &mut self,
         session_identity: &[u8; 16],
@@ -440,6 +464,7 @@ impl CoreSession {
         Ok(())
     }
 
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn begin_kit_spend(&mut self, session_identity: &[u8; 16]) -> Result<(), CoreError> {
         self.require_kit_identity(session_identity)?;
         if self.kit_flow != KitFlowLifecycleV2::ReadySpend {
@@ -449,6 +474,7 @@ impl CoreSession {
         Ok(())
     }
 
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn begin_kit_delivery(
         &mut self,
         session_identity: &[u8; 16],
@@ -464,6 +490,7 @@ impl CoreSession {
     /// Close the process shell around one exact displayed Kit approval. From
     /// this point only the matching atomic digit-and-sign transition may
     /// consume the lock; every ordinary shell operation terminates instead.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn begin_kit_no_yield(
         &mut self,
         session_identity: [u8; 16],
@@ -505,6 +532,7 @@ impl CoreSession {
 
     /// Move the exact locked Kit-Spend sequence from the completeness screen
     /// to the assertion screen without reopening the generic display seam.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn show_kit_assertion_locked(
         &mut self,
         session_identity: [u8; 16],
@@ -554,6 +582,7 @@ impl CoreSession {
     /// Read the sole assertion digit from the exact locked session. The lock
     /// is consumed immediately before this read and the caller proceeds to
     /// signing in the same stack frame, leaving no callable yield point.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn read_kit_assertion_locked(
         &mut self,
         session_identity: [u8; 16],
@@ -597,12 +626,14 @@ impl CoreSession {
         }
     }
 
+    #[cfg(feature = "kit-v3")]
     pub(crate) const fn kit_post_approval_yielded(&self) -> bool {
         self.kit_post_approval_yield
     }
 
     /// Consume one successful Kit-Restore process shell without replacing the
     /// mandatory-migration screen. The closed shell cannot start another flow.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn complete_kit_restore(
         &mut self,
         session_identity: &[u8; 16],
@@ -849,6 +880,7 @@ impl CoreSession {
     /// Consume the exact source-01 scan-back into the Kit-Restore purpose
     /// owner. No generic byte accessor is introduced, and the print phase is
     /// closed before the hostile allocation leaves this shell boundary.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn take_kit_a1_scanback(&mut self) -> Result<HostileIngress, CoreError> {
         self.require_kit_live()?;
         if self.state != CoreState::IngressComplete
@@ -908,6 +940,7 @@ impl CoreSession {
     /// Consume one complete normal-flow ingress without exposing it through
     /// the public shell surface. The purpose owner performs the only semantic
     /// or authentication operation over the returned wiping allocation.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn take_normal_ingress(&mut self) -> Result<HostileIngress, CoreError> {
         self.require_normal_live()?;
         if self.state != CoreState::IngressComplete
@@ -929,6 +962,7 @@ impl CoreSession {
     /// Consume one complete Kit ingress without adding a public byte accessor.
     /// The purpose owner performs the only frame, descriptor, or transaction
     /// interpretation over the returned wiping allocation.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn take_kit_ingress(&mut self) -> Result<HostileIngress, CoreError> {
         self.require_kit_live()?;
         if self.state != CoreState::IngressComplete
@@ -948,12 +982,14 @@ impl CoreSession {
     }
 
     /// Select one normal-flow typed screen without exposing the capability.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn normal_show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {
         self.require_normal_live()?;
         self.show_or_terminate(screen)
     }
 
     /// Read one normalized normal-flow key.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn normal_read_key(&mut self, key: KeypadKey) -> Result<KeypadKey, CoreError> {
         self.require_normal_live()?;
         match self.grants.keypad_mut().read(key) {
@@ -966,12 +1002,14 @@ impl CoreSession {
     }
 
     /// Select one Kit-flow typed screen without exposing the capability.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn kit_show(&mut self, screen: CoreScreen) -> Result<(), CoreError> {
         self.require_kit_live()?;
         self.show_or_terminate(screen)
     }
 
     /// Read one normalized Kit-flow key through the sole keypad grant.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn kit_read_key(&mut self, key: KeypadKey) -> Result<KeypadKey, CoreError> {
         self.require_kit_live()?;
         match self.grants.keypad_mut().read(key) {
@@ -984,6 +1022,7 @@ impl CoreSession {
     }
 
     /// Execute at most one public-facts-only mock replacement-B call.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn kit_replace_b(
         &mut self,
         view: ReplacementBViewV2<'_>,
@@ -995,6 +1034,7 @@ impl CoreSession {
     }
 
     /// Consume the sole preloaded authenticated mock card-B factor.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn take_normal_card_data(
         &mut self,
     ) -> Result<NormalCardBDataV2, NormalCardMockErrorV2> {
@@ -1002,6 +1042,7 @@ impl CoreSession {
     }
 
     /// Wrap one exact purpose-bound normal egress request in QKIP.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn begin_normal_egress(
         &mut self,
         payload: &[u8],
@@ -1025,6 +1066,7 @@ impl CoreSession {
     }
 
     /// Consume the complete hostile inner response retained by QKIP.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn take_normal_egress_response(&mut self) -> Result<WipingVec, CoreError> {
         self.require_normal_live()?;
         if self.state != CoreState::Ready || self.expected.is_some() {
@@ -1038,6 +1080,7 @@ impl CoreSession {
     /// Consume at most one QKIP frame while an exact normal egress response is
     /// outstanding. This separate path avoids widening the legacy public
     /// shell-event vocabulary consumed by the byte-frozen setup owner.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn receive_normal_egress(
         &mut self,
         input: &[u8],
@@ -1090,6 +1133,7 @@ impl CoreSession {
     }
 
     /// Wrap one exact purpose-bound Kit egress request in QKIP.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn begin_kit_egress(&mut self, payload: &[u8]) -> Result<CoreOutbound, CoreError> {
         self.require_kit_live()?;
         if self.state != CoreState::Ready
@@ -1110,6 +1154,7 @@ impl CoreSession {
     }
 
     /// Consume the complete hostile inner response retained by QKIP for Kit.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn take_kit_egress_response(&mut self) -> Result<WipingVec, CoreError> {
         self.require_kit_live()?;
         if self.state != CoreState::Ready || self.expected.is_some() {
@@ -1122,6 +1167,7 @@ impl CoreSession {
 
     /// Consume at most one QKIP frame while the exact Kit egress response is
     /// outstanding. It cannot be confused with the normal-flow exchange.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn receive_kit_egress(
         &mut self,
         input: &[u8],
@@ -1174,11 +1220,13 @@ impl CoreSession {
     }
 
     /// Route one normal-flow interruption through the universal terminal path.
+    #[cfg(feature = "normal-v3")]
     pub(crate) fn terminate_normal(&mut self, reason: Interruption) {
         self.terminate(reason);
     }
 
     /// Route one Kit-flow interruption through the universal terminal path.
+    #[cfg(feature = "kit-v3")]
     pub(crate) fn terminate_kit(&mut self, reason: Interruption) {
         self.terminate(reason);
     }
@@ -1373,12 +1421,14 @@ impl CoreSession {
         match expected {
             OutstandingResponse::Ingress(expected) => self.accept_ingress(payload, expected),
             OutstandingResponse::Print(expected) => self.accept_print(payload, expected),
-            OutstandingResponse::NormalEgress | OutstandingResponse::KitEgress => {
-                Err(CoreError::InvalidTransition)
-            }
+            #[cfg(feature = "normal-v3")]
+            OutstandingResponse::NormalEgress => Err(CoreError::InvalidTransition),
+            #[cfg(feature = "kit-v3")]
+            OutstandingResponse::KitEgress => Err(CoreError::InvalidTransition),
         }
     }
 
+    #[cfg(feature = "normal-v3")]
     fn accept_normal_egress(&mut self, payload: &[u8]) -> Result<(), CoreError> {
         if self.expected.take() != Some(OutstandingResponse::NormalEgress)
             || self.mode != CoreMode::A1B
@@ -1393,6 +1443,7 @@ impl CoreSession {
         Ok(())
     }
 
+    #[cfg(feature = "kit-v3")]
     fn accept_kit_egress(&mut self, payload: &[u8]) -> Result<(), CoreError> {
         if self.expected.take() != Some(OutstandingResponse::KitEgress)
             || self.mode != CoreMode::Kit
@@ -1570,6 +1621,7 @@ impl CoreSession {
         self.normal_response = None;
         self.kit_response = None;
         self.print_artifact = None;
+        #[cfg(feature = "kit-v3")]
         drop(self.kit_approval.take());
         drop(self.session_identity.take());
         self.show_or_terminate(CoreScreen::Closed)?;
@@ -1600,6 +1652,7 @@ impl CoreSession {
     }
 
     fn terminate(&mut self, reason: Interruption) {
+        #[cfg(feature = "kit-v3")]
         drop(self.kit_approval.take());
         if self.state == CoreState::Terminated {
             return;
@@ -1628,6 +1681,7 @@ impl CoreSession {
 
     fn require_live(&mut self) -> Result<(), CoreError> {
         self.require_open()?;
+        #[cfg(feature = "kit-v3")]
         if self.kit_approval.is_some() {
             self.kit_post_approval_yield = true;
             self.terminate(Interruption::OperationFailed);
@@ -1635,6 +1689,8 @@ impl CoreSession {
         } else {
             Ok(())
         }
+        #[cfg(not(feature = "kit-v3"))]
+        Ok(())
     }
 
     fn require_setup_live(&mut self) -> Result<(), CoreError> {
@@ -1646,6 +1702,7 @@ impl CoreSession {
         }
     }
 
+    #[cfg(feature = "normal-v3")]
     fn require_normal_live(&mut self) -> Result<(), CoreError> {
         self.require_live()?;
         if self.mode == CoreMode::A1B {
@@ -1655,6 +1712,7 @@ impl CoreSession {
         }
     }
 
+    #[cfg(feature = "kit-v3")]
     fn require_kit_live(&mut self) -> Result<(), CoreError> {
         self.require_live()?;
         if self.mode == CoreMode::Kit {
@@ -1714,6 +1772,7 @@ pub fn fuzz_start_session(
 mod tests {
     use super::*;
     use crate::capability::{MockCardSlot, MockDisplay, MockKeypad};
+    #[cfg(feature = "normal-v3")]
     use crate::wipe::{reset_wiped_bytes, wiped_bytes};
     use crate::INNER_VERSION;
     use qk_ipc::{encode_frame, parse_frame, Direction, MessageKind, HEADER_BYTES};
@@ -1774,6 +1833,7 @@ mod tests {
         (session, id)
     }
 
+    #[cfg(feature = "kit-v3")]
     fn ready_kit(namespace: [u8; 12]) -> (CoreSession, [u8; 16]) {
         let (mut session, open) =
             fuzz_start_session(namespace, 0, CoreMode::Kit, grants()).unwrap();
@@ -2030,6 +2090,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "normal-v3")]
     #[test]
     fn normal_response_and_retained_session_identity_wipe_on_interruption() {
         let (mut session, open) =
@@ -2057,6 +2118,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "kit-v3")]
     #[test]
     fn kit_identity_screen_key_and_sealed_ingress_are_purpose_locked() {
         let (mut session, id) = ready_kit([0x4a; 12]);
@@ -2087,6 +2149,7 @@ mod tests {
         assert_eq!(wrong_mode.state(), CoreState::Terminated);
     }
 
+    #[cfg(feature = "kit-v3")]
     #[test]
     fn kit_egress_is_exact_one_exchange_and_response_wipes_with_identity() {
         let (mut session, id) = ready_kit([0x4c; 12]);
@@ -2127,6 +2190,7 @@ mod tests {
         assert_eq!(wiped_bytes(), 37 + 16);
     }
 
+    #[cfg(feature = "kit-v3")]
     #[test]
     fn kit_a1_reprint_reuses_exact_setup_bytes_but_kit_page_print_stays_setup_only() {
         let artifact = [0xa1; A1_PRINT_BYTES];

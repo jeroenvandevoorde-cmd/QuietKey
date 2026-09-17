@@ -1,5 +1,7 @@
 //! Product-process normal flow compared with the byte-frozen HOST simulator.
 
+#![cfg(feature = "normal-v3")]
+
 use qk_core::{
     CardPresence, CoreDeviceGrants, MockCardSlot, MockDisplay, MockKeypad, NormalCardBDataV2,
     NormalCardBSignatureV2, NormalExportActionV2, NormalSessionV2, NormalStageV2, Source,

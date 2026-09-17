@@ -1,5 +1,7 @@
 //! QK-DEC-149 profile/export surface and private-constructor locks.
 
+#![cfg(feature = "normal-v3")]
+
 use qk_core::{NormalArtifactErrorV2, NormalProfileV2};
 
 const ARTIFACT_SOURCE: &str = include_str!("../src/normal_artifact_v2.rs");

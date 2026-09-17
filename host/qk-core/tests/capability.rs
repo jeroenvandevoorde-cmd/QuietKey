@@ -3,8 +3,10 @@
 use qk_core::{
     CardBPublicBindingV2, CardInstanceV2, CardMockErrorV2, CardPresence, CoreDeviceGrants,
     CoreError, CoreMode, CoreScreen, CoreSession, CoreState, Interruption, KeypadKey, MockCardSlot,
-    MockDisplay, MockKeypad, NormalCardBDataV2, NormalCardBSignatureV2, NormalCardMockErrorV2,
+    MockDisplay, MockKeypad,
 };
+#[cfg(feature = "normal-v3")]
+use qk_core::{NormalCardBDataV2, NormalCardBSignatureV2, NormalCardMockErrorV2};
 
 const ALL_KEYS: [KeypadKey; 19] = [
     KeypadKey::Seven,
@@ -199,6 +201,7 @@ fn card_mock_absence_precedes_public_binding_state() {
     assert_eq!(card.verify_b(required), Err(CardMockErrorV2::CardAbsent));
 }
 
+#[cfg(feature = "normal-v3")]
 #[test]
 fn normal_card_factor_is_bounded_move_only_and_clears_caller_secrets() {
     let mut oversized = [0x30; 73];

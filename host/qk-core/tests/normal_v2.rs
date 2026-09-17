@@ -1,5 +1,7 @@
 //! QK-DEC-149/150 end-to-end normal A1+B product-session tests.
 
+#![cfg(feature = "normal-v3")]
+
 use qk_core::{
     CardPresence, CoreDeviceGrants, Interruption, MockCardSlot, MockDisplay, MockKeypad,
     NormalCardBDataV2, NormalCardBSignatureV2, NormalErrorV2, NormalExportActionV2,
