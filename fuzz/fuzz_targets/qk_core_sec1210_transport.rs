@@ -429,7 +429,14 @@ fn setup_write_failure(fault: WriteFault) -> Option<(usize, CardTransportErrorV2
         WriteFault::Failed(ordinal) if ordinal <= 5 => {
             Some((ordinal, CardTransportErrorV2::Sec1210DescriptorWriteFailed))
         }
-        WriteFault::TimedOut(ordinal) if ordinal <= 5 => {
+        WriteFault::TimedOut(5) => {
+            // IFS is the only setup exchange with an absolute T=1 deadline, and under
+            // these clock plans that deadline always binds first. If a clock plan ever
+            // makes the command allowance tighter, this expectation must follow
+            // exchange()'s absolute_limited rule instead of being fixed here.
+            Some((5, CardTransportErrorV2::T1DeadlineExceeded))
+        }
+        WriteFault::TimedOut(ordinal) if ordinal <= 4 => {
             Some((ordinal, CardTransportErrorV2::Sec1210DeadlineExceeded))
         }
         WriteFault::Short(ordinal) if ordinal <= 5 => {
@@ -444,6 +451,13 @@ fn setup_read_failure(kind: u8, read_at: usize) -> Option<(usize, CardTransportE
         return None;
     }
     let error = match kind {
+        1 if read_at == 4 => {
+            // IFS is the only setup exchange with an absolute T=1 deadline, and under
+            // these clock plans that deadline always binds first. If a clock plan ever
+            // makes the command allowance tighter, this expectation must follow
+            // exchange()'s absolute_limited rule instead of being fixed here.
+            CardTransportErrorV2::T1DeadlineExceeded
+        }
         1 => CardTransportErrorV2::Sec1210DeadlineExceeded,
         2 | 4 => CardTransportErrorV2::Sec1210DescriptorClosed,
         3 | 5 => CardTransportErrorV2::Sec1210DescriptorReadFailed,
