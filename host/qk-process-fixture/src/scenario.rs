@@ -141,9 +141,6 @@ pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
                         )?;
                         wipe_bytes(&mut event);
                     }
-                    NormalStage::CardBSigning => {
-                        card.serve_signature()?;
-                    }
                     NormalStage::CompletedWiped => {
                         if spec.expects_termination()
                             || stage_index != EXPECTED_DISPLAY_STAGES.len()
@@ -179,6 +176,7 @@ pub fn run_driver(spec: CycleSpec) -> Result<(), FixtureError> {
                     .ok_or(FixtureError::FactMismatch)?;
                 if matches!(review, ReviewBody::FinalApproval { .. }) {
                     write_keypad(&mut keypad, &mut keypad_protocol, &[0x03])?;
+                    card.serve_signature()?;
                 } else {
                     write_keypad(&mut keypad, &mut keypad_protocol, &[0x01, 0x13])?;
                 }

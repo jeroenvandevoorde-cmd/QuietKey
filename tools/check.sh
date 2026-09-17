@@ -396,6 +396,14 @@ else
   else
     fail 'qk-core sec1210-production clippy failed; tests using feature-gated APIs need the matching cfg'
   fi
+  if cargo clippy --manifest-path host/Cargo.toml -p qk-core --locked --offline \
+      --no-default-features --features sec1210-production,normal-process --all-targets -- \
+      -D warnings -A clippy::chunks_exact_to_as_chunks \
+      -A clippy::collapsible_match >/dev/null 2>&1; then
+    ok 'qk-core sec1210-production,normal-process clippy (no default features, all targets, warnings denied) passed'
+  else
+    fail 'qk-core sec1210-production,normal-process clippy failed; tests using feature-gated APIs need the matching cfg'
+  fi
   if cargo test --workspace --manifest-path host/Cargo.toml \
       --offline --quiet >/dev/null 2>&1; then
     ok 'cargo test (locked, offline) passed'

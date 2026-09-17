@@ -3,6 +3,7 @@
 const CARGO: &str = include_str!("../Cargo.toml");
 const LIB: &str = include_str!("../src/lib.rs");
 const CAPABILITY: &str = include_str!("../src/capability.rs");
+const CARD_APDU_SESSION: &str = include_str!("../src/card_apdu_session_v2.rs");
 const CARD_PROCESS: &str = include_str!("../src/card_process_v1.rs");
 const ERROR: &str = include_str!("../src/error.rs");
 const IO_WIRE: &str = include_str!("../src/io_wire.rs");
@@ -12,6 +13,7 @@ const KIT_RESTORE: &str = include_str!("../src/kit_restore_v2.rs");
 const KIT_SPEND: &str = include_str!("../src/kit_spend_v2.rs");
 const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
 const NORMAL_PROCESS: &str = include_str!("../src/normal_process_v2.rs");
+const NORMAL_SEC1210: &str = include_str!("../src/normal_sec1210_v2.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const PROCESS: &str = include_str!("../src/process.rs");
 const PROCESS_BIN: &str = include_str!("../src/bin/qk-core-host.rs");
@@ -79,17 +81,19 @@ fn normal_and_kit_modules_and_exports_are_feature_locked() {
     }
     assert_eq!(LIB.matches("#[cfg(feature = \"normal-v3\")]").count(), 4);
     for item in [
+        "mod card_apdu_session_v2;",
         "mod card_process_v1;",
         "mod normal_process_v2;",
         "pub use card_process_v1::{",
         "pub use normal_process_v2::{",
         "pub use normal_v2::NormalCardBSigningRequestV2;",
+        "pub use card_apdu_session_v2::QK_LIM_APDU_021_MAX_SIGN_EXCHANGES;",
     ] {
         assert!(LIB.contains(&format!("#[cfg(feature = \"normal-process\")]\n{item}")));
     }
     assert_eq!(
         LIB.matches("#[cfg(feature = \"normal-process\")]").count(),
-        5
+        7
     );
     for item in [
         "mod kit_artifact_v2;",
@@ -121,6 +125,26 @@ fn sec1210_production_module_and_exports_are_feature_locked() {
             .count(),
         2
     );
+}
+
+#[test]
+fn integrated_normal_module_and_exports_require_both_features() {
+    let cfg = "#[cfg(all(feature = \"sec1210-production\", feature = \"normal-process\"))]";
+    for item in [
+        "mod normal_sec1210_v2;",
+        "pub use normal_sec1210_v2::{NormalSec1210DisplayV2, NormalSec1210ErrorV2, NormalSec1210V2};",
+    ] {
+        assert!(LIB.contains(&format!("{cfg}\n{item}")), "integrated surface {item}");
+    }
+    assert_eq!(LIB.matches(cfg).count(), 2);
+    assert_eq!(
+        CARD_APDU_SESSION
+            .lines()
+            .filter(|line| line.starts_with("pub "))
+            .collect::<Vec<_>>(),
+        ["pub const QK_LIM_APDU_021_MAX_SIGN_EXCHANGES: usize = 100;"]
+    );
+    assert!(public_methods(CARD_APDU_SESSION).is_empty());
 }
 
 #[test]
@@ -228,6 +252,7 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
         public_lines,
         [
             "pub use capability::{",
+            "pub use card_apdu_session_v2::QK_LIM_APDU_021_MAX_SIGN_EXCHANGES;",
             "pub use card_process_v1::{",
             "pub use error::{CoreError, Interruption, IoRejection};",
             "pub use io_wire::{Operation, Source};",
@@ -237,6 +262,7 @@ fn crate_root_surface_is_explicit_and_has_only_the_ring_fenced_module_escape() {
             "pub use kit_spend_v2::{",
             "pub use normal_artifact_v2::{",
             "pub use normal_process_v2::{",
+            "pub use normal_sec1210_v2::{NormalSec1210DisplayV2, NormalSec1210ErrorV2, NormalSec1210V2};",
             "pub use normal_v2::NormalCardBSigningRequestV2;",
             "pub use normal_v2::{",
             "pub use process::{run_core_host_process, run_normal_core_host_process, CoreHostProcessError};",
@@ -311,7 +337,7 @@ fn host_process_surface_is_feature_locked_and_contains_no_second_protocol_or_log
     let keypad = active_loop
         .find("let event = devices.read_keypad_event()?;")
         .expect("keypad path");
-    assert!(display < signing && signing < keypad);
+    assert!(signing < display && display < keypad);
 }
 
 #[test]
@@ -781,6 +807,24 @@ fn every_public_method_entry_is_pinned() {
         "#[cfg(any(test, feature = \"legacy-normal-factor-fixture\"))]\n    pub fn reject_card("
     ));
     assert_eq!(
+        public_methods(NORMAL_SEC1210),
+        [
+            "pub const fn name(self) -> &'static str {",
+            "pub const fn message(self) -> Option<&'static str> {",
+            "pub fn start(",
+            "pub fn fuzz_start(",
+            "pub fn stage(&self) -> NormalProcessStageV2 {",
+            "pub fn screen(&self) -> Option<NormalScreenV2<'_>> {",
+            "pub const fn terminal_error(&self) -> Option<NormalSec1210ErrorV2> {",
+            "pub fn sign_attempts(&self) -> usize {",
+            "pub fn take_display_fact(&mut self) -> Option<NormalSec1210DisplayV2> {",
+            "pub fn receive_qkip(",
+            "pub fn advance_automatic(&mut self) -> Result<Option<CoreOutbound>, NormalSec1210ErrorV2> {",
+            "pub fn handle_event(",
+            "pub fn reject_card_reply(&mut self, bytes: &mut [u8]) -> NormalSec1210ErrorV2 {",
+        ]
+    );
+    assert_eq!(
         public_methods(SEC1210_TRANSPORT),
         [
             "pub const fn name(self) -> &'static str {",
@@ -957,9 +1001,46 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
             "card process token {forbidden}"
         );
     }
+    for source in [CARD_APDU_SESSION, NORMAL_SEC1210] {
+        for forbidden in [
+            "qk_bip32",
+            "qk_card_trace",
+            "qk_host_model",
+            "qk_host_sim",
+            "qk_io::",
+            "qk_device_wire",
+            "qk_update",
+            "SecretKey",
+            "PrivateKey",
+            "SigningKey",
+            "UnixStream",
+            "UnixListener",
+            "TcpStream",
+            "UdpSocket",
+            "recvmsg(",
+            "sendmsg(",
+            "Command::new",
+            "std::process",
+            "std::fs",
+            "std::os",
+            "/dev/",
+            "ttyAMA",
+            "stty",
+            "pinctrl",
+            "println!",
+            "eprintln!",
+            "dbg!",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "integrated application token {forbidden}"
+            );
+        }
+    }
     for source in [
         LIB,
         CAPABILITY,
+        CARD_APDU_SESSION,
         ERROR,
         IO_WIRE,
         KIT_ARTIFACT,
@@ -968,6 +1049,7 @@ fn product_sources_have_no_apdu_socket_logging_or_direct_secret_key_api() {
         KIT_SPEND,
         NORMAL_ARTIFACT,
         NORMAL_PROCESS,
+        NORMAL_SEC1210,
         SESSION,
         SESSION_ID,
         SETUP,
@@ -1061,6 +1143,7 @@ fn unsafe_is_confined_to_the_existing_volatile_wipe_module() {
     assert_eq!(LIB.matches("#[allow(unsafe_code)]").count(), 1);
     assert!(LIB.contains("mod wipe;"));
     assert!(!CAPABILITY.contains("unsafe {"));
+    assert!(!CARD_APDU_SESSION.contains("unsafe {"));
     assert!(!ERROR.contains("unsafe {"));
     assert!(!IO_WIRE.contains("unsafe {"));
     assert!(!KIT_ARTIFACT.contains("unsafe {"));
@@ -1069,6 +1152,7 @@ fn unsafe_is_confined_to_the_existing_volatile_wipe_module() {
     assert!(!KIT_SPEND.contains("unsafe {"));
     assert!(!NORMAL_ARTIFACT.contains("unsafe {"));
     assert!(!NORMAL_PROCESS.contains("unsafe {"));
+    assert!(!NORMAL_SEC1210.contains("unsafe {"));
     assert!(!NORMAL.contains("unsafe {"));
     assert!(!SEC1210_TRANSPORT.contains("unsafe {"));
     assert!(!SESSION.contains("unsafe {"));
@@ -1137,6 +1221,16 @@ fn hostile_ingress_has_no_production_byte_release_or_copy_surface() {
 #[test]
 fn byte_and_session_owners_cannot_clone_format_mutate_or_release_storage() {
     let owners = [
+        owner_section(
+            CARD_APDU_SESSION,
+            "pub(crate) struct CardApduSessionV2 {",
+            "struct CardApduResponseV2 {",
+        ),
+        owner_section(
+            NORMAL_SEC1210,
+            "pub struct NormalSec1210V2<D, C> {",
+            "struct Sec1210ApduAdapter<'a, D, C> {",
+        ),
         owner_section(
             SESSION,
             "pub struct CoreOutbound {",

@@ -5,6 +5,8 @@ const SESSION_ID: &str = include_str!("../src/session_id.rs");
 const CAPABILITY: &str = include_str!("../src/capability.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const NORMAL_PROCESS: &str = include_str!("../src/normal_process_v2.rs");
+const CARD_APDU_SESSION: &str = include_str!("../src/card_apdu_session_v2.rs");
+const NORMAL_SEC1210: &str = include_str!("../src/normal_sec1210_v2.rs");
 const PROCESS: &str = include_str!("../src/process.rs");
 const NORMAL_ARTIFACT: &str = include_str!("../src/normal_artifact_v2.rs");
 const KIT_ARTIFACT: &str = include_str!("../src/kit_artifact_v2.rs");
@@ -177,11 +179,6 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
     assert!(!NORMAL_PROCESS.contains("let mut scratch = [0u8; MAX_DER_BYTES];"));
     for owner in [
         "WipingArray::<{ DEVICE_HEADER_BYTES + MAX_REQUEST_BYTES }>::zeroed();",
-        "let mut command = WipingArray::<MAX_REQUEST_BYTES>::zeroed();",
-        "let mut session_id = WipingArray::<16>::zeroed();",
-        "let mut receive = WipingArray::<DESCRIPTOR_BYTES>::zeroed();",
-        "let mut change = WipingArray::<DESCRIPTOR_BYTES>::zeroed();",
-        "let mut signature = WipingArray::<72>::zeroed();",
         "let mut body = WipingArray::<MAX_DISPLAY_BODY_BYTES>::zeroed();",
         "WipingArray::<{ DEVICE_HEADER_BYTES + MAX_DISPLAY_BODY_BYTES }>::zeroed();",
         "let mut byte = WipingArray::<1>::zeroed();",
@@ -192,12 +189,73 @@ fn normal_cleanup_owns_all_retained_secrets_and_signature_bookkeeping() {
             "missing runtime fixed owner {owner}"
         );
     }
-    assert!(PROCESS.contains("drop(self.card_session.take());"));
-    assert!(PROCESS.contains("struct CardProtocolSession {"));
-    assert!(PROCESS.contains("session_id: SessionId,"));
-    assert!(PROCESS.contains("tracker: SessionTracker,"));
+    for owner in [
+        "let mut command = WipingArray::<MAX_REQUEST_BYTES>::zeroed();",
+        "let mut session_id = WipingArray::<16>::zeroed();",
+        "let mut receive = WipingArray::<DESCRIPTOR_BYTES>::zeroed();",
+        "let mut change = WipingArray::<DESCRIPTOR_BYTES>::zeroed();",
+        "let mut signature = WipingArray::<72>::zeroed();",
+    ] {
+        assert!(
+            CARD_APDU_SESSION.contains(owner),
+            "missing shared application fixed owner {owner}"
+        );
+    }
+    assert!(CARD_APDU_SESSION.contains("drop(self.card_session.take());"));
+    assert!(CARD_APDU_SESSION.contains("struct CardProtocolSession {"));
+    assert!(CARD_APDU_SESSION.contains("session_id: SessionId,"));
+    assert!(CARD_APDU_SESSION.contains("tracker: SessionTracker,"));
     assert!(NORMAL_PROCESS.contains("impl Drop for NormalProcessControllerV2"));
     assert!(NORMAL_PROCESS.contains("drop(self.session.take());"));
+}
+
+#[test]
+fn integrated_normal_facade_owns_and_releases_every_delegated_cleanup_family() {
+    for owner in [
+        "controller: NormalProcessControllerV2,",
+        "application_session: CardApduSessionV2,",
+        "transport: Option<Sec1210TransportV2<D, C>>",
+    ] {
+        assert!(
+            NORMAL_SEC1210.contains(owner),
+            "missing facade owner {owner}"
+        );
+    }
+    let failure = NORMAL_SEC1210
+        .split_once("fn fail(&mut self, error: NormalSec1210ErrorV2)")
+        .expect("facade terminal failure")
+        .1
+        .split_once("impl<D, C> Drop for NormalSec1210V2<D, C>")
+        .expect("facade failure end")
+        .0;
+    assert!(failure.contains("self.controller.terminate_operation(reason);"));
+    assert!(failure.contains("self.application_session.terminate();"));
+    assert!(failure.contains("drop(self.transport.take());"));
+    let destructor = NORMAL_SEC1210
+        .split_once("impl<D, C> Drop for NormalSec1210V2<D, C>")
+        .expect("facade drop")
+        .1
+        .split_once("fn map_application_error")
+        .expect("facade drop end")
+        .0;
+    assert!(destructor.contains(
+        "self.controller\n            .terminate_operation(NormalErrorV2::SigningRejected);"
+    ));
+    assert!(destructor.contains("self.application_session.terminate();"));
+    assert!(destructor.contains("drop(self.transport.take());"));
+    assert!(NORMAL_PROCESS.contains("session.terminate_process(error)"));
+    assert!(NORMAL_PROCESS.contains("drop(self.session.take());"));
+    assert!(NORMAL.contains("self.fail(error, Interruption::OperationFailed)"));
+    assert!(NORMAL.contains("drop(self.process_signing.take());"));
+    assert!(NORMAL.contains("self.approval = None;"));
+    assert!(CARD_APDU_SESSION.contains("card_session: Option<CardProtocolSession>"));
+    assert!(CARD_APDU_SESSION.contains("bytes: WipingArray<MAX_RESPONSE_BYTES>"));
+    assert!(CARD_APDU_SESSION.contains("signature: WipingArray<72>"));
+    assert!(CARD_APDU_SESSION.contains("impl Drop for CardApduSessionV2"));
+    assert!(CARD_APDU_SESSION.contains("self.terminate();"));
+    assert!(CARD_APDU_SESSION.contains("drop(self.card_session.take());"));
+    // Dropping the transport delegates decoder and T=1 pending-storage cleanup
+    // to its existing wiping owners; no transport implementation is changed here.
 }
 
 #[test]

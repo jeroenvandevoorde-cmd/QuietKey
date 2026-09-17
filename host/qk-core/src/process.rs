@@ -1,20 +1,17 @@
 //! Real HOST child boundary for the trusted qk-core process.
 
-use crate::card_process_v1::{validate_normal_descriptors_v1, validate_normal_info_v1};
-use crate::session_id::{mint_session_id, SessionId, SessionIdError};
+use crate::card_apdu_session_v2::{
+    CardApduExchangeV2, CardApduSessionErrorV2, CardApduSessionV2, CardSignatureReply,
+};
 use crate::wipe::{self, WipingArray};
 use crate::{
-    bind_normal_card_v1, CardInfoV1, CardPresence, CardProcessErrorV1, CoreDeviceGrants, CoreError,
-    CoreMode, CoreReceiveEvent, CoreSession, Interruption, MockCardSlot, MockDisplay, MockKeypad,
-    NormalCardBDataV2, NormalCardBSigningRequestV2, NormalProcessControllerV2,
-    NormalProcessErrorV2, NormalProcessEventV2, NormalProcessStageV2, NormalProfileV2,
-    NormalScreenV2, NormalStageV2,
+    CardPresence, CardProcessErrorV1, CoreDeviceGrants, CoreError, CoreMode, CoreReceiveEvent,
+    CoreSession, Interruption, MockCardSlot, MockDisplay, MockKeypad, NormalCardBDataV2,
+    NormalCardBSigningRequestV2, NormalErrorV2, NormalProcessControllerV2, NormalProcessErrorV2,
+    NormalProcessEventV2, NormalProcessStageV2, NormalProfileV2, NormalScreenV2, NormalStageV2,
 };
 use qk_card_protocol::{
-    encode_export_a2, encode_get_info, encode_open_session, encode_read_d_chunk, encode_select,
-    encode_sign_digest, parse_command, parse_response, A2Purpose, DescriptorSelector, EncodeError,
-    EnvelopeRef, Instruction, Media, Mode, ProtocolError, ResponseError, ResponseRef,
-    SessionTracker, SignRequest, DESCRIPTOR_BYTES, MAX_REQUEST_BYTES,
+    EncodeError, ProtocolError, ResponseError, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
 };
 use qk_device_wire::{
     BodyRef, Capability, DeviceError, ExchangeProtocol, KeypadBody, LogicalKey, MessageKind,
@@ -111,12 +108,19 @@ pub fn run_normal_core_host_process(profile_ascii: &[u8]) -> Result<(), CoreHost
     drive_qkip(&stream, &mut controller, opening)?;
 
     loop {
-        devices.display_updates(&mut controller)?;
         if controller.stage() == NormalProcessStageV2::Normal(NormalStageV2::CardBSigning) {
             let request = controller
                 .card_b_signing_request()
                 .ok_or(CoreHostProcessError::UnexpectedEvent)?;
-            let mut reply = devices.sign_card_b(&request)?;
+            let mut reply = match devices.sign_card_b(&request) {
+                Ok(reply) => reply,
+                Err(error) => {
+                    drop(request);
+                    controller.terminate_operation(NormalErrorV2::SigningRejected);
+                    let _ = devices.display_updates(&mut controller);
+                    return Err(error);
+                }
+            };
             drop(request);
             let review_hash = reply.review_hash;
             let input_index = reply.input_index;
@@ -124,24 +128,41 @@ pub fn run_normal_core_host_process(profile_ascii: &[u8]) -> Result<(), CoreHost
             let signature = reply
                 .signature_mut()
                 .ok_or(CoreHostProcessError::UnexpectedEvent)?;
-            let outbound = controller
-                .accept_card_b_signature(review_hash, input_index, public_key, signature)
-                .map_err(CoreHostProcessError::Normal)?;
+            let outbound = match controller.accept_card_b_signature(
+                review_hash,
+                input_index,
+                public_key,
+                signature,
+            ) {
+                Ok(outbound) => outbound,
+                Err(error) => {
+                    drop(reply);
+                    devices.application_session.terminate();
+                    let _ = devices.display_updates(&mut controller);
+                    return Err(CoreHostProcessError::Normal(error));
+                }
+            };
             drop(reply);
             if let Some(outbound) = outbound {
                 drive_qkip(&stream, &mut controller, outbound)?;
             }
             continue;
         }
+        devices.display_updates(&mut controller)?;
         match controller.stage() {
             NormalProcessStageV2::Normal(NormalStageV2::CompletedWiped) => return Ok(()),
             NormalProcessStageV2::Normal(NormalStageV2::FactorB)
             | NormalProcessStageV2::Normal(NormalStageV2::FactorA1) => {
                 let before = controller.stage();
-                if let Some(outbound) = controller
-                    .advance_automatic()
-                    .map_err(CoreHostProcessError::Normal)?
-                {
+                let outbound = match controller.advance_automatic() {
+                    Ok(outbound) => outbound,
+                    Err(error) => {
+                        devices.application_session.terminate();
+                        let _ = devices.display_updates(&mut controller);
+                        return Err(CoreHostProcessError::Normal(error));
+                    }
+                };
+                if let Some(outbound) = outbound {
                     if controller.stage() != before {
                         devices.display_updates(&mut controller)?;
                     }
@@ -151,10 +172,15 @@ pub fn run_normal_core_host_process(profile_ascii: &[u8]) -> Result<(), CoreHost
             NormalProcessStageV2::Normal(_) => {
                 let event = devices.read_keypad_event()?;
                 let before = controller.stage();
-                if let Some(outbound) = controller
-                    .handle_event(event)
-                    .map_err(CoreHostProcessError::Normal)?
-                {
+                let outbound = match controller.handle_event(event) {
+                    Ok(outbound) => outbound,
+                    Err(error) => {
+                        devices.application_session.terminate();
+                        let _ = devices.display_updates(&mut controller);
+                        return Err(CoreHostProcessError::Normal(error));
+                    }
+                };
+                if let Some(outbound) = outbound {
                     if controller.stage() != before {
                         devices.display_updates(&mut controller)?;
                     }
@@ -170,70 +196,14 @@ pub fn run_normal_core_host_process(profile_ascii: &[u8]) -> Result<(), CoreHost
     }
 }
 
-struct CardProtocolSession {
-    session_id: SessionId,
-    tracker: SessionTracker,
-}
-
-struct CardSignatureReply {
-    review_hash: [u8; 32],
-    input_index: u32,
-    public_key: [u8; 33],
-    signature: WipingArray<72>,
-    signature_len: usize,
-}
-
-impl CardSignatureReply {
-    fn try_from_response(response: ResponseRef<'_>) -> Result<Self, CoreHostProcessError> {
-        let ResponseRef::SignDigest {
-            review_hash,
-            input_index,
-            public_key,
-            signature_der,
-            ..
-        } = response
-        else {
-            return Err(CoreHostProcessError::UnexpectedEvent);
-        };
-        let mut signature = WipingArray::<72>::zeroed();
-        signature
-            .as_mut_array()
-            .get_mut(..signature_der.len())
-            .ok_or(CoreHostProcessError::UnexpectedEvent)?
-            .copy_from_slice(signature_der);
-        Ok(Self {
-            review_hash: *review_hash,
-            input_index,
-            public_key: *public_key,
-            signature,
-            signature_len: signature_der.len(),
-        })
-    }
-
-    fn signature_mut(&mut self) -> Option<&mut [u8]> {
-        self.signature.as_mut_array().get_mut(..self.signature_len)
-    }
-}
-
-impl Drop for CardSignatureReply {
-    fn drop(&mut self) {
-        wipe::bytes(&mut self.review_hash);
-        wipe::words32(core::slice::from_mut(&mut self.input_index));
-        wipe::bytes(&mut self.public_key);
-        self.signature_len = 0;
-    }
-}
-
 struct NormalDeviceRuntime {
     display_file: File,
     keypad_file: File,
-    card_response_file: File,
-    card_request_file: File,
+
     display_protocol: OneWayProtocol,
     keypad_decoder: StreamDecoder,
-    card_protocol: ExchangeProtocol,
-    card_decoder: StreamDecoder,
-    card_session: Option<CardProtocolSession>,
+    card: QkdvCardRuntime,
+    application_session: CardApduSessionV2,
 }
 
 impl NormalDeviceRuntime {
@@ -241,14 +211,20 @@ impl NormalDeviceRuntime {
         Ok(Self {
             display_file: inherited_file(DISPLAY_FD, false)?,
             keypad_file: inherited_file(KEYPAD_FD, true)?,
-            card_response_file: inherited_file(CARD_RESPONSE_FD, true)?,
-            card_request_file: inherited_file(CARD_REQUEST_FD, false)?,
+
             display_protocol: OneWayProtocol::new(Capability::Display),
             keypad_decoder: StreamDecoder::new(Capability::Keypad),
-            card_protocol: ExchangeProtocol::new(Capability::CardRequest, Capability::CardResponse)
+            card: QkdvCardRuntime {
+                card_response_file: inherited_file(CARD_RESPONSE_FD, true)?,
+                card_request_file: inherited_file(CARD_REQUEST_FD, false)?,
+                card_protocol: ExchangeProtocol::new(
+                    Capability::CardRequest,
+                    Capability::CardResponse,
+                )
                 .map_err(CoreHostProcessError::Device)?,
-            card_decoder: StreamDecoder::new(Capability::CardResponse),
-            card_session: None,
+                card_decoder: StreamDecoder::new(Capability::CardResponse),
+            },
+            application_session: CardApduSessionV2::new(),
         })
     }
 
@@ -256,330 +232,18 @@ impl NormalDeviceRuntime {
         &mut self,
         selected_profile: NormalProfileV2,
     ) -> Result<NormalCardBDataV2, CoreHostProcessError> {
-        self.open_card_session()?;
-        let info = self.card_info()?;
-        if let Err(error) = validate_normal_info_v1(selected_profile, &info) {
-            self.terminate_card_session();
-            return Err(CoreHostProcessError::CardBinding(error));
-        }
-        let mut receive = WipingArray::<DESCRIPTOR_BYTES>::zeroed();
-        self.read_descriptor(DescriptorSelector::Receive, &mut receive)?;
-        let mut change = WipingArray::<DESCRIPTOR_BYTES>::zeroed();
-        self.read_descriptor(DescriptorSelector::Change, &mut change)?;
-        let descriptors = [*receive.as_array(), *change.as_array()];
-        drop(receive);
-        drop(change);
-        if let Err(error) = validate_normal_descriptors_v1(&info, &descriptors) {
-            self.terminate_card_session();
-            return Err(CoreHostProcessError::CardBinding(error));
-        }
-        let mut a2 = self.export_normal_a2()?;
-        let card = match bind_normal_card_v1(selected_profile, info, descriptors, a2.as_mut_array())
-        {
-            Ok(card) => card,
-            Err(error) => {
-                self.terminate_card_session();
-                return Err(CoreHostProcessError::CardBinding(error));
-            }
-        };
-        drop(a2);
-        Ok(card)
-    }
-
-    fn open_card_session(&mut self) -> Result<(), CoreHostProcessError> {
-        let mut select = WipingArray::<MAX_REQUEST_BYTES>::zeroed();
-        let select_len =
-            encode_select(select.as_mut_array()).map_err(CoreHostProcessError::CardEncode)?;
-        let response = self.raw_card_exchange(
-            select
-                .as_array()
-                .get(..select_len)
-                .ok_or(CoreHostProcessError::UnexpectedEvent)?,
-        )?;
-        drop(select);
-        let response_bytes = raw_card_response(&response)?;
-        let parsed = parse_response(Instruction::Select, response_bytes)
-            .map_err(CoreHostProcessError::CardResponse)?;
-        match parsed {
-            ResponseRef::Select => {}
-            ResponseRef::Rejected(error) => {
-                return Err(CoreHostProcessError::CardProtocol(error));
-            }
-            _ => return Err(CoreHostProcessError::UnexpectedEvent),
-        }
-        drop(response);
-
-        let session_id = mint_session_id().map_err(map_card_session_identity_error)?;
-        let mut open = WipingArray::<MAX_REQUEST_BYTES>::zeroed();
-        let open_len =
-            encode_open_session(Mode::Normal, session_id.as_bytes(), open.as_mut_array())
-                .map_err(CoreHostProcessError::CardEncode)?;
-        let response = self.raw_card_exchange(
-            open.as_array()
-                .get(..open_len)
-                .ok_or(CoreHostProcessError::UnexpectedEvent)?,
-        )?;
-        drop(open);
-        let response_bytes = raw_card_response(&response)?;
-        let parsed = parse_response(Instruction::OpenSession, response_bytes)
-            .map_err(CoreHostProcessError::CardResponse)?;
-        match parsed {
-            ResponseRef::OpenSession { envelope }
-                if envelope.session_id() == session_id.as_bytes() && envelope.sequence() == 0 => {}
-            ResponseRef::OpenSession { .. } => {
-                return Err(CoreHostProcessError::CardProtocol(
-                    ProtocolError::SessionIdMismatch,
-                ));
-            }
-            ResponseRef::Rejected(error) => {
-                return Err(CoreHostProcessError::CardProtocol(error));
-            }
-            _ => return Err(CoreHostProcessError::UnexpectedEvent),
-        }
-        let tracker = SessionTracker::new(
-            Mode::Normal,
-            session_id.as_bytes(),
-            open_len,
-            response_bytes.len(),
-        )
-        .map_err(CoreHostProcessError::CardProtocol)?;
-        drop(response);
-        self.card_session = Some(CardProtocolSession {
-            session_id,
-            tracker,
-        });
-        Ok(())
-    }
-
-    fn card_info(&mut self) -> Result<CardInfoV1, CoreHostProcessError> {
-        self.session_exchange(Instruction::GetInfo, encode_get_info, |response| {
-            CardInfoV1::try_from_response(response).map_err(CoreHostProcessError::CardBinding)
-        })
-    }
-
-    fn read_descriptor(
-        &mut self,
-        selector: DescriptorSelector,
-        output: &mut WipingArray<DESCRIPTOR_BYTES>,
-    ) -> Result<(), CoreHostProcessError> {
-        for offset in [0u16, 192u16] {
-            self.session_exchange(
-                Instruction::ReadDChunk,
-                |envelope, command| encode_read_d_chunk(envelope, selector, offset, command),
-                |response| {
-                    let ResponseRef::ReadDChunk {
-                        selector: actual_selector,
-                        offset: actual_offset,
-                        bytes,
-                        ..
-                    } = response
-                    else {
-                        return Err(CoreHostProcessError::UnexpectedEvent);
-                    };
-                    if actual_selector != selector || actual_offset != offset {
-                        return Err(CoreHostProcessError::CardProtocol(
-                            ProtocolError::ModeOrOperationRejected,
-                        ));
-                    }
-                    let start = usize::from(offset);
-                    let end = start
-                        .checked_add(bytes.len())
-                        .ok_or(CoreHostProcessError::UnexpectedEvent)?;
-                    output
-                        .as_mut_array()
-                        .get_mut(start..end)
-                        .ok_or(CoreHostProcessError::UnexpectedEvent)?
-                        .copy_from_slice(bytes);
-                    Ok(())
-                },
-            )?;
-        }
-        Ok(())
-    }
-
-    fn export_normal_a2(&mut self) -> Result<WipingArray<32>, CoreHostProcessError> {
-        self.session_exchange(
-            Instruction::ExportA2,
-            |envelope, command| encode_export_a2(envelope, A2Purpose::Normal, command),
-            |response| {
-                let ResponseRef::ExportA2 {
-                    purpose: A2Purpose::Normal,
-                    a2,
-                    ..
-                } = response
-                else {
-                    return Err(CoreHostProcessError::UnexpectedEvent);
-                };
-                let mut owned = WipingArray::<32>::zeroed();
-                owned.as_mut_array().copy_from_slice(a2);
-                Ok(owned)
-            },
-        )
+        self.application_session
+            .bind_normal_card(&mut self.card, selected_profile)
+            .map_err(map_card_application_error)
     }
 
     fn sign_card_b(
         &mut self,
         request: &NormalCardBSigningRequestV2,
     ) -> Result<CardSignatureReply, CoreHostProcessError> {
-        let branch = u8::try_from(request.branch()).map_err(|_| {
-            CoreHostProcessError::CardProtocol(ProtocolError::DerivationPathRejected)
-        })?;
-        self.session_exchange(
-            Instruction::SignDigest,
-            |envelope, command| {
-                encode_sign_digest(
-                    envelope,
-                    SignRequest {
-                        wallet_id: request.wallet_id(),
-                        review_hash: request.review_hash(),
-                        input_index: request.input_index(),
-                        branch,
-                        child_index: request.child_index(),
-                        digest: request.digest(),
-                    },
-                    command,
-                )
-            },
-            CardSignatureReply::try_from_response,
-        )
-    }
-
-    fn session_exchange<T>(
-        &mut self,
-        instruction: Instruction,
-        encode: impl FnOnce(EnvelopeRef<'_>, &mut [u8]) -> Result<usize, EncodeError>,
-        consume: impl FnOnce(ResponseRef<'_>) -> Result<T, CoreHostProcessError>,
-    ) -> Result<T, CoreHostProcessError> {
-        let mut session_id = WipingArray::<16>::zeroed();
-        let sequence = match self.card_session.as_ref() {
-            Some(session) => {
-                session_id
-                    .as_mut_array()
-                    .copy_from_slice(session.session_id.as_bytes());
-                session.tracker.next_sequence()
-            }
-            None => return Err(CoreHostProcessError::UnexpectedEvent),
-        };
-        let mut command = WipingArray::<MAX_REQUEST_BYTES>::zeroed();
-        let command_len = match encode(
-            EnvelopeRef::new(session_id.as_array(), sequence),
-            command.as_mut_array(),
-        ) {
-            Ok(length) => length,
-            Err(error) => {
-                self.terminate_card_session();
-                return Err(CoreHostProcessError::CardEncode(error));
-            }
-        };
-        drop(session_id);
-        let command_bytes = command
-            .as_array()
-            .get(..command_len)
-            .ok_or(CoreHostProcessError::UnexpectedEvent)?;
-        let parsed_command = match parse_command(Media::ContactT1, command_bytes) {
-            Ok(parsed) if parsed.instruction() == instruction => parsed,
-            Ok(_) => {
-                self.terminate_card_session();
-                return Err(CoreHostProcessError::UnexpectedEvent);
-            }
-            Err(error) => {
-                self.terminate_card_session();
-                return Err(CoreHostProcessError::CardProtocol(error));
-            }
-        };
-        if let Err(error) = self
-            .card_session
-            .as_mut()
-            .ok_or(CoreHostProcessError::UnexpectedEvent)?
-            .tracker
-            .begin_exchange(parsed_command, command_len)
-        {
-            self.terminate_card_session();
-            return Err(CoreHostProcessError::CardProtocol(error));
-        }
-        let response = match self.raw_card_exchange(command_bytes) {
-            Ok(response) => response,
-            Err(error) => {
-                self.terminate_card_session();
-                return Err(error);
-            }
-        };
-        drop(command);
-        let response_bytes = match raw_card_response(&response) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                self.terminate_card_session();
-                return Err(error);
-            }
-        };
-        let parsed_response = match parse_response(instruction, response_bytes) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                self.terminate_card_session();
-                return Err(CoreHostProcessError::CardResponse(error));
-            }
-        };
-        if let ResponseRef::Rejected(error) = parsed_response {
-            let accounting = self
-                .card_session
-                .as_mut()
-                .ok_or(CoreHostProcessError::UnexpectedEvent)?
-                .tracker
-                .finish_rejection(response_bytes.len());
-            let result = match accounting {
-                Ok(()) => Err(CoreHostProcessError::CardProtocol(error)),
-                Err(accounting_error) => Err(CoreHostProcessError::CardProtocol(accounting_error)),
-            };
-            self.terminate_card_session();
-            return result;
-        }
-        if let Err(error) = self
-            .card_session
-            .as_mut()
-            .ok_or(CoreHostProcessError::UnexpectedEvent)?
-            .tracker
-            .finish_success(parsed_response, response_bytes.len())
-        {
-            self.terminate_card_session();
-            return Err(CoreHostProcessError::CardProtocol(error));
-        }
-        match consume(parsed_response) {
-            Ok(value) => Ok(value),
-            Err(error) => {
-                self.terminate_card_session();
-                Err(error)
-            }
-        }
-    }
-
-    fn terminate_card_session(&mut self) {
-        drop(self.card_session.take());
-    }
-
-    fn raw_card_exchange(&mut self, body: &[u8]) -> Result<ReceivedFrame, CoreHostProcessError> {
-        let request = self
-            .card_protocol
-            .begin(MessageKind::CardApduRequest)
-            .map_err(CoreHostProcessError::Device)?;
-        let mut bytes = WipingArray::<{ DEVICE_HEADER_BYTES + MAX_REQUEST_BYTES }>::zeroed();
-        let length = request
-            .encode(body, bytes.as_mut_array())
-            .map_err(CoreHostProcessError::Device)?;
-        self.card_request_file
-            .write_all(
-                bytes
-                    .as_array()
-                    .get(..length)
-                    .ok_or(CoreHostProcessError::UnexpectedEvent)?,
-            )
-            .map_err(|_| CoreHostProcessError::DeviceWriteFailed)?;
-        drop(bytes);
-        let frame = read_device_frame(&mut self.card_response_file, &mut self.card_decoder)?;
-        raw_card_response(&frame)?;
-        self.card_protocol
-            .accept_response(&frame)
-            .map_err(CoreHostProcessError::Device)?;
-        Ok(frame)
+        self.application_session
+            .sign_card_b(&mut self.card, request)
+            .map_err(map_card_application_error)
     }
 
     fn display_updates(
@@ -716,6 +380,81 @@ const fn map_logical_key(key: LogicalKey) -> crate::KeypadKey {
     }
 }
 
+struct QkdvCardRuntime {
+    card_response_file: File,
+    card_request_file: File,
+    card_protocol: ExchangeProtocol,
+    card_decoder: StreamDecoder,
+}
+
+impl QkdvCardRuntime {
+    fn raw_card_exchange(&mut self, body: &[u8]) -> Result<ReceivedFrame, CoreHostProcessError> {
+        let request = self
+            .card_protocol
+            .begin(MessageKind::CardApduRequest)
+            .map_err(CoreHostProcessError::Device)?;
+        let mut bytes = WipingArray::<{ DEVICE_HEADER_BYTES + MAX_REQUEST_BYTES }>::zeroed();
+        let length = request
+            .encode(body, bytes.as_mut_array())
+            .map_err(CoreHostProcessError::Device)?;
+        self.card_request_file
+            .write_all(
+                bytes
+                    .as_array()
+                    .get(..length)
+                    .ok_or(CoreHostProcessError::UnexpectedEvent)?,
+            )
+            .map_err(|_| CoreHostProcessError::DeviceWriteFailed)?;
+        drop(bytes);
+        let frame = read_device_frame(&mut self.card_response_file, &mut self.card_decoder)?;
+        raw_card_response(&frame)?;
+        self.card_protocol
+            .accept_response(&frame)
+            .map_err(CoreHostProcessError::Device)?;
+        Ok(frame)
+    }
+}
+
+impl CardApduExchangeV2 for QkdvCardRuntime {
+    type Error = CoreHostProcessError;
+
+    fn exchange(
+        &mut self,
+        request: &[u8],
+        response: &mut [u8; MAX_RESPONSE_BYTES],
+    ) -> Result<usize, Self::Error> {
+        let frame = self.raw_card_exchange(request)?;
+        let bytes = raw_card_response(&frame)?;
+        response
+            .get_mut(..bytes.len())
+            .ok_or(CoreHostProcessError::UnexpectedEvent)?
+            .copy_from_slice(bytes);
+        Ok(bytes.len())
+    }
+}
+
+fn map_card_application_error(
+    error: CardApduSessionErrorV2<CoreHostProcessError>,
+) -> CoreHostProcessError {
+    match error {
+        CardApduSessionErrorV2::Transport(error) => error,
+        CardApduSessionErrorV2::CardEncode(error) => CoreHostProcessError::CardEncode(error),
+        CardApduSessionErrorV2::CardProtocol(error) => CoreHostProcessError::CardProtocol(error),
+        CardApduSessionErrorV2::CardResponse(error) => CoreHostProcessError::CardResponse(error),
+        CardApduSessionErrorV2::CardBinding(error) => CoreHostProcessError::CardBinding(error),
+        CardApduSessionErrorV2::CardSessionIdentityUnavailable => {
+            CoreHostProcessError::CardSessionIdentityUnavailable
+        }
+        CardApduSessionErrorV2::CardSessionIdentityExhausted => {
+            CoreHostProcessError::CardSessionIdentityExhausted
+        }
+        CardApduSessionErrorV2::SigningRejected => CoreHostProcessError::Normal(
+            NormalProcessErrorV2::Normal(NormalErrorV2::SigningRejected),
+        ),
+        CardApduSessionErrorV2::UnexpectedEvent => CoreHostProcessError::UnexpectedEvent,
+    }
+}
+
 fn raw_card_response(frame: &ReceivedFrame) -> Result<&[u8], CoreHostProcessError> {
     match frame.parsed_body().map_err(CoreHostProcessError::Device)? {
         BodyRef::CardApduResponse(bytes) => Ok(bytes),
@@ -728,13 +467,6 @@ const fn profile_wire(profile: NormalProfileV2) -> u8 {
         NormalProfileV2::SimpleRecovery => 0x01,
         NormalProfileV2::Inheritance => 0x02,
         NormalProfileV2::QuantumShelter => 0x03,
-    }
-}
-
-const fn map_card_session_identity_error(error: SessionIdError) -> CoreHostProcessError {
-    match error {
-        SessionIdError::Unavailable => CoreHostProcessError::CardSessionIdentityUnavailable,
-        SessionIdError::Exhausted => CoreHostProcessError::CardSessionIdentityExhausted,
     }
 }
 
@@ -878,15 +610,13 @@ fn terminate_unexpected(session: &mut CoreSession) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        read_device_frame, CardProtocolSession, CoreHostProcessError, NormalDeviceRuntime,
-    };
-    use crate::session_id::DeterministicSessionIdMint;
+    use super::{read_device_frame, CoreHostProcessError, NormalDeviceRuntime, QkdvCardRuntime};
+    use crate::card_apdu_session_v2::CardApduSessionV2;
     use crate::wipe::{reset_wiped_bytes, wiped_bytes};
     use crate::{NormalProfileV2, NormalScreenV2, NormalStageV2};
     use qk_card_protocol::{
         encode_success, parse_command, EnvelopeRef, Instruction, Lifecycle, Media, Mode, Profile,
-        SessionTracker, MAX_RESPONSE_BYTES, PROTOCOL_VERSION, RECORD_VERSION, ROLE_KEY_CARD_B,
+        MAX_RESPONSE_BYTES, PROTOCOL_VERSION, RECORD_VERSION, ROLE_KEY_CARD_B,
     };
     use qk_device_wire::{
         BodyRef, Capability, ExchangeProtocol, MessageKind, OneWayProtocol, StreamDecoder,
@@ -925,14 +655,20 @@ mod tests {
         NormalDeviceRuntime {
             display_file,
             keypad_file: null_file(true),
-            card_response_file,
-            card_request_file,
+
             display_protocol: OneWayProtocol::new(Capability::Display),
             keypad_decoder: StreamDecoder::new(Capability::Keypad),
-            card_protocol: ExchangeProtocol::new(Capability::CardRequest, Capability::CardResponse)
+            card: QkdvCardRuntime {
+                card_response_file,
+                card_request_file,
+                card_protocol: ExchangeProtocol::new(
+                    Capability::CardRequest,
+                    Capability::CardResponse,
+                )
                 .expect("card exchange protocol"),
-            card_decoder: StreamDecoder::new(Capability::CardResponse),
-            card_session: None,
+                card_decoder: StreamDecoder::new(Capability::CardResponse),
+            },
+            application_session: CardApduSessionV2::new(),
         }
     }
 
@@ -990,31 +726,13 @@ mod tests {
         let mut runtime = runtime(null_file(false), broken_writer());
         reset_wiped_bytes();
         assert!(matches!(
-            runtime.raw_card_exchange(&[]),
+            runtime.card.raw_card_exchange(&[]),
             Err(CoreHostProcessError::DeviceWriteFailed)
         ));
         assert_eq!(
             wiped_bytes(),
             qk_device_wire::HEADER_BYTES + qk_card_protocol::MAX_REQUEST_BYTES
         );
-    }
-
-    #[test]
-    fn terminating_card_session_drops_the_duplicate_core_identity_owner() {
-        let mut mint = DeterministicSessionIdMint::new([0x51; 12], 0);
-        let session_id = mint.mint().expect("deterministic session identity");
-        let tracker = SessionTracker::new(Mode::Normal, session_id.as_bytes(), 24, 23)
-            .expect("card protocol tracker");
-        let mut runtime = runtime(null_file(false), null_file(false));
-        runtime.card_session = Some(CardProtocolSession {
-            session_id,
-            tracker,
-        });
-
-        reset_wiped_bytes();
-        runtime.terminate_card_session();
-        assert!(runtime.card_session.is_none());
-        assert_eq!(wiped_bytes(), 16);
     }
 
     #[test]
@@ -1108,7 +826,7 @@ mod tests {
                 crate::CardProcessErrorV1::InfoProfileMismatch
             ))
         ));
-        assert!(runtime.card_session.is_none());
+        assert!(runtime.application_session.is_terminated());
         drop(runtime);
         assert_eq!(
             peer.join().expect("card peer"),

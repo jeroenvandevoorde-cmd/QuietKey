@@ -181,7 +181,7 @@ impl NormalProcessControllerV2 {
     #[cfg(any(test, feature = "fuzzing"))]
     #[doc(hidden)]
     pub fn fuzz_take_display_stage(&mut self) -> Option<NormalStageV2> {
-        self.take_display_stage()
+        self.take_retained_display_stage()
     }
 
     pub fn screen(&self) -> Option<NormalScreenV2<'_>> {
@@ -316,6 +316,7 @@ impl NormalProcessControllerV2 {
     /// enter the immutable review.
     pub fn advance_automatic(&mut self) -> Result<Option<CoreOutbound>, NormalProcessErrorV2> {
         self.require_normal()?;
+        self.reject_pending_service()?;
         let stage = self.normal_stage()?;
         let result = match stage {
             NormalStageV2::FactorB => self.apply_session(|session| {
@@ -341,6 +342,7 @@ impl NormalProcessControllerV2 {
         if let NormalProcessEventV2::SessionTimeout = event {
             return self.interrupt(Interruption::SessionTimeout);
         }
+        self.reject_pending_service()?;
         let stage = self.normal_stage()?;
         let result = match (stage, event) {
             (
@@ -427,6 +429,19 @@ impl NormalProcessControllerV2 {
         Ok(())
     }
 
+    fn reject_pending_service(&mut self) -> Result<(), NormalProcessErrorV2> {
+        if self.card_b_signing_request().is_some() {
+            return Err(self.latch_session_error(NormalErrorV2::InvalidTransition));
+        }
+        Ok(())
+    }
+
+    /// Terminate the existing owner when its card exchange fails. The facade
+    /// retains any more specific transport name separately; no retry remains.
+    pub(crate) fn terminate_operation(&mut self, error: NormalErrorV2) -> NormalProcessErrorV2 {
+        self.latch_session_error(error)
+    }
+
     fn require_normal(&mut self) -> Result<(), NormalProcessErrorV2> {
         if self.terminal_error.is_some() || self.stage == NormalProcessStageV2::Terminated {
             return Err(self
@@ -483,6 +498,13 @@ impl NormalProcessControllerV2 {
     }
 
     fn latch_session_error(&mut self, error: NormalErrorV2) -> NormalProcessErrorV2 {
+        if let Some(first) = self.terminal_error {
+            return first;
+        }
+        let error = match self.session.as_mut() {
+            Some(session) => session.terminate_process(error),
+            None => error,
+        };
         self.capture_session_trace();
         self.last_normal_stage = self.session.as_ref().map(NormalSessionV2::stage);
         let process_error = match self
@@ -508,12 +530,16 @@ impl NormalProcessControllerV2 {
             }
             None => Self::normal_error(error),
         };
+        drop(self.session.take());
         self.stage = NormalProcessStageV2::Terminated;
         self.terminal_error = Some(process_error);
         process_error
     }
 
     fn fail(&mut self, error: NormalProcessErrorV2) -> NormalProcessErrorV2 {
+        if let Some(first) = self.terminal_error {
+            return first;
+        }
         drop(self.session.take());
         self.stage = NormalProcessStageV2::Terminated;
         self.terminal_error = Some(error);
@@ -525,6 +551,13 @@ impl NormalProcessControllerV2 {
     }
 
     pub(crate) fn take_display_stage(&mut self) -> Option<NormalStageV2> {
+        if self.card_b_signing_request().is_some() {
+            return None;
+        }
+        self.take_retained_display_stage()
+    }
+
+    fn take_retained_display_stage(&mut self) -> Option<NormalStageV2> {
         let stage = self
             .pending_display_stages
             .get_mut(self.pending_display_cursor)
@@ -1088,7 +1121,11 @@ mod tests {
     fn truncated_signature_count_after_a2_drops_the_fixed_secret_owner() {
         let a2_start = 2 * DESCRIPTOR_BYTES + WALLET_ID_BYTES + ACCOUNT_XPUB_BYTES;
         let mut body = vec![0u8; a2_start + A2_BYTES];
-        body[a2_start..].fill(0xa5);
+        let a2 = body.get_mut(a2_start..);
+        assert!(a2.is_some());
+        if let Some(a2) = a2 {
+            a2.fill(0xa5);
+        }
         reset_wiped_bytes();
         assert!(matches!(
             parse_normal_factor(&body),

@@ -533,3 +533,107 @@ fn profile_mismatch_and_early_hold_are_named_and_absorbing() {
         .expect("valid signature")
         .is_none());
 }
+
+#[test]
+fn every_non_card_service_while_signing_is_pending_terminates_and_rejects_late_reply() {
+    for entrypoint in 0..11 {
+        let (mut controller, _) = reach_final_approval(SignatureCase::Valid);
+        controller
+            .handle_event(NormalProcessEventV2::HoldCompleted)
+            .expect("approval reaches live request");
+        let request = controller
+            .card_b_signing_request()
+            .expect("pending request");
+        reset_wiped_bytes();
+        let (result, expected) = match entrypoint {
+            0 => (
+                controller.receive_qkip(&[], false),
+                NormalErrorV2::PostApprovalYield,
+            ),
+            1 => (
+                controller.advance_automatic(),
+                NormalErrorV2::InvalidTransition,
+            ),
+            2 => (
+                controller.handle_event(NormalProcessEventV2::SelectSd {
+                    caller_nonce: [0; 16],
+                }),
+                NormalErrorV2::InvalidTransition,
+            ),
+            3 => (
+                controller.handle_event(NormalProcessEventV2::CardRemoved),
+                NormalErrorV2::Interrupted(qk_core::Interruption::CardRemoved),
+            ),
+            4 => (
+                controller.handle_event(NormalProcessEventV2::SessionTimeout),
+                NormalErrorV2::Interrupted(qk_core::Interruption::SessionTimeout),
+            ),
+            5 => (
+                controller.handle_event(NormalProcessEventV2::HoldCompleted),
+                NormalErrorV2::InvalidTransition,
+            ),
+            6 => (
+                controller.handle_event(NormalProcessEventV2::SelectBbqr {
+                    non_final_part_len: 256,
+                }),
+                NormalErrorV2::InvalidTransition,
+            ),
+            7 => (
+                controller.handle_event(NormalProcessEventV2::SelectPsbtSource(Source::MediaPsbt)),
+                NormalErrorV2::InvalidTransition,
+            ),
+            8 => (
+                controller.handle_event(NormalProcessEventV2::LogicalKey(
+                    KeypadKey::EqualsConfirmEnter,
+                )),
+                NormalErrorV2::InvalidTransition,
+            ),
+            9 => (
+                controller.accept_profile(0x01).map(|()| None),
+                NormalErrorV2::InvalidTransition,
+            ),
+            _ => (
+                controller
+                    .accept_normal_factor(&factor_body(SignatureCase::Valid))
+                    .map(Some),
+                NormalErrorV2::InvalidTransition,
+            ),
+        };
+        assert!(matches!(result, Err(NormalProcessErrorV2::Normal(actual)) if actual == expected));
+        assert_eq!(controller.stage(), NormalProcessStageV2::Terminated);
+        assert!(
+            wiped_bytes() > 0,
+            "terminal invalid service wipes before returning"
+        );
+        assert!(controller.screen().is_none());
+        assert!(controller.card_b_signing_request().is_none());
+        let mut late = hex_vec(fields(SIGNING)["role_b_der_hex"]);
+        assert!(matches!(
+            controller.accept_card_b_signature(
+                *request.review_hash(),
+                request.input_index(),
+                *request.role_b_pubkey(),
+                &mut late,
+            ),
+            Err(NormalProcessErrorV2::Normal(actual)) if actual == expected
+        ));
+        assert!(late.iter().all(|byte| *byte == 0));
+        assert!(matches!(
+            controller.handle_event(NormalProcessEventV2::HoldCompleted),
+            Err(NormalProcessErrorV2::Normal(actual)) if actual == expected
+        ));
+        assert_eq!(controller.terminal_error(), Some(expected.into()));
+    }
+}
+
+#[test]
+fn pending_controller_drop_wipes_without_a_signing_result() {
+    let (mut controller, _) = reach_final_approval(SignatureCase::Valid);
+    controller
+        .handle_event(NormalProcessEventV2::HoldCompleted)
+        .expect("approval reaches pending state");
+    assert!(controller.card_b_signing_request().is_some());
+    reset_wiped_bytes();
+    drop(controller);
+    assert!(wiped_bytes() > 0);
+}

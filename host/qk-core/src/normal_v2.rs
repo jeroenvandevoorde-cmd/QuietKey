@@ -651,6 +651,14 @@ impl NormalReceiveOutcomeV2 {
     }
 }
 
+#[cfg(all(test, feature = "normal-process"))]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ProcessAllocationSite {
+    RetainedRoleB,
+    SubmittedRoleA,
+    SubmittedRoleB,
+}
+
 /// One complete normal A1+B HOST session.
 ///
 /// This type deliberately implements no Clone, Copy, Debug, Display,
@@ -679,6 +687,8 @@ pub struct NormalSessionV2 {
     process_signature_rejection: Option<ProcessSignatureRejectionV2>,
     #[cfg(feature = "normal-process")]
     process_signing: Option<NormalProcessSigningStateV2>,
+    #[cfg(all(test, feature = "normal-process"))]
+    process_allocation_failure: Option<ProcessAllocationSite>,
 }
 
 impl NormalSessionV2 {
@@ -734,6 +744,8 @@ impl NormalSessionV2 {
             process_signature_rejection: None,
             #[cfg(feature = "normal-process")]
             process_signing: None,
+            #[cfg(all(test, feature = "normal-process"))]
+            process_allocation_failure: None,
         }
     }
 
@@ -796,6 +808,11 @@ impl NormalSessionV2 {
         &mut self,
     ) -> Option<ProcessSignatureRejectionV2> {
         self.process_signature_rejection.take()
+    }
+
+    #[cfg(feature = "normal-process")]
+    pub(crate) fn terminate_process(&mut self, error: NormalErrorV2) -> NormalErrorV2 {
+        self.fail(error, Interruption::OperationFailed)
     }
 
     /// Consume one QKIP frame and automatically request only the next exact
@@ -1539,7 +1556,14 @@ impl NormalSessionV2 {
                 Interruption::OperationFailed,
             ));
         }
-        let role_b = WipingValueVec::try_with_capacity(parts.input_count()).map_err(|_| {
+        let role_b = {
+            #[cfg(test)]
+            let permit = self.check_process_allocation(ProcessAllocationSite::RetainedRoleB);
+            #[cfg(not(test))]
+            let permit: Result<(), ()> = Ok(());
+            permit.and_then(|()| WipingValueVec::try_with_capacity(parts.input_count()))
+        }
+        .map_err(|_| {
             self.fail(
                 NormalErrorV2::SigningRejected,
                 Interruption::OperationFailed,
@@ -1575,13 +1599,19 @@ impl NormalSessionV2 {
             cursor: _,
         } = state;
         let approved_review_hash = parts.review_hash();
-        let mut submitted_a =
-            WipingValueVec::try_with_capacity(role_a.inputs().len()).map_err(|_| {
-                self.fail(
-                    NormalErrorV2::SigningRejected,
-                    Interruption::OperationFailed,
-                )
-            })?;
+        let mut submitted_a = {
+            #[cfg(test)]
+            let permit = self.check_process_allocation(ProcessAllocationSite::SubmittedRoleA);
+            #[cfg(not(test))]
+            let permit: Result<(), ()> = Ok(());
+            permit.and_then(|()| WipingValueVec::try_with_capacity(role_a.inputs().len()))
+        }
+        .map_err(|_| {
+            self.fail(
+                NormalErrorV2::SigningRejected,
+                Interruption::OperationFailed,
+            )
+        })?;
         for input in role_a.inputs() {
             if let Some(signature) = input.role_a() {
                 submitted_a
@@ -1597,7 +1627,14 @@ impl NormalSessionV2 {
                     })?;
             }
         }
-        let mut submitted_b = WipingValueVec::try_with_capacity(role_b.len()).map_err(|_| {
+        let mut submitted_b = {
+            #[cfg(test)]
+            let permit = self.check_process_allocation(ProcessAllocationSite::SubmittedRoleB);
+            #[cfg(not(test))]
+            let permit: Result<(), ()> = Ok(());
+            permit.and_then(|()| WipingValueVec::try_with_capacity(role_b.len()))
+        }
+        .map_err(|_| {
             self.fail(
                 NormalErrorV2::SigningRejected,
                 Interruption::OperationFailed,
@@ -2139,6 +2176,9 @@ impl NormalSessionV2 {
     }
 
     fn fail(&mut self, error: NormalErrorV2, reason: Interruption) -> NormalErrorV2 {
+        if let Some(first) = self.terminal_error {
+            return first;
+        }
         let error = if self
             .transfer
             .as_ref()
@@ -2154,6 +2194,15 @@ impl NormalSessionV2 {
             self.terminal_error = Some(error);
         }
         error
+    }
+
+    #[cfg(all(test, feature = "normal-process"))]
+    fn check_process_allocation(&mut self, site: ProcessAllocationSite) -> Result<(), ()> {
+        if self.process_allocation_failure == Some(site) {
+            self.process_allocation_failure = None;
+            return Err(());
+        }
+        Ok(())
     }
 
     fn cleanup_owned(&mut self) {
@@ -2559,7 +2608,8 @@ const fn map_artifact_error(error: NormalArtifactErrorV2) -> NormalErrorV2 {
 }
 
 #[cfg(test)]
-mod tests {
+#[allow(clippy::expect_used)]
+pub(crate) mod tests {
     use super::{validate_a1_candidate, NormalErrorV2, Source, A1_CAPSULE_BYTES};
 
     #[cfg(feature = "normal-process")]
@@ -2570,6 +2620,259 @@ mod tests {
 
     #[cfg(feature = "normal-process")]
     use crate::NormalCardBSignatureV2;
+
+    #[cfg(feature = "normal-process")]
+    pub(crate) mod process_allocations {
+        use super::super::{NormalSessionV2, ProcessAllocationSite};
+        use crate::wipe::{reset_wiped_bytes, wiped_bytes};
+        use crate::{
+            CardPresence, CoreDeviceGrants, CoreOutbound, CoreState, Interruption, MockCardSlot,
+            MockDisplay, MockKeypad, NormalCardBDataV2, NormalErrorV2, NormalExportActionV2,
+            NormalStageV2, Source,
+        };
+        use qk_ipc::{encode_frame, parse_frame, Direction, MessageKind, HEADER_BYTES};
+
+        const SIGNING: &str =
+            include_str!("../../qk-psbt/tests/fixtures/signing_finalization_v2.txt");
+        const PROVISIONING: &str =
+            include_str!("../../qk-provisioning/tests/fixtures/provisioning_v2.txt");
+
+        fn field(source: &'static str, name: &str) -> &'static str {
+            source
+                .lines()
+                .filter_map(|line| line.split_once(": "))
+                .find_map(|(key, value)| (key == name).then_some(value))
+                .expect("registered public fixture field")
+        }
+
+        fn hex(source: &str) -> Vec<u8> {
+            source
+                .as_bytes()
+                .chunks_exact(2)
+                .map(|pair| {
+                    u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII fixture"), 16)
+                        .expect("hex fixture")
+                })
+                .collect()
+        }
+
+        fn deliver(
+            session: &mut NormalSessionV2,
+            outbound: &CoreOutbound,
+            kind: MessageKind,
+            payload: &[u8],
+        ) -> Option<CoreOutbound> {
+            let request = parse_frame(outbound.frame_bytes()).expect("framed request");
+            let mut response = vec![0; HEADER_BYTES.saturating_add(payload.len())];
+            let written = encode_frame(
+                Direction::IoToCore,
+                kind,
+                *request.header().session_id(),
+                request.header().exchange_id(),
+                payload,
+                &mut response,
+            )
+            .expect("matching response frame");
+            assert_eq!(written, response.len());
+            session
+                .receive(&response, false)
+                .expect("matching owner response")
+                .into_outbound()
+        }
+
+        fn operation_payload(opcode: u8, body: &[u8]) -> Vec<u8> {
+            let mut payload = vec![1, opcode, 0, 0];
+            payload.extend_from_slice(
+                &u32::try_from(body.len())
+                    .expect("bounded body")
+                    .to_le_bytes(),
+            );
+            payload.extend_from_slice(body);
+            payload
+        }
+
+        fn ingest(
+            session: &mut NormalSessionV2,
+            begin: &CoreOutbound,
+            source: Source,
+            bytes: &[u8],
+        ) {
+            let length = u32::try_from(bytes.len()).expect("bounded public ingress");
+            let mut began = vec![source.wire_value()];
+            began.extend_from_slice(&length.to_le_bytes());
+            let read = deliver(
+                session,
+                begin,
+                MessageKind::OperationResponse,
+                &operation_payload(1, &began),
+            )
+            .expect("read request");
+            let mut chunk = Vec::new();
+            chunk.extend_from_slice(&0u32.to_le_bytes());
+            chunk.extend_from_slice(&length.to_le_bytes());
+            chunk.push(1);
+            chunk.extend_from_slice(bytes);
+            assert!(deliver(
+                session,
+                &read,
+                MessageKind::OperationResponse,
+                &operation_payload(2, &chunk)
+            )
+            .is_none());
+        }
+
+        pub(crate) fn final_approval() -> NormalSessionV2 {
+            let mut a2 = hex(field(PROVISIONING, "a2_transcript_sha256"))
+                .try_into()
+                .expect("A2 width");
+            let card = NormalCardBDataV2::try_new(
+                [
+                    field(PROVISIONING, "receive_descriptor")
+                        .as_bytes()
+                        .try_into()
+                        .expect("receive descriptor width"),
+                    field(PROVISIONING, "change_descriptor")
+                        .as_bytes()
+                        .try_into()
+                        .expect("change descriptor width"),
+                ],
+                hex(field(PROVISIONING, "wallet_id"))
+                    .try_into()
+                    .expect("wallet width"),
+                field(PROVISIONING, "role_b_account_xpub")
+                    .as_bytes()
+                    .try_into()
+                    .expect("xpub width"),
+                &mut a2,
+                Vec::new(),
+            )
+            .expect("public card fixture");
+            let grants = CoreDeviceGrants::validate(
+                Some(MockDisplay::new()),
+                Some(MockKeypad::new()),
+                Some(MockCardSlot::with_normal_data(CardPresence::Present, card)),
+                false,
+            )
+            .expect("mock grants");
+            let (mut session, opening) =
+                NormalSessionV2::fuzz_start([0x72; 12], 0, &[1], grants).expect("normal start");
+            assert!(deliver(&mut session, &opening, MessageKind::SessionReady, &[]).is_none());
+            session.confirm_profile().expect("confirm profile");
+            let psbt = hex(field(SIGNING, "s0_hex"));
+            let begin = session
+                .begin_psbt_intake(Source::MediaPsbt)
+                .expect("begin PSBT")
+                .into_outbound()
+                .expect("PSBT request");
+            ingest(&mut session, &begin, Source::MediaPsbt, &psbt);
+            session.accept_card_b().expect("bind card");
+            let begin = session
+                .begin_a1_intake()
+                .expect("begin A1")
+                .into_outbound()
+                .expect("A1 request");
+            ingest(
+                &mut session,
+                &begin,
+                Source::CameraA1Candidate,
+                &hex(field(PROVISIONING, "a1_capsule_hex")),
+            );
+            session.validate().expect("validated public transaction");
+            while session.stage() == NormalStageV2::Review {
+                session.advance_review().expect("review item");
+            }
+            assert_eq!(session.stage(), NormalStageV2::FinalApproval);
+            session
+        }
+
+        pub(crate) fn assert_signing_rejected_and_wiped(session: &NormalSessionV2) {
+            assert_eq!(
+                session.terminal_error(),
+                Some(NormalErrorV2::SigningRejected)
+            );
+            assert_eq!(session.core.state(), CoreState::Terminated);
+            assert_eq!(
+                session.core.terminal_reason(),
+                Some(Interruption::OperationFailed)
+            );
+            assert!(session.approval.is_none());
+            assert!(session.pending_hold.is_none());
+            assert!(session.s0.is_none());
+            assert!(session.card.is_none());
+            assert!(session.seed_a.is_none());
+            assert!(session.proof.is_none());
+            assert!(session.process_signing.is_none());
+            assert!(session.artifacts.is_none());
+            assert!(session.transfer.is_none());
+            assert!(session.result.is_none());
+            assert!(session.process_card_b_signing_request().is_none());
+        }
+
+        fn allocation_failure(site: ProcessAllocationSite) {
+            let mut session = final_approval();
+            session.process_allocation_failure = Some(site);
+            let token = session.begin_approval_hold().expect("approval token");
+            reset_wiped_bytes();
+            let held = session.complete_process_approval_hold(token);
+            if site == ProcessAllocationSite::RetainedRoleB {
+                assert!(matches!(held, Err(NormalErrorV2::SigningRejected)));
+            } else {
+                assert!(held.is_ok());
+                let request = session
+                    .process_card_b_signing_request()
+                    .expect("approved pending request");
+                let mut der = hex(field(SIGNING, "role_b_der_hex"));
+                assert!(matches!(
+                    session.accept_process_card_b_signature(
+                        *request.review_hash(),
+                        request.input_index(),
+                        *request.role_b_pubkey(),
+                        &mut der,
+                    ),
+                    Err(NormalErrorV2::SigningRejected)
+                ));
+                assert!(der.iter().all(|byte| *byte == 0));
+            }
+            assert!(wiped_bytes() > 0);
+            assert!(session.process_allocation_failure.is_none());
+            assert_signing_rejected_and_wiped(&session);
+            assert!(matches!(
+                session.begin_approval_hold(),
+                Err(NormalErrorV2::Finished)
+            ));
+            assert!(matches!(
+                session.choose_export(NormalExportActionV2::Sd {
+                    caller_nonce: [0; 16]
+                }),
+                Err(NormalErrorV2::Finished)
+            ));
+            let mut late = hex(field(SIGNING, "role_b_der_hex"));
+            assert!(matches!(
+                session.accept_process_card_b_signature([0; 32], 0, [0; 33], &mut late),
+                Err(NormalErrorV2::Finished)
+            ));
+            assert!(late.iter().all(|byte| *byte == 0));
+            assert_eq!(
+                session.terminal_error(),
+                Some(NormalErrorV2::SigningRejected)
+            );
+        }
+
+        #[test]
+        fn retained_role_b_allocation_failure_is_terminal_and_wiped() {
+            allocation_failure(ProcessAllocationSite::RetainedRoleB);
+        }
+
+        #[test]
+        fn submitted_role_a_allocation_failure_is_terminal_and_wiped() {
+            allocation_failure(ProcessAllocationSite::SubmittedRoleA);
+        }
+
+        #[test]
+        fn submitted_role_b_allocation_failure_is_terminal_and_wiped() {
+            allocation_failure(ProcessAllocationSite::SubmittedRoleB);
+        }
+    }
 
     #[test]
     fn a1_candidate_source_and_length_have_distinct_precedence() {

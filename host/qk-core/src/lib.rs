@@ -19,6 +19,8 @@
 
 mod capability;
 #[cfg(feature = "normal-process")]
+mod card_apdu_session_v2;
+#[cfg(feature = "normal-process")]
 mod card_process_v1;
 mod error;
 mod io_wire;
@@ -34,6 +36,8 @@ mod kit_spend_v2;
 mod normal_artifact_v2;
 #[cfg(feature = "normal-process")]
 mod normal_process_v2;
+#[cfg(all(feature = "sec1210-production", feature = "normal-process"))]
+mod normal_sec1210_v2;
 #[cfg(feature = "normal-v3")]
 mod normal_v2;
 #[cfg(feature = "host-runtime")]
@@ -53,6 +57,8 @@ pub use capability::{
     CoreScreen, KeypadKey, MockCardSlot, MockDisplay, MockKeypad, NormalCardBDataV2,
     NormalCardBSignatureV2, NormalCardMockErrorV2,
 };
+#[cfg(feature = "normal-process")]
+pub use card_apdu_session_v2::QK_LIM_APDU_021_MAX_SIGN_EXCHANGES;
 #[cfg(feature = "normal-process")]
 pub use card_process_v1::{
     bind_normal_card_v1, verify_provisioned_card_v1, CardInfoV1, CardProcessErrorV1,
@@ -93,6 +99,8 @@ pub use normal_artifact_v2::{
 pub use normal_process_v2::{
     NormalProcessControllerV2, NormalProcessErrorV2, NormalProcessEventV2, NormalProcessStageV2,
 };
+#[cfg(all(feature = "sec1210-production", feature = "normal-process"))]
+pub use normal_sec1210_v2::{NormalSec1210DisplayV2, NormalSec1210ErrorV2, NormalSec1210V2};
 #[cfg(feature = "normal-process")]
 pub use normal_v2::NormalCardBSigningRequestV2;
 #[cfg(feature = "normal-v3")]

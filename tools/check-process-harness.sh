@@ -57,6 +57,13 @@ CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
   --no-default-features --features sec1210-production,normal-process || \
   fail 'qk-core SEC1210 production PTY and differential tests failed'
 CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
+  --locked --offline --quiet -p qk-core \
+  --no-default-features --features sec1210-production,normal-process || \
+  fail 'qk-core integrated Normal SEC1210 mock and transition tests failed'
+if [ "$(uname -s)" != Linux ]; then
+  printf 'NOTE: Linux PTY runtime qualification was not run on this platform; results here are mock/compile-scaffold evidence.\n'
+fi
+CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
   --offline --quiet -p qk-device-wire --features fuzzing || \
   fail 'qk-device-wire fuzzing-feature tests failed'
 CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
@@ -143,6 +150,49 @@ do
     fail "release-profile SEC1210 qk-core contains forbidden symbol $forbidden_symbol"
   fi
 done
+
+# A separate release directory prevents either feature selection from borrowing
+# the other's artifact. The foundation-only proof above remains stronger.
+integrated_build="$process_build/integrated-release"
+CARGO_TARGET_DIR="$integrated_build" cargo build --manifest-path host/Cargo.toml \
+  --locked --offline --release -p qk-core --no-default-features \
+  --features sec1210-production,normal-process || \
+  fail 'integrated Normal SEC1210 release library build failed'
+find "$integrated_build/release/deps" -maxdepth 1 -type f \
+  -name 'libqk_core-*.rlib' -print >"$sec1210_artifacts" || \
+  fail 'cannot inventory integrated release-profile qk-core artifacts'
+[ "$(awk 'NF { count++ } END { print count + 0 }' "$sec1210_artifacts")" = 1 ] || \
+  fail 'integrated release profile requires exactly one qk-core library'
+integrated_artifact=$(sed -n '1p' "$sec1210_artifacts")
+[ -n "$integrated_artifact" ] && [ -f "$integrated_artifact" ] && \
+  [ -r "$integrated_artifact" ] && [ -s "$integrated_artifact" ] || \
+  fail 'integrated release-profile qk-core artifact is unreadable or empty'
+if ! nm -C "$integrated_artifact" >"$sec1210_symbols" 2>"$sec1210_symbol_stderr"; then
+  [ ! -s "$sec1210_symbol_stderr" ] || cat "$sec1210_symbol_stderr" >&2
+  fail 'cannot read integrated release-profile qk-core symbols'
+fi
+[ -s "$sec1210_symbols" ] || fail 'integrated release-profile symbol output is empty'
+for required_symbol in \
+  'qk_core::normal_sec1210_v2::NormalSec1210ErrorV2' \
+  'qk_core::sec1210_transport_v2::CardTransportErrorV2'
+do
+  grep -a -F "$required_symbol" "$sec1210_symbols" >/dev/null 2>&1 || \
+    fail "integrated release-profile symbol output lacks $required_symbol"
+done
+grep -aE '^[0-9a-f]+ T <?qk_core::normal_v2::NormalSessionV2>?::accept_process_card_b_signature$' \
+  "$sec1210_symbols" >/dev/null 2>&1 || \
+  fail 'integrated release-profile symbol output lacks defined NormalSessionV2 signing method'
+for forbidden_symbol in \
+  'qk_core::process' \
+  'run_normal_core_host_process' \
+  'NormalDeviceRuntime' \
+  'QkdvCardRuntime'
+do
+  if grep -a -F "$forbidden_symbol" "$sec1210_symbols" >/dev/null 2>&1; then
+    fail "integrated release-profile qk-core contains forbidden runtime symbol $forbidden_symbol"
+  fi
+done
+printf 'OK: integrated release-profile Normal SEC1210 library excludes the QKDV runtime; positive owner/signing/transport symbols present\n'
 
 launcher="$process_build/debug/qk-supervisor-host"
 [ -x "$launcher" ] || fail 'qk-supervisor-host executable is missing'

@@ -9,6 +9,37 @@ use std::process::{Command, ExitStatus, Stdio};
 
 const BINARY: &str = env!("CARGO_BIN_EXE_qk-core-host");
 const PROCESS_BIN: &str = include_str!("../src/bin/qk-core-host.rs");
+const PROCESS: &str = include_str!("../src/process.rs");
+
+#[test]
+fn reference_uses_shared_application_errors_without_a_second_signing_encoder() {
+    assert!(PROCESS.contains("application_session: CardApduSessionV2,"));
+    assert!(PROCESS.contains(".bind_normal_card(&mut self.card, selected_profile)"));
+    assert!(PROCESS.contains(".sign_card_b(&mut self.card, request)"));
+    for encoder in [
+        "encode_select(",
+        "encode_open_session(",
+        "encode_sign_digest(",
+    ] {
+        assert!(
+            !PROCESS.contains(encoder),
+            "duplicate application encoder {encoder}"
+        );
+    }
+    for name in [
+        "CardEncode",
+        "CardProtocol",
+        "CardResponse",
+        "CardBinding",
+        "CardSessionIdentityUnavailable",
+        "CardSessionIdentityExhausted",
+        "UnexpectedEvent",
+    ] {
+        assert!(PROCESS.contains(&format!("CardApduSessionErrorV2::{name}")));
+        assert!(PROCESS.contains(&format!("CoreHostProcessError::{name}")));
+    }
+    assert!(PROCESS.contains("CardApduSessionErrorV2::Transport(error) => error"));
+}
 
 fn encode_control(frame: OutboundFrame) -> [u8; HEADER_BYTES] {
     let mut bytes = [0u8; HEADER_BYTES];
