@@ -11,6 +11,11 @@ name = "qk-core-host"
 path = "src/bin/qk-core-host.rs"
 required-features = ["host-runtime"]
 
+[[bin]]
+name = "qk-normal-sec1210-qualification"
+path = "src/bin/qk-normal-sec1210-qualification.rs"
+required-features = ["sec1210-production", "normal-process"]
+
 [features]
 default = ["normal-v3", "kit-v3"]
 fuzzing = ["normal-v3", "kit-v3", "qk-ipc/fuzzing"]

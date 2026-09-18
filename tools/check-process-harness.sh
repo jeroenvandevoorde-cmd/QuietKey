@@ -56,6 +56,14 @@ CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
   --locked --offline --quiet -p qk-core --test sec1210_transport_v2 \
   --no-default-features --features sec1210-production,normal-process || \
   fail 'qk-core SEC1210 production PTY and differential tests failed'
+# The differential reference has its own target directory and feature selection;
+# it cannot borrow the integrated artifact or the default-feature HOST matrix.
+reference_build="$process_build/qualification-reference"
+CARGO_TARGET_DIR="$reference_build" cargo build --manifest-path host/Cargo.toml \
+  --locked --offline -p qk-core --bin qk-core-host --no-default-features \
+  --features host-runtime || fail 'independent QKDV qualification reference build failed'
+QK_NORMAL_REFERENCE_BINARY="$reference_build/debug/qk-core-host"
+export QK_NORMAL_REFERENCE_BINARY
 CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
   --locked --offline --quiet -p qk-core \
   --no-default-features --features sec1210-production,normal-process || \
@@ -193,6 +201,56 @@ do
   fi
 done
 printf 'OK: integrated release-profile Normal SEC1210 library excludes the QKDV runtime; positive owner/signing/transport symbols present\n'
+
+# QK-DEC-172-SUP-002 splits only the executable's positive half by platform.
+# Both library proofs above remain unchanged and unconditional.
+qualification_build="$process_build/qualification-release"
+CARGO_TARGET_DIR="$qualification_build" cargo build --manifest-path host/Cargo.toml \
+  --locked --offline --release -p qk-core --bin qk-normal-sec1210-qualification \
+  --no-default-features --features sec1210-production,normal-process || \
+  fail 'integrated Normal SEC1210 release qualification executable build failed'
+qualification_artifact="$qualification_build/release/qk-normal-sec1210-qualification"
+[ -f "$qualification_artifact" ] && [ ! -L "$qualification_artifact" ] && \
+  [ -r "$qualification_artifact" ] && [ -s "$qualification_artifact" ] && \
+  [ -x "$qualification_artifact" ] || \
+  fail 'release qualification executable is missing, ambiguous, unreadable or empty'
+if ! nm -C "$qualification_artifact" >"$sec1210_symbols" 2>"$sec1210_symbol_stderr"; then
+  [ ! -s "$sec1210_symbol_stderr" ] || cat "$sec1210_symbol_stderr" >&2
+  fail 'cannot read release qualification executable symbols'
+fi
+[ -s "$sec1210_symbols" ] && \
+  grep -aE '^[0-9a-f]+ [Tt] .+' "$sec1210_symbols" >/dev/null 2>&1 || \
+  fail 'release qualification executable has no readable defined text symbols (possibly stripped)'
+for forbidden_symbol in \
+  'qk_core::process' \
+  'run_normal_core_host_process' \
+  'NormalDeviceRuntime' \
+  'QkdvCardRuntime'
+do
+  if grep -a -F "$forbidden_symbol" "$sec1210_symbols" >/dev/null 2>&1; then
+    fail "release qualification executable contains forbidden runtime symbol $forbidden_symbol"
+  else
+    [ "$?" = 1 ] || fail 'cannot inspect release qualification executable exclusions'
+  fi
+done
+printf 'OK: release qualification executable QKDV runtime exclusions passed\n'
+if [ "$(uname -s)" = Linux ]; then
+  for required_symbol in \
+    'qk_core::normal_sec1210_v2::' \
+    'qk_core::sec1210_transport_v2::'
+  do
+    grep -aE '^[0-9a-f]+ [Tt] ' "$sec1210_symbols" | \
+      grep -a -F "$required_symbol" >/dev/null 2>&1 || \
+      fail "Linux release qualification executable lacks defined positive marker $required_symbol"
+  done
+  grep -aE '^[0-9a-f]+ [Tt] <?qk_core::normal_v2::NormalSessionV2>?::accept_process_card_b_signature$' \
+    "$sec1210_symbols" >/dev/null 2>&1 || \
+    fail 'Linux release qualification executable lacks defined NormalSessionV2 signing method'
+  printf 'OK: Linux release qualification executable positive owner/signing/SEC1210 proof passed\n'
+else
+  printf 'NOTE: release qualification executable positive owner/signing/SEC1210 proof is unavailable on this non-Linux platform; its inherited-descriptor driver is Linux-only.\n'
+  printf 'NOTE: Linux real-binary PTY runtime qualification was not run; executable exclusions above are not runtime evidence.\n'
+fi
 
 launcher="$process_build/debug/qk-supervisor-host"
 [ -x "$launcher" ] || fail 'qk-supervisor-host executable is missing'

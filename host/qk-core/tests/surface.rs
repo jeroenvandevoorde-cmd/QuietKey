@@ -17,6 +17,8 @@ const NORMAL_SEC1210: &str = include_str!("../src/normal_sec1210_v2.rs");
 const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const PROCESS: &str = include_str!("../src/process.rs");
 const PROCESS_BIN: &str = include_str!("../src/bin/qk-core-host.rs");
+const QUALIFICATION_BIN: &str = include_str!("../src/bin/qk-normal-sec1210-qualification.rs");
+const QUALIFICATION_READER: &str = include_str!("support/normal_sec1210_reader.rs");
 const SEC1210_TRANSPORT: &str = include_str!("../src/sec1210_transport_v2.rs");
 const SESSION: &str = include_str!("../src/session.rs");
 const SESSION_ID: &str = include_str!("../src/session_id.rs");
@@ -62,6 +64,84 @@ fn direct_product_and_dev_dependencies_are_exact() {
         assert!(
             !product.contains(forbidden),
             "product dependency {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn qualification_binary_is_separate_and_requires_only_the_integrated_features() {
+    let binary = "[[bin]]\nname = \"qk-normal-sec1210-qualification\"\npath = \"src/bin/qk-normal-sec1210-qualification.rs\"\nrequired-features = [\"sec1210-production\", \"normal-process\"]";
+    assert_eq!(CARGO.matches(binary).count(), 1);
+    assert_eq!(CARGO.matches("[[bin]]").count(), 2);
+    for required in [
+        "NormalSec1210V2<Descriptor, MonotonicClock>",
+        "Owner::start(profile, descriptor, MonotonicClock::new())",
+        "owner.receive_qkip(payload, kind == 2)",
+        "owner.handle_event(event(payload)?)",
+        "owner.advance_automatic()",
+        "owner.take_display_fact()",
+        "QualificationLinuxUnavailable",
+        "ExitCode::from(69)",
+        "std::panic::catch_unwind(run)",
+    ] {
+        assert!(
+            QUALIFICATION_BIN.contains(required),
+            "qualification seam {required}"
+        );
+    }
+    for forbidden in [
+        "NormalProcessControllerV2",
+        "NormalSessionV2",
+        "qk_device_wire",
+        "host-runtime",
+        "run_normal_core_host_process",
+        "File::open",
+        "OpenOptions",
+        "Command::new",
+        "set_var",
+        "stty",
+        "/dev/tty",
+        "GPIO",
+    ] {
+        assert!(
+            !QUALIFICATION_BIN.contains(forbidden),
+            "qualification boundary {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn qualification_ffi_is_confined_to_the_linux_host_boundary() {
+    let boundary = "#[cfg(target_os = \"linux\")]\n#[allow(unsafe_code)]\nmod linux_descriptor {";
+    assert_eq!(QUALIFICATION_BIN.matches(boundary).count(), 1);
+    assert_eq!(
+        QUALIFICATION_BIN.matches("#[allow(unsafe_code)]").count(),
+        1
+    );
+    let (outside, descriptor) = QUALIFICATION_BIN
+        .split_once(boundary)
+        .expect("Linux descriptor");
+    assert!(!outside.contains("unsafe {"));
+    assert_eq!(descriptor.matches("unsafe {").count(), 4);
+    assert!(descriptor.contains("const CARD_FD: i32 = 3;"));
+    assert!(descriptor.contains("File::from_raw_fd(CARD_FD)"));
+    assert!(descriptor.contains("flags | O_NONBLOCK"));
+    for required in [
+        "fn openpty(",
+        "fn poll(",
+        "fn dup2(",
+        "F_DUPFD_CLOEXEC",
+        "FD_CLOEXEC",
+    ] {
+        assert!(
+            QUALIFICATION_READER.contains(required),
+            "HOST reader boundary {required}"
+        );
+    }
+    for forbidden in ["/dev/tty", "stty", "pinctrl", "sudo", "File::open"] {
+        assert!(
+            !QUALIFICATION_READER.contains(forbidden),
+            "HOST reader path {forbidden}"
         );
     }
 }
