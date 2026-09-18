@@ -764,23 +764,6 @@ pub fn finalize_validated_normal_v3(
         canonical_serialize(&view).map_err(NormalFinalizationErrorV3::SerializeFailed)?,
     );
     drop(view);
-    let mut verified_counts = OwnedBytes::new();
-    verified_counts
-        .as_mut_vec()
-        .try_reserve_exact(proof.input_count())
-        .map_err(|_| NormalFinalizationErrorV3::AllocationFailed)?;
-    for plan in proof.input_signing_plans() {
-        verified_counts.as_mut_vec().push(
-            u8::try_from(
-                plan.existing_role_signatures()
-                    .iter()
-                    .filter(|present| **present)
-                    .count(),
-            )
-            .map_err(|_| NormalFinalizationErrorV3::InternalInvariant)?,
-        );
-    }
-
     for signature in planned.iter() {
         let previous = core::mem::replace(&mut current, OwnedBytes::new());
         let previous_view = parse(previous.as_slice(), source)
@@ -817,13 +800,6 @@ pub fn finalize_validated_normal_v3(
         if !transition_review_facts_equal(&proof.review, &next_review) {
             return Err(NormalFinalizationErrorV3::ForbiddenDelta);
         }
-        let verified = analyze_descriptor_ownership_v2(&next_view, &proof.descriptor)
-            .map_err(NormalFinalizationErrorV3::ExistingSignatureVerification)?;
-        advance_verified_counts(
-            verified_counts.as_mut_vec().as_mut_slice(),
-            &verified.verified_inputs,
-            signature.input_index,
-        )?;
         current = next_owner;
     }
     drop(planned);
@@ -980,7 +956,7 @@ fn verify_der_signature(der: &[u8], digest: &[u8; 32], key: &[u8; 33]) -> Result
     if canonical.as_slice().get(..len) != Some(der) {
         return Err(());
     }
-    qk_secp::ecdsa_verify(&signature, digest, &public_key).map_err(|_| ())
+    crate::semantic::verify_ecdsa_signature(&signature, digest, &public_key).map_err(|_| ())
 }
 
 fn signature_matches_existing_or_planned(
@@ -1081,32 +1057,6 @@ fn exact_insert_delta(previous: &[u8], next: &[u8], offset: usize, inserted: usi
     next.get(..offset) == previous.get(..offset)
         && next.get(suffix..) == previous.get(offset..)
         && next.len() == previous.len().saturating_add(inserted)
-}
-
-fn advance_verified_counts(
-    previous: &mut [u8],
-    next: &[VerifiedInputFacts],
-    changed_input: usize,
-) -> Result<(), NormalFinalizationErrorV3> {
-    if previous.len() != next.len() {
-        return Err(NormalFinalizationErrorV3::ForbiddenDelta);
-    }
-    for (index, (before, after)) in previous.iter_mut().zip(next).enumerate() {
-        let expected = if index == changed_input {
-            before
-                .checked_add(1)
-                .ok_or(NormalFinalizationErrorV3::InternalInvariant)?
-        } else {
-            *before
-        };
-        let actual = u8::try_from(after.verified_signature_count)
-            .map_err(|_| NormalFinalizationErrorV3::InternalInvariant)?;
-        if actual != expected {
-            return Err(NormalFinalizationErrorV3::ForbiddenDelta);
-        }
-        *before = actual;
-    }
-    Ok(())
 }
 
 fn transition_review_facts_equal(left: &ReviewV3, right: &ReviewV3) -> bool {
@@ -2015,9 +1965,368 @@ fn append_slice(output: &mut Vec<u8>, value: &[u8]) {
 #[cfg(test)]
 #[allow(clippy::arithmetic_side_effects)]
 mod tests {
-    use super::{FinalizedNormalV3, NormalInputSigningPlanV3, OwnedBytes};
+    use super::{
+        finalize_validated_kit_sweep_v3, finalize_validated_normal_v3, parse_and_rebind_raw,
+        FinalizedNormalV3, NormalInputSigningPlanV3, NormalSubmittedSignatureV3, OwnedBytes,
+        SIGHASH_ALL,
+    };
+    use crate::semantic::{
+        ecdsa_verification_calls_for_test, reset_ecdsa_verification_calls_for_test,
+    };
     use crate::wipe::{reset_wiped_bytes, wiped_bytes, ByteArray};
-    use crate::TransactionMaterialVec;
+    use crate::{
+        build_validated_kit_sweep_v3, build_validated_normal_v3, parse, InputSource, OwnedS0,
+        ReplacementReceiveIndexV2, TransactionMaterialVec,
+    };
+    use qk_descriptor::{parse_descriptor_pair_v2, DescriptorPairV2};
+
+    const SIGNING_FIXTURE: &str = include_str!("../tests/fixtures/signing_finalization_v2.txt");
+    const DESCRIPTOR_FIXTURE: &str =
+        include_str!("../../qk-descriptor/tests/fixtures/descriptor_pairs.txt");
+    const KIT_SPEND_FIXTURE: &str =
+        include_str!("../../qk-host-sim/tests/fixtures/kit_spend_v2.txt");
+
+    type FixtureMap = Vec<(Vec<u8>, Vec<u8>)>;
+    type FixtureResult<T> = Result<T, &'static str>;
+
+    fn fixture_field<'a>(source: &'a str, name: &str) -> FixtureResult<&'a str> {
+        source
+            .lines()
+            .find_map(|line| line.strip_prefix(name)?.strip_prefix(": "))
+            .ok_or("registered fixture field")
+    }
+
+    fn fixture_hex(source: &str) -> FixtureResult<Vec<u8>> {
+        if !source.len().is_multiple_of(2) {
+            return Err("even fixture hex length");
+        }
+        let mut bytes = Vec::with_capacity(source.len() / 2);
+        for pair in source.as_bytes().chunks_exact(2) {
+            let encoded = core::str::from_utf8(pair).map_err(|_| "ASCII fixture hex")?;
+            bytes.push(u8::from_str_radix(encoded, 16).map_err(|_| "lowercase fixture hex")?);
+        }
+        Ok(bytes)
+    }
+
+    fn fixture_hex_array<const N: usize>(source: &str) -> FixtureResult<[u8; N]> {
+        fixture_hex(source)?
+            .try_into()
+            .map_err(|_| "fixed fixture length")
+    }
+
+    fn fixture_descriptor() -> FixtureResult<DescriptorPairV2> {
+        let block = DESCRIPTOR_FIXTURE
+            .split("\n\n")
+            .find(|block| block.lines().any(|line| line == "case: GOLDEN"))
+            .ok_or("GOLDEN descriptor block")?;
+        parse_descriptor_pair_v2(
+            fixture_field(block, "receive")?.as_bytes(),
+            fixture_field(block, "change")?.as_bytes(),
+        )
+        .map_err(|_| "registered descriptor pair")
+    }
+
+    fn fixture_compact_size(input: &[u8], cursor: &mut usize) -> FixtureResult<usize> {
+        let prefix = *input.get(*cursor).ok_or("fixture CompactSize prefix")?;
+        *cursor = cursor.checked_add(1).ok_or("fixture cursor overflow")?;
+        match prefix {
+            0..=252 => Ok(usize::from(prefix)),
+            253 => {
+                let end = cursor.checked_add(2).ok_or("fixture cursor overflow")?;
+                let encoded: [u8; 2] = input
+                    .get(*cursor..end)
+                    .ok_or("fixture CompactSize u16")?
+                    .try_into()
+                    .map_err(|_| "fixture CompactSize width")?;
+                *cursor = end;
+                Ok(usize::from(u16::from_le_bytes(encoded)))
+            }
+            _ => Err("bounded fixture CompactSize"),
+        }
+    }
+
+    fn fixture_put_size(output: &mut Vec<u8>, size: usize) -> FixtureResult<()> {
+        if size <= 252 {
+            output.push(u8::try_from(size).map_err(|_| "one-byte fixture size")?);
+        } else {
+            output.push(253);
+            output.extend_from_slice(
+                &u16::try_from(size)
+                    .map_err(|_| "two-byte fixture size")?
+                    .to_le_bytes(),
+            );
+        }
+        Ok(())
+    }
+
+    fn fixture_read_map(input: &[u8], cursor: &mut usize) -> FixtureResult<FixtureMap> {
+        let mut records = Vec::new();
+        loop {
+            let key_len = fixture_compact_size(input, cursor)?;
+            if key_len == 0 {
+                return Ok(records);
+            }
+            let key_end = cursor
+                .checked_add(key_len)
+                .ok_or("fixture key length overflow")?;
+            let key = input
+                .get(*cursor..key_end)
+                .ok_or("fixture key bytes")?
+                .to_vec();
+            *cursor = key_end;
+            let value_len = fixture_compact_size(input, cursor)?;
+            let value_end = cursor
+                .checked_add(value_len)
+                .ok_or("fixture value length overflow")?;
+            let value = input
+                .get(*cursor..value_end)
+                .ok_or("fixture value bytes")?
+                .to_vec();
+            *cursor = value_end;
+            records.push((key, value));
+        }
+    }
+
+    fn fixture_write_map(output: &mut Vec<u8>, records: &FixtureMap) -> FixtureResult<()> {
+        for (key, value) in records {
+            fixture_put_size(output, key.len())?;
+            output.extend_from_slice(key);
+            fixture_put_size(output, value.len())?;
+            output.extend_from_slice(value);
+        }
+        output.push(0);
+        Ok(())
+    }
+
+    fn fixture_psbt_with_inputs(count: usize) -> FixtureResult<Vec<u8>> {
+        if !(1..=100).contains(&count) {
+            return Err("bounded fixture input count");
+        }
+        let original = fixture_hex(fixture_field(SIGNING_FIXTURE, "s0_hex")?)?;
+        if count == 1 {
+            return Ok(original);
+        }
+        if original.get(..5) != Some(b"psbt\xff".as_slice()) {
+            return Err("fixture PSBT magic");
+        }
+        let mut cursor = 5;
+        let mut global = fixture_read_map(&original, &mut cursor)?;
+        let input = fixture_read_map(&original, &mut cursor)?;
+        let mut outputs = Vec::new();
+        while cursor < original.len() {
+            outputs.push(fixture_read_map(&original, &mut cursor)?);
+        }
+        let unsigned = global
+            .iter_mut()
+            .find(|(key, _)| key.as_slice() == [0])
+            .ok_or("unsigned fixture transaction")?;
+        let old_transaction = unsigned.1.clone();
+        if old_transaction.get(4) != Some(&1) {
+            return Err("one-input fixture transaction");
+        }
+        let mut transaction = old_transaction
+            .get(..4)
+            .ok_or("fixture transaction version")?
+            .to_vec();
+        transaction.push(u8::try_from(count).map_err(|_| "bounded input count")?);
+        let mut inputs = Vec::new();
+        for position in 0..count {
+            let mut records = input.clone();
+            let previous = records
+                .iter_mut()
+                .find(|(key, _)| key.as_slice() == [0])
+                .ok_or("non-witness fixture prevtx")?;
+            *previous.1.get_mut(5).ok_or("public fixture nonce byte")? =
+                u8::try_from(position).map_err(|_| "bounded public nonce")?;
+            let first = crate::sha256::sha256(&[previous.1.as_slice()])
+                .map_err(|_| "fixture prevtx hash")?;
+            let txid =
+                crate::sha256::sha256(&[&first]).map_err(|_| "fixture prevtx double hash")?;
+            transaction.extend_from_slice(&txid);
+            transaction
+                .extend_from_slice(old_transaction.get(37..46).ok_or("fixture input suffix")?);
+            inputs.push(records);
+        }
+        let output_offset = transaction.len();
+        transaction.extend_from_slice(
+            old_transaction
+                .get(46..)
+                .ok_or("fixture transaction outputs")?,
+        );
+        let change = 1_000_000u64
+            .checked_mul(u64::try_from(count).map_err(|_| "bounded count")?)
+            .and_then(|value| value.checked_sub(600_000))
+            .ok_or("fixture change amount")?;
+        let amount_start = output_offset
+            .checked_add(1)
+            .ok_or("fixture output offset")?;
+        let amount_end = amount_start
+            .checked_add(8)
+            .ok_or("fixture output amount end")?;
+        transaction
+            .get_mut(amount_start..amount_end)
+            .ok_or("fixture output amount")?
+            .copy_from_slice(&change.to_le_bytes());
+        unsigned.1 = transaction;
+
+        let mut rebuilt = b"psbt\xff".to_vec();
+        fixture_write_map(&mut rebuilt, &global)?;
+        for records in &inputs {
+            fixture_write_map(&mut rebuilt, records)?;
+        }
+        for records in &outputs {
+            fixture_write_map(&mut rebuilt, records)?;
+        }
+        parse(&rebuilt, InputSource::MicroSd).map_err(|_| "rebuilt fixture PSBT")?;
+        Ok(rebuilt)
+    }
+
+    fn fixture_sign(
+        fixture: &str,
+        scalar_name: &str,
+        public_key_name: &str,
+        digest: &[u8; 32],
+    ) -> FixtureResult<Vec<u8>> {
+        let mut scalar = fixture_hex_array(fixture_field(fixture, scalar_name)?)?;
+        let public_key_bytes = fixture_hex_array(fixture_field(fixture, public_key_name)?)?;
+        let public_key = qk_secp::pubkey_parse_compressed(&public_key_bytes)
+            .map_err(|_| "fixture public key")?;
+        let secret =
+            qk_secp::secret_key_import(&mut scalar).map_err(|_| "fixture private scalar")?;
+        let signature = qk_secp::ecdsa_sign_rfc6979(&secret, digest, &public_key)
+            .map_err(|_| "fixture signature")?;
+        let mut encoded = [0u8; 72];
+        let len = qk_secp::signature_serialize_der(&signature, &mut encoded)
+            .map_err(|_| "fixture DER")?;
+        Ok(encoded.get(..len).ok_or("fixture DER length")?.to_vec())
+    }
+
+    fn fixture_normal_proof(bytes: &[u8]) -> FixtureResult<super::ValidatedNormalV3> {
+        build_validated_normal_v3(
+            OwnedS0::new(bytes, InputSource::MicroSd).map_err(|_| "bounded fixture S0")?,
+            fixture_descriptor()?,
+        )
+        .map_err(|_| "validated Normal fixture")
+    }
+
+    fn fixture_psbt_with_existing_b(count: usize, present: &[usize]) -> FixtureResult<Vec<u8>> {
+        let bytes = fixture_psbt_with_inputs(count)?;
+        let proof = fixture_normal_proof(&bytes)?;
+        let digests: Vec<[u8; 32]> = proof
+            .input_signing_plans()
+            .iter()
+            .map(|plan| *plan.digest())
+            .collect();
+        drop(proof);
+
+        let public_key = fixture_hex(fixture_field(
+            SIGNING_FIXTURE,
+            "role_b_route_public_key_hex",
+        )?)?;
+        let mut cursor = 5;
+        let global = fixture_read_map(&bytes, &mut cursor)?;
+        let mut rebuilt = b"psbt\xff".to_vec();
+        fixture_write_map(&mut rebuilt, &global)?;
+        for index in 0..count {
+            let mut records = fixture_read_map(&bytes, &mut cursor)?;
+            if present.contains(&index) {
+                let digest = digests.get(index).ok_or("fixture input digest")?;
+                let mut key = vec![0x02];
+                key.extend_from_slice(&public_key);
+                let mut signature = fixture_sign(
+                    SIGNING_FIXTURE,
+                    "role_b_route_private_scalar_hex",
+                    "role_b_route_public_key_hex",
+                    digest,
+                )?;
+                signature.push(SIGHASH_ALL);
+                records.push((key, signature));
+                records.sort_by(|left, right| left.0.cmp(&right.0));
+            }
+            fixture_write_map(&mut rebuilt, &records)?;
+        }
+        rebuilt.extend_from_slice(bytes.get(cursor..).ok_or("fixture output maps")?);
+        parse(&rebuilt, InputSource::MicroSd).map_err(|_| "signed fixture PSBT")?;
+        Ok(rebuilt)
+    }
+
+    fn assert_complete_artifact(
+        finalized: &FinalizedNormalV3,
+        input_count: usize,
+    ) -> FixtureResult<()> {
+        let view = parse(finalized.finalized_psbt(), InputSource::MicroSd)
+            .map_err(|_| "finalized fixture PSBT")?;
+        let parsed =
+            parse_and_rebind_raw(finalized.raw_transaction(), view.unsigned_tx_bytes(), &view)
+                .map_err(|_| "reparsed fixture transaction")?;
+        if parsed.len() != input_count
+            || parsed.iter().any(|witness| {
+                witness.item_count != 4
+                    || !matches!(
+                        witness.items,
+                        [Some(dummy), Some(first), Some(second), Some(script)]
+                            if dummy.is_empty()
+                                && !first.is_empty()
+                                && !second.is_empty()
+                                && script.len() == 71
+                    )
+            })
+        {
+            return Err("two complete signatures per fixture input");
+        }
+        Ok(())
+    }
+
+    fn fixture_normal_verification_count(
+        input_count: usize,
+        existing_b: &[usize],
+    ) -> FixtureResult<usize> {
+        let bytes = fixture_psbt_with_existing_b(input_count, existing_b)?;
+        let proof = fixture_normal_proof(&bytes)?;
+        let mut role_a_owned = Vec::new();
+        let mut role_b_owned = Vec::new();
+        for plan in proof.input_signing_plans() {
+            role_a_owned.push((
+                plan.input_index(),
+                fixture_sign(
+                    SIGNING_FIXTURE,
+                    "role_a_route_private_scalar_hex",
+                    "role_a_route_public_key_hex",
+                    plan.digest(),
+                )?,
+            ));
+            if !plan
+                .existing_role_signatures()
+                .get(1)
+                .copied()
+                .ok_or("role B occupancy")?
+            {
+                role_b_owned.push((
+                    plan.input_index(),
+                    fixture_sign(
+                        SIGNING_FIXTURE,
+                        "role_b_route_private_scalar_hex",
+                        "role_b_route_public_key_hex",
+                        plan.digest(),
+                    )?,
+                ));
+            }
+        }
+        let role_a: Vec<NormalSubmittedSignatureV3<'_>> = role_a_owned
+            .iter()
+            .map(|(index, signature)| NormalSubmittedSignatureV3::new(*index, signature))
+            .collect();
+        let role_b: Vec<NormalSubmittedSignatureV3<'_>> = role_b_owned
+            .iter()
+            .map(|(index, signature)| NormalSubmittedSignatureV3::new(*index, signature))
+            .collect();
+        reset_ecdsa_verification_calls_for_test();
+        let finalized = finalize_validated_normal_v3(proof.into_parts(), &role_a, &role_b)
+            .map_err(|_| "finalized Normal fixture")?;
+        let calls = ecdsa_verification_calls_for_test().ok_or("verification counter overflow")?;
+        assert_complete_artifact(&finalized, input_count)?;
+        Ok(calls)
+    }
 
     #[test]
     fn plan_and_owned_scratch_clear_exact_complete_storage() {
@@ -2055,5 +2364,55 @@ mod tests {
         reset_wiped_bytes();
         drop(finalized);
         assert_eq!(wiped_bytes(), 19 + 23 + (6 * 32));
+    }
+
+    #[test]
+    fn normal_finalization_ecdsa_verifications_are_linear_in_inputs() -> FixtureResult<()> {
+        assert_eq!(fixture_normal_verification_count(1, &[])?, 8);
+        assert_eq!(fixture_normal_verification_count(3, &[0, 2])?, 24);
+        assert_eq!(fixture_normal_verification_count(100, &[])?, 800);
+        Ok(())
+    }
+
+    #[test]
+    fn kit_sweep_finalization_uses_the_same_linear_verification_bound() -> FixtureResult<()> {
+        let old_descriptor = parse_descriptor_pair_v2(
+            fixture_field(KIT_SPEND_FIXTURE, "old_receive_descriptor")?.as_bytes(),
+            fixture_field(KIT_SPEND_FIXTURE, "old_change_descriptor")?.as_bytes(),
+        )
+        .map_err(|_| "registered old Kit descriptor")?;
+        let replacement_descriptor = parse_descriptor_pair_v2(
+            fixture_field(KIT_SPEND_FIXTURE, "replacement_receive_descriptor")?.as_bytes(),
+            fixture_field(KIT_SPEND_FIXTURE, "replacement_change_descriptor")?.as_bytes(),
+        )
+        .map_err(|_| "registered replacement Kit descriptor")?;
+        let s0 = fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "s0_hex")?)?;
+        let proof = build_validated_kit_sweep_v3(
+            OwnedS0::new(&s0, InputSource::MicroSd).map_err(|_| "bounded Kit fixture S0")?,
+            old_descriptor,
+            replacement_descriptor,
+            ReplacementReceiveIndexV2::from_untrusted(0),
+        )
+        .map_err(|_| "validated Kit fixture")?;
+        let role_a = fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "role_a_der_hex")?)?;
+        let role_b = fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "role_b_der_hex")?)?;
+        reset_ecdsa_verification_calls_for_test();
+        let finalized = finalize_validated_kit_sweep_v3(
+            proof.into_parts(),
+            &[NormalSubmittedSignatureV3::new(0, &role_a)],
+            &[NormalSubmittedSignatureV3::new(0, &role_b)],
+        )
+        .map_err(|_| "finalized Kit fixture")?;
+        assert_eq!(ecdsa_verification_calls_for_test(), Some(8));
+        assert_complete_artifact(&finalized, 1)?;
+        assert_eq!(
+            finalized.finalized_psbt(),
+            fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "finalized_psbt_hex")?)?
+        );
+        assert_eq!(
+            finalized.raw_transaction(),
+            fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "raw_transaction_hex")?)?
+        );
+        Ok(())
     }
 }

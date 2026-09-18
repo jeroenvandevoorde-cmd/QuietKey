@@ -76,6 +76,34 @@ use qk_descriptor::{
     DerivedScriptV2, DescriptorPair, DescriptorPairV2,
 };
 
+#[cfg(all(test, feature = "normal-v3"))]
+std::thread_local! {
+    static ECDSA_VERIFICATION_CALLS: core::cell::Cell<Option<usize>> =
+        const { core::cell::Cell::new(Some(0)) };
+}
+
+pub(crate) fn verify_ecdsa_signature(
+    signature: &qk_secp::Signature,
+    digest: &[u8; 32],
+    public_key: &qk_secp::PublicKey,
+) -> Result<(), qk_secp::SecpError> {
+    #[cfg(all(test, feature = "normal-v3"))]
+    ECDSA_VERIFICATION_CALLS.with(|calls| {
+        calls.set(calls.get().and_then(|count| count.checked_add(1)));
+    });
+    qk_secp::ecdsa_verify(signature, digest, public_key)
+}
+
+#[cfg(all(test, feature = "normal-v3"))]
+pub(crate) fn reset_ecdsa_verification_calls_for_test() {
+    ECDSA_VERIFICATION_CALLS.with(|calls| calls.set(Some(0)));
+}
+
+#[cfg(all(test, feature = "normal-v3"))]
+pub(crate) fn ecdsa_verification_calls_for_test() -> Option<usize> {
+    ECDSA_VERIFICATION_CALLS.with(core::cell::Cell::get)
+}
+
 /// MoneyRange upper bound in satoshis (Bitcoin Core `MAX_MONEY`),
 /// applied to every used amount and running total: `0..=MAX_MONEY`.
 const MAX_MONEY_SATS: u64 = 2_100_000_000_000_000;
@@ -1931,7 +1959,7 @@ fn verification_phase(
             let [pubkey] = pubkey_owner.as_slice() else {
                 return Err(invariant);
             };
-            match qk_secp::ecdsa_verify(signature, digest.as_array(), pubkey) {
+            match verify_ecdsa_signature(signature, digest.as_array(), pubkey) {
                 Ok(()) => {}
                 Err(qk_secp::SecpError::VerificationFailed) => {
                     return Err(SemanticError::at_input(
