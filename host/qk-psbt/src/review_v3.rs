@@ -4,6 +4,8 @@ use crate::limits;
 use crate::parse::{InputSource, PsbtView};
 use crate::review::{ReviewContext, ReviewNetwork};
 use crate::review_v2::{DirectRbf, FeeWarning};
+#[cfg(feature = "normal-v3")]
+use crate::semantic::analyze_transition_review_v3_semantics;
 use crate::semantic::{
     analyze_review_v3_semantics, RecipientType, ReviewV3SemanticOutputOwnership, SemanticError,
 };
@@ -1134,6 +1136,142 @@ pub fn build_review_v3(
             index,
             amount: output.amount,
             script_pubkey: output.script_pubkey,
+            ownership,
+        });
+    }
+
+    let s0_sha256 = sha256(&[view.buffer()]).map_err(|_| ReviewV3Error::HashFailure)?;
+    build_review_v3_from_facts(ReviewV3Facts {
+        context,
+        s0_sha256,
+        wallet_id: descriptor.wallet_id(),
+        origin_fingerprints: descriptor.origin_fingerprints(),
+        unsigned_tx: view.unsigned_tx_bytes(),
+        version: analysis.version,
+        locktime: analysis.locktime,
+        inputs: inputs.as_slice(),
+        outputs: outputs.as_slice(),
+        total_input_amount: analysis.total_input_amount,
+        total_output_amount: analysis.total_output_amount,
+        fee: analysis.fee,
+        fee_policy: analysis.fee_policy,
+    })
+}
+
+#[cfg(feature = "normal-v3")]
+pub(crate) fn build_transition_review_v3(
+    view: &PsbtView<'_>,
+    descriptor: &DescriptorPairV2,
+    approved: &ReviewV3,
+    context: ReviewContext,
+) -> Result<ReviewV3, ReviewV3Error> {
+    if context.input_source != view.source() {
+        return Err(ReviewV3Error::SourceMismatch);
+    }
+    if context != approved.context()
+        || descriptor.wallet_id() != approved.wallet_id()
+        || descriptor.origin_fingerprints() != approved.origin_fingerprints()
+    {
+        return Err(ReviewV3Error::InternalInvariant);
+    }
+    let analysis = analyze_transition_review_v3_semantics(view)?;
+    if analysis.version != approved.version()
+        || analysis.locktime != approved.locktime()
+        || analysis.inputs.len() != approved.inputs().len()
+        || analysis.outputs.len() != approved.outputs().len()
+        || analysis.total_input_amount != approved.total_input_amount()
+        || analysis.total_output_amount != approved.total_output_amount()
+        || analysis.fee != approved.fee()
+        || analysis.fee_policy != approved.fee_policy()
+    {
+        return Err(ReviewV3Error::InternalInvariant);
+    }
+
+    let mut inputs = wipe::WipingValueVec::new();
+    inputs
+        .try_reserve_exact(analysis.inputs.len())
+        .map_err(|_| ReviewV3Error::AllocationFailed)?;
+    for (position, (current, bound)) in analysis.inputs.iter().zip(approved.inputs()).enumerate() {
+        let index = u32::try_from(position).map_err(|_| ReviewV3Error::FieldLengthOverflow)?;
+        let outpoint_txid_wire = current
+            .outpoint_txid_wire
+            .try_into()
+            .map_err(|_| ReviewV3Error::InternalInvariant)?;
+        if index != bound.index()
+            || outpoint_txid_wire != bound.outpoint_txid_wire()
+            || current.outpoint_vout != bound.outpoint_vout()
+            || current.prevout_amount != bound.prevout_amount()
+            || current.prevout_script_pubkey != bound.prevout_script_pubkey()
+            || current.sequence != bound.sequence()
+            || current.effective_sighash != bound.effective_sighash()
+        {
+            return Err(ReviewV3Error::InternalInvariant);
+        }
+        inputs.push(ReviewV3InputFacts {
+            index,
+            outpoint_txid_wire,
+            outpoint_vout: current.outpoint_vout,
+            prevout_amount: current.prevout_amount,
+            prevout_script_pubkey: current.prevout_script_pubkey,
+            sequence: current.sequence,
+            effective_sighash: current.effective_sighash,
+            branch: bound.branch(),
+            child_index: bound.child_index(),
+        });
+    }
+
+    let mut outputs = wipe::WipingValueVec::new();
+    outputs
+        .try_reserve_exact(analysis.outputs.len())
+        .map_err(|_| ReviewV3Error::AllocationFailed)?;
+    for (position, (current, bound)) in analysis.outputs.iter().zip(approved.outputs()).enumerate()
+    {
+        let index = u32::try_from(position).map_err(|_| ReviewV3Error::FieldLengthOverflow)?;
+        if index != bound.index()
+            || current.amount != bound.amount()
+            || current.script_pubkey != bound.script_pubkey()
+        {
+            return Err(ReviewV3Error::InternalInvariant);
+        }
+        let ownership = match bound.ownership() {
+            ReviewV3OutputOwnership::NotOwned {
+                recipient_type,
+                data,
+            } => {
+                if current.recipient.recipient_type != *recipient_type
+                    || current.recipient.data != data.as_slice()
+                {
+                    return Err(ReviewV3Error::InternalInvariant);
+                }
+                ReviewV3OutputOwnership::NotOwned {
+                    recipient_type: current.recipient.recipient_type,
+                    data: current.recipient.data,
+                }
+            }
+            ReviewV3OutputOwnership::ProvenChange { child_index } => {
+                ReviewV3OutputOwnership::ProvenChange {
+                    child_index: *child_index,
+                }
+            }
+            ReviewV3OutputOwnership::ProvenSelfTransfer {
+                child_index,
+                witness_program,
+            } => {
+                if current.recipient.recipient_type != RecipientType::P2wsh
+                    || current.recipient.data != witness_program.as_slice()
+                {
+                    return Err(ReviewV3Error::InternalInvariant);
+                }
+                ReviewV3OutputOwnership::ProvenSelfTransfer {
+                    child_index: *child_index,
+                    witness_program: current.recipient.data,
+                }
+            }
+        };
+        outputs.push(ReviewV3OutputFacts {
+            index,
+            amount: current.amount,
+            script_pubkey: current.script_pubkey,
             ownership,
         });
     }

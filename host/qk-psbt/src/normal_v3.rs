@@ -8,6 +8,8 @@ use crate::bip143::{
     sighash_all_digest, Bip143InputFacts, Bip143PrecomputeBuilder, Bip143Precomputed, SIGHASH_ALL,
 };
 use crate::kit_sweep_v3::ValidatedKitSweepV3Parts;
+use crate::review_v3::build_transition_review_v3;
+use crate::semantic::descriptor_route_v2;
 use crate::wipe;
 use crate::{
     analyze_descriptor_ownership_v2, build_review_v3, canonical_serialize, parse, InputSource,
@@ -558,8 +560,8 @@ fn derive_script(
     index: u32,
 ) -> Result<DerivedScriptV2, NormalFinalizationErrorV3> {
     match branch {
-        0 => derive_receive_script_v2(descriptor, index),
-        1 => derive_change_script_v2(descriptor, index),
+        0 => descriptor_route_v2(|| derive_receive_script_v2(descriptor, index)),
+        1 => descriptor_route_v2(|| derive_change_script_v2(descriptor, index)),
         _ => return Err(NormalFinalizationErrorV3::InternalInvariant),
     }
     .map_err(|_| NormalFinalizationErrorV3::InternalInvariant)
@@ -788,9 +790,10 @@ pub fn finalize_validated_normal_v3(
         if canonical.as_slice() != next_owner.as_slice() {
             return Err(NormalFinalizationErrorV3::NonCanonicalOutput);
         }
-        let next_review = build_review_v3(
+        let next_review = build_transition_review_v3(
             &next_view,
             &proof.descriptor,
+            &proof.review,
             ReviewContext {
                 network: ReviewNetwork::BitcoinMainnet,
                 input_source: source,
@@ -1966,17 +1969,19 @@ fn append_slice(output: &mut Vec<u8>, value: &[u8]) {
 #[allow(clippy::arithmetic_side_effects)]
 mod tests {
     use super::{
-        finalize_validated_kit_sweep_v3, finalize_validated_normal_v3, parse_and_rebind_raw,
-        FinalizedNormalV3, NormalInputSigningPlanV3, NormalSubmittedSignatureV3, OwnedBytes,
-        SIGHASH_ALL,
+        build_transition_review_v3, finalize_validated_kit_sweep_v3, finalize_validated_normal_v3,
+        parse_and_rebind_raw, FinalizedNormalV3, NormalInputSigningPlanV3,
+        NormalSubmittedSignatureV3, OwnedBytes, SIGHASH_ALL,
     };
     use crate::semantic::{
-        ecdsa_verification_calls_for_test, reset_ecdsa_verification_calls_for_test,
+        descriptor_child_derivation_calls_for_test, ecdsa_verification_calls_for_test,
+        reset_descriptor_child_derivation_calls_for_test, reset_ecdsa_verification_calls_for_test,
     };
     use crate::wipe::{reset_wiped_bytes, wiped_bytes, ByteArray};
     use crate::{
         build_validated_kit_sweep_v3, build_validated_normal_v3, parse, InputSource, OwnedS0,
-        ReplacementReceiveIndexV2, TransactionMaterialVec,
+        ReplacementReceiveIndexV2, ReviewContext, ReviewNetwork, ReviewV3Error,
+        TransactionMaterialVec,
     };
     use qk_descriptor::{parse_descriptor_pair_v2, DescriptorPairV2};
 
@@ -2181,6 +2186,33 @@ mod tests {
         Ok(rebuilt)
     }
 
+    fn fixture_psbt_with_locktime(bytes: &[u8], locktime: u32) -> FixtureResult<Vec<u8>> {
+        if bytes.get(..5) != Some(b"psbt\xff".as_slice()) {
+            return Err("fixture PSBT magic");
+        }
+        let mut cursor = 5;
+        let mut global = fixture_read_map(bytes, &mut cursor)?;
+        let unsigned = global
+            .iter_mut()
+            .find(|(key, _)| key.as_slice() == [0])
+            .ok_or("unsigned fixture transaction")?;
+        let start = unsigned
+            .1
+            .len()
+            .checked_sub(4)
+            .ok_or("fixture transaction locktime")?;
+        unsigned
+            .1
+            .get_mut(start..)
+            .ok_or("fixture locktime bytes")?
+            .copy_from_slice(&locktime.to_le_bytes());
+        let mut rebuilt = b"psbt\xff".to_vec();
+        fixture_write_map(&mut rebuilt, &global)?;
+        rebuilt.extend_from_slice(bytes.get(cursor..).ok_or("fixture maps")?);
+        parse(&rebuilt, InputSource::MicroSd).map_err(|_| "locktime fixture PSBT")?;
+        Ok(rebuilt)
+    }
+
     fn fixture_sign(
         fixture: &str,
         scalar_name: &str,
@@ -2277,10 +2309,10 @@ mod tests {
         Ok(())
     }
 
-    fn fixture_normal_verification_count(
+    fn fixture_normal_call_counts(
         input_count: usize,
         existing_b: &[usize],
-    ) -> FixtureResult<usize> {
+    ) -> FixtureResult<(usize, usize)> {
         let bytes = fixture_psbt_with_existing_b(input_count, existing_b)?;
         let proof = fixture_normal_proof(&bytes)?;
         let mut role_a_owned = Vec::new();
@@ -2321,11 +2353,15 @@ mod tests {
             .map(|(index, signature)| NormalSubmittedSignatureV3::new(*index, signature))
             .collect();
         reset_ecdsa_verification_calls_for_test();
+        reset_descriptor_child_derivation_calls_for_test();
         let finalized = finalize_validated_normal_v3(proof.into_parts(), &role_a, &role_b)
             .map_err(|_| "finalized Normal fixture")?;
-        let calls = ecdsa_verification_calls_for_test().ok_or("verification counter overflow")?;
+        let verification_calls =
+            ecdsa_verification_calls_for_test().ok_or("verification counter overflow")?;
+        let derivation_calls = descriptor_child_derivation_calls_for_test()
+            .ok_or("descriptor derivation counter overflow")?;
         assert_complete_artifact(&finalized, input_count)?;
-        Ok(calls)
+        Ok((verification_calls, derivation_calls))
     }
 
     #[test]
@@ -2367,10 +2403,29 @@ mod tests {
     }
 
     #[test]
-    fn normal_finalization_ecdsa_verifications_are_linear_in_inputs() -> FixtureResult<()> {
-        assert_eq!(fixture_normal_verification_count(1, &[])?, 8);
-        assert_eq!(fixture_normal_verification_count(3, &[0, 2])?, 24);
-        assert_eq!(fixture_normal_verification_count(100, &[])?, 800);
+    fn normal_finalization_crypto_work_is_linear_in_inputs() -> FixtureResult<()> {
+        assert_eq!(fixture_normal_call_counts(1, &[])?, (8, 68));
+        assert_eq!(fixture_normal_call_counts(3, &[0, 2])?, (24, 124));
+        assert_eq!(fixture_normal_call_counts(100, &[])?, (800, 2_840));
+        Ok(())
+    }
+
+    #[test]
+    fn transition_review_rejects_changed_unsigned_locktime() -> FixtureResult<()> {
+        let bytes = fixture_psbt_with_inputs(1)?;
+        let proof = fixture_normal_proof(&bytes)?;
+        let changed = fixture_psbt_with_locktime(&bytes, 1)?;
+        let view = parse(&changed, InputSource::MicroSd).map_err(|_| "changed locktime PSBT")?;
+        let result = build_transition_review_v3(
+            &view,
+            &proof.descriptor,
+            &proof.review,
+            ReviewContext {
+                network: ReviewNetwork::BitcoinMainnet,
+                input_source: InputSource::MicroSd,
+            },
+        );
+        assert!(matches!(result, Err(ReviewV3Error::InternalInvariant)));
         Ok(())
     }
 
@@ -2397,6 +2452,7 @@ mod tests {
         let role_a = fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "role_a_der_hex")?)?;
         let role_b = fixture_hex(fixture_field(KIT_SPEND_FIXTURE, "role_b_der_hex")?)?;
         reset_ecdsa_verification_calls_for_test();
+        reset_descriptor_child_derivation_calls_for_test();
         let finalized = finalize_validated_kit_sweep_v3(
             proof.into_parts(),
             &[NormalSubmittedSignatureV3::new(0, &role_a)],
@@ -2404,6 +2460,7 @@ mod tests {
         )
         .map_err(|_| "finalized Kit fixture")?;
         assert_eq!(ecdsa_verification_calls_for_test(), Some(8));
+        assert_eq!(descriptor_child_derivation_calls_for_test(), Some(28));
         assert_complete_artifact(&finalized, 1)?;
         assert_eq!(
             finalized.finalized_psbt(),

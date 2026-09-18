@@ -73,12 +73,14 @@ use core::fmt;
 use qk_descriptor::{
     match_change_derivation_claims, match_change_derivation_claims_v2,
     match_receive_derivation_claims, match_receive_derivation_claims_v2, DerivedScript,
-    DerivedScriptV2, DescriptorPair, DescriptorPairV2,
+    DerivedScriptV2, DescriptorDeriveError, DescriptorPair, DescriptorPairV2,
 };
 
 #[cfg(all(test, feature = "normal-v3"))]
 std::thread_local! {
     static ECDSA_VERIFICATION_CALLS: core::cell::Cell<Option<usize>> =
+        const { core::cell::Cell::new(Some(0)) };
+    static DESCRIPTOR_CHILD_DERIVATION_CALLS: core::cell::Cell<Option<usize>> =
         const { core::cell::Cell::new(Some(0)) };
 }
 
@@ -102,6 +104,16 @@ pub(crate) fn reset_ecdsa_verification_calls_for_test() {
 #[cfg(all(test, feature = "normal-v3"))]
 pub(crate) fn ecdsa_verification_calls_for_test() -> Option<usize> {
     ECDSA_VERIFICATION_CALLS.with(core::cell::Cell::get)
+}
+
+#[cfg(all(test, feature = "normal-v3"))]
+pub(crate) fn reset_descriptor_child_derivation_calls_for_test() {
+    DESCRIPTOR_CHILD_DERIVATION_CALLS.with(|calls| calls.set(Some(0)));
+}
+
+#[cfg(all(test, feature = "normal-v3"))]
+pub(crate) fn descriptor_child_derivation_calls_for_test() -> Option<usize> {
+    DESCRIPTOR_CHILD_DERIVATION_CALLS.with(core::cell::Cell::get)
 }
 
 /// MoneyRange upper bound in satoshis (Bitcoin Core `MAX_MONEY`),
@@ -2562,6 +2574,20 @@ pub fn analyze_descriptor_ownership<'a>(
 
 const CHILD_DERIVATIONS_PER_ROUTE_V2: usize = 4;
 
+pub(crate) fn descriptor_route_v2<T>(
+    route: impl FnOnce() -> Result<T, DescriptorDeriveError>,
+) -> Result<T, DescriptorDeriveError> {
+    #[cfg(all(test, feature = "normal-v3"))]
+    DESCRIPTOR_CHILD_DERIVATION_CALLS.with(|calls| {
+        calls.set(
+            calls
+                .get()
+                .and_then(|count| count.checked_add(CHILD_DERIVATIONS_PER_ROUTE_V2)),
+        );
+    });
+    route()
+}
+
 struct DescriptorClaimsV2 {
     keys: WipingValueArray<Option<[u8; 33]>, 2>,
     coordinates: Option<DescriptorCoordinates>,
@@ -2683,14 +2709,16 @@ fn match_descriptor_claims_v2(
     })?;
     consume_descriptor_route_v2(calls, input_index, offset)?;
     let matched = match coordinates.branch {
-        0 => match_receive_derivation_claims_v2(
-            descriptor,
-            coordinates.index,
-            claims.keys.as_array(),
-        ),
-        1 => {
+        0 => descriptor_route_v2(|| {
+            match_receive_derivation_claims_v2(
+                descriptor,
+                coordinates.index,
+                claims.keys.as_array(),
+            )
+        }),
+        1 => descriptor_route_v2(|| {
             match_change_derivation_claims_v2(descriptor, coordinates.index, claims.keys.as_array())
-        }
+        }),
         _ => {
             return Err(SemanticError {
                 category: SemanticCategory::InternalInvariant,
@@ -3703,6 +3731,41 @@ pub(crate) struct ReviewV3SemanticAnalysis<'a> {
     pub fee_policy: FeePolicyV2Facts,
 }
 
+/// Current-candidate input facts that do not depend on descriptor derivation.
+#[cfg(feature = "normal-v3")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TransitionReviewV3SemanticInput<'a> {
+    pub outpoint_txid_wire: &'a [u8],
+    pub outpoint_vout: u32,
+    pub prevout_amount: u64,
+    pub prevout_script_pubkey: &'a [u8],
+    pub sequence: u32,
+    pub effective_sighash: u32,
+}
+
+/// Current-candidate output facts with a fresh raw recipient classification.
+#[cfg(feature = "normal-v3")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TransitionReviewV3SemanticOutput<'a> {
+    pub amount: u64,
+    pub script_pubkey: &'a [u8],
+    pub recipient: RecipientScriptFacts<'a>,
+}
+
+/// Complete current-candidate facts that require no descriptor derivation.
+#[cfg(feature = "normal-v3")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransitionReviewV3SemanticAnalysis<'a> {
+    pub version: u32,
+    pub locktime: u32,
+    pub inputs: TransactionMaterialVec<TransitionReviewV3SemanticInput<'a>>,
+    pub outputs: TransactionMaterialVec<TransitionReviewV3SemanticOutput<'a>>,
+    pub total_input_amount: u64,
+    pub total_output_amount: u64,
+    pub fee: u64,
+    pub fee_policy: FeePolicyV2Facts,
+}
+
 fn map_fee_policy_v2_error(error: ReviewV3Error, offset: usize) -> SemanticError {
     let category = match error {
         ReviewV3Error::EmergencyFeeCeilingExceeded => SemanticCategory::EmergencyFeeCeilingExceeded,
@@ -3871,6 +3934,96 @@ pub(crate) fn analyze_review_v3_semantics<'a>(
     .map_err(|error| map_fee_policy_v2_error(error, global_offset))?;
 
     Ok(ReviewV3SemanticAnalysis {
+        version: candidate.version,
+        locktime: candidate.locktime,
+        inputs: inputs.into_owner(),
+        outputs: outputs.into_owner(),
+        total_input_amount: candidate.total_input_amount,
+        total_output_amount: candidate.total_output_amount,
+        fee: candidate.fee,
+        fee_policy,
+    })
+}
+
+/// Recompute every current-candidate review fact that is independent of the
+/// already-proven descriptor routes.
+#[cfg(feature = "normal-v3")]
+pub(crate) fn analyze_transition_review_v3_semantics<'a>(
+    view: &PsbtView<'a>,
+) -> Result<TransitionReviewV3SemanticAnalysis<'a>, SemanticError> {
+    let mut state = structural_phase(view)?;
+    verification_screen(view, &state, false)?;
+    signature_phase(view, state.work.as_mut_slice())?;
+    token_phase(view, &state)?;
+
+    let tx_span = view.unsigned_tx().span;
+    let global_offset = tx_span.start;
+    let candidate = assemble(view, state)?;
+
+    let mut inputs = WipingValueVec::new();
+    reserve_exact(&mut inputs, candidate.inputs.len(), global_offset)?;
+    for input in &candidate.inputs {
+        inputs.push(TransitionReviewV3SemanticInput {
+            outpoint_txid_wire: input.outpoint_txid_wire,
+            outpoint_vout: input.outpoint_vout,
+            prevout_amount: input.prevout_amount,
+            prevout_script_pubkey: input.prevout_script_pubkey,
+            sequence: input.sequence,
+            effective_sighash: u32::from(SIGHASH_ALL),
+        });
+    }
+
+    let inv = SemanticError::global(SemanticCategory::InternalInvariant, global_offset);
+    let mut cursor = TxCursor::new(view.buffer(), tx_span);
+    let version = cursor.u32_le().ok_or(inv)?;
+    let input_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if version != candidate.version || input_count != candidate.inputs.len() {
+        return Err(inv);
+    }
+    for _ in 0..input_count {
+        cursor.take(32).ok_or(inv)?;
+        cursor.u32_le().ok_or(inv)?;
+        if cursor.compact().ok_or(inv)? != 0 {
+            return Err(inv);
+        }
+        cursor.u32_le().ok_or(inv)?;
+    }
+    let output_count = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+    if output_count != candidate.outputs.len() {
+        return Err(inv);
+    }
+
+    let mut outputs = WipingValueVec::new();
+    reserve_exact(&mut outputs, output_count, global_offset)?;
+    let mut op_return_seen = false;
+    for output in &candidate.outputs {
+        let amount = cursor.u64_le().ok_or(inv)?;
+        let script_len = usize::try_from(cursor.compact().ok_or(inv)?).map_err(|_| inv)?;
+        let script_span = cursor.take(script_len).ok_or(inv)?;
+        if amount != output.amount || script_span.slice(view.buffer()) != Some(output.script_pubkey)
+        {
+            return Err(inv);
+        }
+        outputs.push(TransitionReviewV3SemanticOutput {
+            amount: output.amount,
+            script_pubkey: output.script_pubkey,
+            recipient: classify_recipient_output(output, script_span, &mut op_return_seen)?,
+        });
+    }
+    let locktime = cursor.u32_le().ok_or(inv)?;
+    if locktime != candidate.locktime || !cursor.at_end() {
+        return Err(inv);
+    }
+
+    let fee_policy = apply_fee_policy_v2(
+        view.unsigned_tx_bytes().len(),
+        candidate.inputs.len(),
+        candidate.fee,
+        candidate.total_input_amount,
+    )
+    .map_err(|error| map_fee_policy_v2_error(error, global_offset))?;
+
+    Ok(TransitionReviewV3SemanticAnalysis {
         version: candidate.version,
         locktime: candidate.locktime,
         inputs: inputs.into_owner(),
