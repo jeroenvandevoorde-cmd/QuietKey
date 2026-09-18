@@ -713,6 +713,22 @@ mod linux_pty {
         target.join("debug/qk-core-host")
     }
 
+    fn body_label(body: BodyRef<'_>) -> &'static str {
+        match body {
+            BodyRef::Display(_) => "Display",
+            BodyRef::Keypad(_) => "Keypad",
+            BodyRef::CardRequest(_) => "CardRequest",
+            BodyRef::CardResponse(_) => "CardResponse",
+            BodyRef::CardApduRequest(_) => "CardApduRequest",
+            BodyRef::CardApduResponse(_) => "CardApduResponse",
+            BodyRef::CameraInput(_) => "CameraInput",
+            BodyRef::MediaInput(_) => "MediaInput",
+            BodyRef::OutputReply(_) => "OutputReply",
+            BodyRef::PrintOutput(_) => "PrintOutput",
+            BodyRef::MediaOutput(_) => "MediaOutput",
+        }
+    }
+
     fn device_frame(
         channel: &mut File,
         decoder: &mut qk_device_wire::StreamDecoder,
@@ -796,7 +812,7 @@ mod linux_pty {
         for _ in 0..100 {
             let frame = device_frame(&mut display, &mut decoder);
             let body = frame.parsed_body().expect("reference typed display");
-            writeln!(display_log, "{body:?}").expect("public reference display record");
+            writeln!(display_log, "{}", body_label(body)).expect("public reference display record");
             match body {
                 BodyRef::Display(DisplayBody::Profile(_)) => {
                     keypad(&mut keys, &mut protocol, &[1, 0x13])
