@@ -68,7 +68,10 @@ CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \
   --locked --offline --quiet -p qk-core \
   --no-default-features --features sec1210-production,normal-process || \
   fail 'qk-core integrated Normal SEC1210 mock and transition tests failed'
-if [ "$(uname -s)" != Linux ]; then
+if [ "$(uname -s)" = Linux ]; then
+  printf 'OK: Linux Normal two-executable scenario matrix and exact emitted-artifact comparison passed\n'
+else
+  printf 'NOTE: Normal two-executable artifact comparison was not run; only its byte/presence comparator tests run on this platform.\n'
   printf 'NOTE: Linux PTY runtime qualification was not run on this platform; results here are mock/compile-scaffold evidence.\n'
 fi
 CARGO_TARGET_DIR="$process_build" cargo test --manifest-path host/Cargo.toml \

@@ -8,6 +8,12 @@ use std::time::{Duration, Instant};
 const BINARY: &str = env!("CARGO_BIN_EXE_qk-normal-sec1210-qualification");
 
 fn bounded_output(arguments: &[&str]) -> Output {
+    let mut command = Command::new(BINARY);
+    command.args(arguments);
+    bounded_command(command)
+}
+
+fn bounded_command(mut command: Command) -> Output {
     struct Guard(Option<std::process::Child>);
     impl Drop for Guard {
         fn drop(&mut self) {
@@ -17,8 +23,7 @@ fn bounded_output(arguments: &[&str]) -> Output {
             }
         }
     }
-    let child = Command::new(BINARY)
-        .args(arguments)
+    let child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -50,6 +55,53 @@ fn bounded_output(arguments: &[&str]) -> Output {
     }
 }
 
+// Declared artifacts only: no parsing, normalization, hashes or outcome policy
+// belongs in this comparator. Each producer must qualify its outcome first.
+fn compare_artifacts(
+    left: &std::path::Path,
+    right: &std::path::Path,
+    expected: &[&str],
+) -> Result<(), &'static str> {
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    if expected.is_empty() || expected.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err("ArtifactDeclarationRejected");
+    }
+    for root in [left, right] {
+        let metadata = std::fs::symlink_metadata(root).map_err(|_| "ArtifactDirectoryMissing")?;
+        if !metadata.is_dir() {
+            return Err("ArtifactDirectoryRejected");
+        }
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(root).map_err(|_| "ArtifactInventoryFailed")? {
+            let entry = entry.map_err(|_| "ArtifactInventoryFailed")?;
+            let metadata =
+                std::fs::symlink_metadata(entry.path()).map_err(|_| "ArtifactInventoryFailed")?;
+            if !metadata.is_file() || metadata.len() == 0 {
+                return Err("ArtifactFileRejected");
+            }
+            names.push(
+                entry
+                    .file_name()
+                    .into_string()
+                    .map_err(|_| "ArtifactNameRejected")?,
+            );
+        }
+        names.sort_unstable();
+        if names != expected {
+            return Err("ArtifactSetMismatch");
+        }
+    }
+    for name in expected {
+        let mut command = Command::new("cmp");
+        command.arg("-s").arg(left.join(name)).arg(right.join(name));
+        if !bounded_command(command).status.success() {
+            return Err("ArtifactBytesMismatch");
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn qualification_rejects_missing_unknown_and_extra_arguments() {
     for arguments in [
@@ -79,12 +131,68 @@ fn qualification_reports_linux_unavailable_without_runtime_claim() {
     eprintln!("UNAVAILABLE: Linux PTY runtime qualification was not run on this platform");
 }
 
-#[cfg(target_os = "linux")]
 #[path = "support/normal_signing_fixture.rs"]
 pub mod fixture;
 #[cfg(target_os = "linux")]
 #[path = "support/normal_sec1210_reader.rs"]
 pub mod reader;
+
+#[test]
+fn comparator_requires_declared_nonempty_files_and_exact_bytes() {
+    use std::fs;
+    use std::os::unix::fs::{symlink, DirBuilderExt};
+    let root = std::env::temp_dir().join(format!("qk-artifact-cmp-{}", std::process::id()));
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .expect("exclusive comparator test root");
+    let left = root.join("left");
+    let right = root.join("right");
+    fs::create_dir(&left).unwrap();
+    fs::create_dir(&right).unwrap();
+    let expected = ["facts.txt", "outcome.txt", "transaction.tx"];
+    for name in expected {
+        fs::write(left.join(name), b"public emitted bytes\n").unwrap();
+        fs::write(right.join(name), b"public emitted bytes\n").unwrap();
+    }
+    assert_eq!(compare_artifacts(&left, &right, &expected), Ok(()));
+    assert!(compare_artifacts(&left, &right, &[]).is_err());
+    assert!(compare_artifacts(&left, &right, &["facts.txt", "facts.txt"]).is_err());
+    assert!(compare_artifacts(&left, &root.join("missing"), &expected).is_err());
+    for name in expected {
+        fs::remove_file(right.join(name)).unwrap();
+        assert!(compare_artifacts(&left, &right, &expected).is_err());
+        fs::write(right.join(name), b"").unwrap();
+        assert!(compare_artifacts(&left, &right, &expected).is_err());
+        fs::write(right.join(name), b"different public emitted bytes\n").unwrap();
+        assert_eq!(
+            compare_artifacts(&left, &right, &expected),
+            Err("ArtifactBytesMismatch")
+        );
+        fs::write(right.join(name), b"public emitted bytes\n").unwrap();
+    }
+    fs::write(right.join("extra"), b"extra").unwrap();
+    assert_eq!(
+        compare_artifacts(&left, &right, &expected),
+        Err("ArtifactSetMismatch")
+    );
+    fs::remove_file(right.join("extra")).unwrap();
+    fs::remove_file(right.join("transaction.tx")).unwrap();
+    symlink(left.join("transaction.tx"), right.join("transaction.tx")).unwrap();
+    assert_eq!(
+        compare_artifacts(&left, &right, &expected),
+        Err("ArtifactFileRejected")
+    );
+    fs::remove_file(right.join("transaction.tx")).unwrap();
+    fs::write(right.join("transaction.tx"), b"public emitted bytes\n").unwrap();
+    fs::remove_file(left.join("outcome.txt")).unwrap();
+    fs::remove_file(right.join("outcome.txt")).unwrap();
+    assert!(
+        compare_artifacts(&left, &right, &expected).is_err(),
+        "two missing outcomes are not equivalence"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
 
 #[cfg(target_os = "linux")]
 mod linux_pty {
@@ -114,6 +222,185 @@ mod linux_pty {
     const CHILD_WAIT: Duration = Duration::from_secs(300);
     const UNKNOWN: &str = "Signing was not completed by this terminal. The card may have produced a signature before the failure.";
     static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Clone, Copy, Debug)]
+    enum Route {
+        Sd,
+        Bbqr,
+    }
+
+    struct Scenario {
+        profile: u8,
+        route: Route,
+        psbt: Vec<u8>,
+        signs: usize,
+        fault: Fault,
+        rejection: Option<&'static str>,
+        apdus: usize,
+    }
+    impl Scenario {
+        fn success(profile: u8, route: Route, psbt: Vec<u8>, signs: usize) -> Self {
+            Self {
+                profile,
+                route,
+                psbt,
+                signs,
+                fault: Fault::None,
+                rejection: None,
+                apdus: 8 + signs,
+            }
+        }
+        fn expected_artifacts(&self) -> Vec<&'static str> {
+            if self.rejection.is_some() {
+                return vec!["outcome.txt"];
+            }
+            let mut names = vec!["facts.txt", "outcome.txt"];
+            match (self.profile, self.route) {
+                (1 | 2, Route::Sd) => names.extend(["finalized.psbt", "transaction.tx"]),
+                (1 | 2, Route::Bbqr) => names.push("finalized.psbt"),
+                (3, _) => names.push("transaction.tx"),
+                _ => panic!("registered profile"),
+            }
+            names
+        }
+        fn broker(&self, evidence: &Evidence, label: &'static str) -> Broker {
+            let mut broker = Broker::new(evidence, label);
+            broker.psbt = self.psbt.clone();
+            let root = evidence.root.join(label);
+            DirBuilder::new()
+                .mode(0o700)
+                .create(&root)
+                .expect("new artifact root");
+            broker.artifact_root = Some(root);
+            broker
+        }
+    }
+
+    #[derive(Default)]
+    struct Facts(BTreeMap<&'static str, String>);
+    impl Facts {
+        fn insert(&mut self, key: &'static str, value: impl ToString) {
+            let value = value.to_string();
+            if let Some(previous) = self.0.insert(key, value.clone()) {
+                assert_eq!(previous, value, "emitted public fact changed: {key}");
+            }
+        }
+        fn integrated(&mut self, screens: &[String]) {
+            for screen in screens {
+                let keys: &[&'static str] = match screen.lines().next() {
+                    Some("screen=ReviewOverview") => {
+                        &["profile", "wallet_id", "input_count", "total_input_amount"]
+                    }
+                    Some("screen=ReviewArithmetic") => {
+                        &["total_input_amount", "total_output_amount", "fee"]
+                    }
+                    Some("screen=FinalApproval") => &["profile", "review_hash"],
+                    Some("screen=TransactionResult") => &["profile", "route", "txid", "wtxid"],
+                    _ => continue,
+                };
+                for &key in keys {
+                    let values: Vec<_> = screen
+                        .lines()
+                        .filter_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+                        .collect();
+                    assert_eq!(values.len(), 1, "one emitted field: {key}");
+                    self.insert(key, values[0]);
+                }
+            }
+        }
+        fn reference(&mut self, display: DisplayBody<'_>) {
+            match display {
+                DisplayBody::Review(ReviewBody::Overview {
+                    profile,
+                    wallet_id,
+                    input_count,
+                    total_input,
+                    ..
+                }) => {
+                    self.insert("profile", format!("{:02}", profile.wire_value()));
+                    self.insert("wallet_id", hex_text(wallet_id));
+                    self.insert("input_count", input_count);
+                    self.insert("total_input_amount", total_input);
+                }
+                DisplayBody::Review(ReviewBody::Arithmetic {
+                    total_input,
+                    total_output,
+                    fee,
+                }) => {
+                    self.insert("total_input_amount", total_input);
+                    self.insert("total_output_amount", total_output);
+                    self.insert("fee", fee);
+                }
+                DisplayBody::Review(ReviewBody::FinalApproval {
+                    profile,
+                    review_hash,
+                }) => {
+                    self.insert("profile", format!("{:02}", profile.wire_value()));
+                    self.insert("review_hash", hex_text(review_hash));
+                }
+                DisplayBody::Result(result) => {
+                    self.insert("profile", format!("{:02}", result.profile().wire_value()));
+                    self.insert("route", format!("{:?}", result.route()));
+                    self.insert("txid", hex_text(result.txid()));
+                    self.insert("wtxid", hex_text(result.wtxid()));
+                }
+                _ => {}
+            }
+        }
+        fn write(&self, root: &Path) {
+            let expected = [
+                "fee",
+                "input_count",
+                "profile",
+                "review_hash",
+                "route",
+                "total_input_amount",
+                "total_output_amount",
+                "txid",
+                "wallet_id",
+                "wtxid",
+            ];
+            assert_eq!(self.0.keys().copied().collect::<Vec<_>>(), expected);
+            let mut file = private_file(&root.join("facts.txt"));
+            for (key, value) in &self.0 {
+                writeln!(file, "{key}={value}").unwrap();
+            }
+        }
+    }
+    fn hex_text(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn record_outcome(broker: &Broker, case: &Scenario, facts: &Facts) {
+        let root = broker
+            .artifact_root
+            .as_ref()
+            .expect("declared artifact directory");
+        let mut outcome = private_file(&root.join("outcome.txt"));
+        if case.rejection.is_some() {
+            assert_eq!(
+                broker.export_starts, 0,
+                "no partial export, including initiation"
+            );
+            assert!(
+                broker.artifacts.is_empty()
+                    && broker.pending.is_none()
+                    && broker.pending_bytes.is_empty()
+            );
+            writeln!(outcome, "outcome=terminated\napproval_consumed={}\nsign_attempts={}\ncard_outcome_unknown={}", case.signs != 0, case.signs, case.signs != 0).unwrap();
+        } else {
+            assert!(broker.pending.is_none() && broker.pending_bytes.is_empty());
+            assert_eq!(broker.export_starts, case.expected_artifacts().len() - 2);
+            if let Some(psbt) = broker.artifacts.get("finalized.psbt") {
+                assert!(psbt.starts_with(b"psbt\xff"));
+            }
+            if let Some(transaction) = broker.artifacts.get("transaction.tx") {
+                assert!(!transaction.is_empty());
+            }
+            facts.write(root);
+            writeln!(outcome, "outcome=completed\napproval_consumed=true\nsign_attempts={}\ncard_outcome_unknown=false", case.signs).unwrap();
+        }
+    }
 
     struct Evidence {
         root: PathBuf,
@@ -240,6 +527,14 @@ mod linux_pty {
 
     impl Integrated {
         fn spawn(evidence: &Evidence, fault: Fault, fragment_size: usize) -> Self {
+            Self::spawn_profile(evidence, 1, fault, fragment_size)
+        }
+        fn spawn_profile(
+            evidence: &Evidence,
+            profile: u8,
+            fault: Fault,
+            fragment_size: usize,
+        ) -> Self {
             record_executable(
                 evidence,
                 "integrated",
@@ -249,7 +544,7 @@ mod linux_pty {
             let (master, slave) = reader::pty_pair().expect("anonymous raw PTY");
             let mut command = Command::new(BINARY);
             command
-                .args(["normal", "01"])
+                .args(["normal", &format!("{profile:02}")])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(evidence.file("integrated.stderr"));
@@ -258,7 +553,7 @@ mod linux_pty {
             drop(slave);
             let card = ReaderTask::start(
                 master,
-                1,
+                profile,
                 fault,
                 fragment_size,
                 &evidence.root.join("integrated-card.frames"),
@@ -428,6 +723,10 @@ mod linux_pty {
         artifacts: BTreeMap<&'static str, Vec<u8>>,
         root: PathBuf,
         prefix: &'static str,
+        artifact_root: Option<PathBuf>,
+        pending_bytes: Vec<u8>,
+        pending_len: usize,
+        export_starts: usize,
     }
     impl Broker {
         fn new(evidence: &Evidence, prefix: &'static str) -> Self {
@@ -438,6 +737,10 @@ mod linux_pty {
                 artifacts: BTreeMap::new(),
                 root: evidence.root.clone(),
                 prefix,
+                artifact_root: None,
+                pending_bytes: Vec::new(),
+                pending_len: 0,
+                export_starts: 0,
             }
         }
         fn accept(&mut self, frame: &ReceivedFrame) -> Vec<u8> {
@@ -461,28 +764,60 @@ mod linux_pty {
                 Some(Request::IngressBegin { .. }) => panic!("unexpected ingress source"),
                 _ => None,
             };
-            if let Some(Request::EgressBegin { sink, artifact, .. }) = request {
+            if let Some(Request::EgressBegin {
+                sink,
+                artifact,
+                total_len,
+                ..
+            }) = request
+            {
                 assert!(self.pending.replace((sink, artifact)).is_none());
+                assert!(self.pending_bytes.is_empty());
+                self.pending_len = total_len as usize;
+                self.export_starts += 1;
+            }
+            if let Some(Request::EgressWrite { offset, chunk }) = request {
+                assert!(self.pending.is_some());
+                assert_eq!(offset as usize, self.pending_bytes.len());
+                self.pending_bytes.extend_from_slice(chunk);
+                assert!(self.pending_bytes.len() <= self.pending_len);
             }
             let finish = matches!(request, Some(Request::EgressFinish));
-            let mut writer =
-                finish.then(|| MockOutputWriter::new(self.pending.expect("active export").0));
+            let mut writer = (finish && self.pending.expect("active export").0 != Sink::Bbqr)
+                .then(|| MockOutputWriter::new(self.pending.expect("active export").0));
             let reply = self
                 .session
                 .accept(frame, input.as_mut(), writer.as_mut())
                 .expect("broker accepts actual emitted request");
-            if let Some(writer) = writer {
+            if let Some(request) = request {
+                assert_eq!(
+                    reply.status(),
+                    qk_io::ReplyStatus::Success(request.operation())
+                );
+            }
+            if finish {
                 let (_, artifact) = self.pending.take().expect("finished export");
                 let name = match artifact {
                     Artifact::FinalizedPsbt => "finalized.psbt",
                     Artifact::RawTransaction => "transaction.tx",
                     _ => panic!("unrelated export"),
                 };
-                let bytes = writer
-                    .final_bytes()
-                    .expect("actual completed SD bytes")
-                    .to_vec();
-                private_file(&self.root.join(format!("{}-{name}", self.prefix)))
+                assert_eq!(self.pending_bytes.len(), self.pending_len);
+                let bytes = if let Some(writer) = writer {
+                    let emitted = writer.final_bytes().expect("actual completed SD bytes");
+                    assert_eq!(emitted, self.pending_bytes);
+                    emitted.to_vec()
+                } else {
+                    // The BBQr broker receives these actual emitted bytes, then
+                    // returns its encoded frames for the owner to verify.
+                    self.pending_bytes.clone()
+                };
+                self.pending_bytes.clear();
+                let path = match &self.artifact_root {
+                    Some(root) => root.join(name),
+                    None => self.root.join(format!("{}-{name}", self.prefix)),
+                };
+                private_file(&path)
                     .write_all(&bytes)
                     .expect("record actual emitted artifact");
                 assert!(
@@ -713,6 +1048,137 @@ mod linux_pty {
         target.join("debug/qk-core-host")
     }
 
+    fn run_integrated(evidence: &Evidence, case: &Scenario) {
+        let mut broker = case.broker(evidence, "integrated");
+        let mut driver = Integrated::spawn_profile(evidence, case.profile, case.fault, 8);
+        if case.rejection.is_some() && case.signs == 0 {
+            let action = driver.read_action();
+            assert!(action.frames.is_empty());
+        } else {
+            driver.approval(&mut broker);
+            driver.act(3, &[4], &mut broker);
+        }
+        if let Some(name) = case.rejection {
+            assert_eq!(driver.error.as_deref(), Some(name));
+            assert_eq!(
+                driver
+                    .displays
+                    .iter()
+                    .filter(|fact| fact.as_str() == UNKNOWN)
+                    .count(),
+                usize::from(case.signs != 0)
+            );
+            if case.signs != 0 {
+                assert_eq!(driver.status, Some((0xfe, case.signs as u16)));
+            }
+            assert!(!driver
+                .screens
+                .iter()
+                .any(|screen| screen.starts_with("screen=TransactionResult\n")));
+        } else {
+            assert!(driver.error.is_none());
+            assert_eq!(driver.status, Some((16, case.signs as u16)));
+            assert_eq!(broker.export_starts, 0, "no export before route choice");
+            let action = match case.route {
+                Route::Sd => {
+                    let mut bytes = vec![5];
+                    bytes.extend_from_slice(&[0x51; 16]);
+                    bytes
+                }
+                Route::Bbqr => {
+                    let mut bytes = vec![6];
+                    bytes.extend_from_slice(&2680u16.to_le_bytes());
+                    bytes
+                }
+            };
+            driver.act(3, &action, &mut broker);
+            assert!(driver.error.is_none());
+            assert_eq!(driver.status, Some((17, case.signs as u16)));
+            driver.act(3, &[1], &mut broker);
+            assert_eq!(driver.status, Some((18, case.signs as u16)));
+        }
+        let mut facts = Facts::default();
+        facts.integrated(&driver.screens);
+        let trace = driver.finish(if case.rejection.is_some() { 70 } else { 0 });
+        assert_eq!(trace.signs, case.signs);
+        assert_eq!(trace.apdus.len(), case.apdus);
+        // This matrix explicitly uses zero WTX and zero reader extensions.
+        assert_eq!(trace.commands.len(), 5 + case.apdus);
+        assert!(trace.model_dropped);
+        record_outcome(&broker, case, &facts);
+    }
+
+    fn paired_case(label: &str, case: Scenario) {
+        let evidence = Evidence::new(label);
+        // Declare the entire common set before collecting either output.
+        let expected = case.expected_artifacts();
+        run_integrated(&evidence, &case);
+        run_reference(&evidence, &case);
+        super::compare_artifacts(
+            &evidence.root.join("integrated"),
+            &evidence.root.join("reference"),
+            &expected,
+        )
+        .expect("external byte-only comparison of qualified emitted artifacts");
+        evidence.success();
+    }
+
+    #[test]
+    fn differential_all_profiles_routes_and_missing_signature_counts() {
+        for profile in 1..=3 {
+            for route in [Route::Sd, Route::Bbqr] {
+                for (name, psbt, signs) in fixture::differential_psbts() {
+                    paired_case(
+                        &format!("matrix-{profile}-{route:?}-{name}"),
+                        Scenario::success(profile, route, psbt, signs),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn differential_binding_failures_stop_at_their_own_checkpoints_without_export() {
+        for (fault, name, apdus) in fixture::binding_cases() {
+            paired_case(
+                name,
+                Scenario {
+                    profile: 1,
+                    route: Route::Sd,
+                    psbt: fixture::psbt(),
+                    signs: 0,
+                    fault,
+                    rejection: Some(name),
+                    apdus,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn differential_signing_rejections_and_partial_removal_never_export() {
+        for (kind, name, ordinal) in fixture::signing_cases() {
+            paired_case(
+                &format!("rejection-{kind:?}-{ordinal}"),
+                Scenario {
+                    profile: 1,
+                    route: Route::Sd,
+                    psbt: fixture::psbt_with_inputs(3),
+                    signs: ordinal,
+                    fault: Fault::Sign { ordinal, kind },
+                    rejection: Some(name),
+                    apdus: 8 + ordinal,
+                },
+            );
+        }
+        let mut case = Scenario::success(1, Route::Sd, fixture::psbt(), 1);
+        case.fault = Fault::Sign {
+            ordinal: 1,
+            kind: SignFault::HighS,
+        };
+        paired_case("high-s-normalized", case);
+    }
+
     fn body_label(body: BodyRef<'_>) -> &'static str {
         match body {
             BodyRef::Display(_) => "Display",
@@ -732,7 +1198,7 @@ mod linux_pty {
     fn device_frame(
         channel: &mut File,
         decoder: &mut qk_device_wire::StreamDecoder,
-    ) -> qk_device_wire::ReceivedFrame {
+    ) -> Result<qk_device_wire::ReceivedFrame, &'static str> {
         let deadline = Instant::now() + WAIT;
         loop {
             let mut byte = [0];
@@ -740,14 +1206,13 @@ mod linux_pty {
                 channel,
                 &mut byte,
                 deadline.saturating_duration_since(Instant::now()),
-            )
-            .expect("reference display byte");
+            )?;
             if decoder
                 .ingest(&byte)
                 .expect("reference display grammar")
                 .frame_ready()
             {
-                return decoder.take_frame().expect("reference display owner");
+                return Ok(decoder.take_frame().expect("reference display owner"));
             }
         }
     }
@@ -765,8 +1230,14 @@ mod linux_pty {
     #[test]
     fn independent_reference_binary_uses_existing_channels_and_exports_actual_artifacts() {
         let evidence = Evidence::new("reference-pass");
-        let binary = reference_binary(&evidence);
-        record_executable(&evidence, "reference", &binary, "host-runtime");
+        let case = Scenario::success(1, Route::Sd, fixture::psbt(), 1);
+        run_reference(&evidence, &case);
+        evidence.success();
+    }
+
+    fn run_reference(evidence: &Evidence, case: &Scenario) {
+        let binary = reference_binary(evidence);
+        record_executable(evidence, "reference", &binary, "host-runtime");
         let (broker_peer, child_qkip) = UnixStream::pair().expect("connected reference endpoint");
         let (mut display, display_child) = reader::pipe_pair().expect("display pipe");
         let (keypad_child, mut keys) = reader::pipe_pair().expect("keypad pipe");
@@ -779,7 +1250,7 @@ mod linux_pty {
         let output: OwnedFd = child_qkip.into();
         let mut command = Command::new(binary);
         command
-            .args(["normal", "01"])
+            .args(["normal", &format!("{:02}", case.profile)])
             .stdin(Stdio::from(input))
             .stdout(Stdio::from(output))
             .stderr(evidence.file("reference.stderr"));
@@ -797,22 +1268,40 @@ mod linux_pty {
         let card = ReaderTask::start_reference(
             requests,
             responses,
-            1,
-            Fault::None,
+            case.profile,
+            case.fault,
             &evidence.root.join("reference-card.frames"),
         )
         .expect("reference card task");
-        let broker = BrokerTask::start(broker_peer, Broker::new(&evidence, "reference"));
+        let broker = BrokerTask::start(broker_peer, case.broker(evidence, "reference"));
         let mut decoder = qk_device_wire::StreamDecoder::new(Capability::Display);
         let mut protocol = OneWayProtocol::new(Capability::Keypad);
         let mut display_log = evidence.file("reference-display.txt");
         let mut completed = false;
         let mut saw_approval = false;
         let mut saw_result = false;
-        for _ in 0..100 {
-            let frame = device_frame(&mut display, &mut decoder);
+        let mut facts = Facts::default();
+        let mut display_count = 0;
+        let mut stages = Vec::new();
+        for _ in 0..512 {
+            let frame = match device_frame(&mut display, &mut decoder) {
+                Ok(frame) => frame,
+                Err("HarnessPeerClosed") if case.rejection.is_some() => break,
+                Err(error) => panic!("reference display: {error}"),
+            };
             let body = frame.parsed_body().expect("reference typed display");
-            writeln!(display_log, "{}", body_label(body)).expect("public reference display record");
+            display_count += 1;
+            if let BodyRef::Display(DisplayBody::Stage(stage)) = body {
+                stages.push(stage);
+            }
+            match body {
+                BodyRef::Display(display) => writeln!(display_log, "{display:?}"),
+                other => writeln!(display_log, "{}", body_label(other)),
+            }
+            .expect("public reference display record");
+            if let BodyRef::Display(display) = body {
+                facts.reference(display);
+            }
             match body {
                 BodyRef::Display(DisplayBody::Profile(_)) => {
                     keypad(&mut keys, &mut protocol, &[1, 0x13])
@@ -834,8 +1323,18 @@ mod linux_pty {
                 }
                 BodyRef::Display(DisplayBody::Stage(NormalStage::AwaitingExportAction)) => {
                     assert!(saw_approval);
-                    let mut body = vec![4];
-                    body.extend_from_slice(&[0x51; 16]);
+                    assert!(
+                        case.rejection.is_none(),
+                        "failed scenario must not reach export action"
+                    );
+                    let mut body = match case.route {
+                        Route::Sd => vec![4],
+                        Route::Bbqr => vec![5],
+                    };
+                    match case.route {
+                        Route::Sd => body.extend_from_slice(&[0x51; 16]),
+                        Route::Bbqr => body.extend_from_slice(&2680u16.to_le_bytes()),
+                    }
                     keypad(&mut keys, &mut protocol, &body);
                 }
                 BodyRef::Display(DisplayBody::Result(_)) => {
@@ -850,23 +1349,62 @@ mod linux_pty {
                 _ => panic!("unexpected reference display"),
             }
         }
-        assert!(completed && saw_approval && saw_result);
+        if case.rejection.is_none() {
+            assert!(completed && saw_approval && saw_result);
+        } else {
+            assert!(!completed && !saw_result);
+            assert_eq!(
+                saw_approval,
+                case.signs != 0,
+                "exact reference failure checkpoint"
+            );
+        }
+        let expected_stages = [
+            NormalStage::NormalStart,
+            NormalStage::Transport,
+            NormalStage::PsbtIntake,
+            NormalStage::FactorB,
+            NormalStage::A1Intake,
+            NormalStage::FactorA1,
+            NormalStage::Validation,
+            NormalStage::ApprovalHeld,
+            NormalStage::Revalidation,
+            NormalStage::TerminalASigning,
+            NormalStage::CardBSigning,
+            NormalStage::Finalization,
+            NormalStage::AwaitingExportAction,
+            NormalStage::CompletedWiped,
+        ];
+        if case.rejection.is_some() && case.signs == 0 {
+            assert_eq!(
+                display_count, 0,
+                "binding failure precedes the first display"
+            );
+        } else {
+            let count = if case.rejection.is_some() { 11 } else { 14 };
+            assert_eq!(
+                stages,
+                expected_stages[..count],
+                "exact reference display checkpoint"
+            );
+        }
         assert_eq!(
             child
                 .wait_timeout(CHILD_WAIT)
                 .expect("reference child reaped")
                 .code(),
-            Some(0)
+            Some(if case.rejection.is_some() { 70 } else { 0 })
         );
         let trace = card.finish().expect("reference card joined");
         let broker = broker.finish();
-        assert_eq!(trace.signs, 1);
-        assert_eq!(trace.apdus.len(), 9);
+        assert_eq!(trace.signs, case.signs);
+        assert_eq!(
+            trace.apdus.len(),
+            case.apdus,
+            "no writes beyond the expected checkpoint"
+        );
         assert!(trace.model_dropped);
-        assert_eq!(broker.artifacts.len(), 2);
-        assert!(broker.artifacts["finalized.psbt"].starts_with(b"psbt\xff"));
-        assert!(!broker.artifacts["transaction.tx"].is_empty());
+        record_outcome(&broker, case, &facts);
         drop((child, broker, keys, display, display_log));
-        evidence.success();
     }
 }

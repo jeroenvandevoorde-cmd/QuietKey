@@ -215,6 +215,17 @@ pub fn psbt_with_existing_b(count: usize, present: &[usize]) -> Vec<u8> {
     output
 }
 
+/// The differential matrix's inputs are constructed before either child runs.
+/// Both receive the same bytes; existing B signatures are real fixture signatures.
+pub fn differential_psbts() -> [(&'static str, Vec<u8>, usize); 4] {
+    [
+        ("zero", psbt_with_existing_b(1, &[0]), 0),
+        ("one", psbt(), 1),
+        ("hundred", psbt_with_inputs(100), 100),
+        ("mixed", psbt_with_existing_b(3, &[0, 2]), 1),
+    ]
+}
+
 type Map = Vec<(Vec<u8>, Vec<u8>)>;
 
 fn compact_size(input: &[u8], cursor: &mut usize) -> usize {
@@ -411,6 +422,10 @@ pub enum SignFault {
     BadChecksum,
     WrongSession,
     WrongCounter,
+    ReplayPreviousSign,
+    FutureCounter,
+    EarlierBindingResponse,
+    EarlierSessionResponse,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -419,9 +434,13 @@ pub enum Fault {
     None,
     InfoProfile,
     InfoLifecycle,
+    InfoLifecycleCoherent,
     InfoWallet,
     InfoFingerprint,
     InfoXpub,
+    InfoSession,
+    InfoCounter,
+    InfoWrongInstruction,
     Descriptor,
     Sign {
         ordinal: usize,
@@ -533,6 +552,8 @@ pub struct FixtureDescriptor {
     profile: u8,
     reads: VecDeque<Read>,
     last_der: Option<Vec<u8>>,
+    last_sign_response: Option<Vec<u8>>,
+    last_binding_response: Option<Vec<u8>>,
     session_id: Option<[u8; 16]>,
     next_envelope: u32,
 }
@@ -546,6 +567,8 @@ pub fn rig(profile: u8) -> (FixtureDescriptor, FixtureClock, Trace) {
             profile,
             reads: VecDeque::new(),
             last_der: None,
+            last_sign_response: None,
+            last_binding_response: None,
             session_id: None,
             next_envelope: 1,
         },
@@ -674,12 +697,31 @@ impl FixtureDescriptor {
                 match fault {
                     Fault::InfoProfile => info[3] = if self.profile == 1 { 2 } else { 1 },
                     Fault::InfoLifecycle => info[2] = 0,
+                    Fault::InfoLifecycleCoherent => {
+                        // A real unprovisioned GET_INFO has no committed fields
+                        // and permits INFO/BEGIN; reach the binding gate rather
+                        // than the parser's incoherent-success-field rejection.
+                        info[2] = 0;
+                        info[3] = 0;
+                        info[5..135].fill(0);
+                        info[135..137].copy_from_slice(&0x0011u16.to_be_bytes());
+                    }
                     Fault::InfoWallet => info[21] ^= 1,
                     Fault::InfoFingerprint => info[53] ^= 1,
                     Fault::InfoXpub => info[70] ^= 1,
                     _ => {}
                 }
-                success(Some(envelope), &info)
+                let mut response = success(Some(envelope), &info);
+                match fault {
+                    Fault::InfoSession => response[1] ^= 1,
+                    Fault::InfoCounter => {
+                        response[17..21].copy_from_slice(&(envelope.sequence() + 1).to_be_bytes())
+                    }
+                    // OPEN_SESSION success shape, not the pending GET_INFO.
+                    Fault::InfoWrongInstruction => response = success(Some(envelope), &[]),
+                    _ => {}
+                }
+                response
             }
             CommandRef::ReadDChunk {
                 envelope,
@@ -716,7 +758,9 @@ impl FixtureDescriptor {
             CommandRef::ExportA2 { envelope, purpose } => {
                 let mut tail = vec![purpose.byte()];
                 tail.extend_from_slice(&hex(field(CARD, "a2_hex")));
-                success(Some(envelope), &tail)
+                let response = success(Some(envelope), &tail);
+                self.last_binding_response = Some(response.clone());
+                response
             }
             CommandRef::SignDigest {
                 envelope,
@@ -761,8 +805,23 @@ impl FixtureDescriptor {
                 match kind {
                     Some(SignFault::WrongSession) => response[1] ^= 1,
                     Some(SignFault::WrongCounter) => response[20] ^= 1,
+                    Some(SignFault::ReplayPreviousSign) => {
+                        // Replay the entire prior response, not just its DER.
+                        response = self.last_sign_response.clone().expect("prior SIGN reply");
+                    }
+                    Some(SignFault::FutureCounter) => {
+                        response[17..21].copy_from_slice(&(envelope.sequence() + 1).to_be_bytes())
+                    }
+                    Some(SignFault::EarlierBindingResponse) => {
+                        response = self.last_binding_response.clone().expect("binding reply");
+                    }
+                    Some(SignFault::EarlierSessionResponse) => {
+                        response = hex(field(CARD, "normal_sign_0_response_hex"));
+                        assert_ne!(&response[1..17], envelope.session_id());
+                    }
                     _ => {}
                 }
+                self.last_sign_response = Some(response.clone());
                 response
             }
             _ => panic!("unregistered application command"),
@@ -922,6 +981,72 @@ impl Drop for FixtureDescriptor {
     }
 }
 
+pub fn binding_cases() -> [(Fault, &'static str, usize); 10] {
+    [
+        (Fault::InfoProfile, "CardInfoProfileMismatch", 3),
+        (Fault::InfoLifecycle, "ResponseSuccessField", 3),
+        (Fault::InfoLifecycleCoherent, "CardInfoLifecycleMismatch", 3),
+        (Fault::InfoWallet, "CardWalletBindingMismatch", 7),
+        (Fault::InfoFingerprint, "CardOriginFingerprintMismatch", 7),
+        (Fault::InfoXpub, "CardAccountXpubMismatch", 7),
+        (Fault::InfoSession, "SessionIdMismatch", 3),
+        (Fault::InfoCounter, "SequenceRejected", 3),
+        (Fault::InfoWrongInstruction, "ResponseSuccessLength", 3),
+        (Fault::Descriptor, "CardDescriptorRejected", 7),
+    ]
+}
+
+pub fn signing_cases() -> [(SignFault, &'static str, usize); 15] {
+    [
+        (SignFault::WrongReview, "SigningBindingRejected", 1),
+        (SignFault::WrongIndex, "SigningBindingRejected", 1),
+        (SignFault::WrongKey, "CardSignatureKeyMismatch", 1),
+        (SignFault::MalformedDer, "CardSignatureMalformed", 1),
+        (SignFault::Invalid, "CardSignatureInvalid", 1),
+        (SignFault::WrongSession, "SessionIdMismatch", 1),
+        (SignFault::WrongCounter, "SequenceRejected", 1),
+        (SignFault::ReplayPreviousSign, "SequenceRejected", 2),
+        (SignFault::FutureCounter, "SequenceRejected", 1),
+        (
+            SignFault::EarlierBindingResponse,
+            "ResponseSuccessLength",
+            1,
+        ),
+        (SignFault::EarlierSessionResponse, "SessionIdMismatch", 1),
+        (SignFault::Repeated, "CardSignatureRepeatedR", 2),
+        (SignFault::Removed, "Sec1210DescriptorClosed", 1),
+        (SignFault::Removed, "Sec1210DescriptorClosed", 2),
+        (SignFault::Removed, "Sec1210DescriptorClosed", 3),
+    ]
+}
+
+#[test]
+fn differential_rejections_have_named_pure_boundary_and_exact_apdu_checkpoints() {
+    for (fault, name, apdus) in binding_cases() {
+        let (descriptor, clock, trace) = rig(1);
+        trace.set_fault(fault);
+        let error = Owner::start(b"01", descriptor, clock)
+            .err()
+            .expect("binding rejected");
+        assert_eq!(error.name(), name);
+        assert_eq!(trace.apdus().len(), apdus);
+        assert_eq!(trace.sign_count(), 0);
+        assert!(trace.descriptor_dropped());
+    }
+    for (kind, name, ordinal) in signing_cases() {
+        let (mut owner, _, trace) = approval(1, &psbt_with_inputs(3));
+        trace.set_fault(Fault::Sign { ordinal, kind });
+        let error = owner
+            .handle_event(qk_core::NormalProcessEventV2::HoldCompleted)
+            .err()
+            .expect("SIGN rejected");
+        assert_eq!(error.name(), name);
+        assert_eq!(trace.apdus().len(), 8 + ordinal);
+        assert_eq!(trace.sign_count(), ordinal);
+        assert!(trace.descriptor_dropped());
+    }
+}
+
 #[test]
 fn public_fixture_construction_preserves_lineage_and_input_bounds() {
     assert_eq!(psbt_with_inputs(1), psbt());
@@ -941,5 +1066,15 @@ fn public_fixture_construction_preserves_lineage_and_input_bounds() {
         for (index, plan) in validated.input_signing_plans().iter().enumerate() {
             assert_eq!(plan.existing_role_signatures()[1], present.contains(&index));
         }
+    }
+    for (_, bytes, expected_missing) in differential_psbts() {
+        assert_eq!(
+            proof(&bytes)
+                .input_signing_plans()
+                .iter()
+                .filter(|plan| !plan.existing_role_signatures()[1])
+                .count(),
+            expected_missing
+        );
     }
 }
