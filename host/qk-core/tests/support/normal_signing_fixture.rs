@@ -1,4 +1,4 @@
-//! Public never-fund card/reader fixture; no device or production dependency.
+// Public never-fund card/reader fixture; no device or production dependency.
 
 use qk_card_protocol::{parse_command, CommandRef, DescriptorSelector, Instruction, Media, Mode};
 use qk_core::{

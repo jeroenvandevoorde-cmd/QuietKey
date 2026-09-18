@@ -18,6 +18,7 @@ const NORMAL: &str = include_str!("../src/normal_v2.rs");
 const PROCESS: &str = include_str!("../src/process.rs");
 const PROCESS_BIN: &str = include_str!("../src/bin/qk-core-host.rs");
 const QUALIFICATION_BIN: &str = include_str!("../src/bin/qk-normal-sec1210-qualification.rs");
+const QUALIFICATION_TESTS: &str = include_str!("normal_sec1210_qualification.rs");
 const QUALIFICATION_READER: &str = include_str!("support/normal_sec1210_reader.rs");
 const SEC1210_TRANSPORT: &str = include_str!("../src/sec1210_transport_v2.rs");
 const SESSION: &str = include_str!("../src/session.rs");
@@ -32,6 +33,70 @@ fn cargo_section<'a>(source: &'a str, header: &str, next: Option<&str>) -> &'a s
     match next {
         Some(next_header) => tail.split_once(next_header).expect("next cargo section").0,
         None => tail,
+    }
+}
+
+const DIFFERENTIAL_TEST_NAMES: [&str; 3] = [
+    "differential_all_profiles_routes_and_missing_signature_counts",
+    "differential_binding_failures_stop_at_their_own_checkpoints_without_export",
+    "differential_signing_rejections_and_partial_removal_never_export",
+];
+const NO_YIELD_TEST_NAMES: [&str; 2] = [
+    "public_entrypoint_returns_leave_no_pending_sign_request",
+    "exhausted_sign_budget_terminates_the_pending_request",
+];
+
+fn exact_test_declarations(source: &str, names: &[&str]) -> bool {
+    let lines: Vec<_> = source.lines().map(str::trim).collect();
+    names.iter().all(|name| {
+        let declaration = format!("fn {name}() {{");
+        lines
+            .windows(2)
+            .filter(|pair| pair == &["#[test]", declaration.as_str()])
+            .count()
+            == 1
+    })
+}
+
+#[test]
+fn normal_sec1210_no_yield_and_differential_tests_remain_declared() {
+    assert!(exact_test_declarations(
+        QUALIFICATION_TESTS,
+        &DIFFERENTIAL_TEST_NAMES
+    ));
+    assert!(exact_test_declarations(
+        NORMAL_SEC1210,
+        &NO_YIELD_TEST_NAMES
+    ));
+    assert_eq!(
+        NORMAL_SEC1210
+            .matches("#[cfg(test)]\n#[allow(clippy::expect_used)]\nmod tests {")
+            .count(),
+        1
+    );
+    assert_eq!(
+        NORMAL_SEC1210
+            .matches("include!(\"../tests/support/normal_signing_fixture.rs\");")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn declaration_guards_reject_missing_renamed_and_duplicate_tests() {
+    for (source, names) in [
+        (QUALIFICATION_TESTS, DIFFERENTIAL_TEST_NAMES.as_slice()),
+        (NORMAL_SEC1210, NO_YIELD_TEST_NAMES.as_slice()),
+    ] {
+        for name in names {
+            let declaration = format!("fn {name}() {{");
+            let removed = source.replacen(&declaration, "", 1);
+            assert!(!exact_test_declarations(&removed, names));
+            let renamed = source.replacen(&declaration, &format!("fn {name}_renamed() {{"), 1);
+            assert!(!exact_test_declarations(&renamed, names));
+            let duplicate = format!("{source}\n#[test]\n{declaration}\n}}\n");
+            assert!(!exact_test_declarations(&duplicate, names));
+        }
     }
 }
 
