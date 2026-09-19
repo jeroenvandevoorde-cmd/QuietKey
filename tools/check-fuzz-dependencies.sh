@@ -15,21 +15,54 @@ cd "$root" || fail 'cannot enter worktree root'
 
 package_fact() {
   awk '
+    function package_key(line, separator, key, value) {
+      separator = index(line, " = ")
+      if (separator < 2) return ""
+      key = substr(line, 1, separator - 1)
+      if (key !~ /^(name|version|edition|license|publish|description|autobins)$/) return ""
+      value = substr(line, separator + 3)
+      if (value == "" || index(value, "\\") || index(value, "\"\"\"") ||
+          index(value, triple_single)) return ""
+      return key
+    }
+    BEGIN {
+      single_quote = sprintf("%c", 39)
+      triple_single = single_quote single_quote single_quote
+    }
     $0 == "[package]" { packages++; in_package = 1; next }
     /^\[/ { in_package = 0; next }
-    in_package && /^name = "[A-Za-z0-9_-]+"$/ {
-      names++
-      name = $0
-      sub(/^name = "/, "", name)
-      sub(/"$/, "", name)
-    }
-    in_package && /^version = "[0-9A-Za-z.+-]+"$/ {
-      versions++
-      version = $0
-      sub(/^version = "/, "", version)
-      sub(/"$/, "", version)
+    in_package {
+      if ($0 == "" || $0 ~ /^[[:space:]]*#/) next
+      key = package_key($0)
+      if (key == "") {
+        if (!invalid_line) invalid_line = NR
+        next
+      }
+      if (key == "name") {
+        if ($0 !~ /^name = "[A-Za-z0-9_-]+"$/) {
+          if (!invalid_line) invalid_line = NR
+          next
+        }
+        names++
+        name = $0
+        sub(/^name = "/, "", name)
+        sub(/"$/, "", name)
+      } else if (key == "version") {
+        if ($0 !~ /^version = "[0-9A-Za-z.+-]+"$/) {
+          if (!invalid_line) invalid_line = NR
+          next
+        }
+        versions++
+        version = $0
+        sub(/^version = "/, "", version)
+        sub(/"$/, "", version)
+      }
     }
     END {
+      if (invalid_line) {
+        print "invalid|" invalid_line
+        exit
+      }
       if (packages != 1 || names != 1 || versions != 1) exit 1
       print name "|" version
     }
@@ -68,69 +101,12 @@ for host_member in $host_members; do
   host_package_fact=$(package_fact "$host_manifest") || \
     fail "host workspace member package identity is unreadable: $host_manifest"
   case "$host_package_fact" in
+    invalid\|*)
+      host_package_line=${host_package_fact#invalid|}
+      fail "host workspace member [package] line is outside the exact shape: $host_manifest:$host_package_line"
+      ;;
     "$host_member|"*) ;;
     *) fail "host workspace member package name is not exact: $host_manifest" ;;
-  esac
-  build_key_fact=$(awk '
-    function inspect_package_key(line, position, character, quote,
-                                 escaped_character, escaped_key, key) {
-      sub(/^[[:space:]]*/, "", line)
-      if (line == "" || substr(line, 1, 1) == "#") return "none"
-      for (position = 1; position <= length(line); position++) {
-        character = substr(line, position, 1)
-        if (quote == "double") {
-          if (escaped_character) {
-            escaped_character = 0
-          } else if (character == "\\") {
-            escaped_key = 1
-            escaped_character = 1
-          } else if (character == "\"") {
-            quote = ""
-          }
-          continue
-        }
-        if (quote == "single") {
-          if (character == "\\") escaped_key = 1
-          else if (character == single_quote) quote = ""
-          continue
-        }
-        if (character == "\"") {
-          quote = "double"
-        } else if (character == single_quote) {
-          quote = "single"
-        } else if (character == "\\") {
-          escaped_key = 1
-        } else if (character == "=") {
-          if (escaped_key) return "escaped"
-          key = substr(line, 1, position - 1)
-          sub(/[[:space:]]*$/, "", key)
-          if (key == "build" || key == "\"build\"" ||
-              key == single_quote "build" single_quote) return "build"
-          return "none"
-        }
-      }
-      return "none"
-    }
-    BEGIN { single_quote = sprintf("%c", 39) }
-    $0 == "[package]" { in_package = 1; next }
-    /^\[/ { in_package = 0; next }
-    in_package {
-      fact = inspect_package_key($0)
-      if (fact == "escaped") escaped = 1
-      else if (fact == "build") found = 1
-    }
-    END {
-      if (escaped) print "escaped"
-      else if (found) print "build"
-      else print "none"
-    }
-  ' "$host_manifest") || \
-    fail "host workspace member build-script key scan failed: $host_manifest"
-  case "$build_key_fact" in
-    escaped) fail "host workspace member manifest uses an escaped [package] key: $host_manifest" ;;
-    build) fail "host workspace member manifest selects a build script: $host_manifest" ;;
-    none) ;;
-    *) fail "host workspace member build-script key scan failed: $host_manifest" ;;
   esac
   host_build_script="host/$host_member/build.rs"
   [ ! -L "$host_build_script" ] || \
