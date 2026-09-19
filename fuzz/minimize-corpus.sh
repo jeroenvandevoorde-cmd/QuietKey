@@ -7,6 +7,7 @@ corpus=$2
 case "$target" in
   qk_sec1210_wire) max_len=4096 ;;
   qk_core_sec1210_transport) max_len=65536 ;;
+  qk_core_normal_sec1210) max_len=65536 ;;
   qk_t1) max_len=8192 ;;
   qk_psbt) max_len=4096 ;;
   qk_descriptor) max_len=891 ;;
@@ -83,6 +84,9 @@ case "$target" in
     ;;
   qk_core_sec1210_transport)
     set -- --no-default-features --features sec1210-production "$target" "$corpus"
+    ;;
+  qk_core_normal_sec1210)
+    set -- --no-default-features --features normal-sec1210 "$target" "$corpus"
     ;;
   qk_t1)
     set -- --no-default-features --features t1-readback "$target" "$corpus"

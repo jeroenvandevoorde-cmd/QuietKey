@@ -28,6 +28,15 @@ legacy = [
 ]
 sec1210-wire = ["dep:qk-sec1210-wire"]
 sec1210-production = ["dep:qk-core", "qk-core/sec1210-production"]
+normal-sec1210 = [
+    "dep:qk-card-protocol",
+    "dep:qk-core",
+    "dep:qk-ipc",
+    "qk-core/fuzzing",
+    "qk-core/normal-process",
+    "qk-core/sec1210-production",
+    "qk-ipc/fuzzing",
+]
 t1-readback = ["dep:qk-sec1210-wire", "dep:qk-t1"]
 ipc = ["dep:qk-ipc", "qk-ipc/fuzzing"]
 card-s1-protocol = ["dep:qk-card-protocol", "qk-card-protocol/fuzzing"]
@@ -518,6 +527,14 @@ test = false
 doc = false
 bench = false
 required-features = ["sec1210-production"]
+
+[[bin]]
+name = "qk_core_normal_sec1210"
+path = "fuzz_targets/qk_core_normal_sec1210.rs"
+test = false
+doc = false
+bench = false
+required-features = ["normal-sec1210"]
 
 [[bin]]
 name = "qk_t1"

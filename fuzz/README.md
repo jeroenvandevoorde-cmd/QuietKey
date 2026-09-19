@@ -7,7 +7,7 @@ EXPERIMENTAL — PUBLIC TEST INPUTS ONLY — NOT PRODUCT CODE
 QK-DEC-121 preserves this ring fence and its dependency controls. Each target and registered corpus remains tied to the implementation generation it actually exercises: slice 1 replaces only `qk_descriptor`; later review, signing, provisioning, screen, export, Kit-frame, scanner, restore, and spend targets change only in their assigned slices. Until migrated, a v1 target is frozen historical coverage and supplies no v2 Card-C, three-role, selected-pair, 2-of-3, schema-v1/v2, or general-recovery capability. Corpus registration, minimization, named-error, no-panic, and sanitizer rules remain mandatory for every successor target.
 
 This independent Cargo workspace is outside `host/Cargo.toml`. It contains
-fifty-five libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
+fifty-six libFuzzer targets for the `qk-psbt`, `qk-descriptor`, `qk-a1`,
 `qk-a1-codec`, `qk-card-trace`, M22 `qk-bbqr` codec and reassembly, and M23
 `qk-psbt` semantic/review and `qk-host-sim` owned-workflow boundaries, plus
 the M24 `qk-host-sim` signing/finalization continuation. Under QK-DEC-123 the
@@ -234,6 +234,17 @@ UART, GPIO, apparatus, card operation or secret. Campaign 037 requalifies the
 changed `qk_sec1210_wire` target and qualifies this joint production target;
 their fixed points replace the active SEC1210 corpus partition together while
 the Campaign 036 manifest remains immutable historical evidence.
+
+QK-DEC-172 adds `qk_core_normal_sec1210`, a pure in-memory target for the
+actual integrated Normal A1+B owner composed with the production SEC1210
+transport. Registered public NEVER-FUND fixtures anchor all three profiles and
+zero, one, one hundred and mixed missing-B-signature shapes. Hostile bytes
+select bounded application, transport, timing and fault schedules while an
+independent descriptor trace checks approval ordering, binding, SIGN dispatch,
+terminal absorption and the absence of post-failure work. The target opens no
+descriptor and reaches no process, PTY, UART, GPIO, apparatus, card operation
+or secret. Campaign 038 preregisters its sole new corpus root and qualifies the
+software model without making a hardware, physical-Gate or timing claim.
 
 The QK-DEC-144 `qk_core_io_peer` and `qk_core_session` targets are the HOST-only
 process-slice-4 partition. The peer target drives qk-core's separately
