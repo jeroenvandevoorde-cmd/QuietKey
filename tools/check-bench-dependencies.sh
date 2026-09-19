@@ -27,6 +27,29 @@ normalize_tree() {
   return "$normalize_status"
 }
 
+package_fact() {
+  awk '
+    $0 == "[package]" { packages++; in_package = 1; next }
+    /^\[/ { in_package = 0; next }
+    in_package && /^name = "[A-Za-z0-9_-]+"$/ {
+      names++
+      name = $0
+      sub(/^name = "/, "", name)
+      sub(/"$/, "", name)
+    }
+    in_package && /^version = "[0-9A-Za-z.+-]+"$/ {
+      versions++
+      version = $0
+      sub(/^version = "/, "", version)
+      sub(/"$/, "", version)
+    }
+    END {
+      if (packages != 1 || names != 1 || versions != 1) exit 1
+      print name "|" version
+    }
+  ' "$1"
+}
+
 root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'not inside a Git worktree'
 cd "$root" || fail 'cannot enter worktree root'
 
@@ -309,9 +332,8 @@ if ! awk -F '\t' '
   NF != 7 { bad = 1; next }
   $1 != "registry" && $1 != "path" { bad = 1 }
   $2 !~ /^[A-Za-z0-9_-]+$/ || $3 !~ /^[0-9A-Za-z.+-]+$/ { bad = 1 }
-  length($4) != 64 || $4 ~ /[^0-9a-f]/ { bad = 1 }
-  $1 == "registry" && $5 != "crates.io-package" { bad = 1 }
-  $1 == "path" && $5 != "host/" $2 "/Cargo.toml" { bad = 1 }
+  $1 == "registry" && (length($4) != 64 || $4 ~ /[^0-9a-f]/ || $5 != "crates.io-package") { bad = 1 }
+  $1 == "path" && ($4 != "-" || $5 != "workspace") { bad = 1 }
   $6 == "" || $7 == "" { bad = 1 }
   seen[$1 SUBSEP $2 SUBSEP $3]++ { bad = 1 }
   $1 == "registry" { registry_rows++ }
@@ -331,20 +353,48 @@ pkg-config|0.3.34|f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f118005
 [ "$allowlist_facts" = "$expected_allowlist_facts" ] || \
   fail 'bench dependency allowlist facts differ from QK-DEC-147'
 
-path_facts=$(awk -F '\t' '$1 == "path" { print $2 "|" $3 "|" $4 "|" $5 "|" $6 }' "$allowlist" | LC_ALL=C sort) || \
+path_facts=$(awk -F '\t' '$1 == "path" { print $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 }' "$allowlist" | LC_ALL=C sort) || \
   fail 'cannot normalize bench test path facts'
-expected_path_facts='qk-card-model|0.0.1|cff6eea5fa8b3c66bee2173f406b348f8cb819217fa6cc1d51271badd8a39127|host/qk-card-model/Cargo.toml|Apache-2.0
-qk-card-protocol|0.0.1|dc58fd821c4409c7477ec9b471e469b24222ed76b4c50e8efc71cadefa9913b5|host/qk-card-protocol/Cargo.toml|Apache-2.0
-qk-sec1210-wire|0.0.1|95c27be925cc99d477bed34b74e12f62b1ea3b2b7779de04985d0ffabcc1cef5|host/qk-sec1210-wire/Cargo.toml|Apache-2.0
-qk-secp|0.0.1|4dd98b27cac64c0b4e90528e38e430cb98b1da225d8da793cece95b8079c59f0|host/qk-secp/Cargo.toml|Apache-2.0
-qk-t1|0.0.1|c4df13ec75fb0638c5bd563c03caebce3a04b80b907227532b53eb42fe53d924|host/qk-t1/Cargo.toml|Apache-2.0'
+expected_path_facts='qk-card-model|0.0.1|-|workspace|Apache-2.0|dev-only fixed sitting transcript replay; absent from the tool'"'"'s normal and build closures
+qk-card-protocol|0.0.1|-|workspace|Apache-2.0|runtime fixed B6 and UART SIGN APDU framing and response grammar; dev-only model protocol types
+qk-sec1210-wire|0.0.1|-|workspace|Apache-2.0|runtime dependency-free bounded SEC1210 codec and raw-response signing session; no UART access
+qk-secp|0.0.1|-|workspace|Apache-2.0|runtime B6 and UART SIGN strict DER normalization and public-key verification; dev model dependency; vendored C build requires a C compiler
+qk-t1|0.0.1|-|workspace|Apache-2.0|runtime dependency-free bounded T=1 readback and raw-response signing sessions; no native device access'
 [ "$path_facts" = "$expected_path_facts" ] || fail 'bench dev path allowlist differs from QK-DEC-165'
+
+host_workspace='host/Cargo.toml'
+[ -f "$host_workspace" ] && [ ! -L "$host_workspace" ] || \
+  fail "$host_workspace is missing or linked"
+host_members=$(awk '
+  /^members = \[/ {
+    declarations++
+    line = $0
+    sub(/^members = \[/, "", line)
+    if (line !~ /\]$/) exit 1
+    sub(/\]$/, "", line)
+    count = split(line, entries, /, /)
+    for (member_index = 1; member_index <= count; member_index++) {
+      member = entries[member_index]
+      if (member !~ /^"[A-Za-z0-9_-]+"$/) exit 1
+      sub(/^"/, "", member)
+      sub(/"$/, "", member)
+      if (seen[member]++) exit 1
+      print member
+    }
+  }
+  END { if (declarations != 1) exit 1 }
+' "$host_workspace") || fail 'cannot derive the exact host workspace member set'
+[ -n "$host_members" ] || fail 'the host workspace has no members'
 for path_crate in qk-card-model qk-card-protocol qk-secp qk-sec1210-wire qk-t1; do
   path_manifest="host/$path_crate/Cargo.toml"
   [ -f "$path_manifest" ] && [ ! -L "$path_manifest" ] || fail "path manifest is missing or linked: $path_manifest"
-  expected_hash=$(awk -F '\t' -v name="$path_crate" '$1 == "path" && $2 == name { print $4 }' "$allowlist")
-  actual_hash=$(shasum -a 256 "$path_manifest" | awk '{print $1}') || fail 'cannot hash test path manifest'
-  [ "$actual_hash" = "$expected_hash" ] || fail "bench test path manifest checksum mismatch: $path_manifest"
+  printf '%s\n' "$host_members" | grep -Fqx "$path_crate" || \
+    fail "bench path crate is not a host workspace member: $path_crate"
+  path_version=$(awk -F '\t' -v name="$path_crate" \
+    '$1 == "path" && $2 == name { found++; version = $3 } END { if (found == 1) print version; else exit 1 }' \
+    "$allowlist") || fail "cannot resolve bench path row uniquely: $path_crate"
+  [ "$(package_fact "$path_manifest")" = "$path_crate|$path_version" ] || \
+    fail "bench path manifest package identity differs from allowlist: $path_manifest"
 done
 
 fixture_names=$(git ls-files 'bench/card-enrollment/tests/fixtures/*' | LC_ALL=C sort) || \

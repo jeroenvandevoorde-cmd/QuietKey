@@ -30,6 +30,7 @@ impl GuardTree {
             "bench/card-enrollment/Cargo.toml",
             "bench/card-enrollment/Cargo.lock",
             "bench/card-enrollment/DEPENDENCY-ALLOWLIST.tsv",
+            "host/Cargo.toml",
             "host/qk-card-model/Cargo.toml",
             "host/qk-card-protocol/Cargo.toml",
             "host/qk-secp/Cargo.toml",
@@ -115,7 +116,7 @@ impl Drop for GuardTree {
 
 #[test]
 fn reviewed_static_surface_reaches_the_closure_boundary() {
-    // No host workspace is copied: this is the deliberate recursion barrier.
+    // The host workspace manifest is copied, but the incomplete member tree remains the recursion barrier.
     GuardTree::new().rejects("host Cargo.lock generation failed offline");
 }
 
@@ -156,7 +157,7 @@ fn guard_rejects_model_moved_into_normal_dependencies() {
 fn guard_rejects_changed_path_and_registry_allowlist_facts() {
     let tree = GuardTree::new();
     tree.replace("host/qk-card-model/Cargo.toml", "0.0.1", "0.0.2");
-    tree.rejects("bench test path manifest checksum mismatch: host/qk-card-model/Cargo.toml");
+    tree.rejects("bench path manifest package identity differs from allowlist: host/qk-card-model/Cargo.toml");
     let tree = GuardTree::new();
     tree.replace(
         "bench/card-enrollment/DEPENDENCY-ALLOWLIST.tsv",

@@ -10,18 +10,143 @@ case "$#" in
   *) fail 'usage: tools/check-fuzz-dependencies.sh [--require-ipc-isolation]' ;;
 esac
 
-sha256_file() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    return 1
-  fi
-}
-
 root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'not inside a Git worktree'
 cd "$root" || fail 'cannot enter worktree root'
+
+package_fact() {
+  awk '
+    $0 == "[package]" { packages++; in_package = 1; next }
+    /^\[/ { in_package = 0; next }
+    in_package && /^name = "[A-Za-z0-9_-]+"$/ {
+      names++
+      name = $0
+      sub(/^name = "/, "", name)
+      sub(/"$/, "", name)
+    }
+    in_package && /^version = "[0-9A-Za-z.+-]+"$/ {
+      versions++
+      version = $0
+      sub(/^version = "/, "", version)
+      sub(/"$/, "", version)
+    }
+    END {
+      if (packages != 1 || names != 1 || versions != 1) exit 1
+      print name "|" version
+    }
+  ' "$1"
+}
+
+host_workspace='host/Cargo.toml'
+[ -f "$host_workspace" ] && [ ! -L "$host_workspace" ] || \
+  fail "$host_workspace is missing or linked"
+host_members=$(awk '
+  /^members = \[/ {
+    declarations++
+    line = $0
+    sub(/^members = \[/, "", line)
+    if (line !~ /\]$/) exit 1
+    sub(/\]$/, "", line)
+    count = split(line, entries, /, /)
+    for (member_index = 1; member_index <= count; member_index++) {
+      member = entries[member_index]
+      if (member !~ /^"[A-Za-z0-9_-]+"$/) exit 1
+      sub(/^"/, "", member)
+      sub(/"$/, "", member)
+      if (seen[member]++) exit 1
+      print member
+    }
+  }
+  END { if (declarations != 1) exit 1 }
+' "$host_workspace") || fail 'cannot derive the exact host workspace member set'
+[ -n "$host_members" ] || fail 'the host workspace has no members'
+
+host_build_scripts=''
+for host_member in $host_members; do
+  host_manifest="host/$host_member/Cargo.toml"
+  [ -f "$host_manifest" ] && [ ! -L "$host_manifest" ] || \
+    fail "host workspace member manifest is missing or linked: $host_manifest"
+  host_package_fact=$(package_fact "$host_manifest") || \
+    fail "host workspace member package identity is unreadable: $host_manifest"
+  case "$host_package_fact" in
+    "$host_member|"*) ;;
+    *) fail "host workspace member package name is not exact: $host_manifest" ;;
+  esac
+  awk '
+    function build_escape(hex) {
+      if (hex == "0062" || hex == "00000062") return "b"
+      if (hex == "0075" || hex == "00000075") return "u"
+      if (hex == "0069" || hex == "00000069") return "i"
+      if (hex == "006c" || hex == "006C" ||
+          hex == "0000006c" || hex == "0000006C") return "l"
+      if (hex == "0064" || hex == "00000064") return "d"
+      return ""
+    }
+    function is_build_key(raw, inner, decoded, position, character, escape, hex) {
+      if (raw == "build" || raw == "\"build\"" ||
+          raw == single_quote "build" single_quote) return 1
+      if (substr(raw, 1, 1) != "\"" ||
+          substr(raw, length(raw), 1) != "\"") return 0
+      inner = substr(raw, 2, length(raw) - 2)
+      decoded = ""
+      for (position = 1; position <= length(inner); position++) {
+        character = substr(inner, position, 1)
+        if (character != "\\") {
+          decoded = decoded character
+          continue
+        }
+        escape = substr(inner, position + 1, 1)
+        if (escape == "u") {
+          hex = substr(inner, position + 2, 4)
+          position += 5
+        } else if (escape == "U") {
+          hex = substr(inner, position + 2, 8)
+          position += 9
+        } else {
+          return 0
+        }
+        character = build_escape(hex)
+        if (character == "") return 0
+        decoded = decoded character
+      }
+      return decoded == "build"
+    }
+    BEGIN { single_quote = sprintf("%c", 39) }
+    $0 == "[package]" { in_package = 1; next }
+    /^\[/ { in_package = 0; next }
+    in_package {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      if (line ~ /^[^=]*=/) {
+        key = line
+        sub(/[[:space:]]*=.*$/, "", key)
+        sub(/[[:space:]]*$/, "", key)
+        if (is_build_key(key)) found = 1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  ' "$host_manifest"
+  build_key_status=$?
+  case "$build_key_status" in
+    0) fail "host workspace member manifest selects a build script: $host_manifest" ;;
+    1) ;;
+    *) fail "host workspace member build-script key scan failed: $host_manifest" ;;
+  esac
+  host_build_script="host/$host_member/build.rs"
+  [ ! -L "$host_build_script" ] || \
+    fail "host workspace build script is linked: $host_build_script"
+  if [ -e "$host_build_script" ]; then
+    [ -f "$host_build_script" ] || \
+      fail "host workspace build script is not a regular file: $host_build_script"
+    if [ -n "$host_build_scripts" ]; then
+      host_build_scripts="$host_build_scripts
+$host_build_script"
+    else
+      host_build_scripts=$host_build_script
+    fi
+  fi
+done
+[ "$host_build_scripts" = 'host/qk-secp/build.rs' ] || \
+  fail 'host workspace build-script set is not exactly host/qk-secp/build.rs'
 
 allowlist='fuzz/DEPENDENCY-ALLOWLIST.tsv'
 [ -f "$allowlist" ] || fail "$allowlist is missing"
@@ -380,7 +505,8 @@ if ! awk -F '\t' '
   NF != 7 { bad = 1; next }
   $1 != "registry" && $1 != "path" { bad = 1 }
   $2 !~ /^[A-Za-z0-9_-]+$/ || $3 !~ /^[0-9A-Za-z.+-]+$/ { bad = 1 }
-  length($4) != 64 || $4 ~ /[^0-9a-f]/ { bad = 1 }
+  $1 == "registry" && (length($4) != 64 || $4 ~ /[^0-9a-f]/ || $5 != "crates.io-package") { bad = 1 }
+  $1 == "path" && ($4 != "-" || $5 != "workspace") { bad = 1 }
   $5 == "" || $6 == "" || $7 == "" { bad = 1 }
   seen[$1 SUBSEP $2 SUBSEP $3]++ { bad = 1 }
   END { exit bad ? 1 : 0 }
@@ -725,10 +851,13 @@ while IFS="$tab" read -r kind name version checksum subject license purpose; do
       [ "$locked_checksum" = "$checksum" ] || fail "$name checksum differs from allowlist"
       ;;
     path)
-      case "$subject" in host/*/Cargo.toml) ;; *) fail "$name has unsafe checksum subject: $subject" ;; esac
-      [ -f "$subject" ] || fail "$name checksum subject is missing: $subject"
-      actual=$(sha256_file "$subject") || fail 'no SHA-256 tool available'
-      [ "$actual" = "$checksum" ] || fail "$name path-manifest checksum differs from allowlist"
+      derived_manifest="host/$name/Cargo.toml"
+      printf '%s\n' "$host_members" | grep -Fqx "$name" || \
+        fail "$name is not a host workspace member"
+      [ -f "$derived_manifest" ] && [ ! -L "$derived_manifest" ] || \
+        fail "$name path manifest is missing or linked: $derived_manifest"
+      [ "$(package_fact "$derived_manifest")" = "$name|$version" ] || \
+        fail "$name path-manifest package identity differs from allowlist"
       ;;
     *) fail "unknown allowlist kind: $kind" ;;
   esac

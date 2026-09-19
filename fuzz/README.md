@@ -300,8 +300,9 @@ runtime dependency and runner are recorded in `docs/SOURCE-REGISTER.md`.
 `process-s3-io`, `process-s4-core`, `process-s5-core`, `process-s6-core`, and
 `process-s7-core`, `process-s9-wire`, `process-s9-core`, `card-s1-protocol`,
 `card-s1-model`, `sec1210-wire`, `sec1210-production`, and `t1-readback`
-normal/build closures
-with an exact version, checksum, provenance, license, and purpose. `qk-ipc`,
+normal/build closures. Registry rows keep exact version, checksum, provenance,
+license and purpose; path rows keep exact version, license and purpose with the
+fixed markers of QK-DEC-174. `qk-ipc`,
 `qk-decoy`, `qk-supervisor`, `qk-io`, `qk-core`, `qk-device-wire`,
 `qk-card-protocol`, and `qk-card-model` are
 optional and absent from the default closure; each target selects only its
