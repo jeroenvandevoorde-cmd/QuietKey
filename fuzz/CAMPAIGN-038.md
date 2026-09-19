@@ -1,13 +1,14 @@
 # Campaign 038 - Normal SEC1210 signing qualification
 
-Status: PLANNED — NOT EXECUTED.
+Status: EXECUTED — QUALIFYING RUN COMPLETE.
 
 QK-DEC-172, published at
 `a740e65b903560420ef43445d96855b686ced154`, authorizes this M21
-preregistration before implementation. This file records a recipe and planned
-coverage, not a qualifying result. Commit D has constructed and measured only
-the starting corpus recorded below; no qualifying execution, post-run
-inventory, minimization result or artifact count is claimed.
+preregistration before implementation. Commit D at
+`3b1a7a7d93e4fe513b853ef90fa29a3cbda4dbb1` constructed the target and
+starting corpus recorded below. Commit E records the completed qualification,
+independent minimization and registered replay without rewriting the
+preregistered recipe.
 
 ## Boundary and fixed recipe
 
@@ -95,9 +96,10 @@ correctness of shared parsers and cryptography.
 
 ## Source, starting inventory and working-directory provenance
 
-The qualifying source will be the published commit D, after the integrated
+The qualifying source was published commit D at
+`3b1a7a7d93e4fe513b853ef90fa29a3cbda4dbb1`, after the integrated
 implementation and mandatory LOA Linux handoffs. This preregistration's commit
-is not that source. Commit D adds the target and its sole new starting root,
+was not that source. Commit D added the target and its sole new starting root,
 `fuzz/corpus/qk_core_normal_sec1210/`, records the actual constructed files,
 byte counts and SHA-256 inventories, and keeps this campaign planned with a
 checked starting inventory and no completed manifest. It cannot self-pin an
@@ -211,9 +213,9 @@ SHA-256 identity. Inventory listings use the existing sorted
 `corpus<TAB>target<TAB>bytes<TAB>SHA-256<TAB>path<LF>` grammar and filename
 ordering. Commit E promotes only this new root's independently agreeing bytes.
 
-Only after qualification, commit E creates
+After qualification, commit E creates
 `fuzz/CORPUS-MANIFEST-NORMAL-SEC1210-V1.tsv`, naming the actual published D
-source. The completion record will state actual executed inputs;
+source. The completion record below states actual executed inputs;
 starting/post-run/final file counts, byte counts and SHA-256 inventories;
 manifest bytes, LF count and SHA-256; all minimization identities and exits;
 artifact counts and identities; stopped evidence; and replay outcomes.
@@ -237,3 +239,110 @@ This campaign authorizes no apparatus or card operation. It produces no Gate B
 or Gate C evidence and makes no target timing, power-cut, endurance, remanence
 or constant-time claim. A green qualification run means the software contract
 holds against a model of the card, and nothing about a card.
+
+## Execution and retained post-run root
+
+Qualification ran once on 2026-09-19 from published commit D
+`3b1a7a7d93e4fe513b853ef90fa29a3cbda4dbb1`. HEAD, origin/main and the clean
+source tree matched that SHA before execution. The committed 68-file starting
+root was copied into a fresh external qualification checkout with the exact
+command and matching start inventories retained in external evidence. No
+smoke run, stopped attempt, retry, source edit or parameter change occurred.
+
+The platform was macOS 15.8 build 24H23, x86_64, kernel 24.6.0. Linux-only
+descriptor and UART paths were not exercised by this pure in-memory target.
+The measured tools were cargo-fuzz 0.13.2 and
+`rustc 1.100.0-nightly (e7769602a 2026-08-24)` under
+nightly-2026-08-25. The run wrapper SHA-256 was
+`62041dc8f2b07aed847777132fcd41b380f51d062930d403ead35ba1aa975a20`;
+the minimization wrapper SHA-256 was
+`6bb3bbf653156108b6fbec666883b6257c00921e00ace86bc1665a508831bfe7`;
+and the replay wrapper SHA-256 was
+`2550e6a614f23452c24f733f768a649795160cf9229d9b5c5c059a8069c8d541`.
+
+The exact preregistered invocation began at 05:41:40Z and ended at 08:24:48Z.
+It executed exactly 100,000 inputs with seed 172001, exit 0, 380 new engine
+units, slowest-unit time zero seconds, peak RSS 697 MiB and zero artifacts.
+Measured process wall time was 9,787.51 seconds. The engine's final live corpus
+was 187 units / 4,466 bytes; that internal quantity is not substituted for the
+persisted post-run root. The retained run log is 56,441 bytes with SHA-256
+`d4ed1da1708a00443dee44d903867b3795403b100a541083238f879efdc9e952`.
+
+| Root | Files / bytes | Listing bytes | Listing SHA-256 | Entries bytes | Entries SHA-256 |
+|---|---:|---:|---|---:|---|
+| Starting | 68 / 1,700 | 4,624 | `339631dead4a6db702f305ed50ddaf2041de01f1933bf5eae2204fe161ef2ec8` | 10,206 | `7818e075a5eaf4cd4979df682123feee7ecc8775996db65ea5feafd73bb1946d` |
+| Retained post-run | 280 / 6,763 | 19,039 | `cd3b6d31581ed7d4dabaf9986836479c898702c8ad06b2818fe3069033c7f875` | 47,093 | `86aa13e2e8c0cdcad1ac57ab7309aae1842c0dfb3634c1613e8d9e7327fec762` |
+| Promoted fixed point | 134 / 3,233 | 9,111 | `0b54e1875647400fddf6d92fb574f1eadf62fb21768f57571b626ea32873e254` | 23,315 | `27c2a376c0f5cd814c8af7964d596a1b795204ed09a48b3a9b5a7391a9c68ddf` |
+
+## Two-copy minimization and promotion
+
+The exact post-run root was retained before two independent copies A and B
+were made. The existing minimization wrapper ran five sequential passes on
+each copy: ten invocations total, all at the same published source, all shell
+exit 0, all carrying `MERGE-OUTER: successful`, all without the wrapper's
+masked-child-failure text, all artifact-free and all with clean tracked source.
+A and B agreed byte-for-byte after every corresponding pass. Pass four was
+the first agreeing stable fixed point; pass five was the required additional
+unchanged confirmation. Before/after snapshots, inventories, logs and exact
+commands remain in external evidence.
+
+| Pass on A and B | Files | Bytes | Listing bytes | Listing SHA-256 | Entries bytes | Entries SHA-256 | Stable |
+|---|---:|---:|---:|---|---:|---|---|
+| 1 | 142 | 3,417 | 9,655 | `ffbcca020e4dd1ec1c1684b90cd0e9c03b5e9da5c936ab44752af552629061a0` | 24,707 | `31d8502c76c0062f5a1bce6af2116af665e21350bdd95f41f8fb04788595d99d` | no |
+| 2 | 135 | 3,256 | 9,179 | `b5e5a5f91d05f66fcf836b0d6a5556eb8166bf169e88a4e30a2fc21aee818068` | 23,489 | `5e882bed46e18ca1ab95bef2d0a8e764db65e2c281acb45c4988fa747da61a4e` | no |
+| 3 | 134 | 3,233 | 9,111 | `0b54e1875647400fddf6d92fb574f1eadf62fb21768f57571b626ea32873e254` | 23,315 | `27c2a376c0f5cd814c8af7964d596a1b795204ed09a48b3a9b5a7391a9c68ddf` | no |
+| 4 | 134 | 3,233 | 9,111 | `0b54e1875647400fddf6d92fb574f1eadf62fb21768f57571b626ea32873e254` | 23,315 | `27c2a376c0f5cd814c8af7964d596a1b795204ed09a48b3a9b5a7391a9c68ddf` | yes |
+| 5 | 134 | 3,233 | 9,111 | `0b54e1875647400fddf6d92fb574f1eadf62fb21768f57571b626ea32873e254` | 23,315 | `27c2a376c0f5cd814c8af7964d596a1b795204ed09a48b3a9b5a7391a9c68ddf` | yes |
+
+The A/B log SHA-256 pairs for passes one through five were respectively
+`b488b2de64425ba7197f2758573421fceaa1fc0a9487e0c7bf36ffedd97283fb` /
+`cc3fcb98e12861f5024737087b66c09b43cb702279d8ab809355420c39f870d1`,
+`705605cb1c708643fb888ae3251219ec268b9df9e44d3ca2e77032c5a3b1dcb6` /
+`90146ec2884c70d2bb6fb2144e81f50ed895b2d8a52e4e1494fc03bc29c2d306`,
+`83c7df91e64c65db1cce21f27619d99b4070129625f2eb7f5881bdf258b6bb7b` /
+`88c6ac70ca47b5a994e156a732b772c10c64e3a69ef5a80627ac4e5c1133ef76`,
+`b50cae7d340af0a34f4400481841d6829d87d43701a6006a4c5af853c59d864b` /
+`bc121cdae200cd8691a47558140bd6c0e1922d79a3685cbf913af22ea517a32d`,
+and `71ce32a5c7b32f4be9fcb67b883a2f90111b901d78b1acd1ac281d22c8ff587c` /
+`9afd18469a18a63c9cffa19e0956215a2e9ff15b14201110c4bf980acdbde7c7`.
+Only the independently agreeing fixed-point bytes were promoted.
+
+## Complete registered replay
+
+All 56 registered corpus roots replayed in sorted target order through
+`fuzz/replay-corpus.sh TARGET` at the qualification source on macOS 15.8 build
+24H23, x86_64. The retained replay records span filesystem timestamps from
+08:36:00Z to 08:41:30Z on 2026-09-19. A terminal-only timer reported 329.69
+seconds, but no replay-driver timing log was retained, so that fractional wall
+time is contextual rather than independently reconstructible from the retained
+files. Registered roots totaled 10,027 files / 675,281 bytes; engine executed
+units totaled 10,092. These quantities are not interchangeable. Every target
+exited 0 and produced zero artifacts.
+The promoted `qk_core_normal_sec1210` root contributed 134 files / 3,233 bytes
+and 135 executed units. Its inventory remained byte-identical before and after
+replay. All 55 historical roots remained byte-identical to commit D. The
+retained per-target replay summary is 5,996 bytes with SHA-256
+`cdeb0aa1d2bfdb0a2e801d78011772e5444a4e0bb2b99ba25233e02e73d9ed5e`;
+individual logs and exact exits remain in external evidence.
+
+## Manifest registration
+
+`fuzz/CORPUS-MANIFEST-NORMAL-SEC1210-V1.tsv` was rendered from the promoted
+root at qualification source
+`3b1a7a7d93e4fe513b853ef90fa29a3cbda4dbb1`. Rendered and installed bytes
+compare equal.
+
+| Manifest | Entries | Bytes | LF | SHA-256 |
+|---|---:|---:|---:|---|
+| `fuzz/CORPUS-MANIFEST-NORMAL-SEC1210-V1.tsv` | 134 | 23,735 | 141 | `7bfaa9d4ee37f17741222e7759fbc6c10e6df4e182a47faa90045070e0cb443c` |
+
+## Completion boundary
+
+The one required 100,000-input run completed at the published Commit D source;
+all ten minimization invocations passed their explicit success and artifact
+guards; both independent copies reached the same fixed point and repeated it
+unchanged; all 56 registered roots replayed with exit 0 and no artifact; and no
+stopped or smoke attempt occurred. Campaign 038 therefore registers the
+promoted corpus and manifest above. This is pure software hostile-input
+qualification. It makes no device, physical transport, card-operation,
+production-readiness, timing or Gate claim.
