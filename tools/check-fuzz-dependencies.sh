@@ -71,64 +71,65 @@ for host_member in $host_members; do
     "$host_member|"*) ;;
     *) fail "host workspace member package name is not exact: $host_manifest" ;;
   esac
-  awk '
-    function build_escape(hex) {
-      if (hex == "0062" || hex == "00000062") return "b"
-      if (hex == "0075" || hex == "00000075") return "u"
-      if (hex == "0069" || hex == "00000069") return "i"
-      if (hex == "006c" || hex == "006C" ||
-          hex == "0000006c" || hex == "0000006C") return "l"
-      if (hex == "0064" || hex == "00000064") return "d"
-      return ""
-    }
-    function is_build_key(raw, inner, decoded, position, character, escape, hex) {
-      if (raw == "build" || raw == "\"build\"" ||
-          raw == single_quote "build" single_quote) return 1
-      if (substr(raw, 1, 1) != "\"" ||
-          substr(raw, length(raw), 1) != "\"") return 0
-      inner = substr(raw, 2, length(raw) - 2)
-      decoded = ""
-      for (position = 1; position <= length(inner); position++) {
-        character = substr(inner, position, 1)
-        if (character != "\\") {
-          decoded = decoded character
+  build_key_fact=$(awk '
+    function inspect_package_key(line, position, character, quote,
+                                 escaped_character, escaped_key, key) {
+      sub(/^[[:space:]]*/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") return "none"
+      for (position = 1; position <= length(line); position++) {
+        character = substr(line, position, 1)
+        if (quote == "double") {
+          if (escaped_character) {
+            escaped_character = 0
+          } else if (character == "\\") {
+            escaped_key = 1
+            escaped_character = 1
+          } else if (character == "\"") {
+            quote = ""
+          }
           continue
         }
-        escape = substr(inner, position + 1, 1)
-        if (escape == "u") {
-          hex = substr(inner, position + 2, 4)
-          position += 5
-        } else if (escape == "U") {
-          hex = substr(inner, position + 2, 8)
-          position += 9
-        } else {
-          return 0
+        if (quote == "single") {
+          if (character == "\\") escaped_key = 1
+          else if (character == single_quote) quote = ""
+          continue
         }
-        character = build_escape(hex)
-        if (character == "") return 0
-        decoded = decoded character
+        if (character == "\"") {
+          quote = "double"
+        } else if (character == single_quote) {
+          quote = "single"
+        } else if (character == "\\") {
+          escaped_key = 1
+        } else if (character == "=") {
+          if (escaped_key) return "escaped"
+          key = substr(line, 1, position - 1)
+          sub(/[[:space:]]*$/, "", key)
+          if (key == "build" || key == "\"build\"" ||
+              key == single_quote "build" single_quote) return "build"
+          return "none"
+        }
       }
-      return decoded == "build"
+      return "none"
     }
     BEGIN { single_quote = sprintf("%c", 39) }
     $0 == "[package]" { in_package = 1; next }
     /^\[/ { in_package = 0; next }
     in_package {
-      line = $0
-      sub(/^[[:space:]]*/, "", line)
-      if (line ~ /^[^=]*=/) {
-        key = line
-        sub(/[[:space:]]*=.*$/, "", key)
-        sub(/[[:space:]]*$/, "", key)
-        if (is_build_key(key)) found = 1
-      }
+      fact = inspect_package_key($0)
+      if (fact == "escaped") escaped = 1
+      else if (fact == "build") found = 1
     }
-    END { exit found ? 0 : 1 }
-  ' "$host_manifest"
-  build_key_status=$?
-  case "$build_key_status" in
-    0) fail "host workspace member manifest selects a build script: $host_manifest" ;;
-    1) ;;
+    END {
+      if (escaped) print "escaped"
+      else if (found) print "build"
+      else print "none"
+    }
+  ' "$host_manifest") || \
+    fail "host workspace member build-script key scan failed: $host_manifest"
+  case "$build_key_fact" in
+    escaped) fail "host workspace member manifest uses an escaped [package] key: $host_manifest" ;;
+    build) fail "host workspace member manifest selects a build script: $host_manifest" ;;
+    none) ;;
     *) fail "host workspace member build-script key scan failed: $host_manifest" ;;
   esac
   host_build_script="host/$host_member/build.rs"
